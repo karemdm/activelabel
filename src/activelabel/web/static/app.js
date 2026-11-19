@@ -268,6 +268,14 @@
     };
   }
 
+  /* "Imported from CVAT"; the remote name is the tooltip. */
+  const originBadge = (origin) => {
+    if (!origin || !origin.tool) return null;
+    const label = t('project.imported_from', { tool: toolName(origin.tool) });
+    return el('span', { class: 'badge origin-badge', title: origin.name ? String(origin.name) : label, tabindex: '0', 'aria-label': origin.name ? `${label}: ${origin.name}` : label },
+      icon(origin.tool, 14), label);
+  };
+
   const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
 
   /* Class chips; long lists show the first ones and a button for the rest. */
@@ -358,7 +366,9 @@
         el('div', { class: 'empty card' },
           el('h2', null, t('projects.empty_title')),
           el('p', null, t('projects.empty_text')),
-          el('a', { class: 'btn primary big', href: '/projects/new' }, t('projects.create_first'))));
+          el('div', { class: 'empty-actions' },
+            el('a', { class: 'btn primary big', href: '/projects/new' }, t('projects.create_first')),
+            el('a', { class: 'btn big', href: '/projects/import' }, t('projects.import_first')))));
       return;
     }
     root.replaceChildren(el('ul', { class: 'project-grid' }, ...projects.map(projectCard)));
@@ -614,6 +624,88 @@
   const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
   const imagesOf = (s) => (Array.isArray(s.images) ? s.images.length : Number(s.images) || 0);
 
+  /** Dialog to set up, test or forget a tool login. `entry` is the tool entry (or {}); `onChange` runs after a save or forget. */
+  function openToolSetup(tool, entry, onChange) {
+    entry = entry || {};
+    const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
+    const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
+    const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
+    const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: t('annotate.secret_placeholder'), 'aria-describedby': 'tool-secret-help' });
+    const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
+    const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
+    const testBtn = el('button', { type: 'button', class: 'btn' }, t('annotate.test'));
+    const forgetBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('annotate.forget'));
+    forgetBtn.hidden = !entry.configured;
+    const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('annotate.setup_title', { tool: toolName(tool) }) },
+      el('form', { class: 'dialog-body form', method: 'dialog' },
+        el('h2', null, t('annotate.setup_title', { tool: toolName(tool) })),
+        el('p', { class: 'muted' }, t(`annotate.setup_help.${tool}`)),
+        el('div', { class: 'field' }, el('label', { for: 'tool-url' }, t('annotate.field_url')), urlInput,
+          el('p', { id: 'tool-url-help', class: 'hint' }, t('annotate.url_help'))),
+        userInput ? el('div', { class: 'field' }, el('label', { for: 'tool-user' }, t('annotate.field_username')), userInput) : null,
+        el('div', { class: 'field' }, el('label', { for: 'tool-secret' }, secretLabel), secretInput,
+          el('p', { id: 'tool-secret-help', class: 'hint' }, entry.configured ? t('annotate.secret_saved') : t('annotate.secret_help'))),
+        message,
+        el('div', { class: 'form-actions' }, saveBtn, testBtn, forgetBtn,
+          el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+
+    const values = () => {
+      const body = { url: urlInput.value.trim() };
+      if (userInput) body.username = userInput.value.trim();
+      if (secretInput.value) body.secret = secretInput.value;
+      return body;
+    };
+    const store = async () => {
+      const body = values();
+      if (!body.url) { urlInput.focus(); throw new Error(t('annotate.url_required')); }
+      const saved = await api('PUT', `/annotation-tools/${tool}`, { json: body });
+      secretInput.value = '';
+      return saved;
+    };
+    const busy = (on) => { [saveBtn, testBtn, forgetBtn].forEach((b) => { b.disabled = on; }); };
+    dlg.querySelector('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      busy(true);
+      try {
+        await store();
+        if (onChange) await onChange();
+        dlg.close();
+        toast(t('annotate.saved', { tool: toolName(tool) }), 'success', 3000);
+      } catch (err) { toastError(err); } finally { busy(false); }
+    });
+    testBtn.addEventListener('click', async () => {
+      busy(true);
+      message.className = 'test-result';
+      message.textContent = t('annotate.testing');
+      try {
+        await store();
+        const r = await api('POST', `/annotation-tools/${tool}/test`);
+        message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
+        message.replaceChildren(icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
+        if (onChange) await onChange();
+        forgetBtn.hidden = false;
+      } catch (err) {
+        message.className = 'test-result bad';
+        message.replaceChildren(icon('error'), err.message);
+      } finally { busy(false); }
+    });
+    forgetBtn.addEventListener('click', async () => {
+      const ok = await confirmDialog({ title: t('annotate.forget_title', { tool: toolName(tool) }), text: t('annotate.forget_text'), confirmLabel: t('annotate.forget') });
+      if (!ok) return;
+      busy(true);
+      try {
+        await api('DELETE', `/annotation-tools/${tool}`);
+        if (onChange) await onChange();
+        dlg.close();
+        toast(t('annotate.forgotten', { tool: toolName(tool) }), 'success', 3000);
+      } catch (err) { toastError(err); } finally { busy(false); }
+    });
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    urlInput.focus();
+  }
+
   /** What changed when annotations came back: counts, per class, unknown classes, problems, examples. */
   function diffView(projectId, diff) {
     const d = diff || {};
@@ -722,7 +814,8 @@
           el('div', { class: 'project-title-row' },
             el('h1', null, p.name),
             el('span', { class: 'project-id' }, `#${p.id}`),
-            taskBadge(p.task)),
+            taskBadge(p.task),
+            originBadge(p.origin)),
           p.description ? el('p', { class: 'muted' }, p.description) : null,
           (p.classes || []).length ? classList(p.classes) : null),
         el('div', { class: 'project-head-actions' },
@@ -1160,87 +1253,7 @@
         }
       }
 
-      // ---- tool settings dialog
-      function openSetup(tool) {
-        const entry = state.tools[tool] || {};
-        const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
-        const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
-        const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
-        const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: t('annotate.secret_placeholder'), 'aria-describedby': 'tool-secret-help' });
-        const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
-        const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
-        const testBtn = el('button', { type: 'button', class: 'btn' }, t('annotate.test'));
-        const forgetBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('annotate.forget'));
-        forgetBtn.hidden = !entry.configured;
-        const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('annotate.setup_title', { tool: toolName(tool) }) },
-          el('form', { class: 'dialog-body form', method: 'dialog' },
-            el('h2', null, t('annotate.setup_title', { tool: toolName(tool) })),
-            el('p', { class: 'muted' }, t(`annotate.setup_help.${tool}`)),
-            el('div', { class: 'field' }, el('label', { for: 'tool-url' }, t('annotate.field_url')), urlInput,
-              el('p', { id: 'tool-url-help', class: 'hint' }, t('annotate.url_help'))),
-            userInput ? el('div', { class: 'field' }, el('label', { for: 'tool-user' }, t('annotate.field_username')), userInput) : null,
-            el('div', { class: 'field' }, el('label', { for: 'tool-secret' }, secretLabel), secretInput,
-              el('p', { id: 'tool-secret-help', class: 'hint' }, entry.configured ? t('annotate.secret_saved') : t('annotate.secret_help'))),
-            message,
-            el('div', { class: 'form-actions' }, saveBtn, testBtn, forgetBtn,
-              el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
-
-        const values = () => {
-          const body = { url: urlInput.value.trim() };
-          if (userInput) body.username = userInput.value.trim();
-          if (secretInput.value) body.secret = secretInput.value;
-          return body;
-        };
-        const store = async () => {
-          const body = values();
-          if (!body.url) { urlInput.focus(); throw new Error(t('annotate.url_required')); }
-          const saved = await api('PUT', `/annotation-tools/${tool}`, { json: body });
-          secretInput.value = '';
-          return saved;
-        };
-        const busy = (on) => { [saveBtn, testBtn, forgetBtn].forEach((b) => { b.disabled = on; }); };
-        dlg.querySelector('form').addEventListener('submit', async (e) => {
-          e.preventDefault();
-          busy(true);
-          try {
-            await store();
-            await loadTools();
-            dlg.close();
-            toast(t('annotate.saved', { tool: toolName(tool) }), 'success', 3000);
-          } catch (err) { toastError(err); } finally { busy(false); }
-        });
-        testBtn.addEventListener('click', async () => {
-          busy(true);
-          message.className = 'test-result';
-          message.textContent = t('annotate.testing');
-          try {
-            await store();
-            const r = await api('POST', `/annotation-tools/${tool}/test`);
-            message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
-            message.replaceChildren(icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
-            await loadTools();
-            forgetBtn.hidden = !isReady(tool);
-          } catch (err) {
-            message.className = 'test-result bad';
-            message.replaceChildren(icon('error'), err.message);
-          } finally { busy(false); }
-        });
-        forgetBtn.addEventListener('click', async () => {
-          const ok = await confirmDialog({ title: t('annotate.forget_title', { tool: toolName(tool) }), text: t('annotate.forget_text'), confirmLabel: t('annotate.forget') });
-          if (!ok) return;
-          busy(true);
-          try {
-            await api('DELETE', `/annotation-tools/${tool}`);
-            await loadTools();
-            dlg.close();
-            toast(t('annotate.forgotten', { tool: toolName(tool) }), 'success', 3000);
-          } catch (err) { toastError(err); } finally { busy(false); }
-        });
-        dlg.addEventListener('close', () => dlg.remove());
-        document.body.appendChild(dlg);
-        dlg.showModal();
-        urlInput.focus();
-      }
+      const openSetup = (tool) => openToolSetup(tool, state.tools[tool], loadTools);
 
       // ---- sessions
       function sessionCard(s) {
@@ -1985,12 +1998,324 @@
     });
   }
 
+  // ---------------------------------------------------------------- page: import a project
+  function initImport() {
+    const root = document.getElementById('import-root');
+    const SOURCES = ['cvat', 'labelstudio'];
+    const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null };
+    const ready = (tool) => !!(state.tools[tool] && state.tools[tool].configured);
+    const statusLabelJob = (s) => tr(`job.status.${s}`, s);
+
+    const sourceBox = el('section', { class: 'card import-source', 'aria-labelledby': 'h-source' });
+    const listBox = el('section', { class: 'import-main', 'aria-live': 'polite' });
+    const jobBox = el('section', { class: 'card import-job', 'aria-live': 'polite', hidden: true });
+    root.replaceChildren(sourceBox, listBox, jobBox);
+
+    async function loadTools() {
+      try {
+        const list = await api('GET', '/annotation-tools');
+        state.tools = {};
+        (Array.isArray(list) ? list : []).forEach((x) => { state.tools[x.tool] = x; });
+      } catch (err) { toastError(err); }
+      drawSource();
+    }
+
+    function drawSource() {
+      const focused = document.activeElement && document.activeElement.name === 'import-tool' ? document.activeElement.value : null;
+      sourceBox.replaceChildren(
+        el('h2', { id: 'h-source' }, t('import.step_source')),
+        el('div', { class: 'task-cards tool-cards', role: 'radiogroup', 'aria-labelledby': 'h-source' }, ...SOURCES.map((tool) => {
+          const id = `import-tool-${tool}`;
+          const ok = ready(tool);
+          const input = el('input', { type: 'radio', name: 'import-tool', id, value: tool, class: 'sr-only' });
+          input.checked = tool === state.tool;
+          input.addEventListener('change', () => choose(tool));
+          return el('div', { class: `tool-card${tool === state.tool ? ' selected' : ''}`, 'data-tool': tool },
+            el('label', { for: id, class: 'tool-card-main' },
+              input, icon(tool, 28),
+              el('span', { class: 'task-card-title' }, toolName(tool)),
+              el('span', { class: 'task-card-help' }, t(`import.tool.${tool}.help`))),
+            el('div', { class: 'tool-card-foot' },
+              el('span', { class: `ready-badge ${ok ? 'ok' : 'todo'}` }, icon(ok ? 'check' : 'info', 14), ok ? t('annotate.ready') : t('annotate.not_ready')),
+              el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: toolName(tool) }), onclick: () => setup(tool) },
+                ok ? t('annotate.settings') : t('annotate.setup'))));
+        })));
+      if (focused) { const f = sourceBox.querySelector(`input[value="${focused}"]`); if (f) f.focus(); }
+    }
+
+    function setup(tool) {
+      openToolSetup(tool, state.tools[tool], async () => {
+        await loadTools();
+        if (state.tool === tool) await choose(tool);
+      });
+    }
+
+    async function choose(tool) {
+      state.tool = tool;
+      drawSource();
+      await loadItems();
+    }
+
+    async function loadItems() {
+      const tool = state.tool;
+      state.items = null;
+      state.error = null;
+      state.selected = null;
+      state.search = '';
+      if (!ready(tool)) {
+        state.error = { status: 400 };
+        drawMain();
+        return;
+      }
+      drawMain();
+      try {
+        const data = await api('GET', `/import/${encodeURIComponent(tool)}/projects`);
+        if (tool !== state.tool) return;
+        state.items = (data && data.items) || [];
+      } catch (err) {
+        if (tool !== state.tool) return;
+        state.error = err;
+      }
+      drawMain();
+    }
+
+    // ---- list + side panel
+    const visible = () => {
+      const q = state.search.trim().toLowerCase();
+      return (state.items || []).filter((i) => !q || String(i.name).toLowerCase().includes(q));
+    };
+    const itemKey = (i) => `${i.kind || 'project'}:${i.id}`;
+
+    function classCell(classes) {
+      const list = classes || [];
+      if (!list.length) return el('span', { class: 'muted' }, '—');
+      return el('span', { class: 'class-cell' },
+        ...list.slice(0, 3).map((c) => el('span', { class: 'chip static' }, c)),
+        list.length > 3 ? el('span', { class: 'muted' }, t('import.more_classes', { n: num(list.length - 3) })) : null);
+    }
+
+    function drawMain() {
+      if (!state.tool) { listBox.replaceChildren(); return; }
+      const name = toolName(state.tool);
+      if (state.error) {
+        const notSet = state.error.status === 400;
+        listBox.replaceChildren(el('div', { class: 'card empty-note import-error', role: 'alert' }, icon('warning'),
+          el('div', null,
+            el('p', null, notSet ? t('import.not_configured', { tool: name }) : state.error.message),
+            notSet && ready(state.tool) && state.error.message ? el('p', { class: 'muted' }, state.error.message) : null,
+            el('p', { class: 'form-actions' },
+              notSet ? el('button', { type: 'button', class: 'btn primary', onclick: () => setup(state.tool) }, t('annotate.setup')) : null,
+              ready(state.tool) ? el('button', { type: 'button', class: 'btn', onclick: loadItems }, t('import.retry')) : null))));
+        return;
+      }
+      if (state.items === null) {
+        listBox.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', role: 'status' }, t('import.loading', { tool: name }))));
+        return;
+      }
+      const search = el('input', { type: 'search', id: 'import-search', autocomplete: 'off', value: state.search, 'aria-label': t('import.search_label'), placeholder: t('import.search_label') });
+      const tableBox = el('div', { class: 'import-table-wrap' });
+      const hasKind = state.tool === 'cvat' && state.items.some((i) => i.kind);
+      const table = (rows) => {
+        const sel = state.selected && itemKey(state.selected);
+        return el('table', { class: 'import-table' },
+          el('caption', { class: 'sr-only' }, t('import.list_label', { tool: name })),
+          el('thead', null, el('tr', null,
+            el('th', { scope: 'col' }, t('field.name')),
+            hasKind ? el('th', { scope: 'col' }, t('import.col_kind')) : null,
+            el('th', { scope: 'col', class: 'num' }, t('project.images')),
+            el('th', { scope: 'col' }, t('field.classes')),
+            el('th', { scope: 'col' }, t('project.created')))),
+          el('tbody', null, ...rows.map((i) => {
+            const id = `import-row-${itemKey(i).replace(/\W/g, '_')}`;
+            const input = el('input', { type: 'radio', name: 'import-item', id, value: itemKey(i) });
+            input.checked = itemKey(i) === sel;
+            input.addEventListener('change', () => select(i));
+            return el('tr', { class: itemKey(i) === sel ? 'selected' : '', onclick: (e) => { if (e.target !== input) { input.checked = true; select(i); } } },
+              el('td', { class: 'name', 'data-label': t('field.name') }, el('label', { for: id }, input, el('span', null, i.name))),
+              hasKind ? el('td', { 'data-label': t('import.col_kind') }, i.kind ? el('span', { class: 'badge' }, tr(`import.kind.${i.kind}`, i.kind)) : null) : null,
+              el('td', { class: 'num', 'data-label': t('project.images') }, num(i.images)),
+              el('td', { 'data-label': t('field.classes') }, classCell(i.classes)),
+              el('td', { 'data-label': t('project.created') }, i.created ? fmtDate(i.created) : '—'));
+          })));
+      };
+      const draw = () => {
+        const rows = visible();
+        tableBox.replaceChildren(rows.length ? table(rows) : el('div', { class: 'empty-note' }, icon('info'),
+          el('p', null, state.items.length ? t('import.empty_search') : t('import.empty', { tool: name }))));
+      };
+      search.addEventListener('input', () => { state.search = search.value; draw(); });
+      draw();
+      const listCard = el('div', { class: 'card import-list' },
+        el('div', { class: 'import-list-head' }, el('h2', null, t('import.step_project')), search), tableBox);
+      const side = el('aside', { class: 'card import-side', id: 'import-side', 'aria-label': t('import.panel_title') });
+      listBox.replaceChildren(el('div', { class: 'import-grid' }, listCard, side));
+      drawSide(side);
+    }
+
+    function select(item) {
+      state.selected = item;
+      listBox.querySelectorAll('.import-table tbody tr').forEach((r) => {
+        const input = r.querySelector('input');
+        r.classList.toggle('selected', !!input && input.value === itemKey(item));
+      });
+      const side = listBox.querySelector('#import-side');
+      drawSide(side);
+      if (window.matchMedia('(max-width: 1000px)').matches && side) side.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function drawSide(side) {
+      const item = state.selected;
+      if (!item) {
+        side.replaceChildren(el('h2', null, t('import.panel_title')), el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('import.select_hint'))));
+        return;
+      }
+      const tool = toolName(state.tool);
+      const nameInput = el('input', { id: 'import-name', type: 'text', maxlength: '100', autocomplete: 'off', value: item.name });
+      const descInput = el('textarea', { id: 'import-desc', rows: '2', maxlength: '2000', placeholder: t('import.description_ph', { tool, name: item.name }) });
+      const needTask = !(item.classes || []).length;
+      const picker = needTask ? taskPicker('import-task', 'detection') : null;
+      const go = el('button', { type: 'submit', class: 'btn primary big' }, t('import.start'));
+      const form = el('form', { class: 'form', novalidate: true },
+        el('div', { class: 'field' }, el('label', { for: 'import-name' }, t('field.name')), nameInput),
+        el('div', { class: 'field' }, el('label', { for: 'import-desc' }, t('field.description')), descInput),
+        el('p', { class: 'callout-line' }, icon('info'), el('span', null, t('import.summary', { tool }))),
+        picker ? el('fieldset', { class: 'field' }, el('legend', null, t('import.task_title')), el('p', { class: 'hint' }, t('import.task_help')), picker.node) : null,
+        el('div', { class: 'form-actions' }, go));
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = nameInput.value.trim();
+        if (!name) { toastError(new Error(t('new.name_required'))); nameInput.focus(); return; }
+        go.disabled = true;
+        const json = { tool: state.tool, remote_id: item.id, kind: item.kind || 'project', name };
+        /* an empty description becomes the (translated) example shown in the field */
+        json.description = descInput.value.trim() || descInput.placeholder;
+        if (picker) json.task = picker.get();
+        try {
+          const job = await api('POST', '/import', { json });
+          startJob(job, name);
+        } catch (err) {
+          go.disabled = false;
+          toastError(err);
+        }
+      });
+      side.replaceChildren(el('h2', null, t('import.panel_title')), el('p', { class: 'import-picked' }, icon(state.tool, 20), el('strong', null, item.name)), form);
+    }
+
+    // ---- job
+    const jobMessage = (job) => {
+      const m = String(job.message || '');
+      if (/^Listing .+ data$/.test(m)) return t('jobmsg.listing', { tool: toolName(state.tool) });
+      return tr(`jobmsg.${m}`, m);
+    };
+
+    function showJobView(on) {
+      sourceBox.hidden = on;
+      listBox.hidden = on;
+      jobBox.hidden = !on;
+    }
+
+    function startJob(job, name) {
+      state.job = { id: job.id, name };
+      showJobView(true);
+      drawJob(job);
+      clearTimeout(state.timer);
+      state.timer = setTimeout(pollJob, 2000);
+    }
+
+    async function pollJob() {
+      let job;
+      try {
+        job = await api('GET', `/jobs/${encodeURIComponent(state.job.id)}`);
+      } catch (err) {
+        if (err.status === 404) { drawFailed(err.message); return; }
+        toastError(err);
+        state.timer = setTimeout(pollJob, 4000);
+        return;
+      }
+      drawJob(job);
+      if (job.status === 'queued' || job.status === 'running') state.timer = setTimeout(pollJob, 2000);
+    }
+
+    async function cancel(button) {
+      button.disabled = true;
+      button.textContent = t('import.cancelling');
+      try {
+        await api('POST', `/jobs/${encodeURIComponent(state.job.id)}/cancel`);
+      } catch (err) {
+        toastError(err);
+        button.disabled = false;
+        button.textContent = t('common.cancel');
+      }
+    }
+
+    function backToList() {
+      clearTimeout(state.timer);
+      state.job = null;
+      showJobView(false);
+      loadItems();
+    }
+
+    function drawFailed(message) {
+      jobBox.replaceChildren(
+        el('h2', { class: 'bad-title' }, icon('error', 22), t('import.failed_title')),
+        el('p', { class: 'job-error', role: 'alert' }, message || ''),
+        el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
+    }
+
+    function drawJob(job) {
+      const name = state.job ? state.job.name : '';
+      if (job.status === 'queued' || job.status === 'running') {
+        const cancelBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('common.cancel'));
+        cancelBtn.addEventListener('click', () => cancel(cancelBtn));
+        jobBox.replaceChildren(
+          el('h2', null, t('import.progress_title', { name })),
+          el('p', { class: 'muted' }, t('import.progress_help')),
+          el('div', { class: 'job-progress' }, progressBar(job.done, job.total, t('import.progress_title', { name })),
+            el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')),
+          el('p', { class: 'job-msg', role: 'status' }, job.message ? jobMessage(job) : statusLabelJob(job.status)),
+          el('div', { class: 'form-actions' }, cancelBtn));
+        return;
+      }
+      if (job.status === 'done') { drawResult(job.result || {}); return; }
+      if (job.status === 'cancelled') {
+        jobBox.replaceChildren(el('p', { class: 'empty-note' }, icon('info'), t('import.cancelled')),
+          el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
+        return;
+      }
+      drawFailed(job.error || statusLabelJob('failed'));
+    }
+
+    function drawResult(r) {
+      const classes = Array.isArray(r.classes) ? r.classes.length : Number(r.classes) || 0;
+      const fact = (label, value) => el('div', null, el('dt', null, label), el('dd', null, value));
+      const problems = r.problems || [];
+      jobBox.replaceChildren(
+        el('h2', { class: 'ok-title' }, icon('check', 22), t('import.done_title')),
+        el('p', null, el('strong', null, r.name || (state.job && state.job.name) || '')),
+        el('dl', { class: 'facts result-facts' },
+          fact(t('import.detected_task'), r.task ? taskBadge(r.task) : '—'),
+          fact(t('project.images'), [tn('images.added', r.images_added || 0), r.images_rejected ? ` · ${tn('images.rejected', r.images_rejected)}` : '']),
+          fact(t('project.annotations'), tn('import.labels', r.labels || 0)),
+          classes ? fact(t('field.classes'), tn('import.classes', classes)) : null),
+        Array.isArray(r.classes) && r.classes.length ? classList(r.classes) : null,
+        problems.length ? el('div', { class: 'problems-box' }, el('h3', null, t('import.problems')), el('ul', { class: 'problems plain' }, ...problems.map(problemRow))) : null,
+        el('div', { class: 'form-actions' },
+          r.project_id ? el('a', { class: 'btn primary big', href: `/projects/${encodeURIComponent(r.project_id)}` }, t('import.open')) : null,
+          el('button', { type: 'button', class: 'btn', onclick: backToList }, t('import.another'))));
+    }
+
+    drawSource();
+    const first = new URLSearchParams(location.search).get('tool');
+    loadTools().then(() => { if (SOURCES.includes(first)) choose(first); });
+  }
+
   // ---------------------------------------------------------------- start
   document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     const page = document.body.dataset.page;
     if (page === 'projects') initProjects();
     else if (page === 'new') initNew();
+    else if (page === 'import') initImport();
     else if (page === 'project') initProject();
   });
 })();

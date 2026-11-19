@@ -140,7 +140,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .field label, .field legend { display: block; font-weight: 600; margin-bottom: 0.35rem; padding: 0; }
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0.35rem 0 0; }
 .req { color: var(--danger); }
-input[type="text"], input[type="number"], input[type="password"], input[type="url"], textarea {
+input[type="text"], input[type="number"], input[type="password"], input[type="url"], input[type="search"], textarea {
   width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 0.5rem 0.7rem; min-height: 40px;
 }
@@ -314,10 +314,10 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .job-error { color: var(--danger); font-size: 0.9rem; font-weight: 600; }
 
 /* ---- dialogs, lightbox, toasts ---- */
-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; max-width: min(520px, calc(100vw - 2rem)); width: 100%; }
-dialog.wide { max-width: min(680px, calc(100vw - 2rem)); }
+dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; max-width: min(520px, calc(100vw - 2rem)); width: 100%; max-height: 92vh; overflow: hidden; }
+dialog.wide { max-width: min(1100px, calc(100vw - 2rem)); }
 dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
-.dialog-body { padding: 1.25rem; max-height: 85vh; overflow: auto; }
+.dialog-body { padding: 1.25rem; max-height: 92vh; overflow: auto; } /* only the body scrolls: one scroll bar */
 .lightbox { max-width: min(1100px, calc(100vw - 1.5rem)); max-height: calc(100vh - 1.5rem); }
 .lightbox-body { display: grid; grid-template-columns: 1fr 260px; gap: 1rem; padding: 1rem; max-height: calc(100vh - 2rem); overflow: auto; }
 .lightbox-stage { display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-width: 0; background: var(--surface-2); border-radius: 8px; padding: 0.5rem; }
@@ -449,3 +449,50 @@ dialog .jobs.scroll-box { max-height: 60vh; }
   .session-actions .btn { flex: 1 1 100%; }
   .session-actions .btn.danger-outline { margin-left: 0; }
 }
+
+/* ---- import a project ---- */
+.head-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.empty-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
+.import-intro { margin: 0.25rem 0 0; max-width: 60rem; }
+#import-root { display: grid; gap: 1rem; }
+#import-root [hidden] { display: none; }
+.import-source h2, .import-list h2, .import-side h2 { margin-top: 0; font-size: 1.15rem; }
+.import-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1001px) { .import-grid { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); } .import-side { position: sticky; top: 4.5rem; } }
+.import-list-head { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.import-list-head h2 { margin: 0; }
+.import-list-head input[type="search"] { flex: 1 1 240px; max-width: 420px; min-height: 40px; }
+.import-table-wrap { overflow-x: auto; }
+.import-table { width: 100%; border-collapse: collapse; }
+.import-table th { text-align: left; font-size: 0.85rem; color: var(--muted); font-weight: 600; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+.import-table td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.import-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.import-table tbody tr { cursor: pointer; }
+.import-table tbody tr:hover { background: var(--surface-2); }
+.import-table tbody tr.selected { background: var(--primary-soft); }
+.import-table tbody tr:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
+.import-table td.name label { display: flex; gap: 0.6rem; align-items: center; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.class-cell { display: inline-flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.import-picked { display: flex; gap: 0.5rem; align-items: center; margin: 0 0 1rem; overflow-wrap: anywhere; }
+.callout-line { display: flex; gap: 0.6rem; background: var(--primary-soft); border-radius: 8px; padding: 0.7rem 0.8rem; margin: 0 0 1.25rem; }
+.callout-line .icon { color: var(--primary); margin-top: 2px; }
+.import-error p { margin: 0 0 0.5rem; }
+.import-job { max-width: 52rem; }
+.ok-title, .bad-title { display: flex; align-items: center; gap: 0.5rem; margin-top: 0; }
+.ok-title .icon { color: var(--ok); }
+.bad-title .icon { color: var(--danger); }
+.result-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem 1.5rem; margin: 1rem 0; }
+.result-facts dt { color: var(--muted); font-size: 0.85rem; }
+.result-facts dd { margin: 0; font-weight: 600; }
+.origin-badge { background: var(--surface-2); }
+.origin-badge:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .import-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .import-table, .import-table tbody, .import-table tr, .import-table td { display: block; width: 100%; }
+  .import-table tr { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.6rem; padding: 0.4rem 0.2rem; }
+  .import-table td { border: 0; padding: 0.2rem 0.6rem; display: flex; gap: 0.6rem; justify-content: space-between; align-items: center; }
+  .import-table td.name { display: block; }
+  .import-table td:not(.name)::before { content: attr(data-label); color: var(--muted); font-size: 0.85rem; flex: none; }
+  .import-table .num { text-align: right; }
+}
+.import-table td:last-child { white-space: nowrap; }

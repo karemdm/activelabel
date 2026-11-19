@@ -77,6 +77,12 @@ def new_project_page(request: Request) -> HTMLResponse:
     return render(request, "new_project.html")
 
 
+@router.get("/projects/import", response_class=HTMLResponse)
+def import_project_page(request: Request) -> HTMLResponse:
+    """Import a project from CVAT or Label Studio."""
+    return render(request, "import_project.html")
+
+
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
 def project_page(request: Request, project_id: str) -> HTMLResponse:
     """Page of one project (images, annotations, curation)."""

@@ -32,7 +32,7 @@ def client() -> TestClient:
     return make_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/projects/new", "/projects/7"])
+@pytest.mark.parametrize("path", ["/", "/projects/new", "/projects/import", "/projects/7"])
 @pytest.mark.parametrize("lang", ["en", "pt"])
 def test_pages_render_in_both_languages(client, path, lang):
     response = client.get(path, params={"lang": lang})
@@ -41,6 +41,12 @@ def test_pages_render_in_both_languages(client, path, lang):
     assert pages.translate("nav.projects", lang) in response.text
     data = re.search(r"window\.I18N = (\{.*?\}); window\.VL", response.text, re.S)
     assert data and json.loads(data.group(1)) == messages(lang)
+
+
+def test_import_page_and_entry_point(client):
+    html = client.get("/projects/import", params={"lang": "en"}).text
+    assert 'data-page="import"' in html and 'id="import-root"' in html
+    assert 'href="/projects/import"' in client.get("/", params={"lang": "en"}).text
 
 
 def test_project_page_knows_its_id(client):
@@ -107,6 +113,10 @@ def test_dynamic_translation_keys_exist():
     wanted += [f"metric.{m}" for m in ("brightness", "contrast", "sharpness")]
     wanted += [f"reason.{r}" for r in ("corrupt", "unsupported", "too_small")]
     wanted += [f"format.{f}" for f in ("coco", "yolo", "voc", "cvat", "labelstudio", "folders")]
+    wanted += [f"import.tool.{x}.help" for x in ("cvat", "labelstudio")]
+    wanted += [f"import.kind.{x}" for x in ("project", "task")]
+    wanted += ["jobmsg.listing", "jobmsg.Downloading images", "jobmsg.Reading annotations"]
+    wanted += ["jobmsg.Creating the project", "job.kind.import_project"]
     wanted += ["job.kind.import_folder", "job.kind.analyze", "job.kind.fiftyone"]
     wanted += ["job.kind.annotate_send", "job.kind.annotate_pull"]
     tools = ("fiftyone", "cvat", "labelstudio")
