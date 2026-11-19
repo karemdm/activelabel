@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t('new.title') }}{% endblock %}
+{% block page %}new{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ t('new.title') }}</h1>
+</div>
+<form id="new-form" class="card form new-project" novalidate>
+  <div class="field">
+    <label for="f-name">{{ t('field.name') }} <span class="req">*</span></label>
+    <input id="f-name" name="name" type="text" maxlength="100" required autocomplete="off" placeholder="{{ t('new.name_ph') }}">
+  </div>
+  <div class="field">
+    <label for="f-desc">{{ t('field.description') }}</label>
+    <textarea id="f-desc" name="description" rows="3" maxlength="2000" placeholder="{{ t('new.description_ph') }}"></textarea>
+  </div>
+  <fieldset class="field field-task">
+    <legend>{{ t('field.task') }}</legend>
+    <div id="task-picker" class="task-picker"></div>
+  </fieldset>
+  <div class="field">
+    <label for="classes-input">{{ t('field.classes') }}</label>
+    <div id="classes-field"></div>
+    <p class="hint">{{ t('new.classes_hint') }}</p>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn primary" id="create-btn">{{ t('new.create') }}</button>
+    <a class="btn" href="/">{{ t('common.cancel') }}</a>
+  </div>
+</form>
+{% endblock %}

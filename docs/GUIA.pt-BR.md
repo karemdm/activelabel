@@ -1,4 +1,4 @@
-# visionloop — guia em português
+# ActiveLabel — guia em português
 
 Conjuntos de imagens da curadoria ao modelo treinado, por etapas, numa interface web
 simples (português e inglês, tema claro e escuro).
@@ -22,11 +22,11 @@ python -m pip install -e ".[dev]"
 ## Rodar
 
 ```bash
-visionloop serve --open
+activelabel serve --open
 ```
 
-Ou, sem ativar o ambiente: `visionloop.cmd serve --open` (Windows) ou
-`./visionloop.sh serve --open` (Linux, macOS). A interface abre em
+Ou, sem ativar o ambiente: `activelabel.cmd serve --open` (Windows) ou
+`./activelabel.sh serve --open` (Linux, macOS). A interface abre em
 `http://127.0.0.1:8090`. O serviço não tem login: mantenha o host padrão `127.0.0.1`,
 a não ser numa rede confiável.
 
@@ -60,6 +60,6 @@ progresso, *Cancelar* e *Ver resultado*.
 
 | Variável | Padrão | O que faz |
 | --- | --- | --- |
-| `VISIONLOOP_WORKSPACE` | `~/.visionloop` | Onde ficam projetos, imagens e anotações |
-| `VISIONLOOP_LANG` | `en` | Idioma padrão da interface (`en` ou `pt`) |
-| `VISIONLOOP_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho |
+| `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Onde ficam projetos, imagens e anotações |
+| `ACTIVELABEL_LANG` | `en` | Idioma padrão da interface (`en` ou `pt`) |
+| `ACTIVELABEL_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho |

@@ -5,15 +5,15 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from visionloop.config import Settings
-from visionloop.web import api
-from visionloop.web.state import AppState
+from activelabel.config import Settings
+from activelabel.web import api
+from activelabel.web.state import AppState
 
 
 def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestClient, AppState]:
     state = AppState(Settings(workspace=tmp_path / "ws", import_root=import_root))
     app = FastAPI()
-    app.state.visionloop = state
+    app.state.activelabel = state
     app.include_router(api.router)
     return TestClient(app), state
 

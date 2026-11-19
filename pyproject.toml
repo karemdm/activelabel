@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "visionloop"
+name = "activelabel"
 version = "0.1.0"
 description = "Image datasets from curation to trained models: projects, images, annotations, curation"
 readme = "README.md"
@@ -35,13 +35,13 @@ dev = [
 ]
 
 [project.scripts]
-visionloop = "visionloop.cli:main"
+activelabel = "activelabel.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-visionloop = ["i18n/*.json", "web/templates/*.html", "web/static/*"]
+activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/*"]
 
 # ---------------------------------------------------------------------------
 [tool.ruff]
@@ -64,7 +64,7 @@ convention = "google"
 "tests/**" = ["D", "ANN"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["visionloop"]
+known-first-party = ["activelabel"]
 
 # ---------------------------------------------------------------------------
 [tool.mypy]

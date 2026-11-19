@@ -6,8 +6,8 @@ from pathlib import Path
 
 from sample_images import make_image
 
-from visionloop.images.manifest import ImageRecord, Manifest
-from visionloop.projects import ProjectStore
+from activelabel.images.manifest import ImageRecord, Manifest
+from activelabel.projects import ProjectStore
 
 
 def make_manifest(project_dir: Path, names: list[str], size=(100, 50)) -> Manifest:

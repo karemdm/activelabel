@@ -9,3 +9,4 @@ dist/
 # local data (images, projects) never goes to git
 workspace/
 *.zip
+samples/

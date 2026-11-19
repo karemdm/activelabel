@@ -1,4 +1,4 @@
-# visionloop
+# ActiveLabel
 
 Image datasets from curation to trained models, step by step, in a simple web interface
 (English and Portuguese, light and dark theme).
@@ -24,11 +24,11 @@ python -m pip install -e ".[dev]"
 ## Run
 
 ```bash
-visionloop serve --open
+activelabel serve --open
 ```
 
-Or, without activating the environment: `visionloop.cmd serve --open` (Windows) or
-`./visionloop.sh serve --open` (Linux, macOS). The interface opens at
+Or, without activating the environment: `activelabel.cmd serve --open` (Windows) or
+`./activelabel.sh serve --open` (Linux, macOS). The interface opens at
 `http://127.0.0.1:8090`. The service has no login: keep the default host `127.0.0.1`
 unless you are on a trusted network.
 
@@ -60,9 +60,9 @@ Long tasks appear in the **Tasks** bar at the bottom of the project page, with p
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `VISIONLOOP_WORKSPACE` | `~/.visionloop` | Where projects, images and annotations are stored |
-| `VISIONLOOP_LANG` | `en` | Default interface language (`en` or `pt`) |
-| `VISIONLOOP_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path |
+| `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Where projects, images and annotations are stored |
+| `ACTIVELABEL_LANG` | `en` | Default interface language (`en` or `pt`) |
+| `ACTIVELABEL_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path |
 
 ## Development
 
@@ -72,7 +72,7 @@ python -m pytest -m "not integration"   # fast tests
 python -m pytest -m integration         # tests that use FiftyOne
 ```
 
-Code lives in `src/visionloop`; tests in `tests/visionloop` mirror it. Formatting and lint
+Code lives in `src/activelabel`; tests in `tests/activelabel` mirror it. Formatting and lint
 with ruff, types with mypy; pre-commit runs them and the fast tests on every commit.
 
 Continuous integration (`.github/workflows/ci.yml`) runs the same checks on Linux and
