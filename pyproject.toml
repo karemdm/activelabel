@@ -22,8 +22,8 @@ dependencies = [
     "fiftyone>=1.22,<2",
     # graphql-core 3.3 removed an API that the GraphQL library used by the FiftyOne App imports
     "graphql-core<3.3",
-    # importlib-metadata 9 raises where FiftyOne's eta package expects None (seen on Python 3.10)
-    "importlib-metadata<9",
+    # importlib-metadata 8+ raises KeyError where FiftyOne's eta package expects None (Python < 3.12)
+    "importlib-metadata<8",
     # secrets of the annotation tools (passwords, tokens) live in the system keyring, never in files
     "keyring>=24",
 ]
