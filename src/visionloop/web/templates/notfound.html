@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ t('notfound.title') }}{% endblock %}
+{% block page %}notfound{% endblock %}
+{% block content %}
+<div class="empty card">
+  <h1>{{ t('notfound.title') }}</h1>
+  <p>{{ t('notfound.text') }}</p>
+  <a class="btn primary" href="/">{{ t('notfound.back') }}</a>
+</div>
+{% endblock %}

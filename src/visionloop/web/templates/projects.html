@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ t('projects.title') }}{% endblock %}
+{% block page %}projects{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ t('projects.title') }}</h1>
+  <a class="btn primary" href="/projects/new" id="new-project-link">{{ t('projects.new') }}</a>
+</div>
+<div id="projects-root" aria-live="polite"><p class="muted">{{ t('common.loading') }}</p></div>
+{% endblock %}
