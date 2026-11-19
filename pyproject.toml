@@ -18,7 +18,10 @@ dependencies = [
     "numpy>=1.26",
     "pillow>=10",
     "pyyaml>=6",
-    "fiftyone>=1.0",
+    # tested with FiftyOne 1.22; without the lower bound pip may pick a much older release
+    "fiftyone>=1.22,<2",
+    # graphql-core 3.3 removed an API that the GraphQL library used by the FiftyOne App imports
+    "graphql-core<3.3",
 ]
 
 [project.optional-dependencies]
