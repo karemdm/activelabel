@@ -83,6 +83,10 @@
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/>',
     moon: '<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',
+    fiftyone: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
+    cvat: '<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
+    labelstudio: '<path d="M5 19l-1-4L15 4l5 5L9 20z"/><path d="M13 6l5 5"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/>',
   };
   const icon = (name, size = 18) =>
     el('span', {
@@ -569,7 +573,7 @@
             el('div', { class: 'lightbox-head' },
               el('h2', null, img.name),
               el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
-            el('p', { class: 'muted' }, `${num(img.width)} × ${num(img.height)} px · ${fmtBytes(img.size_bytes || 0)}`),
+            img.width ? el('p', { class: 'muted' }, `${num(img.width)} × ${num(img.height)} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
             img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
             el('h3', null, t('lightbox.issues')),
             (img.issues || []).length
@@ -586,6 +590,86 @@
       if (e.key === 'ArrowLeft' && i > 0) { i -= 1; draw(); }
       if (e.key === 'ArrowRight' && i < items.length - 1) { i += 1; draw(); }
     };
+  }
+
+  function problemRow(p) {
+    const message = tr(`problem.${p.code}`, p.message || p.code);
+    const examples = (p.examples || []).slice(0, 5);
+    const head = el('span', { class: `problem-head ${p.level === 'error' ? 'bad' : 'warn'}` },
+      icon(p.level === 'error' ? 'error' : 'warning'),
+      el('span', { class: 'problem-msg' }, message),
+      p.count ? el('span', { class: 'count' }, `×${num(p.count)}`) : null);
+    if (!examples.length) return el('li', { class: 'problem' }, head);
+    return el('li', { class: 'problem' },
+      el('details', null, el('summary', null, head),
+        el('ul', { class: 'plain examples' }, ...examples.map((x) => el('li', null, el('code', null, x))))));
+  }
+
+  // ---------------------------------------------------------------- annotation sessions (shared bits)
+  const TOOLS = ['fiftyone', 'cvat', 'labelstudio'];
+  const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
+  const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
+  const SESSION_STATUSES = ['open', 'pulled', 'applied', 'discarded', 'closed'];
+  const statusLabel = (st) => tr(`annotate.status.${st}`, st || '?');
+  const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
+  const imagesOf = (s) => (Array.isArray(s.images) ? s.images.length : Number(s.images) || 0);
+
+  /** What changed when annotations came back: counts, per class, unknown classes, problems, examples. */
+  function diffView(projectId, diff) {
+    const d = diff || {};
+    const sign = (n, ch) => `${ch}${num(n)}`;
+    const stat = (cls, n, label) => el('div', { class: `stat ${cls}` }, el('strong', null, num(n)), el('span', null, label));
+    const rows = Object.entries(d.per_class || {}).filter(([, c]) => (c.added || 0) + (c.removed || 0) + (c.edited || 0) > 0);
+    const examples = (d.examples || []).slice(0, 20);
+    const items = examples.map((x) => ({ id: x.image_id, name: x.name }));
+    const unknown = d.unknown_classes || [];
+    const problems = d.problems || [];
+
+    const table = rows.length
+      ? el('div', { class: 'table-wrap' },
+          el('table', { class: 'diff-table' },
+            el('caption', { class: 'sr-only' }, t('annotate.diff_per_class')),
+            el('thead', null, el('tr', null,
+              el('th', { scope: 'col' }, t('annotate.diff_class')),
+              el('th', { scope: 'col', class: 'num' }, t('annotate.diff_added')),
+              el('th', { scope: 'col', class: 'num' }, t('annotate.diff_edited')),
+              el('th', { scope: 'col', class: 'num' }, t('annotate.diff_removed')))),
+            el('tbody', null, ...rows.map(([name, c]) => el('tr', null,
+              el('th', { scope: 'row' }, name),
+              el('td', { class: 'num add' }, num(c.added || 0)),
+              el('td', { class: 'num edit' }, num(c.edited || 0)),
+              el('td', { class: 'num del' }, num(c.removed || 0)))))))
+      : null;
+
+    return el('div', { class: 'diff' },
+      el('div', { class: 'diff-stats' },
+        stat('images', d.images_changed || 0, t('annotate.diff_images')),
+        stat('add', d.added || 0, t('annotate.diff_added')),
+        stat('edit', d.edited || 0, t('annotate.diff_edited')),
+        stat('del', d.removed || 0, t('annotate.diff_removed'))),
+      !(d.images_changed || 0) ? el('p', { class: 'report-line ok' }, icon('check'), t('annotate.diff_none')) : null,
+      el('div', { class: 'diff-cols' },
+        table ? el('div', null, el('h4', null, t('annotate.diff_per_class')), table) : null,
+        examples.length
+          ? el('div', null,
+              el('h4', null, t('annotate.diff_examples')),
+              el('ul', { class: 'plain diff-examples' }, ...examples.map((x, i) => el('li', null,
+                el('button', { type: 'button', class: 'example-btn', title: x.name, onclick: () => openLightbox(projectId, items, i) },
+                  el('span', { class: 'example-name' }, x.name),
+                  el('span', { class: 'example-counts' },
+                    el('span', { class: 'add', title: t('annotate.diff_added') }, sign(x.added || 0, '+')),
+                    el('span', { class: 'edit', title: t('annotate.diff_edited') }, sign(x.edited || 0, '~')),
+                    el('span', { class: 'del', title: t('annotate.diff_removed') }, sign(x.removed || 0, '−'))))))))
+          : null),
+      unknown.length
+        ? el('div', null,
+            el('h4', null, t('annotate.diff_unknown')),
+            el('p', { class: 'muted' }, t('annotate.diff_unknown_help')),
+            el('ul', { class: 'chips static' }, ...unknown.map((c) => el('li', { class: 'chip static is-new' }, el('span', null, c), el('span', { class: 'new-mark' }, t('ann.new'))))))
+        : null,
+      problems.length
+        ? el('div', null, el('h4', null, t('ann.problems')), el('ul', { class: 'plain problems' }, ...problems.map(problemRow)))
+        : null);
   }
 
   // ---------------------------------------------------------------- page: project
@@ -691,7 +775,7 @@
       renderStepper();
       if (gated) return;
       const panel = ctx.panels[step];
-      if (!panel.mounted) { panel.mounted = true; panel.mount(); }
+      if (!panel.mounted) { panel.mounted = true; panel.mount(); } else if (panel.show) panel.show();
       if (scrollToPanel) panel.node.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -942,6 +1026,357 @@
       return panel;
     }
 
+    // ================================================================ step 2: annotate in an external tool
+    function annotateBlock() {
+      const storeKey = `al-annotate-tool-${projectId}`;
+      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false };
+      try {
+        const saved = localStorage.getItem(storeKey);
+        if (TOOLS.includes(saved)) state.tool = saved;
+      } catch (e) { /* no storage */ }
+
+      const toolsBox = el('div', { class: 'tool-cards-wrap' });
+      const scopeBox = el('div', { class: 'scope-wrap' });
+      const sendBox = el('div', { class: 'send-row' });
+      const sessionsBox = el('div', { class: 'sessions' });
+      const node = el('div', { class: 'annotate' },
+        el('section', { class: 'annotate-box', 'aria-labelledby': 'h-annotate' },
+          el('h3', { id: 'h-annotate' }, t('annotate.title')),
+          el('p', { class: 'muted' }, t('annotate.intro')),
+          toolsBox, scopeBox, sendBox),
+        el('section', { class: 'sessions-section', id: 'annotate-sessions', 'aria-labelledby': 'h-sessions' },
+          el('h3', { id: 'h-sessions' }, t('annotate.sessions')),
+          sessionsBox));
+
+      const counts = () => (ctx.project && ctx.project.counts) || {};
+      const isReady = (tool) => tool === 'fiftyone' || !!(state.tools[tool] && state.tools[tool].configured);
+      const selectedIds = () => (ctx.curationSelected ? ctx.curationSelected() : []);
+      const unlabeledCount = () => Math.max(0, (counts().active || 0) - (counts().annotated || 0));
+      const issueEntries = () => Object.entries(state.issues).filter(([, n]) => n > 0);
+      const scopeCount = (scope) => {
+        if (scope === 'all') return counts().active || 0;
+        if (scope === 'unlabeled') return unlabeledCount();
+        if (scope === 'selected') return selectedIds().length;
+        return Number(state.issues[state.issue]) || 0;
+      };
+      const scopeAvailable = (scope) => (scope === 'issue' ? issueEntries().length > 0 : scopeCount(scope) > 0);
+
+      function defaultScope() {
+        if (unlabeledCount() > 0 && unlabeledCount() < (counts().active || 0)) return 'unlabeled';
+        return 'all';
+      }
+
+      // ---- tool cards
+      function drawTools() {
+        const focused = document.activeElement && document.activeElement.name === 'annotate-tool' ? document.activeElement.value : null;
+        toolsBox.replaceChildren(el('fieldset', { class: 'field' },
+          el('legend', null, t('annotate.tool_title')),
+          el('div', { class: 'task-cards tool-cards', role: 'radiogroup' }, ...TOOLS.map((tool) => {
+            const id = `annotate-tool-${tool}`;
+            const ready = isReady(tool);
+            const input = el('input', { type: 'radio', name: 'annotate-tool', id, value: tool, class: 'sr-only' });
+            input.checked = tool === state.tool;
+            input.addEventListener('change', () => {
+              state.tool = tool;
+              try { localStorage.setItem(storeKey, tool); } catch (e) { /* no storage */ }
+              drawTools();
+              drawSend();
+              toolsBox.querySelector(`input[value="${tool}"]`).focus();
+            });
+            return el('div', { class: `tool-card${tool === state.tool ? ' selected' : ''}`, 'data-tool': tool },
+              el('label', { for: id, class: 'tool-card-main' },
+                input, icon(tool, 28),
+                el('span', { class: 'task-card-title' }, toolName(tool)),
+                el('span', { class: 'task-card-help' }, t(`annotate.tool.${tool}.help`))),
+              el('div', { class: 'tool-card-foot' },
+                el('span', { class: `ready-badge ${ready ? 'ok' : 'todo'}` }, icon(ready ? 'check' : 'info', 14), ready ? t('annotate.ready') : t('annotate.not_ready')),
+                tool === 'fiftyone'
+                  ? null
+                  : el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: toolName(tool) }), onclick: () => openSetup(tool) },
+                      ready ? t('annotate.settings') : t('annotate.setup'))));
+          }))));
+        if (focused) { const f = toolsBox.querySelector(`input[value="${focused}"]`); if (f) f.focus(); }
+      }
+
+      // ---- which images
+      function drawScope() {
+        if (!state.loaded) return;
+        if (!state.scope || !scopeAvailable(state.scope)) state.scope = defaultScope();
+        if (!state.issue || !state.issues[state.issue]) state.issue = (issueEntries()[0] || [''])[0];
+        const focusedId = document.activeElement && document.activeElement.name === 'annotate-scope' ? document.activeElement.id : null;
+        const row = (scope, label, extra, hint) => {
+          const id = `annotate-scope-${scope}`;
+          const ok = scopeAvailable(scope);
+          const input = el('input', { type: 'radio', name: 'annotate-scope', id, value: scope, disabled: !ok, 'aria-describedby': hint && !ok ? `${id}-hint` : null });
+          input.checked = state.scope === scope;
+          input.addEventListener('change', () => { state.scope = scope; drawScope(); drawSend(); });
+          return el('div', { class: `scope-row${state.scope === scope ? ' selected' : ''}${ok ? '' : ' is-disabled'}` },
+            el('div', { class: 'scope-line' },
+              input,
+              el('label', { for: id }, label),
+              extra),
+            hint && !ok ? el('p', { id: `${id}-hint`, class: 'hint' }, hint) : null);
+        };
+        const issueSelect = el('select', {
+          id: 'annotate-issue', 'aria-label': t('annotate.scope_issue_pick'), disabled: !issueEntries().length,
+          onchange: (e) => { state.issue = e.target.value; state.scope = 'issue'; drawScope(); drawSend(); },
+        }, ...issueEntries().map(([k, n]) => el('option', { value: k, selected: k === state.issue }, `${issueName(k)} (${num(n)})`)));
+        scopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
+          el('legend', null, t('annotate.scope_title')),
+          el('div', { class: 'scope-rows' },
+            row('all', t('annotate.scope_all'), el('span', { class: 'count' }, num(counts().active || 0))),
+            row('unlabeled', t('annotate.scope_unlabeled'), el('span', { class: 'count' }, num(unlabeledCount())), t('annotate.scope_unlabeled_none')),
+            row('selected', t('annotate.scope_selected'), el('span', { class: 'count' }, num(selectedIds().length)), t('annotate.scope_selected_none')),
+            row('issue', t('annotate.scope_issue'), issueSelect, t('annotate.scope_issue_none')))));
+        if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
+      }
+
+      function drawSend() {
+        if (!state.loaded) { sendBox.replaceChildren(); return; }
+        const tool = state.tool;
+        const n = scopeCount(state.scope);
+        const ready = isReady(tool);
+        sendBox.replaceChildren(
+          el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
+            icon(tool, 20), ready ? t('annotate.send', { tool: toolName(tool) }) : t('annotate.setup_and_send', { tool: toolName(tool) })),
+          el('p', { class: 'muted', 'aria-live': 'polite' }, n ? tn('annotate.will_send', n, { tool: toolName(tool) }) : t('annotate.nothing_to_send')));
+      }
+
+      async function send(button) {
+        const tool = state.tool;
+        if (!isReady(tool)) { openSetup(tool); return; }
+        const body = { tool, scope: state.scope };
+        if (state.scope === 'selected') body.ids = selectedIds();
+        if (state.scope === 'issue') body.issue = state.issue;
+        button.disabled = true;
+        try {
+          const job = await api('POST', `/projects/${projectId}/annotate`, { json: body });
+          toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
+          jobStarted(job);
+        } catch (err) {
+          toastError(err);
+        } finally {
+          drawSend();
+        }
+      }
+
+      // ---- tool settings dialog
+      function openSetup(tool) {
+        const entry = state.tools[tool] || {};
+        const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
+        const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
+        const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
+        const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: t('annotate.secret_placeholder'), 'aria-describedby': 'tool-secret-help' });
+        const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
+        const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
+        const testBtn = el('button', { type: 'button', class: 'btn' }, t('annotate.test'));
+        const forgetBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('annotate.forget'));
+        forgetBtn.hidden = !entry.configured;
+        const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('annotate.setup_title', { tool: toolName(tool) }) },
+          el('form', { class: 'dialog-body form', method: 'dialog' },
+            el('h2', null, t('annotate.setup_title', { tool: toolName(tool) })),
+            el('p', { class: 'muted' }, t(`annotate.setup_help.${tool}`)),
+            el('div', { class: 'field' }, el('label', { for: 'tool-url' }, t('annotate.field_url')), urlInput,
+              el('p', { id: 'tool-url-help', class: 'hint' }, t('annotate.url_help'))),
+            userInput ? el('div', { class: 'field' }, el('label', { for: 'tool-user' }, t('annotate.field_username')), userInput) : null,
+            el('div', { class: 'field' }, el('label', { for: 'tool-secret' }, secretLabel), secretInput,
+              el('p', { id: 'tool-secret-help', class: 'hint' }, entry.configured ? t('annotate.secret_saved') : t('annotate.secret_help'))),
+            message,
+            el('div', { class: 'form-actions' }, saveBtn, testBtn, forgetBtn,
+              el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+
+        const values = () => {
+          const body = { url: urlInput.value.trim() };
+          if (userInput) body.username = userInput.value.trim();
+          if (secretInput.value) body.secret = secretInput.value;
+          return body;
+        };
+        const store = async () => {
+          const body = values();
+          if (!body.url) { urlInput.focus(); throw new Error(t('annotate.url_required')); }
+          const saved = await api('PUT', `/annotation-tools/${tool}`, { json: body });
+          secretInput.value = '';
+          return saved;
+        };
+        const busy = (on) => { [saveBtn, testBtn, forgetBtn].forEach((b) => { b.disabled = on; }); };
+        dlg.querySelector('form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          busy(true);
+          try {
+            await store();
+            await loadTools();
+            dlg.close();
+            toast(t('annotate.saved', { tool: toolName(tool) }), 'success', 3000);
+          } catch (err) { toastError(err); } finally { busy(false); }
+        });
+        testBtn.addEventListener('click', async () => {
+          busy(true);
+          message.className = 'test-result';
+          message.textContent = t('annotate.testing');
+          try {
+            await store();
+            const r = await api('POST', `/annotation-tools/${tool}/test`);
+            message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
+            message.replaceChildren(icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
+            await loadTools();
+            forgetBtn.hidden = !isReady(tool);
+          } catch (err) {
+            message.className = 'test-result bad';
+            message.replaceChildren(icon('error'), err.message);
+          } finally { busy(false); }
+        });
+        forgetBtn.addEventListener('click', async () => {
+          const ok = await confirmDialog({ title: t('annotate.forget_title', { tool: toolName(tool) }), text: t('annotate.forget_text'), confirmLabel: t('annotate.forget') });
+          if (!ok) return;
+          busy(true);
+          try {
+            await api('DELETE', `/annotation-tools/${tool}`);
+            await loadTools();
+            dlg.close();
+            toast(t('annotate.forgotten', { tool: toolName(tool) }), 'success', 3000);
+          } catch (err) { toastError(err); } finally { busy(false); }
+        });
+        dlg.addEventListener('close', () => dlg.remove());
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        urlInput.focus();
+      }
+
+      // ---- sessions
+      function sessionCard(s) {
+        const tool = s.tool;
+        const sid = encodeURIComponent(s.id);
+        const links = (s.links || []).filter((l) => l && isHttp(l.url));
+        const scopeText = s.scope === 'issue' && s.issue
+          ? t('annotate.scope_issue_named', { issue: issueName(s.issue) })
+          : tr(`annotate.scope.${s.scope}`, s.scope || '');
+        const live = s.status === 'open' || s.status === 'pulled';
+        const act = (label, cls, fn) => {
+          const b = el('button', { type: 'button', class: `btn ${cls}` }, label);
+          b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (err) { b.disabled = false; toastError(err); } });
+          return b;
+        };
+        const changes = s.diff ? (s.diff.images_changed || 0) : 0;
+        const buttons = [];
+        if (live) {
+          buttons.push(act(s.status === 'pulled' ? t('annotate.pull_again') : t('annotate.pull'), s.status === 'open' ? 'primary' : '', async () => {
+            const job = await api('POST', `/projects/${projectId}/annotate/${sid}/pull`);
+            toast(t('annotate.pull_started'), 'info', 3000);
+            jobStarted(job);
+          }));
+        }
+        if (s.status === 'pulled' && s.diff) {
+          const apply = act(t('annotate.apply'), 'primary', async () => {
+            const r = await api('POST', `/projects/${projectId}/annotate/${sid}/apply`);
+            const a = (r && r.applied) || {};
+            toast(tn('annotate.applied_n', Number(a.images_changed ?? a.images ?? changes) || 0), 'success', 6000);
+            await afterChange();
+            Object.values(ctx.panels).forEach((panel) => panel.mounted && panel.refresh && panel.refresh());
+          });
+          apply.disabled = !changes;
+          buttons.unshift(apply);
+          buttons.push(act(t('annotate.discard'), '', async () => {
+            await api('POST', `/projects/${projectId}/annotate/${sid}/discard`);
+            toast(t('annotate.discarded'), 'success', 4000);
+            await loadSessions();
+          }));
+        }
+        buttons.push(el('button', { type: 'button', class: 'btn danger-outline', onclick: () => closeSession(s) }, t('annotate.close')));
+        const diffShown = s.status === 'pulled' && s.diff;
+        return el('li', { class: `session card status-${s.status}`, id: `session-${s.id}`, tabindex: '-1', 'data-session': s.id, 'aria-label': `${toolName(tool)} · ${scopeText}` },
+          el('div', { class: 'session-head' },
+            el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, toolName(tool))),
+            el('span', { class: `sbadge sbadge-${s.status}` }, statusLabel(s.status))),
+          el('p', { class: 'session-meta' },
+            el('span', null, scopeText),
+            el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+            el('span', null, tn('annotate.images_n', imagesOf(s))),
+            el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+            el('time', { datetime: s.created || null }, fmtDateTime(s.created))),
+          links.length
+            ? el('p', { class: 'session-links' }, ...links.map((l) => el('a', { class: 'btn small', href: l.url, target: '_blank', rel: 'noopener' },
+                links.length === 1 ? t('annotate.open_in', { tool: toolName(tool) }) : l.label || t('annotate.open_in', { tool: toolName(tool) }), icon('external', 14))))
+            : null,
+          s.status === 'open' ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
+          diffShown ? diffView(projectId, s.diff) : null,
+          el('div', { class: 'session-actions' }, ...buttons));
+      }
+
+      async function closeSession(s) {
+        const remote = s.tool === 'cvat' || s.tool === 'labelstudio';
+        const check = remote ? el('input', { type: 'checkbox', id: 'close-remote' }) : null;
+        const ok = await new Promise((resolve) => {
+          const okBtn = el('button', { type: 'submit', value: 'ok', class: 'btn danger' }, t('annotate.close_confirm'));
+          const dlg = el('dialog', { class: 'dialog', 'aria-label': t('annotate.close_title') },
+            el('form', { method: 'dialog', class: 'dialog-body' },
+              el('h2', null, t('annotate.close_title')),
+              el('p', null, t('annotate.close_text')),
+              remote ? el('label', { class: 'radio-row', for: 'close-remote' }, check, el('span', null, t('annotate.close_remote', { tool: toolName(s.tool) }))) : null,
+              el('div', { class: 'form-actions' }, okBtn, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel')))));
+          dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
+          document.body.appendChild(dlg);
+          dlg.showModal();
+          okBtn.focus();
+        });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/projects/${projectId}/annotate/${encodeURIComponent(s.id)}`, { json: { delete_remote: !!(check && check.checked) } });
+          toast(t('annotate.closed'), 'success', 4000);
+          await loadSessions();
+        } catch (err) { toastError(err); }
+      }
+
+      function drawSessions() {
+        if (!state.loaded) { sessionsBox.replaceChildren(el('p', { class: 'muted' }, t('common.loading'))); return; }
+        sessionsBox.replaceChildren(state.sessions.length
+          ? el('ul', { class: 'plain session-list' }, ...state.sessions.map(sessionCard))
+          : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('annotate.sessions_empty'))));
+      }
+
+      // ---- data
+      async function loadTools() {
+        try {
+          const list = await api('GET', '/annotation-tools');
+          state.tools = {};
+          (Array.isArray(list) ? list : []).forEach((x) => { state.tools[x.tool] = x; });
+        } catch (err) { toastError(err); }
+        drawTools();
+        drawSend();
+      }
+      async function loadSessions() {
+        try {
+          const data = await api('GET', `/projects/${projectId}/annotate`);
+          state.sessions = (data && data.sessions) || [];
+        } catch (err) { if (err.status !== 404) toastError(err); }
+        state.loaded = true;
+        drawSessions();
+        drawScope();
+        drawSend();
+      }
+      async function loadIssues() {
+        try {
+          const summary = await api('GET', `/projects/${projectId}/curation`);
+          state.issues = (summary && summary.issues) || {};
+        } catch (err) { state.issues = {}; }
+      }
+      const reveal = (sessionId) => {
+        const card = sessionId ? document.getElementById(`session-${sessionId}`) : null;
+        const target = card || document.getElementById('annotate-sessions');
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (card) { card.focus({ preventScroll: true }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2500); }
+      };
+
+      drawTools();
+      return {
+        node,
+        reveal,
+        mount: async () => { await Promise.all([loadTools(), loadIssues()]); await loadSessions(); },
+        refresh: async () => { await loadIssues(); await loadSessions(); },
+        show: async () => { await loadIssues(); drawScope(); drawSend(); },
+      };
+    }
+
     // ================================================================ step 2: annotations
     function annotationsPanel() {
       const node = el('section', { class: 'panel', id: 'panel-annotations', hidden: true, 'aria-labelledby': 'h-annotations' });
@@ -950,6 +1385,7 @@
       const reportBox = el('div', { class: 'ann-report', 'aria-live': 'polite' });
       const gtBox = el('div', { class: 'gt-box' });
       let busy = false;
+      const annotate = annotateBlock();
 
       const drop = el('div', { class: 'dropzone small', id: 'ann-drop' },
         icon('upload', 28),
@@ -976,19 +1412,6 @@
         } finally {
           busy = false;
         }
-      }
-
-      function problemRow(p) {
-        const message = tr(`problem.${p.code}`, p.message || p.code);
-        const examples = (p.examples || []).slice(0, 5);
-        const head = el('span', { class: `problem-head ${p.level === 'error' ? 'bad' : 'warn'}` },
-          icon(p.level === 'error' ? 'error' : 'warning'),
-          el('span', { class: 'problem-msg' }, message),
-          p.count ? el('span', { class: 'count' }, `×${num(p.count)}`) : null);
-        if (!examples.length) return el('li', { class: 'problem' }, head);
-        return el('li', { class: 'problem' },
-          el('details', null, el('summary', null, head),
-            el('ul', { class: 'plain examples' }, ...examples.map((x) => el('li', null, el('code', null, x))))));
       }
 
       function renderValidation(report) {
@@ -1125,10 +1548,16 @@
 
       node.append(
         el('h2', { id: 'h-annotations' }, t('step.annotations')),
-        el('p', { class: 'muted' }, t('ann.intro')),
-        drop, fileInput, reportBox, gtBox);
-      panel.mount = () => loadGt();
-      panel.refresh = () => loadGt();
+        annotate.node,
+        el('section', { class: 'load-files', 'aria-labelledby': 'h-load' },
+          el('h3', { id: 'h-load' }, t('ann.load_title')),
+          el('p', { class: 'muted' }, t('ann.intro')),
+          drop, fileInput, reportBox),
+        gtBox);
+      panel.mount = () => { loadGt(); annotate.mount(); };
+      panel.refresh = () => { loadGt(); annotate.refresh(); };
+      panel.show = annotate.show;
+      panel.reveal = annotate.reveal;
       return panel;
     }
 
@@ -1154,6 +1583,8 @@
         onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
         onOpen: (items, i) => openLightbox(projectId, items, i),
       });
+
+      ctx.curationSelected = () => [...grid.selected];
 
       const analyzeBtn = (recompute) =>
         el('button', { type: 'button', class: `btn${recompute ? '' : ' primary'}`, onclick: () => analyze(recompute) }, recompute ? t('cur.reanalyze') : t('cur.analyze'));
@@ -1406,6 +1837,11 @@
       return 'images';
     }
 
+    const jobSessionId = (job) => {
+      const s = job.result && job.result.session;
+      return s && typeof s === 'object' ? s.id : s;
+    };
+
     /* one job row (used by the bar and by the history dialog) */
     function jobRow(job) {
       const active = isActive(job);
@@ -1421,7 +1857,7 @@
             ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
             : null,
           !active && job.status === 'done' && step !== 'fiftyone'
-            ? el('button', { type: 'button', class: 'btn small', onclick: () => { closeHistory(); showTab(step, true); } }, t('jobs.see_result'))
+            ? el('button', { type: 'button', class: 'btn small', onclick: () => { closeHistory(); showTab(step, true); if (/^annotate_/.test(job.kind)) setTimeout(() => ctx.panels.annotations.reveal(jobSessionId(job)), 80); } }, t('jobs.see_result'))
             : null),
         active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind)),
           el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
@@ -1480,6 +1916,10 @@
         return t(r.measured ? 'jobs.result_analyze' : 'jobs.result_analyze_none', { measured: num(r.measured), flagged: num(flagged) });
       }
       if (job.kind === 'import_folder' && 'added' in r) return tn('images.added', r.added);
+      if (job.kind === 'annotate_send' && r.session && typeof r.session === 'object') {
+        return tn('jobs.result_annotate_send', imagesOf(r.session), { tool: toolName(r.session.tool) });
+      }
+      if (job.kind === 'annotate_pull' && r.diff) return tn('jobs.result_annotate_pull', r.diff.images_changed || 0);
       return '';
     }
 
