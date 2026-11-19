@@ -30,7 +30,7 @@
   "classes.help": "Digite o nome da classe e tecle Enter para adicionar. Backspace remove a última.",
   "classes.remove": "Remover a classe {name}",
   "task.classification": "Classificação",
-  "task.classification.help": "Uma ou mais classes por imagem",
+  "task.classification.help": "Uma classe por imagem",
   "task.detection": "Detecção",
   "task.detection.help": "Caixas delimitadoras (bounding boxes) ao redor dos objetos",
   "task.segmentation": "Segmentação",
@@ -308,10 +308,15 @@
   "taskchange.text": "Este projeto tem anotações de {from} ({images} imagens, {labels} anotações). Elas não servem para {to}. Escolha o que fazer com elas antes de mudar a tarefa.",
   "taskchange.convert": "Converter para {to}",
   "taskchange.convert_help.detection": "Cada objeto vira a sua caixa delimitadora.",
-  "taskchange.convert_help.classification": "Cada imagem recebe as classes dos objetos que contém.",
+  "taskchange.convert_help.classification": "Cada imagem recebe a classe mais frequente entre os seus objetos.",
   "taskchange.convert_help.segmentation": "As anotações são convertidas para a nova tarefa.",
   "taskchange.convert_help.keypoints": "As anotações são convertidas para a nova tarefa.",
   "taskchange.discard": "Remover as anotações",
   "taskchange.discard_help": "Uma cópia de segurança fica na pasta do projeto.",
-  "jobs.result_analyze_none": "Nenhuma imagem nova para medir; problemas apontados: {flagged}."
+  "jobs.result_analyze_none": "Nenhuma imagem nova para medir; problemas apontados: {flagged}.",
+  "classes.in_use_title": "Remover classes que têm anotações?",
+  "classes.in_use_text": "Estas classes são usadas por anotações: {list}. Removê-las também remove essas anotações (uma cópia de segurança fica na pasta do projeto).",
+  "classes.in_use_item": "{name} ({labels} anotações em {images} imagens)",
+  "classes.in_use_remove": "Remover classes e suas anotações",
+  "problem.multiple_classes": "Imagens com mais de uma classe (só a primeira é mantida)"
 }

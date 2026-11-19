@@ -24,6 +24,9 @@ VIEW_ALL_ISSUES = "curation - quality issues"
 VIEW_EXCLUDED = "curation - excluded"
 VIEW_DUPLICATES = "curation - near duplicates"
 
+APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
+PORT_TRIES = 11  # APP_PORT and the next 10 ports
+
 _session: Any = None
 
 
@@ -34,7 +37,7 @@ def dataset_name(project_id: int) -> str:
 
 def _label_type(task: Task) -> type:
     return {
-        Task.CLASSIFICATION: fo.Classifications,
+        Task.CLASSIFICATION: fo.Classification,
         Task.DETECTION: fo.Detections,
         Task.SEGMENTATION: fo.Polylines,
         Task.KEYPOINTS: fo.Keypoints,
@@ -70,7 +73,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
     if not labels:
         return None
     if task is Task.CLASSIFICATION:
-        return fo.Classifications(classifications=[fo.Classification(label=lb.label) for lb in labels])
+        return fo.Classification(label=labels[0].label)
     if task is Task.DETECTION:
         return fo.Detections(
             detections=[fo.Detection(label=lb.label, bounding_box=lb.bbox) for lb in labels if lb.bbox]
@@ -207,25 +210,56 @@ def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:
     return VIEW_ALL_ISSUES if VIEW_ALL_ISSUES in saved else None
 
 
-def launch_app(dataset: fo.Dataset, view: str | None = None, port: int = 5151) -> str:
-    """Start the FiftyOne App in the background (no browser opened) and return its URL.
+def _slug(dataset: fo.Dataset, view: str) -> str:
+    """URL slug of a saved view (FiftyOne's own slug of its name when it is not listed)."""
+    for info in dataset.list_saved_views(info=True):
+        data = info if isinstance(info, dict) else info.to_dict()
+        if data.get("name") == view and data.get("slug"):
+            return str(data["slug"])
+    from fiftyone.core.utils import to_slug
 
-    A session that is already running on the port is reused: it just switches to the dataset
-    (and saved view, when given).
+    return str(to_slug(view))
+
+
+def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
+    """URL that opens the dataset (and saved view) directly, whichever server answers on the port."""
+    url = f"http://localhost:{port}/datasets/{dataset.name}"
+    return f"{url}?view={_slug(dataset, view)}" if view else url
+
+
+def launch_app(dataset: fo.Dataset, view: str | None = None, port: int = APP_PORT) -> str:
+    """Start the FiftyOne App in the background (no browser opened) and return a URL for the dataset.
+
+    A session of ours that is already running is reused: it just switches to the dataset (and
+    saved view, when given). If the port is busy the next ones are tried (up to +10). The URL
+    names the dataset (and view), so it opens correctly even if another FiftyOne program
+    answers on that port.
+
+    Raises:
+        OSError: no port was free.
     """
     global _session
     view = resolve_view(dataset, view)
+    if view and len(dataset.load_saved_view(view)) == 0:
+        view = None  # an empty view looks like a broken App: show the whole dataset instead
     target: Any = dataset.load_saved_view(view) if view else dataset
-    if _session is not None and getattr(_session, "port", None) == port:
+    if _session is not None:
         try:
             _session.dataset = dataset
             if view:
                 _session.view = target
-            return str(_session.url)
+            return app_url(dataset, view, int(_session.port))
         except Exception:  # noqa: BLE001 - the session was closed: start a new one
             _session = None
-    _session = fo.launch_app(target, port=port, remote=True)
-    return str(_session.url)
+    last: Exception | None = None
+    for candidate in range(port, port + PORT_TRIES):
+        try:
+            _session = fo.launch_app(target, port=candidate, remote=True)
+        except Exception as exc:  # noqa: BLE001 - port busy: try the next one
+            last = exc
+            continue
+        return app_url(dataset, view, candidate)
+    raise OSError(f"No free port for the FiftyOne App ({port}-{port + PORT_TRIES - 1}): {last}")
 
 
 def pull_exclusions(dataset: fo.Dataset, manifest: Manifest, tag: str = "exclude") -> int:

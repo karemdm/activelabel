@@ -30,7 +30,7 @@
   "classes.help": "Type a class name and press Enter to add it. Backspace removes the last one.",
   "classes.remove": "Remove class {name}",
   "task.classification": "Classification",
-  "task.classification.help": "One or more classes per image",
+  "task.classification.help": "One class per image",
   "task.detection": "Detection",
   "task.detection.help": "Bounding boxes around objects",
   "task.segmentation": "Segmentation",
@@ -308,10 +308,15 @@
   "taskchange.text": "This project has {from} annotations ({images} images, {labels} annotations). They do not fit {to}. Choose what to do with them before the task changes.",
   "taskchange.convert": "Convert them to {to}",
   "taskchange.convert_help.detection": "Each object becomes its bounding box.",
-  "taskchange.convert_help.classification": "Each image gets the classes of the objects it contains.",
+  "taskchange.convert_help.classification": "Each image gets the most frequent class among its objects.",
   "taskchange.convert_help.segmentation": "The annotations are converted to the new task.",
   "taskchange.convert_help.keypoints": "The annotations are converted to the new task.",
   "taskchange.discard": "Remove the annotations",
   "taskchange.discard_help": "A backup copy is kept in the project folder.",
-  "jobs.result_analyze_none": "No new images to measure; issue flags: {flagged}."
+  "jobs.result_analyze_none": "No new images to measure; issue flags: {flagged}.",
+  "classes.in_use_title": "Remove classes that have annotations?",
+  "classes.in_use_text": "These classes are used by annotations: {list}. Removing them also removes those annotations (a backup copy is kept in the project folder).",
+  "classes.in_use_item": "{name} ({labels} annotations in {images} images)",
+  "classes.in_use_remove": "Remove classes and their annotations",
+  "problem.multiple_classes": "Images with more than one class (only the first one is kept)"
 }

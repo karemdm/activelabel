@@ -36,6 +36,7 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     ),
     "unsupported_shape": ("warning", "Some shapes of an unsupported type were skipped."),
     "rle_bbox_only": ("warning", "Mask (RLE) objects were imported as boxes only."),
+    "multiple_classes": ("warning", "Some images have more than one class; only the first one is kept."),
     "invalid_annotation": ("warning", "Some annotations are malformed and were skipped."),
 }
 

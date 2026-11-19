@@ -83,15 +83,43 @@ def test_other_tasks_declare_fields(tmp_path, project):
     assert len(dataset.first().ground_truth.keypoints) == 1
     project.task = Task.CLASSIFICATION
     dataset = bridge.sync_dataset(project, manifest, None)
-    assert dataset.get_field("ground_truth").document_type is fo.Classifications
+    assert dataset.get_field("ground_truth").document_type is fo.Classification
 
 
 def test_launch_app_returns_url(tmp_path, project):
     manifest = build(tmp_path, 1)
     dataset = bridge.sync_dataset(project, manifest, None)
     url = bridge.launch_app(dataset, "curation - dark", port=5199)
-    assert url.startswith("http") and bridge.launch_app(dataset, None, port=5199) == url
+    slug = "curation-dark"  # FiftyOne's slug of the view name
+    assert url == f"http://localhost:5199/datasets/{dataset.name}?view={slug}"
+    assert bridge.launch_app(dataset, None, port=5199) == f"http://localhost:5199/datasets/{dataset.name}"
     bridge._session.close()
+    bridge._session = None
+
+
+def test_default_port_is_dedicated():
+    assert bridge.APP_PORT == 5161
+
+
+def test_launch_app_tries_next_port_when_busy(tmp_path, project, monkeypatch):
+    manifest = build(tmp_path, 1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    tried = []
+
+    class Fake:
+        def __init__(self, port):
+            self.port = port
+
+    def fake_launch(target, port, remote):
+        tried.append(port)
+        if port < 5163:
+            raise OSError("busy")
+        return Fake(port)
+
+    monkeypatch.setattr(bridge.fo, "launch_app", fake_launch)
+    monkeypatch.setattr(bridge, "_session", None)
+    url = bridge.launch_app(dataset)
+    assert tried == [5161, 5162, 5163] and url == f"http://localhost:5163/datasets/{dataset.name}"
     bridge._session = None
 
 
@@ -115,12 +143,12 @@ def test_resolve_view_accepts_issue_names(tmp_path):
         dataset.delete()
 
 
-def test_classification_ground_truth_is_multi_label(tmp_path, project):
+def test_classification_ground_truth_is_one_class(tmp_path, project):
     manifest = build(tmp_path, 2)
     project.task = Task.CLASSIFICATION
     labels = {"i0": [Label("cat"), Label("dog")]}
     gt = AnnotationSet(Task.CLASSIFICATION, ["cat", "dog"], labels, {})
     dataset = bridge.sync_dataset(project, manifest, gt)
     sample = dataset.match(fo.ViewField("image_id") == "i0").first()
-    assert [c.label for c in sample.ground_truth.classifications] == ["cat", "dog"]
+    assert sample.ground_truth.label == "cat"
     assert dataset.match(fo.ViewField("image_id") == "i1").first().ground_truth is None

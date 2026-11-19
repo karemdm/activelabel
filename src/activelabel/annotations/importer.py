@@ -66,6 +66,12 @@ def apply(
             boxes = [to_detection(lb) for lb in items]
             converted += sum(1 for b in boxes if b)
             labels[key] = [b for b in boxes if b]
+    reduced = 0
+    if task is Task.CLASSIFICATION:  # one class per image: keep the first
+        for key, items in labels.items():
+            if len({lb.label.lower() for lb in items}) > 1:
+                reduced += 1
+            labels[key] = items[:1]
     canon = {c.lower(): c for c in project.classes}
     for items in labels.values():
         for lb in items:
@@ -119,6 +125,7 @@ def apply(
         "images_kept": kept,
         "images_added": added,
         "converted": converted,
+        "classes_reduced": reduced,
         "classes_added": [c for c in updated.classes if c not in project.classes],
         "problems": [p.as_dict() for p in report.problems],
     }

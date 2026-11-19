@@ -64,10 +64,10 @@ def test_convert(tmp_path):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["task"] == "classification"
-    assert body["annotations_result"] == {"action": "convert", "images": 2, "labels": 3}
+    assert body["annotations_result"] == {"action": "convert", "images": 2, "labels": 2}
     saved = load_annotations(state.store.dir(1))
     assert saved.task is Task.CLASSIFICATION and saved.source["converted_from"] == "segmentation"
-    assert [lb.label for lb in saved.images[ids[0]]] == ["cat", "dog"]
+    assert [lb.label for lb in saved.images[ids[0]]] == ["cat"]
     assert body["steps"]["annotations"] == "loaded"
 
 
@@ -134,3 +134,42 @@ def test_clear_jobs(tmp_path):
     assert client.delete("/api/projects/1/jobs").json() == {"removed": 1}
     assert client.get("/api/projects/1/jobs").json() == []
     assert client.delete("/api/projects/9/jobs").status_code == 404
+
+
+def test_removing_used_classes_needs_a_decision(tmp_path):
+    client, state, _ = setup(tmp_path)
+    response = client.patch("/api/projects/1", json={"classes": ["Cat"]})
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "classes_in_use",
+        "message": "The class dog is used by 1 annotations in 1 images.",
+        "classes": [{"name": "dog", "labels": 1, "images": 1}],
+        "options": ["remove_annotations"],
+    }
+    assert load_annotations(state.store.dir(1)).images and not list(state.store.dir(1).glob("*.bak.json"))
+    assert client.get("/api/projects/1").json()["classes"] == []
+
+
+def test_remove_class_annotations(tmp_path):
+    client, state, ids = setup(tmp_path)
+    response = client.patch(
+        "/api/projects/1", json={"classes": ["cat"], "classes_action": "remove_annotations"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["classes"] == ["cat"] and body["classes_result"] == {"removed_labels": 1, "images": 1}
+    saved = load_annotations(state.store.dir(1))
+    assert [lb.label for lb in saved.images[ids[0]]] == ["cat"]
+    assert len(list(state.store.dir(1).glob("annotations.*.bak.json"))) == 1
+
+
+def test_adding_or_reordering_classes_needs_no_decision(tmp_path):
+    client, _, _ = setup(tmp_path)
+    ok = client.patch("/api/projects/1", json={"classes": ["dog", "cat", "bird"]})
+    assert ok.status_code == 200 and "classes_result" not in ok.json()
+
+
+def test_task_decision_comes_before_classes(tmp_path):
+    client, _, _ = setup(tmp_path)
+    detail = client.patch("/api/projects/1", json={"task": "detection", "classes": ["cat"]}).json()["detail"]
+    assert detail["code"] == "task_change_annotations"
