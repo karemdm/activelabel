@@ -31,7 +31,8 @@
       <div class="topbar-tools">
         <div class="lang-switch" role="group" aria-label="{{ t('nav.language') }}">
           {% for code in languages %}
-          <a href="?lang={{ code }}" hreflang="{{ code }}" lang="{{ code }}"
+          <a href="?lang={{ code }}" hreflang="{{ code }}" lang="{{ code }}" data-lang="{{ code }}"
+             onclick="this.href = location.pathname + '?lang={{ code }}' + location.hash"
              {% if code == lang %}aria-current="true"{% endif %}>{{ code|upper }}</a>
           {% endfor %}
         </div>
