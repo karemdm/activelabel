@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Manual run (Actions tab > ci > Run workflow) adds macOS, which costs more minutes.
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: checks (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON('["ubuntu-latest", "windows-latest"]') }}
+        python: ["3.12"]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+      - name: Mypy
+        run: python -m mypy
+      - name: Unit tests
+        run: python -m pytest -q -m "not integration"
+      - name: FiftyOne tests
+        # FiftyOne starts its own database; once per run is enough
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: python -m pytest -q -m integration
+      - name: Command line
+        run: visionloop --help

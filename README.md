@@ -74,3 +74,7 @@ python -m pytest -m integration         # tests that use FiftyOne
 
 Code lives in `src/visionloop`; tests in `tests/visionloop` mirror it. Formatting and lint
 with ruff, types with mypy; pre-commit runs them and the fast tests on every commit.
+
+Continuous integration (`.github/workflows/ci.yml`) runs the same checks on Linux and
+Windows on every push to `main` and on pull requests, plus the FiftyOne tests on Linux.
+macOS runs only on demand (Actions tab, *ci*, *Run workflow*).
