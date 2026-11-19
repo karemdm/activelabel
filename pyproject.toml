@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "visionloop"
+version = "0.1.0"
+description = "Image datasets from curation to trained models: projects, images, annotations, curation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "pillow>=10",
+    "pyyaml>=6",
+    "fiftyone>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "mypy>=1.10",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+    "types-PyYAML",
+]
+
+[project.scripts]
+visionloop = "visionloop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+visionloop = ["i18n/*.json", "web/templates/*.html", "web/static/*"]
+
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "D", "ANN"]
+ignore = [
+    "ANN401",        # Any is used for third-party objects without type hints
+    "D105", "D107",  # magic methods / __init__ documented by the class
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["visionloop"]
+
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests/helpers"]
+markers = ["integration: needs FiftyOne (its database starts on first use)"]
+addopts = "-p no:cacheprovider --import-mode=importlib"

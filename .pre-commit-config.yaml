@@ -1,0 +1,38 @@
+# Run `pre-commit install` once, with the project virtual environment active.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]
+      - id: detect-private-key
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format --check .
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: ruff
+        name: ruff (lint, docstrings, annotations)
+        entry: python -m ruff check .
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: pytest
+        name: pytest (unit tests)
+        entry: python -m pytest -q -m "not integration"
+        language: system
+        pass_filenames: false
+        always_run: true
