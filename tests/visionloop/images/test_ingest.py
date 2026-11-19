@@ -1,0 +1,215 @@
+import io
+import threading
+import zipfile
+from pathlib import Path
+
+import pytest
+from PIL import Image
+from sample_images import make_corrupt, make_image
+
+from visionloop.images.ingest import IngestReport, ingest_files, ingest_folder, thumbnail
+from visionloop.images.manifest import Manifest
+from visionloop.jobs import Cancelled, Job, Progress
+
+
+def _bytes(tmp_path: Path, name: str, **kw) -> bytes:
+    return make_image(tmp_path / "_src" / name, **kw).read_bytes()
+
+
+def _zip(entries: dict[str, bytes]) -> io.BytesIO:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+    buf.seek(0)
+    return buf
+
+
+@pytest.fixture
+def manifest(tmp_path):
+    return Manifest(tmp_path / "project")
+
+
+def test_images_are_stored_by_content(manifest, tmp_path):
+    a, b = _bytes(tmp_path, "a.jpg", seed=1), _bytes(tmp_path, "b.png", seed=2, fmt="PNG")
+    report = ingest_files(manifest, [("x/a.JPG", io.BytesIO(a)), ("b.png", io.BytesIO(b))])
+    assert report.added == 2 and not report.rejected
+    records = manifest.all()
+    assert {r.name for r in records} == {"x/a.JPG", "b.png"}
+    first = next(r for r in records if r.name == "x/a.JPG")
+    assert first.file == f"images/{first.id}.jpg" and len(first.id) == 16
+    assert manifest.file_path(first).read_bytes() == a
+    assert (first.width, first.height, first.size_bytes) == (64, 48, len(a))
+    assert not list((manifest.project_dir / "images").glob(".*"))
+
+
+def test_duplicates_within_and_across_uploads(manifest, tmp_path):
+    a = _bytes(tmp_path, "a.jpg", seed=1)
+    report = ingest_files(manifest, [("a.jpg", io.BytesIO(a)), ("copy.jpg", io.BytesIO(a))])
+    assert report.added == 1 and report.duplicates == ["copy.jpg"]
+    again = ingest_files(manifest, [("other.jpg", io.BytesIO(a))])
+    assert again.added == 0 and again.duplicates == ["other.jpg"]
+    assert len(manifest.all()) == 1
+
+
+def test_corrupt_small_and_unsupported(manifest, tmp_path):
+    bad = make_corrupt(tmp_path / "bad.jpg").read_bytes()
+    tiny = tmp_path / "tiny.png"
+    Image.new("RGB", (4, 40)).save(tiny)
+    report = ingest_files(
+        manifest,
+        [
+            ("bad.jpg", io.BytesIO(bad)),
+            ("tiny.png", io.BytesIO(tiny.read_bytes())),
+            ("doc.pdf", io.BytesIO(b"x")),
+        ],
+    )
+    assert report.added == 0 and manifest.all() == []
+    assert {(r["name"], r["reason"]) for r in report.rejected} == {
+        ("bad.jpg", "corrupt"),
+        ("tiny.png", "too small"),
+        ("doc.pdf", "unsupported"),
+    }
+    assert not list((manifest.project_dir / "images").iterdir())
+
+
+def test_exif_orientation_swaps_size(manifest, tmp_path):
+    path = tmp_path / "rot.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.new("RGB", (40, 20), "red").save(path, exif=exif)
+    ingest_files(manifest, [("rot.jpg", io.BytesIO(path.read_bytes()))])
+    record = manifest.all()[0]
+    assert (record.width, record.height) == (20, 40)
+    with Image.open(thumbnail(manifest, record)) as thumb:
+        assert thumb.size == (20, 40)
+
+
+def test_zip_with_subfolders_and_other_files(manifest, tmp_path):
+    a, b = _bytes(tmp_path, "a.jpg", seed=1), _bytes(tmp_path, "b.jpg", seed=2)
+    archive = _zip(
+        {
+            "set/a.jpg": a,
+            "set/deep/b.jpg": b,
+            "set/labels.json": b"{}",
+            "set/notes.txt": b"hi",
+            "set/readme.pdf": b"%PDF",
+            "__MACOSX/set/._a.jpg": b"junk",
+            "set/.hidden.jpg": a,
+            "set/.DS_Store": b"x",
+            "set/Thumbs.db": b"x",
+            "set/dir/": b"",
+        }
+    )
+    report = ingest_files(manifest, [("data.zip", archive)])
+    assert report.added == 2
+    assert {r.name for r in manifest.all()} == {"set/a.jpg", "set/deep/b.jpg"}
+    assert sorted(report.other_files) == ["set/labels.json", "set/notes.txt"]
+    assert report.rejected == [{"name": "set/readme.pdf", "reason": "unsupported"}]
+    assert report.duplicates == []
+
+
+def test_zip_slip_is_rejected(manifest, tmp_path):
+    a = _bytes(tmp_path, "a.jpg", seed=1)
+    archive = _zip({"../evil.jpg": a, "/abs.jpg": a, "ok/a.jpg": a})
+    report = ingest_files(manifest, [("s.zip", archive)])
+    assert report.added == 1
+    assert {r["reason"] for r in report.rejected} == {"unsafe path"} and len(report.rejected) == 2
+    assert not (manifest.project_dir.parent / "evil.jpg").exists()
+
+
+def test_bad_zip_and_size_limit(manifest, monkeypatch, tmp_path):
+    report = ingest_files(manifest, [("x.zip", io.BytesIO(b"not a zip"))])
+    assert report.rejected == [{"name": "x.zip", "reason": "corrupt"}]
+    monkeypatch.setattr("visionloop.images.ingest.MAX_ZIP_BYTES", 10)
+    big = _zip({"a.jpg": _bytes(tmp_path, "a.jpg")})
+    report = ingest_files(manifest, [("big.zip", big)])
+    assert report.added == 0 and "too large" in report.rejected[0]["reason"]
+
+
+def test_folder_import(manifest, tmp_path):
+    root = tmp_path / "root"
+    make_image(root / "set" / "a.jpg", seed=1)
+    make_image(root / "set" / "sub" / "b.jpg", seed=2)
+    (root / "set" / "notes.md").write_text("x")
+    report = ingest_folder(manifest, root / "set", root)
+    assert report.added == 2
+    assert {r.name for r in manifest.all()} == {"a.jpg", "sub/b.jpg"}
+    assert report.rejected == [{"name": "notes.md", "reason": "unsupported"}]
+
+
+def test_folder_import_refused(manifest, tmp_path):
+    make_image(tmp_path / "outside" / "a.jpg")
+    with pytest.raises(ValueError, match="VISIONLOOP_IMPORT_ROOT"):
+        ingest_folder(manifest, tmp_path / "outside", None)
+    (tmp_path / "root").mkdir()
+    with pytest.raises(ValueError, match="inside the import root"):
+        ingest_folder(manifest, tmp_path / "outside", tmp_path / "root")
+    with pytest.raises(ValueError, match="inside the import root"):
+        ingest_folder(manifest, tmp_path / "root" / ".." / "outside", tmp_path / "root")
+    assert manifest.all() == []
+
+
+def test_cancellation_keeps_manifest_consistent(manifest, tmp_path):
+    files = [(f"{i}.jpg", io.BytesIO(_bytes(tmp_path, f"{i}.jpg", seed=i))) for i in range(6)]
+    cancel = threading.Event()
+    progress = Progress(Job("j", 1, "ingest"), cancel)
+    original = progress.update
+
+    def update(done=None, total=None, message=None):
+        if done == 3:
+            cancel.set()
+        original(done, total, message)
+
+    progress.update = update  # type: ignore[method-assign]
+    with pytest.raises(Cancelled):
+        ingest_files(manifest, files, progress)
+    stored = sorted(p.name for p in (manifest.project_dir / "images").iterdir())
+    records = manifest.all()
+    assert 0 < len(records) < 6
+    assert stored == sorted(Path(r.file).name for r in records)
+
+
+def test_batches_flush_manifest(manifest, tmp_path, monkeypatch):
+    monkeypatch.setattr("visionloop.images.ingest.BATCH_SIZE", 2)
+    calls = []
+    real = manifest.add
+
+    def counting_add(records):
+        calls.append(len(records))
+        return real(records)
+
+    monkeypatch.setattr(manifest, "add", counting_add)
+    files = [(f"{i}.jpg", io.BytesIO(_bytes(tmp_path, f"{i}.jpg", seed=i))) for i in range(5)]
+    assert ingest_files(manifest, files).added == 5
+    assert calls == [2, 2, 1]
+
+
+def test_thumbnail_cached_and_regenerated(manifest, tmp_path):
+    data = _bytes(tmp_path, "a.png", size=(600, 300), fmt="PNG")
+    ingest_files(manifest, [("a.png", io.BytesIO(data))])
+    record = manifest.all()[0]
+    path = thumbnail(manifest, record)
+    assert path == manifest.project_dir / "thumbs" / f"{record.id}.jpg"
+    with Image.open(path) as thumb:
+        assert thumb.format == "JPEG" and thumb.mode == "RGB" and thumb.size == (256, 128)
+    mtime = path.stat().st_mtime_ns
+    assert thumbnail(manifest, record) == path and path.stat().st_mtime_ns == mtime
+    path.unlink()
+    assert thumbnail(manifest, record).exists()
+
+
+def test_report_as_dict_caps_lists():
+    report = IngestReport(added=1, duplicates=[str(i) for i in range(300)])
+    data = report.as_dict()
+    assert len(data["duplicates"]) == 200 and data["duplicates_count"] == 300 and data["added"] == 1
+
+
+def test_annotation_files_sent_with_images_are_listed(tmp_path):
+    import io
+
+    from visionloop.images.ingest import ingest_files
+    from visionloop.images.manifest import Manifest
+
+    report = ingest_files(Manifest(tmp_path / "p"), [("labels.json", io.BytesIO(b"{}"))])
+    assert report.other_files == ["labels.json"] and report.rejected == []
