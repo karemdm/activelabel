@@ -170,7 +170,10 @@ class CvatTool:
             {"label": f"CVAT task {i + 1}", "url": f"{creds['url']}/tasks/{tid}"}
             for i, tid in enumerate(task_ids)
         ]
-        return Sent(links=links, ref={"anno_key": anno_key})
+        return Sent(
+            links=links,
+            ref={"anno_key": anno_key, "project_name": f"ActiveLabel {project.id} - {project.name}"},
+        )
 
     def pull(
         self,
@@ -225,8 +228,29 @@ class CvatTool:
             except Exception as err:
                 if "not found" not in str(err).lower() and "404" not in str(err):
                     raise explain(err, settings.url) from None
+        if delete_remote and ref.get("project_name"):
+            _delete_empty_project(settings, str(ref["project_name"]))
         try:
             dataset.delete_annotation_run(anno_key)
         except Exception as err:
             if "not found" not in str(err).lower() and "no annotation run" not in str(err).lower():
                 raise ToolError(f"Could not forget the annotation run: {err}") from None
+
+
+def _delete_empty_project(settings: ToolSettings, name: str) -> None:
+    """Delete the CVAT project the send created, once it has no tasks left (best effort, never raises)."""
+    import requests
+
+    api = settings.url.rstrip("/") + "/api"
+    try:
+        http = requests.Session()
+        http.auth = (settings.username, settings.secret)
+        found = http.get(f"{api}/projects", params={"name": name}, timeout=30).json().get("results", [])
+        for item in found:
+            if item.get("name") != name:
+                continue
+            tasks = http.get(f"{api}/tasks", params={"project_id": item["id"]}, timeout=30).json()
+            if not tasks.get("count"):
+                http.delete(f"{api}/projects/{item['id']}", timeout=30)
+    except Exception:  # noqa: BLE001 - cleanup only: the session is closed anyway
+        return

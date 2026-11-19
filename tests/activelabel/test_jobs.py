@@ -74,3 +74,14 @@ def test_clear_removes_only_finished_jobs_of_the_project():
     wait(running)
     wait(queued)
     assert jobs.clear(1) == 2 and jobs.clear(1) == 0
+
+
+def test_fiftyone_database_errors_are_readable():
+    from activelabel.jobs import readable_error
+
+    class ServiceListenTimeout(Exception):
+        pass
+
+    message = readable_error(ServiceListenTimeout("DatabaseService failed to bind to port"))
+    assert message.startswith("The FiftyOne database did not respond") and "ServiceListenTimeout" in message
+    assert readable_error(ValueError("x")) == "ValueError: x"

@@ -55,7 +55,7 @@ def test_send_arguments_and_links():
     assert kw["project_name"] == "ActiveLabel 3 - Pets"
     assert kw["url"] == "https://cvat.example" and kw["password"] == "s3cret-pw"
     assert kw["label_schema"]["ground_truth"]["type"] == "detections"
-    assert sent.ref == {"anno_key": "al_s_1"}
+    assert sent.ref == {"anno_key": "al_s_1", "project_name": "ActiveLabel 3 - Pets"}
     assert [x["url"] for x in sent.links] == [
         "https://cvat.example/tasks/11",
         "https://cvat.example/tasks/12",

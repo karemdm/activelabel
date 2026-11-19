@@ -1,0 +1,90 @@
+"""HTTP API of importing a project from CVAT or Label Studio (see docs/IMPORT.md)."""
+
+from __future__ import annotations
+
+from types import ModuleType
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from activelabel.annotate import credentials
+from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.importing import cvat_import, labelstudio_import
+from activelabel.importing.common import RemoteNotFound
+from activelabel.jobs import Progress
+from activelabel.tasks import Task
+from activelabel.web.state import AppState, get_state
+
+router = APIRouter(prefix="/api")
+STATE = Depends(get_state)
+IMPORTERS: dict[str, ModuleType] = {"cvat": cvat_import, "labelstudio": labelstudio_import}
+KINDS = {"cvat": ("project", "task"), "labelstudio": ("project",)}
+
+
+class ImportBody(BaseModel):
+    """Body of POST /import."""
+
+    tool: str
+    remote_id: str | int
+    kind: str = "project"
+    name: str = ""
+    description: str = ""
+    task: Task = Task.DETECTION
+
+
+def _importer(tool: str) -> ModuleType:
+    if tool not in IMPORTERS:
+        raise HTTPException(404, f"Unknown tool '{tool}' (use cvat or labelstudio).")
+    return IMPORTERS[tool]
+
+
+def _settings(state: AppState, tool: str) -> ToolSettings:
+    settings = credentials.load_settings(state.settings.workspace, tool)
+    if not credentials.is_configured(settings):
+        raise HTTPException(400, f"Configure {tool} first")
+    return settings
+
+
+@router.get("/import/{tool}/projects")
+def list_remote(tool: str, search: str = "", state: AppState = STATE) -> dict[str, Any]:
+    """Projects (and CVAT tasks outside projects) that can be imported, newest first."""
+    importer = _importer(tool)
+    settings = _settings(state, tool)
+    try:
+        return {"items": importer.list_remote(settings, search)}
+    except ToolError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/import")
+def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
+    """Import a remote project as a new project (job ``import_project``, project id 0)."""
+    importer = _importer(body.tool)
+    if body.kind not in KINDS[body.tool]:
+        raise HTTPException(400, f"kind must be one of: {', '.join(KINDS[body.tool])}.")
+    settings = _settings(state, body.tool)
+    remote_id = str(body.remote_id)
+    try:
+        importer.check_remote(settings, body.kind, remote_id)
+    except RemoteNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ToolError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    store, workspace = state.store, state.settings.workspace
+
+    def run(progress: Progress) -> dict[str, Any]:
+        result: dict[str, Any] = importer.import_project(
+            store,
+            settings,
+            workspace,
+            kind=body.kind,
+            remote_id=remote_id,
+            name=body.name,
+            description=body.description,
+            task=body.task,
+            progress=progress,
+        )
+        return result
+
+    return state.jobs.submit(0, "import_project", run).as_dict()

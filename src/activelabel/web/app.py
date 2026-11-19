@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from activelabel import __version__
 from activelabel.config import Settings
-from activelabel.web import annotate_api, api, pages
+from activelabel.web import annotate_api, api, import_api, pages
 from activelabel.web.state import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -31,6 +31,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.state.settings = state.settings
     app.include_router(api.router)
     app.include_router(annotate_api.router)
+    app.include_router(import_api.router)
     app.include_router(pages.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app

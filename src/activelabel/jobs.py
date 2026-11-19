@@ -22,6 +22,18 @@ QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed"
 FINISHED = (DONE, FAILED, CANCELLED)
 
 
+def readable_error(exc: BaseException) -> str:
+    """Message shown to people: FiftyOne database failures get a hint instead of a stack detail."""
+    name = type(exc).__name__
+    text = f"{name}: {exc}"
+    if name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in str(exc):
+        return (
+            "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel "
+            f"(another program using FiftyOne may be holding it). Details: {text}"
+        )
+    return text
+
+
 class Cancelled(Exception):
     """The job was cancelled by the user."""
 
@@ -111,7 +123,7 @@ class JobManager:
             job.status = CANCELLED
         except Exception as exc:  # noqa: BLE001 - shown to the user, the service keeps running
             job.status = FAILED
-            job.error = f"{type(exc).__name__}: {exc}"
+            job.error = readable_error(exc)
             job.result = {"traceback": traceback.format_exc(limit=5)}
         job.finished = now()
 
