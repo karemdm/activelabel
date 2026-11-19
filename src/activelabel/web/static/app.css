@@ -354,9 +354,16 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 
-/* new project: details and classes beside the task on wide screens */
-@media (min-width: 1100px) {
-  .form.new-project { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 2rem; align-items: start; }
-  .form.new-project > .field-task, .form.new-project > .form-actions { grid-column: 1 / -1; }
-}
 .jobs-bar[hidden] { display: none; }
+
+.pager { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 1rem; }
+.pager-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.pager .btn.current { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.pager-size { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.9rem; }
+.pager-size select { width: auto; }
+.jobs-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+dialog .jobs.scroll-box { max-height: 60vh; }
+.small { font-size: 0.8rem; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.choices { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.75rem; }
+.choices li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
