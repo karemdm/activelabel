@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ t('import.title') }}{% endblock %}
+{% block page %}import{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ t('import.title') }}</h1>
+    <p class="muted import-intro">{{ t('import.intro') }}</p>
+  </div>
+  <a class="btn" href="/">{{ t('common.cancel') }}</a>
+</div>
+<div id="import-root"><p class="muted">{{ t('common.loading') }}</p></div>
+{% endblock %}
