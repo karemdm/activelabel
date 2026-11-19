@@ -22,6 +22,8 @@ dependencies = [
     "fiftyone>=1.22,<2",
     # graphql-core 3.3 removed an API that the GraphQL library used by the FiftyOne App imports
     "graphql-core<3.3",
+    # secrets of the annotation tools (passwords, tokens) live in the system keyring, never in files
+    "keyring>=24",
 ]
 
 [project.optional-dependencies]

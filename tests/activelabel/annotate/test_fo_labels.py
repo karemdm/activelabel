@@ -1,0 +1,47 @@
+import fiftyone as fo
+import numpy as np
+import pytest
+from fiftyone import core  # noqa: F401
+
+from activelabel.annotate.fo_labels import labels_and_notes, labels_from_fo
+from activelabel.tasks import Task
+
+
+def test_classification_and_classifications():
+    assert [x.label for x in labels_from_fo(fo.Classification(label="cat"), Task.CLASSIFICATION)] == ["cat"]
+    many = fo.Classifications(classifications=[fo.Classification(label="a"), fo.Classification(label="b")])
+    assert [x.label for x in labels_from_fo(many, Task.CLASSIFICATION)] == ["a"]
+    assert labels_from_fo(None, Task.CLASSIFICATION) == []
+    assert labels_from_fo(fo.Classifications(), Task.CLASSIFICATION) == []
+
+
+def test_detections_round_and_mask_note():
+    dets = fo.Detections(
+        detections=[
+            fo.Detection(label="cat", bounding_box=[0.1234567891, 0.2, 0.3, 0.4]),
+            fo.Detection(label="dog", bounding_box=[0, 0, 0.5, 0.5], mask=np.ones((2, 2), dtype=bool)),
+        ]
+    )
+    labels, notes = labels_and_notes(dets, Task.SEGMENTATION)
+    assert labels[0].bbox == [0.123457, 0.2, 0.3, 0.4]
+    assert [x.label for x in labels] == ["cat", "dog"] and notes == {"mask_only": 1}
+
+
+def test_polylines_to_polygons_with_bbox():
+    poly = fo.Polyline(label="a", points=[[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]], filled=True, closed=True)
+    (label,) = labels_from_fo(fo.Polylines(polylines=[poly]), Task.SEGMENTATION)
+    assert label.polygons == [[[0.1, 0.2], [0.5, 0.2], [0.5, 0.6]]]
+    assert label.bbox == [0.1, 0.2, 0.4, 0.4]
+
+
+def test_keypoints_nan_is_not_visible():
+    nan = float("nan")
+    kp = fo.Keypoint(label="p", points=[(0.2, 0.3), (nan, nan), (0.6, 0.7)])
+    (label,) = labels_from_fo(fo.Keypoints(keypoints=[kp]), Task.KEYPOINTS)
+    assert label.keypoints == [[0.2, 0.3, 2.0], [0.0, 0.0, 0.0], [0.6, 0.7, 2.0]]
+    assert label.bbox == [0.2, 0.3, 0.4, 0.4]
+
+
+def test_unsupported_type():
+    with pytest.raises(ValueError):
+        labels_from_fo(fo.Segmentation(), Task.DETECTION)
