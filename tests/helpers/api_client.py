@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from activelabel.config import Settings
-from activelabel.web import api
+from activelabel.web import annotate_api, api
 from activelabel.web.state import AppState
 
 
@@ -15,6 +15,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     app = FastAPI()
     app.state.activelabel = state
     app.include_router(api.router)
+    app.include_router(annotate_api.router)
     return TestClient(app), state
 
 
