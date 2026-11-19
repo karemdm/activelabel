@@ -49,18 +49,32 @@ def test_keypoints_to_detection():
     assert out is not None and out.images["a"][0].bbox is not None and out.images["a"][0].keypoints is None
 
 
-def test_objects_to_classification_uses_distinct_classes():
+def test_objects_to_classification_uses_the_most_frequent_class():
     out = convert_annotations(segmentation(), Task.CLASSIFICATION)
     assert out is not None
-    assert [lb.label for lb in out.images["a"]] == ["cat", "dog"]
+    assert [lb.label for lb in out.images["a"]] == ["cat"]  # tie: first to appear
     assert [lb.label for lb in out.images["b"]] == ["cat"] and out.images["c"] == []
     assert all(lb.bbox is None for v in out.images.values() for lb in v)
 
 
-def test_several_classes_per_image_are_valid_for_classification():
+def test_most_frequent_class_wins():
+    images = {
+        "a": [
+            Label("dog", bbox=[0, 0, 1, 1]),
+            Label("cat", bbox=[0, 0, 1, 1]),
+            Label("cat", bbox=[0, 0, 1, 1]),
+        ]
+    }
+    out = convert_annotations(AnnotationSet(Task.DETECTION, ["cat", "dog"], images, {}), Task.CLASSIFICATION)
+    assert out is not None and [lb.label for lb in out.images["a"]] == ["cat"]
+
+
+def test_several_classes_per_image_give_a_warning_for_classification():
     labels = {"a": [Label("cat"), Label("dog")], "b": [Label("cat")]}
     result = ParseResult("labelstudio", labels, ["cat", "dog"], ["x.json"], 2)
     report = validate(result, Project(1, "t", "", Task.CLASSIFICATION, []))
-    assert report.task_matches and report.can_import and not report.problems
-    assert report.counts["labels_per_class"] == {"cat": 2, "dog": 1}
-    assert report.counts["images_with_labels"] == 2 and report.counts["labels_total"] == 3
+    assert report.task_matches and report.can_import
+    assert [(p.level, p.code, p.count, p.examples) for p in report.problems] == [
+        ("warning", "multiple_classes", 1, ["a"])
+    ]
+    assert report.problems[0].message == "1 images have more than one class; only the first one is kept"

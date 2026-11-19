@@ -49,6 +49,7 @@ class ProjectChanges(BaseModel):
     annotations: Literal["convert", "discard"] | None = (
         None  # what to do with the ground truth on a task change
     )
+    classes_action: Literal["remove_annotations"] | None = None  # when removed classes are still in use
 
 
 class DeleteProject(BaseModel):
@@ -147,6 +148,24 @@ def _counts(annotations: AnnotationSet) -> tuple[int, int]:
     return sum(1 for v in annotations.images.values() if v), sum(len(v) for v in annotations.images.values())
 
 
+def _classes_used(annotations: AnnotationSet, keep: set[str]) -> dict[str, dict[str, Any]]:
+    """Classes of the ground truth that are not in ``keep`` (lower case): name -> labels and image ids."""
+    used: dict[str, dict[str, Any]] = {}
+    for image_id, labels in annotations.images.items():
+        for lb in labels:
+            if lb.label.lower() not in keep:
+                entry = used.setdefault(lb.label, {"labels": 0, "ids": set()})
+                entry["labels"] += 1
+                entry["ids"].add(image_id)
+    return used
+
+
+def _backup_annotations(project_dir: Path) -> None:
+    """Copy annotations.json to annotations.<timestamp>.bak.json."""
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
+
+
 @router.patch("/projects/{project_id}")
 def update_project(project_id: int, body: ProjectChanges, state: AppState = STATE) -> dict[str, Any]:
     """Change name, description, task or classes.
@@ -154,9 +173,13 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
     Changing the task of a project whose ground truth is of another task needs ``annotations``:
     ``convert`` (when possible) or ``discard`` (a backup copy is kept). Without it the answer is
     HTTP 409 with ``detail`` describing the options, and nothing changes.
+
+    Removing classes that the ground truth still uses needs ``classes_action: "remove_annotations"``
+    (a backup copy is kept); otherwise HTTP 409 ``classes_in_use``. Adding or reordering classes never
+    needs a decision. The task decision is checked first.
     """
     project = state.project(project_id)
-    changes = body.model_dump(exclude_none=True, exclude={"annotations"})
+    changes = body.model_dump(exclude_none=True, exclude={"annotations", "classes_action"})
     project_dir = state.store.dir(project_id)
     ground_truth = load_annotations(project_dir) if "task" in changes else None
     result: dict[str, Any] | None = None
@@ -189,19 +212,56 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
         else:
             result = {"images": images, "labels": labels}
         result = {"action": body.annotations, **result}
+    classes_result: dict[str, int] | None = None
+    cleaned: AnnotationSet | None = None
+    if body.classes is not None and not (result is not None and converted is None):  # not after a discard
+        current = converted or load_annotations(project_dir)
+        keep = {c.lower() for c in body.classes}
+        used = _classes_used(current, keep) if current else {}
+        if used:
+            if body.classes_action is None:
+                names = ", ".join(used)
+                n_labels = sum(u["labels"] for u in used.values())
+                n_images = len({i for u in used.values() for i in u["ids"]})
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "classes_in_use",
+                        "message": (
+                            f"The classes {names} are used by {n_labels} annotations in {n_images} images."
+                            if len(used) > 1
+                            else f"The class {names} is used by {n_labels} annotations in {n_images} images."
+                        ),
+                        "classes": [
+                            {"name": n, "labels": u["labels"], "images": len(u["ids"])}
+                            for n, u in used.items()
+                        ],
+                        "options": ["remove_annotations"],
+                    },
+                )
+            assert current is not None
+            kept_images = {k: [lb for lb in v if lb.label.lower() in keep] for k, v in current.images.items()}
+            removed = sum(len(v) for v in current.images.values()) - sum(len(v) for v in kept_images.values())
+            touched = sum(1 for k, v in kept_images.items() if len(v) != len(current.images[k]))
+            cleaned = AnnotationSet(current.task, current.classes, kept_images, current.source)
+            classes_result = {"removed_labels": removed, "images": touched}
     try:
         project = state.store.update(project_id, **changes)
     except ValueError as exc:
         raise _bad_request(exc) from exc
     if converted is not None:
-        save_annotations(project_dir, converted)
+        save_annotations(project_dir, cleaned or converted)
     elif result is not None:
-        stamp = time.strftime("%Y%m%dT%H%M%S")
-        shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
+        _backup_annotations(project_dir)
         annotations_path(project_dir).unlink()
+    elif cleaned is not None:
+        _backup_annotations(project_dir)
+        save_annotations(project_dir, cleaned)
     overview = project_overview(state, project)
     if result is not None:
         overview["annotations_result"] = result
+    if classes_result is not None:
+        overview["classes_result"] = classes_result
     return overview
 
 

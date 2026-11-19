@@ -485,7 +485,7 @@
         total > size ? el('span', { class: 'pager-pages' },
           btn('‹', page - 1, { disabled: page === 0, aria: t('grid.prev') }), ...numbers,
           btn('›', page + 1, { disabled: page >= pages - 1, aria: t('grid.next') })) : el('span'),
-        total > SIZES[0] ? el('label', { class: 'pager-size' }, t('grid.per_page'), sizeSelect) : null);
+        total > SIZES[0] ? el('label', { class: 'pager-size' }, t('grid.per_page'), sizeSelect) : el('span'));
     }
 
     async function load(reset) {
@@ -720,24 +720,41 @@
         save.disabled = true;
         const body = { name: nameInput.value.trim(), description: descInput.value.trim(), task: picker.get(), classes: chips.get() };
         try {
-          let updated;
-          try {
-            updated = await api('PATCH', `/projects/${projectId}`, { json: body });
-          } catch (err) {
-            const d = err.detail;
-            if (err.status !== 409 || !d || d.code !== 'task_change_annotations') throw err;
-            /* the annotations were made for another task: the person decides what happens to them */
-            const choice = await choiceDialog({
-              title: t('taskchange.title'),
-              text: t('taskchange.text', { from: taskName(d.from_task), to: taskName(d.to_task), images: num(d.images), labels: num(d.labels) }),
-              choices: [
-                ...(d.options.includes('convert') ? [{ value: 'convert', primary: true, label: t('taskchange.convert', { to: taskName(d.to_task) }), help: t(`taskchange.convert_help.${d.to_task}`) }] : []),
-                { value: 'discard', danger: true, label: t('taskchange.discard'), help: t('taskchange.discard_help') },
-              ],
-            });
-            if (!choice) { save.disabled = false; return; }
-            updated = await api('PATCH', `/projects/${projectId}`, { json: { ...body, annotations: choice } });
+          /* the server may ask for decisions (task change, classes still in use); ask them one by one */
+          let updated = null;
+          const decisions = {};
+          for (let round = 0; round < 3 && !updated; round += 1) {
+            try {
+              updated = await api('PATCH', `/projects/${projectId}`, { json: { ...body, ...decisions } });
+            } catch (err) {
+              const d = err.detail;
+              if (err.status !== 409 || !d || !d.code) throw err;
+              if (d.code === 'task_change_annotations') {
+                const choice = await choiceDialog({
+                  title: t('taskchange.title'),
+                  text: t('taskchange.text', { from: taskName(d.from_task), to: taskName(d.to_task), images: num(d.images), labels: num(d.labels) }),
+                  choices: [
+                    ...(d.options.includes('convert') ? [{ value: 'convert', primary: true, label: t('taskchange.convert', { to: taskName(d.to_task) }), help: t(`taskchange.convert_help.${d.to_task}`) }] : []),
+                    { value: 'discard', danger: true, label: t('taskchange.discard'), help: t('taskchange.discard_help') },
+                  ],
+                });
+                if (!choice) { save.disabled = false; return; }
+                decisions.annotations = choice;
+              } else if (d.code === 'classes_in_use') {
+                const list = (d.classes || []).map((c) => t('classes.in_use_item', { name: c.name, labels: num(c.labels), images: num(c.images) })).join('; ');
+                const ok = await confirmDialog({
+                  title: t('classes.in_use_title'),
+                  text: t('classes.in_use_text', { list }),
+                  confirmLabel: t('classes.in_use_remove'),
+                });
+                if (!ok) { save.disabled = false; return; }
+                decisions.classes_action = 'remove_annotations';
+              } else {
+                throw err;
+              }
+            }
           }
+          if (!updated) { save.disabled = false; return; }
           ctx.project = { ...ctx.project, ...updated };
           dlg.close();
           toast(t('project.saved'), 'success', 3000);
@@ -1103,7 +1120,7 @@
                   el('span', { class: 'bar-label', title: c.name }, c.name),
                   el('span', { class: 'bar-track' }, el('span', { class: 'bar-fill', style: `width:${Math.round(((c.count || 0) / max) * 100)}%` })),
                   el('span', { class: 'bar-value' }, num(c.count || 0)))))
-            : null);
+            : el('span'));
       }
 
       node.append(

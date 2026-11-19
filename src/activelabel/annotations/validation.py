@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from activelabel.annotations.models import PROBLEMS, ParseResult, Problem, ValidationReport
+from activelabel.annotations.models import MAX_EXAMPLES, PROBLEMS, ParseResult, Problem, ValidationReport
 from activelabel.labels import Label, task_of
 from activelabel.projects import Project
 from activelabel.tasks import Task
@@ -35,6 +35,18 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
     elif not labels:
         level, message = PROBLEMS["no_labels"]
         problems.insert(0, Problem(level, "no_labels", message, 0, []))
+    if inferred is Task.CLASSIFICATION:
+        many = [k for k, items in result.labels.items() if len({lb.label.lower() for lb in items}) > 1]
+        if many:
+            problems.append(
+                Problem(
+                    "warning",
+                    "multiple_classes",
+                    f"{len(many)} images have more than one class; only the first one is kept",
+                    len(many),
+                    many[:MAX_EXAMPLES],
+                )
+            )
     can_import = bool(labels) and not any(p.level == "error" for p in problems)
     matches = inferred is not None and inferred == project.task
     options = [DISCARD]

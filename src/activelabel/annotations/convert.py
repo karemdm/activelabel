@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from activelabel.annotations.validation import to_detection
 from activelabel.labels import AnnotationSet, Label
 from activelabel.tasks import Task
@@ -22,8 +24,9 @@ def convert_annotations(annotations: AnnotationSet, to_task: Task) -> Annotation
     """Ground truth converted to another task.
 
     Segmentation or keypoints to detection keeps the box of each object (polygons and keypoints
-    are dropped). Detection, segmentation or keypoints to classification gives each image the
-    distinct classes of its objects (an image without objects gets an empty list).
+    are dropped). Detection, segmentation or keypoints to classification gives each image ONE
+    class: the most frequent object class in it (ties: the class that appears first). An image
+    without objects gets an empty list.
 
     Args:
         annotations: the current ground truth (not modified).
@@ -37,7 +40,8 @@ def convert_annotations(annotations: AnnotationSet, to_task: Task) -> Annotation
     images: dict[str, list[Label]] = {}
     for image_id, labels in annotations.images.items():
         if to_task is Task.CLASSIFICATION:
-            images[image_id] = [Label(name) for name in dict.fromkeys(lb.label for lb in labels)]
+            counts = Counter(lb.label for lb in labels)  # insertion order = first appearance
+            images[image_id] = [Label(max(counts, key=counts.__getitem__))] if counts else []
         else:
             boxes = [to_detection(lb) for lb in labels]
             images[image_id] = [b for b in boxes if b]

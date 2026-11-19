@@ -62,7 +62,7 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | GET | `/projects` | | list of projects with counts |
 | POST | `/projects` | `{name, description, task, classes}` | project |
 | GET | `/projects/{id}` | | project + counts + step status |
-| PATCH | `/projects/{id}` | any of `name, description, task, classes` | project |
+| PATCH | `/projects/{id}` | any of `name, description, task, classes`; `annotations` (`convert`/`discard`) and `classes_action` (`remove_annotations`) answer a 409 (`task_change_annotations`, `classes_in_use`) | project (+ `annotations_result`, `classes_result`) |
 | DELETE | `/projects/{id}` | `{confirm_name}` | `{deleted: id}` |
 | POST | `/projects/{id}/images` | multipart `files` (images and/or .zip) | ingest report |
 | POST | `/projects/{id}/images/folder` | `{path}` | job (folder import) |
