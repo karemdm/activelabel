@@ -17,6 +17,7 @@ from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
+from activelabel.importing.common import read_origin
 from activelabel.jobs import Job, Progress
 from activelabel.labels import AnnotationSet, annotations_path, load_annotations, save_annotations
 from activelabel.projects import Project
@@ -96,6 +97,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
         curation = "analyzed"
     return {
         **project.as_dict(),
+        "origin": read_origin(project_dir),  # where an imported project came from (None otherwise)
         "counts": {
             "images": len(records),
             "active": len(active),
@@ -401,6 +403,15 @@ def clear_jobs(project_id: int, state: AppState = STATE) -> dict[str, int]:
     """Remove the finished jobs of a project from the list (running ones stay)."""
     state.project(project_id)
     return {"removed": state.jobs.clear(project_id)}
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
+    """One job, of any project (including imports, which belong to project 0)."""
+    try:
+        return state.jobs.get(job_id).as_dict()
+    except KeyError:
+        raise HTTPException(404, "This task no longer exists.") from None
 
 
 @router.post("/jobs/{job_id}/cancel")

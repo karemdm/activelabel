@@ -1,0 +1,310 @@
+import threading
+from pathlib import Path
+
+import pytest
+import requests
+from import_fakes import FakeResp, FakeSession, make_images
+
+from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.images.manifest import Manifest
+from activelabel.importing import cvat_import as ci
+from activelabel.importing.common import RemoteNotFound, read_origin
+from activelabel.jobs import Cancelled, Job, Progress
+from activelabel.labels import load_annotations
+from activelabel.projects import ProjectStore
+from activelabel.tasks import Task
+
+BASE = "http://cvat.local"
+SETTINGS = ToolSettings("cvat", BASE, "user", "pw-secret")
+
+
+# Stand-ins for FiftyOne labels: they are recognised by class name.
+class Detection:
+    def __init__(self, label, box):
+        self.label, self.bounding_box, self.mask = label, box, None
+
+
+class Detections:
+    def __init__(self, *items):
+        self.detections = list(items)
+
+
+class Polyline:
+    def __init__(self, label, ring):
+        self.label, self.points, self.filled = label, [ring], True
+
+
+class Polylines:
+    def __init__(self, *items):
+        self.polylines = list(items)
+
+
+class Classification:
+    def __init__(self, label):
+        self.label = label
+
+
+RING = [(0.1, 0.1), (0.5, 0.1), (0.5, 0.6)]
+
+
+@pytest.fixture
+def cvat(monkeypatch):
+    projects = {
+        "count": 2,
+        "next": None,
+        "results": [
+            {"id": 1, "name": "Street", "created_date": "2026-02-01", "labels": [{"id": 1, "name": "car"}]},
+            {"id": 2, "name": "Empty", "created_date": "2026-01-01", "labels": {"count": 1, "url": "x"}},
+        ],
+    }
+    tasks = {
+        "count": 3,
+        "next": None,
+        "results": [
+            {
+                "id": 12,
+                "name": "Loose",
+                "project_id": None,
+                "size": 5,
+                "created_date": "2026-04-01",
+                "labels": [],
+            },
+            {"id": 11, "name": "t2", "project_id": 1, "size": 7, "created_date": "2026-03-01", "labels": []},
+            {"id": 10, "name": "t1", "project_id": 1, "size": 3, "created_date": "2026-02-01", "labels": []},
+        ],
+    }
+    routes = {
+        ("GET", "/api/projects/1"): FakeResp(200, projects["results"][0]),
+        ("GET", "/api/projects/99"): FakeResp(404),
+        ("GET", "/api/projects"): FakeResp(200, projects),
+        ("GET", "/api/tasks/12"): FakeResp(200, tasks["results"][0]),
+        ("GET", "/api/tasks"): FakeResp(200, tasks),
+        ("GET", "/api/labels"): FakeResp(
+            200, {"results": [{"name": "tree"}, {"name": "arm", "parent_id": 3}]}
+        ),
+        ("GET", "/api/projects/401"): FakeResp(401),
+    }
+    fake = FakeSession(routes, BASE)
+    monkeypatch.setattr(requests, "Session", lambda: fake)
+    return fake
+
+
+def test_list_remote(cvat):
+    items = ci.list_remote(SETTINGS)
+    assert [(i["kind"], i["name"], i["images"]) for i in items] == [
+        ("task", "Loose", 5),
+        ("project", "Street", 10),
+        ("project", "Empty", 0),
+    ]
+    assert items[1]["classes"] == ["car"] and items[2]["classes"] == ["tree"]  # inline and fetched labels
+    assert items[1]["created"] == "2026-02-01" and items[0]["id"] == 12
+    assert [i["name"] for i in ci.list_remote(SETTINGS, "STR")] == ["Street"]
+    assert all(c[2].get("auth") == ("user", "pw-secret") for c in cvat.calls)  # basic auth, never in the URL
+    assert "pw-secret" not in str([c[1] for c in cvat.calls])
+
+
+def test_list_remote_pagination(monkeypatch):
+    def page(kw):
+        n = kw["params"]["page"]
+        return FakeResp(
+            200,
+            {
+                "next": "more" if n < 5 else None,
+                "results": [{"id": n * 100 + i, "name": "p"} for i in range(100)],
+            },
+        )
+
+    fake = FakeSession(
+        {("GET", "/api/projects"): page, ("GET", "/api/tasks"): FakeResp(200, {"results": []})}, BASE
+    )
+    monkeypatch.setattr(requests, "Session", lambda: fake)
+    items = ci.list_remote(SETTINGS)
+    assert len(items) == 200  # capped
+
+
+def test_list_remote_errors(monkeypatch):
+    fake = FakeSession({("GET", "/api/projects"): FakeResp(401)}, BASE)
+    monkeypatch.setattr(requests, "Session", lambda: fake)
+    with pytest.raises(ToolError, match="login failed"):
+        ci.list_remote(SETTINGS)
+
+    def down(*a, **k):
+        raise requests.ConnectionError("pw-secret leaked?")
+
+    class Dead:
+        get = down
+
+    monkeypatch.setattr(requests, "Session", Dead)
+    with pytest.raises(ToolError, match="Cannot reach CVAT") as err:
+        ci.list_remote(SETTINGS)
+    assert "pw-secret" not in str(err.value)
+    with pytest.raises(ToolError, match="needs the server"):
+        ci.list_remote(ToolSettings("cvat", BASE, "", ""))
+
+
+def test_check_remote(cvat):
+    assert ci.check_remote(SETTINGS, "project", "1") == {"name": "Street", "classes": ["car"]}
+    assert ci.check_remote(SETTINGS, "task", "12")["name"] == "Loose"
+    with pytest.raises(RemoteNotFound):
+        ci.check_remote(SETTINGS, "project", "99")
+    with pytest.raises(RemoteNotFound):
+        ci.check_remote(SETTINGS, "project", "x")
+    with pytest.raises(ToolError):
+        ci.check_remote(SETTINGS, "folder", "1")
+
+
+def fake_download(files, calls=None):
+    """Replacement of ``_download``: writes the images and answers with labels per image."""
+
+    def download(settings, kind, remote_id, data_dir):
+        if calls is not None:
+            calls.append((kind, remote_id, data_dir))
+        sources = make_images(data_dir.parent / "src", len(files))
+        out = []
+        for name, values, source in zip(files, files.values(), sources, strict=True):
+            target = data_dir / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+            out.append(ci.SampleLabels(target, values))
+        return out
+
+    return download
+
+
+def run(store, tmp_path, progress=None, **kw):
+    progress = progress or Progress(Job("j", 0, "import_project"), threading.Event())
+    args = {"kind": "project", "remote_id": "1", "name": "", "description": "", "task": Task.DETECTION}
+    return ci.import_project(store, SETTINGS, tmp_path / "ws", progress=progress, **{**args, **kw})
+
+
+def test_import_merges_fields_and_infers_task(cvat, tmp_path, monkeypatch):
+    files = {
+        "a.png": [Detections(Detection("car", [0.1, 0.1, 0.3, 0.3])), Polylines(Polyline("tree", RING))],
+        "sub/b.png": [
+            Detections(Detection("car", [0.2, 0.2, 0.2, 0.2]), Detection("bus", [0.5, 0.5, 0.2, 0.2]))
+        ],
+        "c.png": [Detections(), None],
+        "d.png": [Classification("night")],
+    }
+    calls = []
+    monkeypatch.setattr(ci, "_download", fake_download(files, calls))
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path)
+    assert calls[0][:2] == ("project", "1")
+    assert result["task"] == "detection" and result["name"] == "Street"
+    assert result["images_added"] == 4 and result["images_rejected"] == 0
+    assert result["labels"] == 4  # 3 boxes + the converted polygon; the tag is left out
+    assert result["classes"] == ["car", "tree", "bus"]  # declared first, then used
+    problems = {p["code"]: p["count"] for p in result["problems"]}
+    assert problems == {"converted_to_box": 1, "dropped_other_kind": 1}
+    ann = load_annotations(store.dir(result["project_id"]))
+    assert ann is not None and len(ann.images) == 2  # images without annotations stay unannotated
+    names = {r.name for r in Manifest(store.dir(result["project_id"])).all()}
+    assert names == {"a.png", "sub/b.png", "c.png", "d.png"}
+    origin = read_origin(store.dir(result["project_id"]))
+    assert origin is not None and origin["tool"] == "cvat" and origin["url"] == BASE
+    assert origin["remote_id"] == "1" and origin["kind"] == "project"
+    assert "pw-secret" not in str(origin) and "pw-secret" not in str(result)
+    assert list((tmp_path / "ws" / "tmp").glob("import-*")) == []
+
+
+def test_import_task_without_annotations(cvat, tmp_path, monkeypatch):
+    monkeypatch.setattr(ci, "_download", fake_download({"a.png": [Detections()]}))
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="task", remote_id="12", task=Task.KEYPOINTS, name="Mine")
+    assert (result["task"], result["labels"], result["name"]) == ("keypoints", 0, "Mine")
+    assert store.get(result["project_id"]).description == "Imported from CVAT (Loose)"
+
+
+def test_unreadable_files_are_reported(cvat, tmp_path, monkeypatch):
+    def download(settings, kind, remote_id, data_dir):
+        (data_dir / "bad.png").write_bytes(b"not an image at all")
+        return [ci.SampleLabels(data_dir / "bad.png", [Detections(Detection("car", [0.1, 0.1, 0.3, 0.3]))])]
+
+    monkeypatch.setattr(ci, "_download", download)
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path)
+    assert result["images_added"] == 0 and result["images_rejected"] == 1
+    assert any(p["code"] == "images_rejected" for p in result["problems"])
+
+
+def test_download_failure_creates_nothing(cvat, tmp_path, monkeypatch):
+    def boom(*a):
+        raise ToolError("CVAT login failed")
+
+    monkeypatch.setattr(ci, "_download", boom)
+    store = ProjectStore(tmp_path / "projects")
+    with pytest.raises(ToolError, match="login failed"):
+        run(store, tmp_path)
+    assert store.list() == [] and list((tmp_path / "ws" / "tmp").glob("import-*")) == []
+
+
+def test_empty_remote_is_an_error(cvat, tmp_path, monkeypatch):
+    monkeypatch.setattr(ci, "_download", lambda *a: [])
+    with pytest.raises(ToolError, match="no images"):
+        run(ProjectStore(tmp_path / "projects"), tmp_path)
+
+
+def test_rollback_when_conversion_fails(cvat, tmp_path, monkeypatch):
+    monkeypatch.setattr(ci, "_download", fake_download({"a.png": [Detections()]}))
+    monkeypatch.setattr(ci.common, "finish", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")))
+    store = ProjectStore(tmp_path / "projects")
+    with pytest.raises(RuntimeError):
+        run(store, tmp_path)
+    assert store.list() == []
+    assert not list(Path(tmp_path / "projects").glob("*/project.json"))
+    assert list((tmp_path / "ws" / "tmp").glob("import-*")) == []
+
+
+def test_cancel_while_reading_annotations(cvat, tmp_path, monkeypatch):
+    cancel = threading.Event()
+    files = {"a.png": [Detections()], "b.png": [Detections()]}
+    inner = fake_download(files)
+
+    def download(*a):
+        samples = inner(*a)
+        orig = ci.common.file_id
+        monkeypatch.setattr(ci.common, "file_id", lambda p: (cancel.set(), orig(p))[1])
+        return samples
+
+    monkeypatch.setattr(ci, "_download", download)
+    store = ProjectStore(tmp_path / "projects")
+    with pytest.raises(Cancelled):
+        run(store, tmp_path, Progress(Job("j", 0, "import_project"), cancel))
+    assert store.list() == []
+
+
+@pytest.mark.integration
+def test_real_fiftyone_dataset(cvat, tmp_path, monkeypatch):
+    """The real temporary dataset, with ``import_annotations`` replaced by a function that fills it."""
+    import fiftyone as fo
+    from fiftyone.utils import cvat as fouc
+
+    made = []
+
+    def fake_import(
+        dataset, data_path=None, download_media=False, url=None, username=None, password=None, **kw
+    ):
+        assert download_media and kw == {"project_id": 1} and password == "pw-secret"
+        sources = make_images(Path(data_path).parent / "src", 2)
+        made.append(dataset.name)
+        for i, source in enumerate(sources):
+            target = Path(data_path) / f"f{i}.png"
+            target.write_bytes(source.read_bytes())
+            sample = fo.Sample(filepath=str(target))
+            sample["detections"] = fo.Detections(
+                detections=[fo.Detection(label="car", bounding_box=[0.1, 0.1, 0.3, 0.3])]
+            )
+            if i == 0:
+                sample["polylines"] = fo.Polylines(
+                    polylines=[fo.Polyline(label="tree", points=[RING], filled=True, closed=True)]
+                )
+                sample["tags_field"] = fo.Classification(label="day")
+            dataset.add_sample(sample)
+
+    monkeypatch.setattr(fouc, "import_annotations", fake_import)
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path)
+    assert result["task"] == "detection" and result["images_added"] == 2
+    assert result["labels"] == 3 and result["classes"] == ["car", "tree"]
+    assert made and made[0] not in fo.list_datasets()  # the temporary dataset is gone
