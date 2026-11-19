@@ -169,3 +169,18 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
     manifest.update({i: {"issues": v} for i, v in flags.items() if v != current[i]})
     _save_duplicate_of(manifest.project_dir, duplicate_of)
     return {issue: sum(issue in v for v in flags.values()) for issue in ISSUES}
+
+
+def reset_curation(manifest: Manifest) -> int:
+    """Forget the whole analysis: measures, issues and hashes of every image, and the duplicate map.
+
+    The thresholds stay. Exclusions are not touched.
+
+    Returns:
+        How many images had something to clear.
+    """
+    records = manifest.all()
+    cleared = [r.id for r in records if r.metrics or r.issues or r.phash]
+    manifest.update({r.id: {"metrics": {}, "issues": [], "phash": ""} for r in records})
+    _save_duplicate_of(manifest.project_dir, {})
+    return len(cleared)

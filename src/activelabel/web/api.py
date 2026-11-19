@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
+import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -16,7 +18,7 @@ from activelabel.curation import summary as curation_summary
 from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.jobs import Job, Progress
-from activelabel.labels import load_annotations, save_annotations
+from activelabel.labels import AnnotationSet, annotations_path, load_annotations, save_annotations
 from activelabel.projects import Project
 from activelabel.tasks import Task
 from activelabel.web.state import AppState, get_state
@@ -44,6 +46,9 @@ class ProjectChanges(BaseModel):
     description: str | None = None
     task: Task | None = None
     classes: list[str] | None = None
+    annotations: Literal["convert", "discard"] | None = (
+        None  # what to do with the ground truth on a task change
+    )
 
 
 class DeleteProject(BaseModel):
@@ -137,22 +142,67 @@ def get_project(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     return project_overview(state, state.project(project_id))
 
 
+def _counts(annotations: AnnotationSet) -> tuple[int, int]:
+    """Images with labels and labels of a ground truth."""
+    return sum(1 for v in annotations.images.values() if v), sum(len(v) for v in annotations.images.values())
+
+
 @router.patch("/projects/{project_id}")
 def update_project(project_id: int, body: ProjectChanges, state: AppState = STATE) -> dict[str, Any]:
-    """Change name, description, task or classes."""
-    state.project(project_id)
-    changes = body.model_dump(exclude_none=True)
+    """Change name, description, task or classes.
+
+    Changing the task of a project whose ground truth is of another task needs ``annotations``:
+    ``convert`` (when possible) or ``discard`` (a backup copy is kept). Without it the answer is
+    HTTP 409 with ``detail`` describing the options, and nothing changes.
+    """
+    project = state.project(project_id)
+    changes = body.model_dump(exclude_none=True, exclude={"annotations"})
+    project_dir = state.store.dir(project_id)
+    ground_truth = load_annotations(project_dir) if "task" in changes else None
+    result: dict[str, Any] | None = None
+    converted: AnnotationSet | None = None
+    if ground_truth and ground_truth.images and ground_truth.task is not body.task and body.task is not None:
+        images, labels = _counts(ground_truth)
+        old, new = ground_truth.task, body.task
+        possible = ann.conversion_possible(old, new)
+        if body.annotations is None:
+            raise HTTPException(
+                409,
+                {
+                    "code": "task_change_annotations",
+                    "message": (
+                        f"This project has annotations for {old.value.capitalize()} ({images} images). "
+                        f"Changing the task to {new.value.capitalize()} needs a decision about them."
+                    ),
+                    "from_task": old.value,
+                    "to_task": new.value,
+                    "images": images,
+                    "labels": labels,
+                    "options": ["convert", "discard"] if possible else ["discard"],
+                },
+            )
+        if body.annotations == "convert":
+            converted = ann.convert_annotations(ground_truth, new)
+            if converted is None:
+                raise HTTPException(400, f"Annotations for {old.value} cannot be converted to {new.value}.")
+            result = dict(zip(("images", "labels"), _counts(converted), strict=True))
+        else:
+            result = {"images": images, "labels": labels}
+        result = {"action": body.annotations, **result}
     try:
         project = state.store.update(project_id, **changes)
     except ValueError as exc:
         raise _bad_request(exc) from exc
-    if "task" in changes:
-        annotations = load_annotations(state.store.dir(project_id))
-        if annotations and annotations.task is not project.task:
-            # the ground truth no longer matches: keep it on disk but say so
-            annotations.source = {**annotations.source, "task_mismatch": True}
-            save_annotations(state.store.dir(project_id), annotations)
-    return project_overview(state, project)
+    if converted is not None:
+        save_annotations(project_dir, converted)
+    elif result is not None:
+        stamp = time.strftime("%Y%m%dT%H%M%S")
+        shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
+        annotations_path(project_dir).unlink()
+    overview = project_overview(state, project)
+    if result is not None:
+        overview["annotations_result"] = result
+    return overview
 
 
 @router.delete("/projects/{project_id}")
@@ -286,6 +336,13 @@ def project_jobs(project_id: int, state: AppState = STATE) -> list[dict[str, Any
     return [j.as_dict() for j in state.jobs.list(project_id)]
 
 
+@router.delete("/projects/{project_id}/jobs")
+def clear_jobs(project_id: int, state: AppState = STATE) -> dict[str, int]:
+    """Remove the finished jobs of a project from the list (running ones stay)."""
+    state.project(project_id)
+    return {"removed": state.jobs.clear(project_id)}
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
     """Ask a job to stop."""
@@ -412,6 +469,14 @@ def analyze(project_id: int, body: Analyze | None = None, state: AppState = STAT
         return {"measured": measured, "issues": counts, "step": "curation"}
 
     return state.jobs.submit(project_id, "analyze", run).as_dict()
+
+
+@router.delete("/projects/{project_id}/curation")
+def reset_curation(project_id: int, state: AppState = STATE) -> dict[str, int]:
+    """Forget the analysis (measures, issues, hashes, duplicates); thresholds stay."""
+    manifest = state.manifest(project_id)
+    state.busy(project_id)
+    return {"reset": issues.reset_curation(manifest)}
 
 
 @router.get("/projects/{project_id}/curation")
