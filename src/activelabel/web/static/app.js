@@ -26,6 +26,10 @@
     return fmt(I18N[key + suffix] || key + suffix, { n: nf.format(n), ...vars });
   };
   const num = (n) => nf.format(Number(n) || 0);
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
+  };
   const fmtDate = (iso) => {
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(LOCALE, { dateStyle: 'medium' });
@@ -143,6 +147,7 @@
     if (!response.ok) {
       const err = new Error(data && data.detail ? detailText(data.detail) : `HTTP ${response.status}`);
       err.status = response.status;
+      err.detail = data ? data.detail : null;  // structured details (e.g. a decision the user must make)
       throw err;
     }
     return data;
@@ -289,6 +294,24 @@
     return bar;
   }
 
+  /** A question with several answers; resolves with the chosen value, or null when cancelled. */
+  function choiceDialog({ title, text, choices }) {
+    return new Promise((resolve) => {
+      const dlg = el('dialog', { class: 'dialog wide', 'aria-label': title });
+      let value = null;
+      dlg.append(el('div', { class: 'dialog-body' },
+        el('h2', null, title),
+        el('p', null, text),
+        el('ul', { class: 'choices' }, ...choices.map((c) => el('li', null,
+          el('button', { type: 'button', class: `btn ${c.danger ? 'danger-outline' : c.primary ? 'primary' : ''}`, onclick: () => { value = c.value; dlg.close(); } }, c.label),
+          c.help ? el('span', { class: 'muted' }, c.help) : null))),
+        el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(value); });
+      document.body.appendChild(dlg);
+      dlg.showModal();
+    });
+  }
+
   function confirmDialog({ title, text, confirmLabel, danger = true, requireText = null }) {
     return new Promise((resolve) => {
       const input = requireText
@@ -398,9 +421,14 @@
     let loading = false;
     let token = 0;
     const list = el('ul', { class: 'thumb-grid' });
-    const more = el('button', { type: 'button', class: 'btn', onclick: () => load(false) }, t('grid.load_more'));
     const info = el('p', { class: 'muted grid-info', 'aria-live': 'polite' });
-    const node = el('div', { class: 'grid-wrap' }, info, list, el('div', { class: 'center' }, more));
+    const pager = el('nav', { class: 'pager', 'aria-label': t('grid.pages') });
+    const node = el('div', { class: 'grid-wrap' }, info, list, pager);
+    /* pages of a fixed size: the page never grows without limit, even with thousands of images */
+    const SIZES = [60, 120, 240];
+    let size = SIZES[0];
+    try { size = SIZES.includes(Number(localStorage.getItem('al-page-size'))) ? Number(localStorage.getItem('al-page-size')) : size; } catch (e) { /* no storage */ }
+    let page = 0;
 
     const fire = () => onSelect && onSelect(selected);
     const card = (img, index) => {
@@ -432,27 +460,60 @@
       return li;
     };
 
+    function renderPager() {
+      const pages = Math.max(1, Math.ceil(total / size));
+      const go = (p) => { if (p >= 0 && p < pages && p !== page) { page = p; load(false); node.scrollIntoView({ block: 'start' }); } };
+      const btn = (label, p, opts = {}) => el('button', {
+        type: 'button', class: `btn small${p === page && opts.current ? ' current' : ''}`,
+        disabled: opts.disabled || false, 'aria-current': p === page && opts.current ? 'page' : null,
+        'aria-label': opts.aria || null, onclick: () => go(p),
+      }, label);
+      const numbers = [];
+      const shown = new Set([0, pages - 1, page - 1, page, page + 1].filter((p) => p >= 0 && p < pages));
+      let last = -1;
+      [...shown].sort((a, b) => a - b).forEach((p) => {
+        if (last >= 0 && p - last > 1) numbers.push(el('span', { class: 'muted' }, '…'));
+        numbers.push(btn(num(p + 1), p, { current: true }));
+        last = p;
+      });
+      const sizeSelect = el('select', { 'aria-label': t('grid.per_page'), onchange: (e) => {
+        size = Number(e.target.value);
+        try { localStorage.setItem('al-page-size', String(size)); } catch (err) { /* no storage */ }
+        page = 0; load(false);
+      } }, ...SIZES.map((n) => el('option', { value: String(n), selected: n === size }, num(n))));
+      pager.replaceChildren(
+        total > size ? el('span', { class: 'pager-pages' },
+          btn('‹', page - 1, { disabled: page === 0, aria: t('grid.prev') }), ...numbers,
+          btn('›', page + 1, { disabled: page >= pages - 1, aria: t('grid.next') })) : el('span'),
+        total > SIZES[0] ? el('label', { class: 'pager-size' }, t('grid.per_page'), sizeSelect) : null);
+    }
+
     async function load(reset) {
       if (loading) return;
       loading = true;
       const mine = ++token;
-      if (reset) { items.length = 0; list.replaceChildren(); selected.clear(); fire(); }
+      if (reset) { page = 0; selected.clear(); fire(); }
       const q = query();
-      const params = new URLSearchParams({ status: q.status || 'active', offset: String(items.length), limit: String(PAGE) });
+      const params = new URLSearchParams({ status: q.status || 'active', offset: String(page * size), limit: String(size) });
       if (q.issue) params.set('issue', q.issue);
       try {
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         if (mine !== token) return;
         total = data.total || 0;
-        const start = items.length;
-        (data.items || []).forEach((img, i) => { items.push(img); list.appendChild(card(img, start + i)); });
+        if (page > 0 && page * size >= total) { page = Math.max(0, Math.ceil(total / size) - 1); loading = false; return load(false); }
+        items.length = 0;
+        list.replaceChildren();
+        (data.items || []).forEach((img, i) => { items.push(img); list.appendChild(card(img, i)); });
       } catch (err) {
         toastError(err);
       } finally {
         loading = false;
       }
-      info.textContent = items.length ? t('grid.showing', { shown: num(items.length), total: num(total) }) : (q.emptyText || t('grid.empty'));
-      more.hidden = items.length >= total;
+      const from = page * size + 1;
+      info.textContent = items.length
+        ? t('grid.range', { from: num(from), to: num(from + items.length - 1), total: num(total) })
+        : (query().emptyText || t('grid.empty'));
+      renderPager();
     }
 
     /** Ids of every image of the current filter (all pages). */
@@ -657,10 +718,27 @@
       dlg.querySelector('form').addEventListener('submit', async (e) => {
         e.preventDefault();
         save.disabled = true;
+        const body = { name: nameInput.value.trim(), description: descInput.value.trim(), task: picker.get(), classes: chips.get() };
         try {
-          ctx.project = { ...ctx.project, ...(await api('PATCH', `/projects/${projectId}`, {
-            json: { name: nameInput.value.trim(), description: descInput.value.trim(), task: picker.get(), classes: chips.get() },
-          })) };
+          let updated;
+          try {
+            updated = await api('PATCH', `/projects/${projectId}`, { json: body });
+          } catch (err) {
+            const d = err.detail;
+            if (err.status !== 409 || !d || d.code !== 'task_change_annotations') throw err;
+            /* the annotations were made for another task: the person decides what happens to them */
+            const choice = await choiceDialog({
+              title: t('taskchange.title'),
+              text: t('taskchange.text', { from: taskName(d.from_task), to: taskName(d.to_task), images: num(d.images), labels: num(d.labels) }),
+              choices: [
+                ...(d.options.includes('convert') ? [{ value: 'convert', primary: true, label: t('taskchange.convert', { to: taskName(d.to_task) }), help: t(`taskchange.convert_help.${d.to_task}`) }] : []),
+                { value: 'discard', danger: true, label: t('taskchange.discard'), help: t('taskchange.discard_help') },
+              ],
+            });
+            if (!choice) { save.disabled = false; return; }
+            updated = await api('PATCH', `/projects/${projectId}`, { json: { ...body, annotations: choice } });
+          }
+          ctx.project = { ...ctx.project, ...updated };
           dlg.close();
           toast(t('project.saved'), 'success', 3000);
           await refreshProject();
@@ -1073,6 +1151,17 @@
         }
       }
 
+      async function resetAnalysis() {
+        const ok = await confirmDialog({ title: t('cur.reset_title'), text: t('cur.reset_text'), confirmLabel: t('cur.reset') });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/projects/${projectId}/curation`);
+          toast(t('cur.reset_done'), 'success', 4000);
+          await afterChange();
+          load();
+        } catch (err) { toastError(err); }
+      }
+
       async function load() {
         try {
           summary = await api('GET', `/projects/${projectId}/curation`);
@@ -1109,7 +1198,8 @@
           const totals = summary.totals || {};
           noticeBox.replaceChildren(el('div', { class: 'row-between' },
             el('p', { class: 'muted' }, t('cur.measured', { measured: num(totals.measured || 0), total: num(totals.active || 0) })),
-            analyzeBtn(true)));
+            el('div', { class: 'row-actions' }, analyzeBtn(true),
+              el('button', { type: 'button', class: 'btn danger-outline', onclick: resetAnalysis }, t('cur.reset')))));
         } else {
           noticeBox.replaceChildren(el('div', { class: 'callout' }, icon('info'),
             el('div', null, el('strong', null, t('cur.not_analyzed')), el('p', { class: 'muted' }, t('cur.intro')), analyzeBtn(false))));
@@ -1299,42 +1389,78 @@
       return 'images';
     }
 
-    function renderJobs() {
-      const jobs = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).slice(0, 5);
-      const header = el('h2', null, t('jobs.title'));
-      /* the bar only exists while there is something to show */
-      jobsBox.hidden = !jobs.length;
-      document.getElementById('main').classList.toggle('no-jobs', !jobs.length);
-      if (!jobs.length) { jobsBox.replaceChildren(); return; }
-      jobsBox.replaceChildren(header, el('ul', { class: 'jobs' }, ...jobs.map((job) => {
-        const active = isActive(job);
-        const step = jobStep(job);
-        const url = job.result && job.result.url;
-        return el('li', { class: `job job-${job.status}`, 'data-job': job.id },
-          el('div', { class: 'job-top' },
-            el('strong', null, kindText(job.kind)),
-            el('span', { class: `status status-${job.status}` }, statusText(job.status)),
-            active ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
-            !active && job.status === 'done' && step === 'fiftyone' && url
-              ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
-              : null,
-            !active && job.status === 'done' && step !== 'fiftyone'
-              ? el('button', { type: 'button', class: 'btn small', onclick: () => showTab(step, true) }, t('jobs.see_result'))
-              : null),
-          active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind)),
-            el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
-          active && job.message ? el('div', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null,
-          !active && job.status === 'done' && resultText(job) ? el('div', { class: 'muted job-msg' }, resultText(job)) : null,
-          job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${job.error}`) : null);
-      })));
+    /* one job row (used by the bar and by the history dialog) */
+    function jobRow(job) {
+      const active = isActive(job);
+      const step = jobStep(job);
+      const url = job.result && job.result.url;
+      return el('li', { class: `job job-${job.status}`, 'data-job': job.id },
+        el('div', { class: 'job-top' },
+          el('strong', null, kindText(job.kind)),
+          el('span', { class: `status status-${job.status}` }, statusText(job.status)),
+          el('span', { class: 'muted small' }, fmtTime(job.finished || job.started || job.created)),
+          active ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
+          !active && job.status === 'done' && step === 'fiftyone' && url
+            ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
+            : null,
+          !active && job.status === 'done' && step !== 'fiftyone'
+            ? el('button', { type: 'button', class: 'btn small', onclick: () => { closeHistory(); showTab(step, true); } }, t('jobs.see_result'))
+            : null),
+        active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind)),
+          el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
+        active && job.message ? el('div', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null,
+        !active && job.status === 'done' && resultText(job) ? el('div', { class: 'muted job-msg' }, resultText(job)) : null,
+        job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${job.error}`) : null);
     }
+
+    /* The bar shows what is running and the latest finished task; the rest is in the history. */
+    function renderJobs() {
+      const all = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+      const running = all.filter(isActive);
+      const finished = all.filter((j) => !isActive(j));
+      const shown = [...running, ...finished.slice(0, 1)];
+      jobsBox.hidden = !shown.length;
+      document.getElementById('main').classList.toggle('no-jobs', !shown.length);
+      if (!shown.length) { jobsBox.replaceChildren(); return; }
+      const head = el('div', { class: 'jobs-head' }, el('h2', null, t('jobs.title')),
+        finished.length > 1
+          ? el('button', { type: 'button', class: 'btn small', onclick: openHistory }, t('jobs.history', { n: num(finished.length) }))
+          : null);
+      jobsBox.replaceChildren(head, el('ul', { class: 'jobs' }, ...shown.map(jobRow)));
+      if (historyDlg && historyDlg.open) fillHistory();
+    }
+
+    let historyDlg = null;
+    function fillHistory() {
+      const finished = [...ctx.jobs].filter((j) => !isActive(j))
+        .sort((a, b) => String(b.created).localeCompare(String(a.created)));
+      const clear = el('button', { type: 'button', class: 'btn danger-outline', onclick: async () => {
+        try {
+          await api('DELETE', `/projects/${projectId}/jobs`);
+          await pollJobs();
+          closeHistory();
+        } catch (err) { toastError(err); }
+      } }, t('jobs.clear'));
+      historyDlg.replaceChildren(el('div', { class: 'dialog-body' },
+        el('h2', null, t('jobs.history_title')),
+        finished.length ? el('ul', { class: 'jobs scroll-box' }, ...finished.map(jobRow)) : el('p', { class: 'muted' }, t('jobs.history_empty')),
+        el('div', { class: 'form-actions' },
+          finished.length ? clear : null,
+          el('button', { type: 'button', class: 'btn', onclick: closeHistory }, t('common.close')))));
+    }
+    function openHistory() {
+      if (!historyDlg) { historyDlg = el('dialog', { class: 'dialog wide', 'aria-label': t('jobs.history_title') }); document.body.appendChild(historyDlg); }
+      fillHistory();
+      historyDlg.showModal();
+    }
+    function closeHistory() { if (historyDlg && historyDlg.open) historyDlg.close(); }
 
     /* one line saying what a finished job changed */
     function resultText(job) {
       const r = job.result || {};
       if (job.kind === 'analyze' && 'measured' in r) {
         const flagged = Object.values(r.issues || {}).reduce((a, n) => a + (Number(n) || 0), 0);
-        return t('jobs.result_analyze', { measured: num(r.measured), flagged: num(flagged) });
+        return t(r.measured ? 'jobs.result_analyze' : 'jobs.result_analyze_none', { measured: num(r.measured), flagged: num(flagged) });
       }
       if (job.kind === 'import_folder' && 'added' in r) return tn('images.added', r.added);
       return '';
