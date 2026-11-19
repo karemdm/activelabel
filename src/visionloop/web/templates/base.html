@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t('app.name') }}{% endblock %} · {{ t('app.name') }}</title>
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (function () {
+      try {
+        var q = new URLSearchParams(location.search).get('theme');
+        if (q === 'light' || q === 'dark') { localStorage.setItem('vl-theme', q); }
+        var saved = localStorage.getItem('vl-theme');
+        if (saved === 'light' || saved === 'dark') { document.documentElement.dataset.theme = saved; }
+      } catch (e) { /* storage blocked: follow the system theme */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}">
+</head>
+<body data-page="{% block page %}{% endblock %}">
+  <a class="skip-link" href="#main">{{ t('nav.skip') }}</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20 12a8 8 0 1 1-3-6.2M20 4v5h-5"/></svg>
+        <span>{{ t('app.name') }}</span>
+      </a>
+      <nav class="topnav" aria-label="{{ t('nav.main') }}">
+        <a href="/">{{ t('nav.projects') }}</a>
+      </nav>
+      <div class="topbar-tools">
+        <div class="lang-switch" role="group" aria-label="{{ t('nav.language') }}">
+          {% for code in languages %}
+          <a href="?lang={{ code }}" hreflang="{{ code }}" lang="{{ code }}"
+             {% if code == lang %}aria-current="true"{% endif %}>{{ code|upper }}</a>
+          {% endfor %}
+        </div>
+        <button type="button" class="icon-btn" id="theme-toggle" aria-label="{{ t('nav.theme') }}" title="{{ t('nav.theme') }}">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.5 0-1-.1-1.4A5.5 5.5 0 0 1 13.4 3.1C13 3 12.5 3 12 3z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <main id="main" class="page">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script>window.I18N = {{ messages|tojson }}; window.VL = {{ vl|tojson }};</script>
+  <script src="/static/app.js?v={{ asset_version }}"></script>
+</body>
+</html>

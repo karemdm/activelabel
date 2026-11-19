@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ t('project.title') }} #{{ project_id }}{% endblock %}
+{% block page %}project{% endblock %}
+{% block content %}
+<div id="project-root" data-project-id="{{ project_id }}">
+  <p class="muted">{{ t('common.loading') }}</p>
+</div>
+{% endblock %}
