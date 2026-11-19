@@ -83,7 +83,7 @@ def test_other_tasks_declare_fields(tmp_path, project):
     assert len(dataset.first().ground_truth.keypoints) == 1
     project.task = Task.CLASSIFICATION
     dataset = bridge.sync_dataset(project, manifest, None)
-    assert dataset.get_field("ground_truth").document_type is fo.Classification
+    assert dataset.get_field("ground_truth").document_type is fo.Classifications
 
 
 def test_launch_app_returns_url(tmp_path, project):
@@ -113,3 +113,14 @@ def test_resolve_view_accepts_issue_names(tmp_path):
         assert resolve_view(dataset, "curation - unknown") == "curation - quality issues"
     finally:
         dataset.delete()
+
+
+def test_classification_ground_truth_is_multi_label(tmp_path, project):
+    manifest = build(tmp_path, 2)
+    project.task = Task.CLASSIFICATION
+    labels = {"i0": [Label("cat"), Label("dog")]}
+    gt = AnnotationSet(Task.CLASSIFICATION, ["cat", "dog"], labels, {})
+    dataset = bridge.sync_dataset(project, manifest, gt)
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    assert [c.label for c in sample.ground_truth.classifications] == ["cat", "dog"]
+    assert dataset.match(fo.ViewField("image_id") == "i1").first().ground_truth is None

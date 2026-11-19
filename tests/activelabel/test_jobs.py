@@ -48,3 +48,29 @@ def test_cancel_running_and_queued():
     jobs.cancel(running.id)
     assert wait(running).status == CANCELLED
     assert wait(queued).status == CANCELLED and queued.result == {}
+
+
+def test_clear_removes_only_finished_jobs_of_the_project():
+    jobs = JobManager()
+    started = threading.Event()
+    wait(jobs.submit(1, "a", lambda progress: {}))
+    other = wait(jobs.submit(2, "b", lambda progress: {}))
+    wait(jobs.submit(1, "c", lambda progress: 1 / 0))
+
+    def slow(progress):
+        started.set()
+        while True:
+            progress.check()
+            time.sleep(0.01)
+
+    running = jobs.submit(1, "slow", slow)
+    queued = jobs.submit(1, "next", lambda progress: {})
+    started.wait(2)
+    assert jobs.clear(1) == 2
+    assert {j.id for j in jobs.list(1)} == {running.id, queued.id}
+    assert jobs.list(2) == [other]
+    jobs.cancel(running.id)
+    jobs.cancel(queued.id)
+    wait(running)
+    wait(queued)
+    assert jobs.clear(1) == 2 and jobs.clear(1) == 0

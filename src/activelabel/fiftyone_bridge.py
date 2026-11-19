@@ -34,7 +34,7 @@ def dataset_name(project_id: int) -> str:
 
 def _label_type(task: Task) -> type:
     return {
-        Task.CLASSIFICATION: fo.Classification,
+        Task.CLASSIFICATION: fo.Classifications,
         Task.DETECTION: fo.Detections,
         Task.SEGMENTATION: fo.Polylines,
         Task.KEYPOINTS: fo.Keypoints,
@@ -70,7 +70,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
     if not labels:
         return None
     if task is Task.CLASSIFICATION:
-        return fo.Classification(label=labels[0].label)
+        return fo.Classifications(classifications=[fo.Classification(label=lb.label) for lb in labels])
     if task is Task.DETECTION:
         return fo.Detections(
             detections=[fo.Detection(label=lb.label, bounding_box=lb.bbox) for lb in labels if lb.bbox]

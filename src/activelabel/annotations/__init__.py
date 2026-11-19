@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from activelabel.annotations.convert import conversion_possible, convert_annotations
 from activelabel.annotations.folders import folder_classes
 from activelabel.annotations.importer import apply
 from activelabel.annotations.models import ParseResult, Problem, ValidationReport
@@ -15,6 +16,8 @@ __all__ = [
     "Problem",
     "ValidationReport",
     "apply",
+    "conversion_possible",
+    "convert_annotations",
     "detect_format",
     "discard_staged",
     "folder_classes",

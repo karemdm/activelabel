@@ -141,6 +141,21 @@ class JobManager:
         """Queued or running jobs of a project."""
         return [j for j in self.list(project_id) if j.status not in FINISHED]
 
+    def clear(self, project_id: int) -> int:
+        """Remove the finished jobs of a project (queued and running ones stay).
+
+        Returns:
+            How many jobs were removed.
+        """
+        with self._lock:
+            finished = [
+                j.id for j in self._jobs.values() if j.project_id == project_id and j.status in FINISHED
+            ]
+            for job_id in finished:
+                self._jobs.pop(job_id, None)
+                self._cancel.pop(job_id, None)
+        return len(finished)
+
     def _trim(self) -> None:
         finished = [j for j in sorted(self._jobs.values(), key=lambda j: j.created) if j.status in FINISHED]
         for job in finished[: max(0, len(self._jobs) - self._keep)]:
