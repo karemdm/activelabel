@@ -107,7 +107,7 @@ def test_pull_converts_and_cleans(monkeypatch):
     kp = SimpleNamespace(points=[(0.0, 0.0), (0.5, 0.5)])
     value = SimpleNamespace(keypoints=[kp])
     view.values.side_effect = lambda f: ["a", "b"] if f == "image_id" else [value, None]
-    dataset.get_field_schema.return_value = {"_al_pull_al_s": object()}
+    dataset.get_field_schema.return_value = {"al_pull_al_s": object()}
     seen = []
 
     def convert(v, task):
@@ -117,16 +117,16 @@ def test_pull_converts_and_cleans(monkeypatch):
     monkeypatch.setattr(cvat_tool, "_labels_from_fo", convert)
     out = CvatTool().pull(dataset, ["a", "b", "c"], project(Task.KEYPOINTS), SETTINGS, {"anno_key": "al_s"})
     _, kw = dataset.load_annotations.call_args
-    assert kw["dest_field"] == "_al_pull_al_s" and kw["unexpected"] == "keep" and kw["cleanup"] is False
+    assert kw["dest_field"] == "al_pull_al_s" and kw["unexpected"] == "keep" and kw["cleanup"] is False
     assert out == {"a": [Label("hand")], "b": [], "c": []}
     assert math.isnan(seen[0][0][0]) and seen[0][1] == (0.5, 0.5)  # corner -> missing
-    dataset.delete_sample_field.assert_called_once_with("_al_pull_al_s")
+    dataset.delete_sample_field.assert_called_once_with("al_pull_al_s")
 
 
 def test_pull_error_still_deletes_field():
     dataset = MagicMock()
     dataset.load_annotations.side_effect = RuntimeError("404 not found")
-    dataset.get_field_schema.return_value = {"_al_pull_k": 1}
+    dataset.get_field_schema.return_value = {"al_pull_k": 1}
     with pytest.raises(ToolError, match="not found"):
         CvatTool().pull(dataset, ["a"], project(), SETTINGS, {"anno_key": "k"})
     dataset.delete_sample_field.assert_called_once()

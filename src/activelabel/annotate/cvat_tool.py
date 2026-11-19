@@ -37,7 +37,7 @@ def anno_key_of(session_id: str) -> str:
 
 def pull_field(anno_key: str) -> str:
     """Temporary field that receives the annotations of a session."""
-    return f"_al_pull_{anno_key}"
+    return f"al_pull_{anno_key}"  # FiftyOne field names cannot start with "_"
 
 
 def label_schema(project: Project) -> dict[str, Any]:
