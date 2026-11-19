@@ -1,4 +1,4 @@
-# visionloop — stage 1 design
+# ActiveLabel — stage 1 design
 
 Stage 1 covers: create a project, choose its task, upload images, load annotations (if
 any), check them against the task, and curate the images (corrupt, blurry, dark, low
@@ -12,7 +12,7 @@ Principles (from what went wrong in the previous tool):
   and links to where the result is ("See result" scrolls to it or opens the view).
 - **Nothing is lost by mistake.** Excluding an image is reversible; deleting asks first.
 - **FiftyOne is a viewer, not a second place to manage data.** The project data lives in
-  visionloop (JSON files per project). FiftyOne mirrors it for deep inspection, with saved
+  activelabel (JSON files per project). FiftyOne mirrors it for deep inspection, with saved
   views per issue. Tagging an image `exclude` in FiftyOne can be brought back.
 - English and Portuguese, light and dark theme, works at phone width.
 
@@ -24,7 +24,7 @@ Principles (from what went wrong in the previous tool):
   images.json         one record per image (id = content hash, status, metrics, issues)
   images/<id>.<ext>   original files (never re-encoded)
   thumbs/<id>.jpg     thumbnails (cache)
-  annotations.json    ground truth in the internal format (visionloop.labels)
+  annotations.json    ground truth in the internal format (activelabel.labels)
   curation.json       thresholds and near-duplicate groups
   staging/<token>/    annotation files waiting for a decision
 ```

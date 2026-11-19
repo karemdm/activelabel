@@ -37,7 +37,7 @@ jobs:
       - name: Unit tests
         run: python -m pytest -q -m "not integration"
       - name: Command line
-        run: visionloop --help
+        run: activelabel --help
 
   fiftyone:
     # FiftyOne's bundled database does not run on every runner image: use a MongoDB service
