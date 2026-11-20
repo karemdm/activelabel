@@ -119,6 +119,7 @@ def test_dynamic_translation_keys_exist():
     wanted += ["jobmsg.Creating the project", "job.kind.import_project"]
     wanted += ["job.kind.import_folder", "job.kind.analyze", "job.kind.fiftyone"]
     wanted += ["job.kind.annotate_send", "job.kind.annotate_pull"]
+    wanted += ["job.kind.sync_plan", "job.kind.sync_plan_generic", "job.kind.sync_apply"]
     tools = ("fiftyone", "cvat", "labelstudio")
     wanted += [f"annotate.tool.{x}" for x in tools] + [f"annotate.tool.{x}.help" for x in tools]
     wanted += [f"annotate.setup_help.{x}" for x in ("cvat", "labelstudio")]
