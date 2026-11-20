@@ -15,9 +15,12 @@ from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
+from activelabel.sync import engine as sync_engine
+from activelabel.sync.registry import get_remote
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
+SYNC_TOOLS = ("cvat", "labelstudio")
 STATE = Depends(get_state)
 
 
@@ -161,6 +164,15 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     project_dir = state.store.dir(project_id)
+    remote = None
+    if body.tool in SYNC_TOOLS:
+        try:
+            remote = get_remote(body.tool)
+            detail = sync_engine.existing_remote(state.store, project, body.tool, settings, remote)
+        except ToolError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if detail is not None:
+            raise HTTPException(409, detail)
 
     def run(progress: Progress) -> dict[str, Any]:
         progress.update(message="Preparing the FiftyOne dataset")
@@ -171,6 +183,13 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
         session = sessions.create(
             project_dir, body.tool, body.scope, image_ids, sent.links, sent.ref, session_id=session_id
         )
+        if remote is not None:
+            try:  # the link is a convenience: a failure here must not undo a send that worked
+                sync_engine.link_after_send(
+                    state.store, project, body.tool, settings, remote, sent.ref, image_ids
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
         return {"session": sessions.public(session), "links": sent.links, "step": "annotate"}
 
     return state.jobs.submit(project_id, "annotate_send", run).as_dict()
