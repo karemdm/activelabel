@@ -496,3 +496,56 @@ dialog .jobs.scroll-box { max-height: 60vh; }
   .import-table .num { text-align: right; }
 }
 .import-table td:last-child { white-space: nowrap; }
+
+/* ---- synchronisation ---- */
+.sync-section { margin-bottom: 1.5rem; scroll-margin-top: 4.5rem; }
+.sync-section:focus { outline: none; }
+.sync-box { display: grid; gap: 0.9rem; }
+.link-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0.9rem; margin: 0; }
+.link-facts { display: grid; gap: 0.5rem 1.5rem; margin: 0.6rem 0 0; }
+.link-facts dt { color: var(--muted); font-size: 0.85rem; }
+.link-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.link-facts a { display: inline-flex; align-items: center; gap: 0.3rem; }
+.sync-plan { scroll-margin-top: 4.5rem; }
+.sync-plan.flash { outline: 3px solid var(--primary); outline-offset: 2px; }
+.sync-tiles { margin: 0.6rem 0; }
+.sync-tiles .stat-label { color: var(--text); font-weight: 600; font-size: 0.9rem; }
+.sync-tiles .stat strong { font-size: 1.25rem; }
+.sync-tiles .stat.only strong { color: var(--muted); }
+.sync-diff { border-top: 1px solid var(--border); padding: 0.6rem 0; }
+.sync-diff > summary { cursor: pointer; font-weight: 700; padding: 0.2rem 0; }
+.sync-diff > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.only-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.2rem 1rem; margin: 0; overflow-wrap: anywhere; }
+.sync-conflicts { border-top: 1px solid var(--border); padding-top: 0.6rem; }
+.conflicts-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.conflicts-head h4 { margin: 0; }
+.conflicts-all { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.conflict-list { display: grid; gap: 0.5rem; margin: 0; }
+.conflict { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 0.8rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.7rem; background: var(--surface-2); }
+.conflict-thumb { padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); width: 96px; height: 72px; cursor: zoom-in; }
+.conflict-thumb:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.conflict-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.conflict-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conflict-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.1rem 1rem; color: var(--muted); font-size: 0.9rem; }
+.conflict-sides p { margin: 0; overflow-wrap: anywhere; }
+.side-tag { display: inline-block; font-weight: 700; color: var(--text); margin-right: 0.4rem; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg-opt { display: inline-flex; align-items: center; padding: 0.4rem 0.8rem; min-height: 40px; cursor: pointer; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+.seg-opt + .seg-opt { border-left: 1px solid var(--border); }
+.seg-opt:hover { background: var(--primary-soft); }
+.seg-opt:has(input:checked) { background: var(--primary); color: var(--primary-text); }
+.seg-opt:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
+.sync-error { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+.sync-error:empty { display: none; }
+.sync-error .report-line { margin: 0; color: var(--danger); }
+.sync-hint { margin: 0; align-self: center; }
+@media (max-width: 760px) {
+  .conflict { grid-template-columns: 72px minmax(0, 1fr); }
+  .conflict-thumb { width: 72px; height: 54px; }
+  .conflict .seg { grid-column: 1 / -1; display: flex; }
+  .conflict .seg-opt { flex: 1; justify-content: center; white-space: normal; text-align: center; }
+}
+@media (max-width: 480px) {
+  .link-list { grid-template-columns: minmax(0, 1fr); }
+  .sync-plan .session-actions .btn { flex: 1 1 100%; }
+}

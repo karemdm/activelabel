@@ -276,6 +276,13 @@
       icon(origin.tool, 14), label);
   };
 
+  /* "Linked to CVAT"; the remote project name is the tooltip. */
+  const linkBadge = (link) => {
+    const label = t('project.linked_to', { tool: toolName(link.tool) });
+    return el('span', { class: 'badge origin-badge link-badge', title: link.remote_name ? String(link.remote_name) : label, tabindex: '0', 'aria-label': link.remote_name ? `${label}: ${link.remote_name}` : label },
+      icon(link.tool, 14), label);
+  };
+
   const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
 
   /* Class chips; long lists show the first ones and a button for the rest. */
@@ -777,6 +784,9 @@
       openWhenDone: new Set(),
       pollTimer: null,
       panels: {},
+      links: [],
+      syncTool: {},
+      syncDismissed: new Set(),
     };
     const STEPS = ['images', 'annotations', 'curation'];
 
@@ -795,6 +805,7 @@
         return false;
       }
       document.title = `${ctx.project.name} · ${t('app.name')}`;
+      await loadLinks();
       renderHeader();
       if (ctx.tab) showTab(ctx.tab); else renderStepper();  // opens a gated step once images arrive
       return true;
@@ -815,7 +826,7 @@
             el('h1', null, p.name),
             el('span', { class: 'project-id' }, `#${p.id}`),
             taskBadge(p.task),
-            originBadge(p.origin)),
+            ctx.links.length ? ctx.links.map(linkBadge) : originBadge(p.origin)),
           p.description ? el('p', { class: 'muted' }, p.description) : null,
           (p.classes || []).length ? classList(p.classes) : null),
         el('div', { class: 'project-head-actions' },
@@ -963,6 +974,261 @@
       } catch (err) {
         toastError(err);
       }
+    }
+
+
+    // ================================================================ synchronisation with CVAT / Label Studio
+    async function loadLinks() {
+      try {
+        const data = await api('GET', `/projects/${projectId}/links`);
+        ctx.links = (data && data.links) || [];
+      } catch (err) {
+        if (err.status !== 404) toastError(err);
+      }
+    }
+
+    async function startSync(tool, body = {}) {
+      const job = await api('POST', `/projects/${projectId}/sync/${tool}`, { json: body });
+      if (job && job.id) ctx.syncTool[job.id] = tool;
+      toast(t('sync.started', { tool: toolName(tool) }), 'info', 3000);
+      jobStarted(job);
+    }
+
+    /* sending found a project with the same name: synchronise or cancel */
+    async function remoteExistsDialog(d) {
+      const tool = d.tool;
+      const remote = d.remote || {};
+      const choice = await choiceDialog({
+        title: t('sync.exists_title', { tool: toolName(tool) }),
+        text: `${tn('sync.exists_text', Number(remote.images) || 0, { name: remote.name || '', tool: toolName(tool) })} ${d.linked ? t('sync.exists_linked') : t('sync.exists_unlinked')}`,
+        choices: [{ value: 'sync', primary: true, label: t('sync.run'), help: t('sync.exists_help') }],
+      });
+      if (choice !== 'sync') return;
+      try {
+        await startSync(tool, d.linked || remote.id == null ? {} : { remote_id: remote.id });
+      } catch (err) { toastError(err); }
+    }
+
+    function syncBlock() {
+      const node = el('section', { class: 'sync-section', id: 'annotate-sync', tabindex: '-1', 'aria-labelledby': 'h-sync' });
+      const box = el('div', { class: 'sync-box' });
+      node.append(el('h3', { id: 'h-sync' }, t('sync.title')), el('p', { class: 'muted' }, t('sync.intro')), box);
+      const states = new Map();  // plan_id -> {res, def, error}
+      let lastSig = null;
+
+      const planJob = () => {
+        const jobs = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+        const job = jobs.find((j) => j.kind === 'sync_plan' && j.status === 'done' && j.result && j.result.plan_id);
+        if (!job || ctx.syncDismissed.has(job.result.plan_id)) return null;
+        const later = jobs.some((j) => j.kind === 'sync_apply' && j.status !== 'failed' && String(j.created) >= String(job.created));
+        return later ? null : job;
+      };
+      const planningTools = () => ctx.jobs.filter((j) => j.kind === 'sync_plan' && isActive(j)).map(syncJobTool);
+
+      function perClassText(side) {
+        const pc = (side && side.per_class) || {};
+        const e = Object.entries(pc).filter(([, n]) => Number(n) > 0);
+        return e.length ? e.map(([k, n]) => `${k} ${num(n)}`).join(' · ') : t('sync.no_labels');
+      }
+
+      function linkCard(link) {
+        const tool = link.tool;
+        const planning = planningTools().length > 0;
+        const open = isHttp(link.url)
+          ? el('a', { href: link.url, target: '_blank', rel: 'noopener' }, link.remote_name || toolName(tool), ' ', icon('external', 14))
+          : el('span', null, link.remote_name || toolName(tool));
+        const run = el('button', { type: 'button', class: 'btn primary', disabled: planning, onclick: async (e) => {
+          const b = e.currentTarget;
+          b.disabled = true;
+          try { await startSync(tool); } catch (err) { b.disabled = false; toastError(err); }
+        } }, t('sync.run'));
+        const unlink = el('button', { type: 'button', class: 'btn danger-outline', onclick: async () => {
+          const ok = await confirmDialog({ title: t('sync.unlink_title', { tool: toolName(tool) }), text: t('sync.unlink_text', { tool: toolName(tool) }), confirmLabel: t('sync.unlink') });
+          if (!ok) return;
+          try {
+            await api('DELETE', `/projects/${projectId}/links/${tool}`);
+            toast(t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
+            await refreshProject();
+            draw(true);
+          } catch (err) { toastError(err); }
+        } }, t('sync.unlink'));
+        return el('li', { class: 'link-card card', 'data-tool': tool },
+          el('div', { class: 'session-head' },
+            el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, toolName(tool)))),
+          el('dl', { class: 'facts link-facts' },
+            el('div', null, el('dt', null, t('sync.remote_project', { tool: toolName(tool) })), el('dd', null, open)),
+            el('div', null, el('dt', null, t('sync.images')), el('dd', null, num(link.images || 0))),
+            el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never')))),
+          el('div', { class: 'session-actions' }, run, unlink));
+      }
+
+      function diffBlock(title, n, diff) {
+        if (!n || !diff) return null;
+        return el('details', { class: 'sync-diff', open: true }, el('summary', null, title), diffView(projectId, diff));
+      }
+
+      function planCard(job) {
+        const plan = job.result;
+        const tool = plan.tool || syncJobTool(job);
+        const name = toolName(tool);
+        const remote = plan.remote || {};
+        const conflicts = plan.conflicts || [];
+        const only = plan.remote_only || {};
+        const pid = plan.plan_id;
+        if (!states.has(pid)) states.set(pid, { res: {}, def: null, error: null });
+        const st = states.get(pid);
+        const nothing = !(plan.pull || plan.push || plan.add || conflicts.length);
+        const radios = [];
+
+        const tile = (cls, label, n) => el('div', { class: `stat ${cls}` }, el('span', { class: 'stat-label' }, label), el('strong', null, tn('sync.n_images', n || 0)));
+        const tiles = el('div', { class: 'diff-stats sync-tiles' },
+          tile('pull', t('sync.pull', { tool: name }), plan.pull),
+          tile('push', t('sync.push', { tool: name }), plan.push),
+          tile('add', t('sync.add', { tool: name }), plan.add),
+          tile('only', t('sync.only', { tool: name }), only.count));
+
+        const apply = el('button', { type: 'button', class: 'btn primary big', id: 'sync-apply' }, t('sync.apply'));
+        const hint = el('p', { class: 'muted sync-hint', 'aria-live': 'polite' });
+        const errorBox = el('div', { class: 'sync-error', role: 'alert' });
+        const missing = () => conflicts.filter((c) => !st.res[c.image_id] && !st.def).length;
+        const update = () => {
+          const m = missing();
+          apply.disabled = m > 0 || apply.dataset.busy === '1';
+          hint.textContent = m > 0 ? tn('sync.choose_left', m) : '';
+          for (const r of radios) {
+            const v = st.res[r.id] || st.def;
+            r.local.checked = v === 'local';
+            r.remote.checked = v === 'remote';
+          }
+          errorBox.replaceChildren(...(st.error === 'stale'
+            ? [el('p', { class: 'report-line' }, icon('warning'), t('sync.stale')),
+               el('button', { type: 'button', class: 'btn', onclick: async () => {
+                 ctx.syncDismissed.add(pid);
+                 try { await startSync(tool); } catch (err) { toastError(err); }
+                 draw(true);
+               } }, t('sync.again'))]
+            : []));
+        };
+        const setAll = (v) => { st.def = v; for (const c of conflicts) st.res[c.image_id] = v; update(); };
+
+        const items = conflicts.map((c) => ({ id: c.image_id, name: c.name }));
+        const rows = conflicts.map((c, i) => {
+          const gid = `sync-c-${i}`;
+          const seg = (val, label) => {
+            const input = el('input', { type: 'radio', name: gid, id: `${gid}-${val}`, value: val, class: 'sr-only' });
+            input.addEventListener('change', () => { st.res[c.image_id] = val; update(); });
+            return { input, label: el('label', { for: `${gid}-${val}`, class: 'seg-opt' }, input, label) };
+          };
+          const l = seg('local', t('sync.keep_local'));
+          const r = seg('remote', t('sync.keep_remote', { tool: name }));
+          radios.push({ id: c.image_id, local: l.input, remote: r.input });
+          return el('li', { class: 'conflict' },
+            el('button', { type: 'button', class: 'conflict-thumb', 'aria-label': c.name, onclick: () => openLightbox(projectId, items, i) },
+              el('img', { src: `/api/projects/${projectId}/images/${encodeURIComponent(c.image_id)}/thumb`, alt: '', loading: 'lazy' })),
+            el('div', { class: 'conflict-main' },
+              el('strong', { class: 'conflict-name', title: c.name }, c.name),
+              el('div', { class: 'conflict-sides' },
+                el('p', null, el('span', { class: 'side-tag' }, t('sync.side_local')), perClassText(c.local)),
+                el('p', null, el('span', { class: 'side-tag' }, name), perClassText(c.remote)))),
+            el('div', { class: 'seg', role: 'radiogroup', 'aria-label': c.name }, l.label, r.label));
+        });
+
+        const conflictBox = conflicts.length
+          ? el('div', { class: 'sync-conflicts' },
+              el('div', { class: 'conflicts-head' },
+                el('h4', null, `${t('sync.conflicts')} (${num(conflicts.length)})`),
+                el('div', { class: 'conflicts-all' },
+                  el('button', { type: 'button', class: 'btn small', onclick: () => setAll('local') }, t('sync.all_local')),
+                  el('button', { type: 'button', class: 'btn small', onclick: () => setAll('remote') }, t('sync.all_remote', { tool: name })))),
+              el('p', { class: 'muted' }, t('sync.conflicts_help')),
+              el('ul', { class: 'plain conflict-list' }, ...rows))
+          : null;
+
+        const onlyNames = (only.examples || []).map((x) => (typeof x === 'string' ? x : (x && x.name) || ''));
+        const onlyBox = only.count
+          ? el('details', { class: 'sync-diff' },
+              el('summary', null, `${t('sync.only', { tool: name })}: ${num(only.count)}`),
+              el('p', { class: 'muted' }, t('sync.only_help', { tool: name })),
+              onlyNames.length ? el('ul', { class: 'plain only-list' }, ...onlyNames.map((n) => el('li', null, n))) : null,
+              only.count > onlyNames.length ? el('p', { class: 'muted' }, t('sync.only_more', { n: num(only.count - onlyNames.length) })) : null)
+          : null;
+
+        apply.addEventListener('click', async () => {
+          apply.dataset.busy = '1';
+          apply.disabled = true;
+          st.error = null;
+          try {
+            const job2 = await api('POST', `/projects/${projectId}/sync/${tool}/${encodeURIComponent(pid)}/apply`, { json: { resolutions: st.res, default: st.def } });
+            ctx.syncDismissed.add(pid);
+            if (job2 && job2.id) ctx.syncTool[job2.id] = tool;
+            toast(t('sync.apply_started'), 'info', 3000);
+            jobStarted(job2);
+            draw(true);
+          } catch (err) {
+            apply.dataset.busy = '0';
+            if (err.status === 409) st.error = 'stale'; else toastError(err);
+            update();
+          }
+        });
+
+        const card = el('div', { class: 'card sync-plan', id: 'sync-plan', 'data-plan': pid },
+          el('div', { class: 'session-head' },
+            el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, t('sync.preview_title', { tool: name }))),
+            el('span', { class: 'sbadge sbadge-pulled' }, t('sync.review'))),
+          el('p', { class: 'session-meta' },
+            isHttp(remote.url) ? el('a', { href: remote.url, target: '_blank', rel: 'noopener' }, remote.name || name, ' ', icon('external', 14)) : el('span', null, remote.name || name),
+            remote.images != null ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
+            remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null),
+          tiles,
+          nothing ? el('p', { class: 'report-line ok' }, icon('check'), t('sync.in_sync')) : null,
+          diffBlock(t('sync.diff_pull', { tool: name }), plan.pull, plan.diff_pull),
+          diffBlock(t('sync.diff_push', { tool: name }), plan.push, plan.diff_push),
+          onlyBox,
+          conflictBox,
+          errorBox,
+          el('div', { class: 'session-actions' },
+            nothing ? null : apply,
+            el('button', { type: 'button', class: 'btn', onclick: () => { ctx.syncDismissed.add(pid); draw(true); } }, nothing ? t('common.close') : t('common.cancel')),
+            hint));
+        update();
+        return card;
+      }
+
+      function draw(force) {
+        const job = planJob();
+        const plan = job ? job.result : null;
+        const st = plan && states.get(plan.plan_id);
+        const applying = ctx.jobs.some((j) => j.kind === 'sync_apply' && isActive(j));
+        const stale = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
+        const staleJob = stale && stale.status === 'failed' && isStale(stale) && !ctx.syncDismissed.has(stale.id) && !plan ? stale : null;
+        const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, staleJob && staleJob.id]);
+        if (!force && sig === lastSig && !(st && st.error)) return;
+        lastSig = sig;
+        box.replaceChildren(...[
+          ctx.links.length
+            ? el('ul', { class: 'plain link-list' }, ...ctx.links.map(linkCard))
+            : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('sync.none'))),
+          planningTools().length ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.comparing')) : null,
+          applying ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.apply_started')) : null,
+          staleJob ? el('div', { class: 'sync-error card', role: 'alert' },
+            el('p', { class: 'report-line' }, icon('warning'), t('sync.stale')),
+            el('button', { type: 'button', class: 'btn primary', onclick: async () => {
+              ctx.syncDismissed.add(staleJob.id);
+              const tool = syncJobTool(staleJob) || (ctx.links[0] && ctx.links[0].tool);
+              try { await startSync(tool); } catch (err) { toastError(err); }
+              draw(true);
+            } }, t('sync.again'))) : null,
+          job ? planCard(job) : null].filter(Boolean));
+      }
+
+      ctx.syncDraw = () => { if (ctx.panels && ctx.panels.annotations && ctx.panels.annotations.mounted) draw(false); };
+      const reveal = () => {
+        node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        node.focus({ preventScroll: true });
+        const card = node.querySelector('.sync-plan');
+        if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2500); }
+      };
+      return { node, draw: () => draw(true), reveal };
     }
 
     // ================================================================ step 1: images
@@ -1132,11 +1398,13 @@
       const scopeBox = el('div', { class: 'scope-wrap' });
       const sendBox = el('div', { class: 'send-row' });
       const sessionsBox = el('div', { class: 'sessions' });
+      const sync = syncBlock();
       const node = el('div', { class: 'annotate' },
         el('section', { class: 'annotate-box', 'aria-labelledby': 'h-annotate' },
           el('h3', { id: 'h-annotate' }, t('annotate.title')),
           el('p', { class: 'muted' }, t('annotate.intro')),
           toolsBox, scopeBox, sendBox),
+        sync.node,
         el('section', { class: 'sessions-section', id: 'annotate-sessions', 'aria-labelledby': 'h-sessions' },
           el('h3', { id: 'h-sessions' }, t('annotate.sessions')),
           sessionsBox));
@@ -1247,7 +1515,9 @@
           toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
           jobStarted(job);
         } catch (err) {
-          toastError(err);
+          const d = err.detail;
+          if (err.status === 409 && d && d.code === 'remote_exists') await remoteExistsDialog(d);
+          else toastError(err);
         } finally {
           drawSend();
         }
@@ -1374,6 +1644,7 @@
       }
       const reveal = (sessionId) => {
         const card = sessionId ? document.getElementById(`session-${sessionId}`) : null;
+        if (sessionId === 'sync') { sync.reveal(); return; }
         const target = card || document.getElementById('annotate-sessions');
         if (!target) return;
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1384,8 +1655,8 @@
       return {
         node,
         reveal,
-        mount: async () => { await Promise.all([loadTools(), loadIssues()]); await loadSessions(); },
-        refresh: async () => { await loadIssues(); await loadSessions(); },
+        mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues()]); await loadSessions(); },
+        refresh: async () => { sync.draw(); await loadIssues(); await loadSessions(); },
         show: async () => { await loadIssues(); drawScope(); drawSend(); },
       };
     }
@@ -1838,12 +2109,25 @@
     }
 
     // ================================================================ jobs bar
-    const kindText = (kind) => tr(`job.kind.${kind}`, kind);
+    const isStale = (job) => job.kind === 'sync_apply' && /Synchronise again/i.test(String(job.error || ''));
+    const syncJobTool = (job) => {
+      const r = job.result || {};
+      const x = ctx.syncTool[job.id] || job.tool || r.tool || (job.params && job.params.tool) || (job.meta && job.meta.tool);
+      return typeof x === 'string' ? x : '';
+    };
+    const kindText = (kind, job) => {
+      if (kind === 'sync_plan') {
+        const tool = job ? syncJobTool(job) : '';
+        return tool ? t('job.kind.sync_plan', { tool: toolName(tool) }) : t('job.kind.sync_plan_generic');
+      }
+      return tr(`job.kind.${kind}`, kind);
+    };
     const statusText = (status) => tr(`job.status.${status}`, status);
     const isActive = (job) => job.status === 'queued' || job.status === 'running';
 
     function jobStep(job) {
       const kind = String(job.kind || '');
+      if (/^sync_/.test(kind)) return 'annotations';
       if (/fiftyone/.test(kind)) return 'fiftyone';
       if (/analy|curat/.test(kind)) return 'curation';
       if (/annot/.test(kind)) return 'annotations';
@@ -1862,7 +2146,7 @@
       const url = job.result && job.result.url;
       return el('li', { class: `job job-${job.status}`, 'data-job': job.id },
         el('div', { class: 'job-top' },
-          el('strong', null, kindText(job.kind)),
+          el('strong', null, kindText(job.kind, job)),
           el('span', { class: `status status-${job.status}` }, statusText(job.status)),
           el('span', { class: 'muted small' }, fmtTime(job.finished || job.started || job.created)),
           active ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
@@ -1870,9 +2154,9 @@
             ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
             : null,
           !active && job.status === 'done' && step !== 'fiftyone'
-            ? el('button', { type: 'button', class: 'btn small', onclick: () => { closeHistory(); showTab(step, true); if (/^annotate_/.test(job.kind)) setTimeout(() => ctx.panels.annotations.reveal(jobSessionId(job)), 80); } }, t('jobs.see_result'))
+            ? el('button', { type: 'button', class: 'btn small', onclick: () => { closeHistory(); showTab(step, true); if (/^annotate_/.test(job.kind)) setTimeout(() => ctx.panels.annotations.reveal(jobSessionId(job)), 80); else if (/^sync_/.test(job.kind)) setTimeout(() => ctx.panels.annotations.reveal('sync'), 80); } }, t('jobs.see_result'))
             : null),
-        active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind)),
+        active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind, job)),
           el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
         active && job.message ? el('div', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null,
         !active && job.status === 'done' && resultText(job) ? el('div', { class: 'muted job-msg' }, resultText(job)) : null,
@@ -1881,6 +2165,7 @@
 
     /* The bar shows what is running and the latest finished task; the rest is in the history. */
     function renderJobs() {
+      if (ctx.syncDraw) ctx.syncDraw();
       const all = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created)));
       const running = all.filter(isActive);
       const finished = all.filter((j) => !isActive(j));
@@ -1932,6 +2217,15 @@
       if (job.kind === 'annotate_send' && r.session && typeof r.session === 'object') {
         return tn('jobs.result_annotate_send', imagesOf(r.session), { tool: toolName(r.session.tool) });
       }
+      if (job.kind === 'sync_plan' && 'plan_id' in r) {
+        return t('jobs.result_sync_plan', { pull: num(r.pull), push: num(r.push), add: num(r.add), conflicts: num((r.conflicts || []).length) });
+      }
+      if (job.kind === 'sync_apply') {
+        const n = (...keys) => Number(keys.map((k) => r[k]).find((v) => v != null)) || 0;
+        const base = t('jobs.result_sync_apply', { pull: num(n('pulled', 'pull')), push: num(n('pushed', 'push')), add: num(n('added', 'add')) });
+        const left = n('conflicts_left');
+        return left ? `${base} ${tn('jobs.result_sync_left', left)}` : base;
+      }
       if (job.kind === 'annotate_pull' && r.diff) return tn('jobs.result_annotate_pull', r.diff.images_changed || 0);
       return '';
     }
@@ -1963,7 +2257,7 @@
         ctx.jobStatus.set(job.id, job.status);
         if (before && (before === 'queued' || before === 'running') && !isActive(job)) {
           finished = true;
-          if (job.status === 'failed') toastError(new Error(job.error || statusText('failed')));
+          if (job.status === 'failed') toastError(new Error(isStale(job) ? t('sync.stale') : job.error || statusText('failed')));
           if (job.status === 'done' && ctx.openWhenDone.has(job.id)) {
             ctx.openWhenDone.delete(job.id);
             const url = job.result && job.result.url;
@@ -1972,6 +2266,12 @@
         }
       }
       renderJobs();
+      for (const job of jobs) {
+        if (job.status === 'done' && ctx.syncNotify && ctx.syncNotify.has(job.id)) {
+          ctx.syncNotify.delete(job.id);
+          toast(job.kind === 'sync_apply' ? `${t('sync.applied')} ${resultText(job)}` : t('sync.plan_ready'), job.kind === 'sync_apply' ? 'success' : 'info', 8000);
+        }
+      }
       if (finished) {
         await refreshProject();
         Object.values(ctx.panels).forEach((panel) => panel.mounted && panel.refresh && panel.refresh());
@@ -1980,7 +2280,10 @@
     }
 
     function jobStarted(job) {
-      if (job && job.id) ctx.jobStatus.set(job.id, job.status || 'queued');
+      if (job && job.id) {
+        ctx.jobStatus.set(job.id, job.status || 'queued');
+        if (/^sync_/.test(String(job.kind))) (ctx.syncNotify = ctx.syncNotify || new Set()).add(job.id);
+      }
       pollJobs();
     }
 
