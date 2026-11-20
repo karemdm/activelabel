@@ -13,6 +13,8 @@ from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.importing import cvat_import, labelstudio_import
 from activelabel.importing.common import RemoteNotFound
 from activelabel.jobs import Progress
+from activelabel.sync import engine as sync_engine
+from activelabel.sync.registry import get_remote
 from activelabel.tasks import Task
 from activelabel.web.state import AppState, get_state
 
@@ -85,6 +87,13 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
             task=body.task,
             progress=progress,
         )
+        try:  # the link is a convenience: a failure here must not undo an import that worked
+            linked = sync_engine.link_after_import(
+                store, int(result["project_id"]), body.tool, settings, get_remote(body.tool)
+            )
+        except Exception:  # noqa: BLE001
+            linked = False
+        result["linked"] = linked
         return result
 
     return state.jobs.submit(0, "import_project", run).as_dict()

@@ -1,0 +1,427 @@
+"""CvatRemote against a small in-memory fake of the CVAT REST API."""
+
+from __future__ import annotations
+
+import copy
+import re
+from typing import Any
+
+import pytest
+import requests
+
+from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.images.manifest import ImageRecord
+from activelabel.importing import cvat_import
+from activelabel.labels import Label
+from activelabel.projects import Project
+from activelabel.sync import cvat_remote
+from activelabel.sync.cvat_remote import CvatRemote
+from activelabel.tasks import Task
+
+SETTINGS = ToolSettings("cvat", "https://cvat.test/", "ana", "s3cret-pw")
+
+
+class Resp:
+    def __init__(self, status: int = 200, body: Any = None) -> None:
+        self.status_code = status
+        self._body = body
+        self.content = b"" if body is None else b"x"
+
+    def json(self) -> Any:
+        return self._body
+
+
+class FakeCvat:
+    """Stateful fake of the parts of CVAT API v2 the adapter uses."""
+
+    def __init__(self) -> None:
+        self.projects: dict[int, dict[str, Any]] = {}
+        self.labels: list[dict[str, Any]] = []  # {id, name, project_id}
+        self.tasks: dict[int, dict[str, Any]] = {}  # id -> {name, project_id, frames, ann}
+        self.next_id = 100
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.auth: Any = None
+        self.polls = 0
+        self.fail: dict[tuple[str, str], int] = {}
+        self.status_only = False  # old CVAT without /api/requests
+
+    # requests.Session surface
+    def request(self, method: str, url: str, **kw: Any) -> Resp:
+        path = url.split("cvat.test", 1)[1]
+        self.auth = kw.get("auth")
+        self.calls.append((method, path, kw))
+        for (m, prefix), status in self.fail.items():
+            if m == method and path.startswith(prefix):
+                return Resp(status, {})
+        for (m, pattern), handler in self.routes():
+            hit = re.fullmatch(pattern, path) if m == method else None
+            if hit:
+                return handler(kw, *hit.groups())
+        return Resp(404, {})
+
+    def new_id(self) -> int:
+        self.next_id += 1
+        return self.next_id
+
+    def page(self, rows: list[Any], kw: dict[str, Any]) -> Resp:
+        params = kw.get("params") or {}
+        size, page = int(params.get("page_size", 100)), int(params.get("page", 1))
+        chunk = rows[(page - 1) * size : page * size]
+        more = page * size < len(rows)
+        return Resp(200, {"count": len(rows), "next": "x" if more else None, "results": chunk})
+
+    def add_project(self, name: str, labels: list[str]) -> dict[str, Any]:
+        pid = self.new_id()
+        self.projects[pid] = {"id": pid, "name": name}
+        for n in labels:
+            self.labels.append({"id": self.new_id(), "name": n, "project_id": pid})
+        return self.projects[pid]
+
+    def add_task(
+        self, pid: int, frames: list[tuple[str, int, int]], ann: dict[str, Any] | None = None
+    ) -> int:
+        tid = self.new_id()
+        self.tasks[tid] = {
+            "id": tid,
+            "name": f"t{tid}",
+            "project_id": pid,
+            "frames": [{"name": n, "width": w, "height": h} for n, w, h in frames],
+            "ann": ann or {"version": 0, "tags": [], "shapes": [], "tracks": []},
+        }
+        return tid
+
+    def label_id(self, pid: int, name: str) -> int:
+        return next(x["id"] for x in self.labels if x["project_id"] == pid and x["name"] == name)
+
+    def routes(self) -> list[tuple[tuple[str, str], Any]]:
+        def meta(kw: dict[str, Any], t: str) -> Resp:
+            return Resp(200, {"frames": self.tasks[int(t)]["frames"]})
+
+        def ann(kw: dict[str, Any], t: str) -> Resp:
+            return Resp(200, copy.deepcopy(self.tasks[int(t)]["ann"]))
+
+        return [
+            (("GET", r"/api/projects"), self.list_projects),
+            (("POST", r"/api/projects"), self.post_project),
+            (("GET", r"/api/projects/(\d+)"), lambda kw, i: self.get_project(int(i))),
+            (("PATCH", r"/api/projects/(\d+)"), self.patch_project),
+            (("GET", r"/api/labels"), self.list_labels),
+            (("GET", r"/api/tasks"), self.list_tasks),
+            (("POST", r"/api/tasks"), self.post_task),
+            (("GET", r"/api/tasks/(\d+)/data/meta"), meta),
+            (("GET", r"/api/tasks/(\d+)/annotations"), ann),
+            (("PUT", r"/api/tasks/(\d+)/annotations"), self.put_ann),
+            (("POST", r"/api/tasks/(\d+)/data"), self.post_data),
+            (("GET", r"/api/requests/(\w+)"), self.get_request),
+            (("GET", r"/api/tasks/(\d+)/status"), self.get_status),
+        ]
+
+    def list_projects(self, kw: dict[str, Any]) -> Resp:
+        name = (kw.get("params") or {}).get("name")
+        rows = [p for p in self.projects.values() if name is None or name in p["name"]]
+        return self.page(rows, kw)
+
+    def post_project(self, kw: dict[str, Any]) -> Resp:
+        p = self.add_project(kw["json"]["name"], [x["name"] for x in kw["json"]["labels"]])
+        return Resp(201, p)
+
+    def get_project(self, pid: int) -> Resp:
+        return Resp(200, self.projects[pid]) if pid in self.projects else Resp(404, {})
+
+    def patch_project(self, kw: dict[str, Any], pid: str) -> Resp:
+        for lb in kw["json"]["labels"]:
+            self.labels.append({"id": self.new_id(), "name": lb["name"], "project_id": int(pid)})
+        return Resp(200, self.projects[int(pid)])
+
+    def list_labels(self, kw: dict[str, Any]) -> Resp:
+        pid = int(kw["params"]["project_id"])
+        return self.page([x for x in self.labels if x["project_id"] == pid], kw)
+
+    def list_tasks(self, kw: dict[str, Any]) -> Resp:
+        pid = int(kw["params"]["project_id"])
+        rows = [
+            {"id": t["id"], "name": t["name"], "size": len(t["frames"])}
+            for t in self.tasks.values()
+            if t["project_id"] == pid
+        ]
+        return self.page(rows, kw)
+
+    def post_task(self, kw: dict[str, Any]) -> Resp:
+        tid = self.add_task(kw["json"]["project_id"], [])
+        self.tasks[tid]["name"] = kw["json"]["name"]
+        return Resp(201, {"id": tid})
+
+    def put_ann(self, kw: dict[str, Any], t: str) -> Resp:
+        self.tasks[int(t)]["ann"] = copy.deepcopy(kw["json"])
+        return Resp(200, kw["json"])
+
+    def post_data(self, kw: dict[str, Any], t: str) -> Resp:
+        names = [f[1][0] for f in kw["files"]]
+        # CVAT keeps the upload order (predefined sorting)
+        self.tasks[int(t)]["frames"] = [{"name": n, "width": 200, "height": 100} for n in names]
+        return Resp(202, {} if self.status_only else {"rq_id": f"rq{t}"})
+
+    def get_request(self, kw: dict[str, Any], rq: str) -> Resp:
+        if self.status_only:
+            return Resp(404, {})
+        self.polls += 1
+        return Resp(200, {"status": "finished" if self.polls >= 2 else "started"})
+
+    def get_status(self, kw: dict[str, Any], t: str) -> Resp:
+        self.polls += 1
+        return Resp(200, {"state": "Finished" if self.polls >= 2 else "Started"})
+
+
+@pytest.fixture
+def cvat(monkeypatch: pytest.MonkeyPatch) -> FakeCvat:
+    fake = FakeCvat()
+    monkeypatch.setattr(requests, "Session", lambda: fake)
+    monkeypatch.setattr(cvat_remote, "_sleep", lambda s: None)
+    return fake
+
+
+def project(task: Task = Task.DETECTION) -> Project:
+    return Project(id=7, name="Pets", description="", task=task, classes=["cat", "dog"])
+
+
+def rect(frame: int, lid: int, pts: list[float]) -> dict[str, Any]:
+    return {
+        "type": "rectangle",
+        "frame": frame,
+        "label_id": lid,
+        "points": pts,
+        "occluded": False,
+        "attributes": [],
+    }
+
+
+def seeded(cvat: FakeCvat) -> tuple[int, int]:
+    p = cvat.add_project("ActiveLabel 7 - Pets", ["cat", "dog"])
+    cat, dog = cvat.label_id(p["id"], "cat"), cvat.label_id(p["id"], "dog")
+    t = cvat.add_task(
+        p["id"],
+        [("a.jpg", 200, 100), ("b.jpg", 400, 200)],
+        {
+            "version": 3,
+            "tags": [],
+            "shapes": [rect(0, cat, [20, 10, 120, 60]), rect(1, dog, [0, 0, 400, 200])],
+            "tracks": [{"label_id": cat, "frame": 0, "shapes": [{"frame": 0, "points": [1, 1, 5, 5]}]}],
+        },
+    )
+    return p["id"], t
+
+
+def test_find_exact_name_and_get(cvat: FakeCvat) -> None:
+    pid, _ = seeded(cvat)
+    cvat.add_project("ActiveLabel 7 - Pets 2", [])
+    info = CvatRemote().find(SETTINGS, "ActiveLabel 7 - Pets")
+    assert info is not None and info.id == str(pid) and info.images == 2
+    assert info.url == f"https://cvat.test/projects/{pid}"
+    assert CvatRemote().find(SETTINGS, "nothing") is None
+    assert CvatRemote().get(SETTINGS, str(pid)).name == "ActiveLabel 7 - Pets"
+    assert cvat.auth == ("ana", "s3cret-pw")
+
+
+def test_get_missing_is_readable(cvat: FakeCvat) -> None:
+    with pytest.raises(ToolError, match="not found"):
+        CvatRemote().get(SETTINGS, "999")
+
+
+def test_create_sends_name_and_labels(cvat: FakeCvat) -> None:
+    info = CvatRemote().create(SETTINGS, project())
+    post = next(c for c in cvat.calls if c[0] == "POST" and c[1] == "/api/projects")
+    assert post[2]["json"]["name"] == "ActiveLabel 7 - Pets"
+    assert [x["name"] for x in post[2]["json"]["labels"]] == ["cat", "dog"]
+    assert post[2]["json"]["labels"][0]["type"] == "any"
+    assert info.name == "ActiveLabel 7 - Pets" and info.images == 0
+
+
+def test_items_convert_pixels_to_relative_and_skip_tracks(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    items = CvatRemote().items(SETTINGS, str(pid), Task.DETECTION)
+    assert [i.key for i in items] == [f"{tid}:0", f"{tid}:1"]
+    assert [(i.file_name, i.width, i.height) for i in items] == [("a.jpg", 200, 100), ("b.jpg", 400, 200)]
+    assert items[0].labels == [Label("cat", bbox=[0.1, 0.1, 0.5, 0.5])]
+    assert items[1].labels == [Label("dog", bbox=[0.0, 0.0, 1.0, 1.0])]
+
+
+def test_items_polygon_points_and_tags(cvat: FakeCvat) -> None:
+    p = cvat.add_project("x", ["cat"])
+    cat = cvat.label_id(p["id"], "cat")
+    shapes = [
+        {"type": "polygon", "frame": 0, "label_id": cat, "points": [20, 10, 120, 10, 70, 60]},
+        {"type": "points", "frame": 0, "label_id": cat, "points": [100, 50, 0, 0, 50, 25]},
+        {"type": "polyline", "frame": 0, "label_id": cat, "points": [1, 1, 2, 2]},
+    ]
+    ann = {"version": 0, "tags": [{"frame": 0, "label_id": cat}], "shapes": shapes, "tracks": []}
+    cvat.add_task(p["id"], [("a.jpg", 200, 100)], ann)
+    labels = CvatRemote().items(SETTINGS, str(p["id"]), Task.SEGMENTATION)[0].labels
+    assert labels[0].polygons == [[[0.1, 0.1], [0.6, 0.1], [0.35, 0.6]]]
+    assert labels[0].bbox == pytest.approx([0.1, 0.1, 0.5, 0.5])
+    assert labels[1].keypoints == [[0.5, 0.5, 2.0], [0.0, 0.0, 0.0], [0.25, 0.25, 2.0]]
+    assert labels[1].bbox == pytest.approx([0.25, 0.25, 0.25, 0.25])
+    assert len(labels) == 2  # polyline skipped, tag ignored outside classification
+    cls = CvatRemote().items(SETTINGS, str(p["id"]), Task.CLASSIFICATION)[0].labels
+    assert cls == [Label("cat")]
+
+
+def test_items_paginates_tasks(cvat: FakeCvat, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cvat_import, "PAGE", 2)
+    p = cvat.add_project("x", ["a", "b", "c"])
+    tids = [cvat.add_task(p["id"], [(f"{n}.jpg", 10, 10)]) for n in range(5)]
+    items = CvatRemote().items(SETTINGS, str(p["id"]), Task.DETECTION)
+    assert [i.key for i in items] == [f"{t}:0" for t in tids]
+    pages = [c[2]["params"]["page"] for c in cvat.calls if c[1] == "/api/tasks" and c[0] == "GET"]
+    assert pages == [1, 2, 3]
+
+
+def test_write_replaces_only_updated_frames_and_keeps_tracks(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    new = [Label("dog", bbox=[0.25, 0.5, 0.5, 0.25])]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": new})
+    ann = cvat.tasks[tid]["ann"]
+    assert ann["version"] == 3 and len(ann["tracks"]) == 1
+    by_frame = {s["frame"]: s for s in ann["shapes"]}
+    assert by_frame[1]["points"] == [0, 0, 400, 200]  # untouched frame kept
+    assert by_frame[0]["points"] == [50.0, 50.0, 150.0, 75.0]
+    assert by_frame[0]["label_id"] == cvat.label_id(pid, "dog") and by_frame[0]["attributes"] == []
+    assert len(ann["shapes"]) == 2
+
+
+def test_write_polygon_keypoints_tag_and_new_class(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    labels = [
+        Label("bird", bbox=[0, 0, 1, 1], polygons=[[[0.0, 0.0], [0.5, 0.0], [0.5, 0.5]]]),
+        Label("cat", bbox=[0, 0, 1, 1], keypoints=[[0.5, 0.5, 2.0], [0.0, 0.0, 0.0]]),
+        Label("dog"),
+    ]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:1": labels})
+    ann = cvat.tasks[tid]["ann"]
+    bird = cvat.label_id(pid, "bird")  # created on demand
+    shapes = {s["type"]: s for s in ann["shapes"] if s["frame"] == 1}
+    assert shapes["polygon"]["points"] == [0.0, 0.0, 200.0, 0.0, 200.0, 100.0]
+    assert shapes["polygon"]["label_id"] == bird
+    assert shapes["points"]["points"] == [200.0, 100.0, 0.0, 0.0]
+    dog = cvat.label_id(pid, "dog")
+    assert ann["tags"] == [{"frame": 1, "label_id": dog, "group": 0, "source": "manual", "attributes": []}]
+
+
+def test_write_bad_key_and_frame(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    with pytest.raises(ToolError, match="not a CVAT item key"):
+        CvatRemote().write(SETTINGS, str(pid), project(), {"abc": []})
+    with pytest.raises(ToolError, match="no frame 9"):
+        CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:9": []})
+
+
+def test_ensure_classes_adds_only_missing(cvat: FakeCvat) -> None:
+    pid, _ = seeded(cvat)
+    CvatRemote().ensure_classes(SETTINGS, str(pid), ["cat", "bird", "fish"])
+    patches = [c for c in cvat.calls if c[0] == "PATCH"]
+    assert len(patches) == 1
+    assert [x["name"] for x in patches[0][2]["json"]["labels"]] == ["bird", "fish"]
+    CvatRemote().ensure_classes(SETTINGS, str(pid), ["bird"])
+    assert len([c for c in cvat.calls if c[0] == "PATCH"]) == 1
+
+
+def make_images(tmp_path: Any, names: list[str]) -> list[tuple[ImageRecord, Any, list[Label]]]:
+    out = []
+    for n, name in enumerate(names):
+        f = tmp_path / f"{n}.jpg"
+        f.write_bytes(b"jpg")
+        rec = ImageRecord(f"id{n}", name, f"images/{n}.jpg", 200, 100, 3, "")
+        out.append((rec, f, [Label("cat", bbox=[0.0, 0.0, 0.5, 1.0])] if n % 2 == 0 else []))
+    return out
+
+
+def test_add_uploads_waits_and_maps_keys(cvat: FakeCvat, tmp_path: Any) -> None:
+    pid, _ = seeded(cvat)
+    images = make_images(tmp_path, ["x/one.jpg", "two.jpg", "three.jpg"])
+    keys = CvatRemote().add(SETTINGS, str(pid), project(), images)
+    tid = int(keys["id0"].split(":")[0])
+    assert keys == {"id0": f"{tid}:0", "id1": f"{tid}:1", "id2": f"{tid}:2"}
+    data = next(c for c in cvat.calls if c[1] == f"/api/tasks/{tid}/data")[2]
+    assert data["data"] == {"image_quality": 95, "sorting_method": "predefined"}
+    assert [f[0] for f in data["files"]] == ["client_files[0]", "client_files[1]", "client_files[2]"]
+    assert data["files"][0][1][0] == "x/one.jpg"
+    assert cvat.polls >= 2  # waited for "finished"
+    shapes = cvat.tasks[tid]["ann"]["shapes"]
+    assert [s["frame"] for s in shapes] == [0, 2]
+    assert shapes[0]["points"] == [0.0, 0.0, 100.0, 100.0]  # 0.5 * 200, 1.0 * 100 (frame size from meta)
+    assert cvat.tasks[tid]["project_id"] == pid
+
+
+def test_add_batches_and_duplicate_names(
+    cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cvat_remote, "BATCH", 2)
+    pid, _ = seeded(cvat)
+    images = make_images(tmp_path, ["same.jpg", "same.jpg", "c.jpg"])
+    keys = CvatRemote().add(SETTINGS, str(pid), project(), images)
+    assert len({k.split(":")[0] for k in keys.values()}) == 2  # two tasks
+    assert keys["id0"].endswith(":0") and keys["id1"].endswith(":1") and keys["id2"].endswith(":0")
+    first = next(c for c in cvat.calls if c[0] == "POST" and c[1].endswith("/data"))[2]
+    assert [f[1][0] for f in first["files"]] == ["same.jpg", "id1_same.jpg"]
+
+
+def test_add_uses_task_status_on_old_cvat(cvat: FakeCvat, tmp_path: Any) -> None:
+    cvat.status_only = True
+    pid, _ = seeded(cvat)
+    keys = CvatRemote().add(SETTINGS, str(pid), project(), make_images(tmp_path, ["a.jpg"]))
+    assert keys["id0"].endswith(":0")
+
+
+def test_add_times_out_and_reports_failure(
+    cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid, _ = seeded(cvat)
+    monkeypatch.setattr(cvat_remote, "MAX_POLLS", 3)
+    monkeypatch.setattr(FakeCvat, "get_request", lambda self, kw, rq: Resp(200, {"status": "started"}))
+    with pytest.raises(ToolError, match="too long"):
+        CvatRemote().add(SETTINGS, str(pid), project(), make_images(tmp_path, ["a.jpg"]))
+    failed = Resp(200, {"status": "failed", "message": "bad image"})
+    monkeypatch.setattr(FakeCvat, "get_request", lambda self, kw, rq: failed)
+    with pytest.raises(ToolError, match="bad image"):
+        CvatRemote().add(SETTINGS, str(pid), project(), make_images(tmp_path, ["a.jpg"]))
+
+
+@pytest.mark.parametrize(
+    ("status", "text"),
+    [
+        (401, "login failed"),
+        (403, "login failed"),
+        (404, "not found"),
+        (429, "slow down"),
+        (500, "error 500"),
+    ],
+)
+def test_http_errors_are_readable_and_secret_free(cvat: FakeCvat, status: int, text: str) -> None:
+    cvat.fail[("GET", "/api/projects")] = status
+    with pytest.raises(ToolError, match=text) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert "s3cret-pw" not in str(err.value)
+
+
+def test_unreachable_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Down:
+        def request(self, *a: Any, **k: Any) -> Any:
+            raise requests.ConnectionError("boom s3cret-pw")
+
+    monkeypatch.setattr(requests, "Session", lambda: Down())
+    with pytest.raises(ToolError, match="Cannot reach CVAT") as err:
+        CvatRemote().get(SETTINGS, "1")
+    assert "s3cret-pw" not in str(err.value)
+
+
+def test_missing_credentials() -> None:
+    with pytest.raises(ToolError, match="needs the server address"):
+        CvatRemote().get(ToolSettings("cvat", "https://cvat.test", "", ""), "1")
+
+
+def test_put_body_has_no_ids():
+    from activelabel.sync.cvat_remote import _without_ids
+
+    track = {"id": 7, "label_id": 1, "shapes": [{"id": 9, "frame": 0}], "elements": [{"id": 3, "shapes": []}]}
+    clean = _without_ids(track)
+    assert "id" not in clean and "id" not in clean["shapes"][0] and "id" not in clean["elements"][0]
+    assert track["id"] == 7  # the original is not modified
