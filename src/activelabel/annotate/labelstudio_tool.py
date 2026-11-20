@@ -327,13 +327,14 @@ class LabelStudioTool:
             handles = []
             try:
                 files = []
-                for image_id, path in zip(
-                    ids[start : start + BATCH], paths[start : start + BATCH], strict=True
+                for n, (image_id, path) in enumerate(
+                    zip(ids[start : start + BATCH], paths[start : start + BATCH], strict=True)
                 ):
                     fh = open(path, "rb")  # noqa: SIM115 - closed in the finally below
                     handles.append(fh)
                     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-                    files.append(("file", (f"{image_id}{Path(path).suffix.lower()}", fh, mime)))
+                    # one field name per file: Label Studio keeps a single file per field name
+                    files.append((f"file{n}", (f"{image_id}{Path(path).suffix.lower()}", fh, mime)))
                 client.request(
                     "POST",
                     f"/api/projects/{pid}/import?commit_to_project=true",

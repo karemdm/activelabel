@@ -290,6 +290,7 @@ def test_add_imports_maps_by_suffix_and_creates_annotations(ls: FakeLs, tmp_path
     keys = LabelStudioRemote().add(SETTINGS, str(p["id"]), project(), images)
     imp = next(c for c in ls.calls if c[1].startswith(f"/api/projects/{p['id']}/import"))[2]
     assert [f[1][0] for f in imp["files"]] == ["one.jpg", "two.jpg"]
+    assert [f[0] for f in imp["files"]] == ["file0", "file1"]  # Label Studio keeps one file per field name
     assert set(keys) == {"id0", "id1"}
     assert int(keys["id0"]) != min(ls.tasks)  # not the pre-existing task
     result = ls.tasks[int(keys["id0"])]["annotations"][0]["result"][0]

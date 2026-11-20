@@ -273,11 +273,12 @@ class LabelStudioRemote:
             handles = []
             try:
                 files = []
-                for rec, path, _ in images[start : start + BATCH]:
+                for n, (rec, path, _) in enumerate(images[start : start + BATCH]):
                     fh = open(path, "rb")  # noqa: SIM115 - closed in the finally below
                     handles.append(fh)
                     mime = mimetypes.guess_type(upload[rec.id])[0] or "application/octet-stream"
-                    files.append(("file", (upload[rec.id], fh, mime)))
+                    # one field name per file: Label Studio keeps a single file per field name
+                    files.append((f"file{n}", (upload[rec.id], fh, mime)))
                 client.request(
                     "POST",
                     f"/api/projects/{remote_id}/import?commit_to_project=true",
