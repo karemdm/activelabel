@@ -262,4 +262,21 @@ def close_session(
     except ToolError as exc:
         raise HTTPException(400, str(exc)) from exc
     sessions.close(state.store.dir(project_id), session_id)
+    if delete_remote and session["tool"] in SYNC_TOOLS:
+        _drop_link_if_gone(state, project_id, session["tool"], settings)
     return {"closed": True}
+
+
+def _drop_link_if_gone(state: AppState, project_id: int, tool: str, settings: ToolSettings) -> None:
+    """After deleting remote tasks: forget the sync link when its remote project went with them."""
+    from activelabel.sync import links
+
+    project_dir = state.store.dir(project_id)
+    link = links.get_link(project_dir, tool)
+    if not link:
+        return
+    try:
+        get_remote(tool).get(settings, str(link["remote_id"]))
+    except ToolError as err:
+        if sync_engine.remote_gone(err):
+            links.remove_link(project_dir, tool)

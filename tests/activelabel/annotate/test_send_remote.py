@@ -107,3 +107,11 @@ def test_send_still_works_when_linking_fails(env):
     job = wait(env, send(env).json())
     assert job["status"] == "done"
     assert links.get_link(env.state.store.dir(env.pid), "cvat") is None
+
+
+def test_link_to_a_deleted_remote_project_is_dropped_and_send_goes_on(env):
+    links.save_link(env.state.store.dir(env.pid), "cvat", links.new_link("http://cvat", "999", "Deleted"))
+    job = wait(env, send(env).json())
+    assert job["status"] == "done"
+    link = links.get_link(env.state.store.dir(env.pid), "cvat")
+    assert link is not None and link["remote_id"] != "999"  # the new project is linked instead
