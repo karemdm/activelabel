@@ -72,7 +72,7 @@ class FakeRemote:
     def get(self, settings, remote_id):
         self._check()
         if remote_id not in self.projects:
-            raise ToolError(f"The remote project {remote_id} does not exist.")
+            raise ToolError(f"The remote project {remote_id} was not found (deleted?).")
         return self.info(remote_id)
 
     def create(self, settings, project):

@@ -490,6 +490,11 @@ def link_from_items(
     return len(pairs)
 
 
+def remote_gone(err: ToolError) -> bool:
+    """Whether a tool error means the remote project does not exist (HTTP 404), not a network problem."""
+    return "not found" in str(err).lower()
+
+
 def existing_remote(
     store: ProjectStore, project: Project, tool: str, settings: ToolSettings, remote: RemoteProject
 ) -> dict[str, Any] | None:
@@ -500,14 +505,18 @@ def existing_remote(
     """
     project_dir = store.dir(project.id)
     link = links.get_link(project_dir, tool)
-    info: RemoteInfo | None
+    info: RemoteInfo | None = None
     if link:
         try:
             info = remote.get(settings, str(link["remote_id"]))
-        except ToolError:  # the remote project is gone or unreachable: the link still stands
-            name, url = str(link.get("remote_name", "")), str(link.get("url", ""))
-            info = RemoteInfo(str(link["remote_id"]), name, url, len(link.get("items", {})))
-    else:
+        except ToolError as err:
+            if remote_gone(err):  # deleted in the tool: the link means nothing any more
+                links.remove_link(project_dir, tool)
+                link = None
+            else:  # unreachable: the link still stands
+                name, url = str(link.get("remote_name", "")), str(link.get("url", ""))
+                info = RemoteInfo(str(link["remote_id"]), name, url, len(link.get("items", {})))
+    if link is None:
         info = remote.find(settings, remote_name(project))
         origin = read_origin(project_dir)
         if info is None and origin and origin.get("tool") == tool and origin.get("name"):

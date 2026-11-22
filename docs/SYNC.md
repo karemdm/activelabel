@@ -27,6 +27,11 @@ If one exists → **409** with detail
 `{code: "remote_exists", tool, remote: {id, name, url, images}, linked: bool, options: ["cancel", "sync"]}`
 and nothing is sent. The interface asks: *Cancel* or *Synchronise* (opens the sync preview).
 
+A link whose remote project was deleted in the tool (the tool answers "not found") is dropped, and
+the send goes on as if there were no link; when the tool cannot be reached the link stands. Closing
+an annotation session with *delete in the tool* also drops the link when its remote project went
+with the session.
+
 ## Synchronise
 
 1. **Plan** (job `sync_plan`): read every remote item (labels converted to the internal
