@@ -892,20 +892,26 @@
       return c.analyzed > 0 ? tn('status.issues', c.with_issues || 0) : t('status.not_analyzed');
     }
 
+    /* the step bar groups the steps: the data (1-3) and the model made from it (4-6) */
+    const STEP_GROUPS = [['data', ['images', 'annotations', 'curation']], ['model', ['datasets', 'training', 'models']]];
     function renderStepper() {
-      stepper.replaceChildren(
-        ...STEPS.map((step, i) =>
-          el('button', {
-            type: 'button',
-            class: `step${ctx.tab === step ? ' current' : ''}`,
-            'aria-current': ctx.tab === step ? 'step' : null,
-            'data-step': step,
-            onclick: () => showTab(step),
-          },
-            el('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
-            el('span', { class: 'step-text' },
-              el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
-              el('span', { class: 'step-status' }, stepStatus(step))))));
+      const item = (step) => {
+        const i = STEPS.indexOf(step);
+        return el('button', {
+          type: 'button',
+          class: `step${ctx.tab === step ? ' current' : ''}`,
+          'aria-current': ctx.tab === step ? 'step' : null,
+          'data-step': step,
+          onclick: () => showTab(step),
+        },
+          el('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
+          el('span', { class: 'step-text' },
+            el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
+            el('span', { class: 'step-status', title: stepStatus(step) }, stepStatus(step))));
+      };
+      stepper.replaceChildren(...STEP_GROUPS.map(([group, steps]) => el('div', { class: 'step-group', role: 'group', 'aria-labelledby': `sg-${group}` },
+        el('p', { class: 'step-group-title', id: `sg-${group}` }, t(`project.group_${group}`)),
+        ...steps.map(item))));
     }
 
     /* steps 2 and 3 work on the project's images: without images they only say so */
@@ -4822,7 +4828,7 @@
 
     ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel(), models: modelsPanel() };
     panelsBox.append(gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
-    root.replaceChildren(headerBox, stepper, panelsBox, jobsBox);
+    root.replaceChildren(headerBox, el('div', { class: 'project-body' }, stepper, panelsBox), jobsBox);
     renderJobs();
     const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
     ctx.tab = STEPS.includes(startHash) ? startHash : 'images';

@@ -191,17 +191,25 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .project-title-row h1 { margin: 0; overflow-wrap: anywhere; }
 .project-head-actions { display: flex; gap: 0.5rem; align-items: flex-start; }
 
-.stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
-.step { display: flex; align-items: center; gap: 0.7rem; text-align: left; padding: 0.7rem 0.9rem; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; min-width: 0; }
-.step:hover { border-color: var(--primary); }
+/* project: one full-width bar with the steps in groups (data | model), above the current step */
+.project-body { margin-top: 1rem; }
+.stepper { display: flex; gap: 0.75rem; margin: 0 0 1rem; padding: 0.5rem 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
+.step-group { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 0.25rem 0.4rem; min-width: 0; }
+.step-group > .step { flex: 1 1 auto; width: auto; }
+.step-group + .step-group { padding-left: 0.75rem; border-left: 1px solid var(--border); }
+.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.step { display: flex; align-items: center; gap: 0.65rem; text-align: left; padding: 0.5rem 0.65rem; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; min-width: 0; width: 100%; }
+.step:hover { background: var(--surface-2); border-color: var(--border); }
+.step:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .step.current { border-color: var(--primary); background: var(--primary-soft); }
-.step-num { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-weight: 700; border: 1px solid var(--border); }
+.step-num { flex: none; width: 26px; height: 26px; font-size: 0.85rem; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-weight: 700; border: 1px solid var(--border); }
 .step.current .step-num { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .step-text { display: flex; flex-direction: column; min-width: 0; }
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
 .stepper .step-tag { display: inline-block; margin-left: 0.35rem; padding: 0 0.4rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; line-height: 1.4; white-space: nowrap; vertical-align: 1px; }
-.step-status { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+.step-status { color: var(--muted); font-size: 0.82rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stepper .step-title { white-space: nowrap; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; scroll-margin-top: 4rem; }
 .section-title { margin-top: 1.5rem; }
@@ -345,7 +353,6 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 
 /* ---- small screens ---- */
 @media (max-width: 760px) {
-  .stepper { grid-template-columns: 1fr; }
   .lightbox-body { grid-template-columns: 1fr; }
   .brand span { display: none; }
   .topbar-inner { gap: 0.5rem; }
@@ -864,3 +871,16 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-help { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
 .md-formats { display: grid; gap: 0.35rem; border: 0; padding: 0; margin: 0 0 0.75rem; }
 .md-formats legend { font-weight: 600; margin-bottom: 0.25rem; }
+
+/* medium screens: one line per group */
+@media (max-width: 1180px) and (min-width: 901px) {
+  .stepper { flex-direction: column; gap: 0.5rem; }
+  .step-group + .step-group { padding-left: 0; border-left: 0; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+  .step-group > .step { flex: 1 1 0; min-width: 0; }
+}
+/* narrow screens: the bar scrolls sideways and shows only number and name */
+@media (max-width: 900px) {
+  .step-group { display: flex; flex: none; }
+  .step-group-title, .step-status, .stepper .step-tag { display: none; }
+  .step { width: auto; flex: none; }
+}
