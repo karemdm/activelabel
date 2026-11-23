@@ -227,3 +227,74 @@ def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_k
     fake.fail = "Cannot reach CVAT"  # cached for a minute; and a failure never breaks the list
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
     assert client.get("/api/projects/1/tasks").status_code == 200
+
+
+def test_bad_job_size_is_a_readable_400(tmp_path):
+    client, _, paths = _setup(tmp_path, 2)
+    r = client.post("/api/projects/1/tasks", files=_files(paths), data={"job_size": "two"})
+    assert r.status_code == 400 and r.json()["detail"] == "The job size must be a whole number."
+
+
+def _link_cvat(client, state, fake):
+    from activelabel.sync import links
+
+    link = links.new_link("http://cvat", fake.seed("P").id, "P")
+    link["tasks"] = {"1": {"remote_task": 1}}
+    links.save_link(state.store.dir(1), "cvat", link)
+    body = {"url": "http://cvat", "username": "u", "secret": "pw"}
+    assert client.put("/api/annotation-tools/cvat", json=body).status_code == 200
+
+
+def test_unreachable_cvat_is_cached_and_never_breaks_the_list(tmp_path, monkeypatch, remotes, fake_keyring):
+    from sync_fakes import FakeRemote
+
+    from activelabel.sync import registry
+    from activelabel.web import tasks_api
+
+    client, state, paths = _setup(tmp_path, 2)
+    client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
+    calls = []
+
+    class Broken(FakeRemote):
+        def tasks(self, settings, remote_id):
+            calls.append(1)
+            raise RuntimeError("connection reset")
+
+    fake = Broken("cvat", tasks=True)
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    monkeypatch.setattr(tasks_api, "_remote_cache", {})
+    _link_cvat(client, state, fake)
+    for _ in range(3):
+        r = client.get("/api/projects/1/tasks")
+        assert r.status_code == 200 and r.json()["tasks"][0].get("remote") is None
+    assert len(calls) == 1  # the failure is remembered, CVAT is not asked on every refresh
+
+
+def test_slow_cvat_does_not_hang_the_list(tmp_path, monkeypatch, remotes, fake_keyring):
+    import threading
+
+    from sync_fakes import FakeRemote
+
+    from activelabel.sync import registry
+    from activelabel.web import tasks_api
+
+    client, state, paths = _setup(tmp_path, 2)
+    client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
+    release = threading.Event()
+
+    class Slow(FakeRemote):
+        def tasks(self, settings, remote_id):
+            release.wait(5)
+            return []
+
+    fake = Slow("cvat", tasks=True)
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    monkeypatch.setattr(tasks_api, "_remote_cache", {})
+    monkeypatch.setattr(tasks_api, "REMOTE_TIMEOUT", 0.2)
+    _link_cvat(client, state, fake)
+    started = time.monotonic()
+    try:
+        assert client.get("/api/projects/1/tasks").status_code == 200
+        assert time.monotonic() - started < 3
+    finally:
+        release.set()

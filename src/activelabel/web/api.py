@@ -195,7 +195,17 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
     Removing classes that the ground truth still uses needs ``classes_action: "remove_annotations"``
     (a backup copy is kept); otherwise HTTP 409 ``classes_in_use``. Adding or reordering classes never
     needs a decision. The task decision is checked first.
+
+    The change waits for no running job (HTTP 409) and holds the annotations lock from reading
+    ``annotations.json`` to writing it (backup included), so no other writer is lost.
     """
+    state.project(project_id)
+    state.busy(project_id)
+    with annotations_lock(state.store.dir(project_id)):
+        return _update_project_locked(project_id, body, state)
+
+
+def _update_project_locked(project_id: int, body: ProjectChanges, state: AppState) -> dict[str, Any]:
     project = state.project(project_id)
     changes = body.model_dump(exclude_none=True, exclude={"annotations", "classes_action"})
     project_dir = state.store.dir(project_id)

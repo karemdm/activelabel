@@ -156,6 +156,20 @@ def close(project_dir: Path, session_id: str) -> None:
     shutil.rmtree(session_dir(project_dir, session_id), ignore_errors=True)
 
 
+def protected_images(project_dir: Path) -> set[str]:
+    """Ids of the images of FiftyOne sessions still being edited (not applied or discarded).
+
+    Their ``ground_truth`` in the FiftyOne dataset may hold edits not yet brought back, so refreshing
+    the dataset must not overwrite it.
+    """
+    return {
+        i
+        for s in _load(project_dir)
+        if s.get("tool") == "fiftyone" and s.get("status") in (OPEN, PULLED)
+        for i in s.get("image_ids", [])
+    }
+
+
 def public(session: dict[str, Any]) -> dict[str, Any]:
-    """Session as the API returns it (without the image ids and the tool's private reference)."""
-    return {k: v for k, v in session.items() if k not in ("image_ids", "ref")}
+    """Session as the API returns it (no image ids, label hashes or private tool reference)."""
+    return {k: v for k, v in session.items() if k not in ("image_ids", "ref", "base")}

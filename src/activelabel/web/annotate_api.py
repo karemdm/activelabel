@@ -12,10 +12,11 @@ from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
 from activelabel.jobs import Progress
-from activelabel.labels import Label, load_annotations
+from activelabel.labels import Label, annotations_lock, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
 from activelabel.sync import engine as sync_engine
+from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
 from activelabel.web.state import AppState, get_state
 
@@ -98,6 +99,13 @@ def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any
         ) from None
 
 
+def _local_hashes(project_dir: Any, image_ids: list[str]) -> dict[str, str]:
+    """Hash of the local labels of each image (to notice later that they changed)."""
+    annotations = load_annotations(project_dir)
+    images = annotations.images if annotations else {}
+    return {i: label_hash(images.get(i, [])) for i in image_ids}
+
+
 def _pulled_file(state: AppState, project_id: int, session_id: str) -> Any:
     return sessions.session_dir(state.store.dir(project_id), session_id) / "pulled.json"
 
@@ -176,6 +184,7 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
 
     def run(progress: Progress) -> dict[str, Any]:
         progress.update(message="Preparing the FiftyOne dataset")
+        kept = len(sessions.protected_images(project_dir) & set(image_ids))  # their edits stay in FiftyOne
         dataset = prepare_dataset(project, state)
         progress.update(message=f"Sending to {body.tool}")
         session_id = sessions.new_id()
@@ -183,14 +192,24 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
         session = sessions.create(
             project_dir, body.tool, body.scope, image_ids, sent.links, sent.ref, session_id=session_id
         )
+        result: dict[str, Any] = {
+            "session": sessions.public(session),
+            "links": sent.links,
+            "step": "annotate",
+        }
         if remote is not None:
             try:  # the link is a convenience: a failure here must not undo a send that worked
                 sync_engine.link_after_send(
                     state.store, project, body.tool, settings, remote, sent.ref, image_ids
                 )
-            except Exception:  # noqa: BLE001, S110
-                pass
-        return {"session": sessions.public(session), "links": sent.links, "step": "annotate"}
+            except Exception as exc:  # noqa: BLE001
+                result["warning"] = (
+                    f"The images were sent, but the project could not be linked to {body.tool} "
+                    f"({exc}). Synchronisation will not see this task until it is linked."
+                )
+        if kept:
+            result["kept_fiftyone_edits"] = kept
+        return result
 
     return state.jobs.submit(project_id, "annotate_send", run).as_dict()
 
@@ -216,7 +235,13 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
             _pulled_file(state, project_id, session_id),
             {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},
         )
-        updated = sessions.update(project_dir, session_id, status=sessions.PULLED, diff=summary)
+        updated = sessions.update(
+            project_dir,
+            session_id,
+            status=sessions.PULLED,
+            diff=summary,
+            base=_local_hashes(project_dir, image_ids),
+        )
         return {"session": sessions.public(updated), "diff": summary}
 
     return state.jobs.submit(project_id, "annotate_pull", run).as_dict()
@@ -227,14 +252,28 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
     """Make the pulled annotations the ground truth of the session images."""
     session = _session(state, project_id, session_id)
     state.busy(project_id)
-    data = read_json(_pulled_file(state, project_id, session_id))
+    try:
+        data = read_json(_pulled_file(state, project_id, session_id))
+    except ValueError:  # damaged file: the annotations have to be brought back again
+        data = None
     if session["status"] != sessions.PULLED or data is None:
         raise HTTPException(400, "Bring the annotations back first (Pull), then review and apply them.")
     new_labels = {i: [Label.from_dict(x) for x in items] for i, items in data.items()}
-    counts = diffing.apply(
-        state.store, project_id, state.manifest(project_id), session["image_ids"], new_labels
-    )
-    sessions.update(state.store.dir(project_id), session_id, status=sessions.APPLIED, applied=counts)
+    project_dir = state.store.dir(project_id)
+    with annotations_lock(project_dir):  # the check and the write see the same labels
+        base: dict[str, str] = session.get("base") or {}
+        current = _local_hashes(project_dir, session["image_ids"])
+        changed = sum(1 for i, h in current.items() if base.get(i) != h)
+        if changed:
+            raise HTTPException(
+                409,
+                f"The annotations of {changed} images changed since you brought them back: "
+                "bring them back again.",
+            )
+        counts = diffing.apply(
+            state.store, project_id, state.manifest(project_id), session["image_ids"], new_labels
+        )
+        sessions.update(project_dir, session_id, status=sessions.APPLIED, applied=counts)
     return {"applied": counts}
 
 

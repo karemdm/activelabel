@@ -27,7 +27,7 @@ def test_job_runs_and_reports():
 def test_failure_is_captured():
     jobs = JobManager()
     job = wait(jobs.submit(1, "demo", lambda progress: 1 / 0))
-    assert job.status == FAILED and "ZeroDivisionError" in job.error
+    assert job.status == FAILED and "division by zero" in job.error
 
 
 def test_cancel_running_and_queued():
@@ -84,4 +84,11 @@ def test_fiftyone_database_errors_are_readable():
 
     message = readable_error(ServiceListenTimeout("DatabaseService failed to bind to port"))
     assert message.startswith("The FiftyOne database did not respond") and "ServiceListenTimeout" in message
-    assert readable_error(ValueError("x")) == "ValueError: x"
+    assert readable_error(ValueError("x")) == "x"
+
+
+def test_error_message_has_no_class_name_but_traceback_keeps_it():
+    jobs = JobManager()
+    job = wait(jobs.submit(1, "demo", lambda progress: int("x")))
+    assert job.status == FAILED and "ValueError" not in job.error and "invalid literal" in job.error
+    assert "ValueError" in job.result["traceback"]

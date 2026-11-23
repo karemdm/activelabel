@@ -107,6 +107,8 @@ def delete_video(project_id: int, video_id: str, state: AppState = STATE) -> dic
     """Delete a video file, only when no task uses it."""
     videos = _videos(state, project_id)
     _find(videos, video_id)
+    if any(j.kind == "video_task" for j in state.jobs.active(project_id)):
+        raise HTTPException(409, "A task is being made from a video: wait for it to finish, then delete.")
     tasks = TaskStore(state.store.dir(project_id))
     with tasks.locked():
         if not videos.drop_if_unused(video_id, tasks.load()):
@@ -155,6 +157,7 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
     manifest = state.manifest(project_id)
     tasks = TaskStore(state.store.dir(project_id))
     video_file = videos.file(info)
+    planned = plan(start, stop, step)["frames"]
     stem = (Path(info.name).stem or "video").replace("/", "_").replace("\\", "_")
 
     def run(progress: Progress) -> dict[str, Any]:
@@ -164,6 +167,7 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
             frames = extract_frames(video_file, start, stop, step, temp, progress)
             if not frames:
                 raise ValueError("No frame could be read from the video.")
+            real_stop = frames[-1][0]  # the file may end before the planned last frame
             with tasks.locked():  # ingest and registration are atomic
                 tasks.ensure()
                 items = [
@@ -171,13 +175,19 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
                     for index, path in frames
                 ]
                 ids = ingest_frames(manifest, items, progress, salt=str(tasks.next_id()))
-                source = {"video": info.id, "start": start, "stop": stop, "step": step, "fps": info.fps}
+                source = {"video": info.id, "start": start, "stop": real_stop, "step": step, "fps": info.fps}
                 try:
                     task = tasks.create(task_name or stem[:100], size, ids, source=source)
                 except Exception:
                     manifest.delete(ids)
                     raise
-            return {"task": _view(state, project_id, task), "frames": len(ids), "step": step}
+            return {
+                "task": _view(state, project_id, task),
+                "frames": len(ids),
+                "planned": planned,
+                "stopped_early": len(ids) < planned,
+                "step": step,
+            }
         finally:
             shutil.rmtree(temp, ignore_errors=True)
 

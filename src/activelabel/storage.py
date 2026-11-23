@@ -51,7 +51,17 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def read_json(path: Path, default: Any = None) -> Any:
-    """Read a JSON file, or ``default`` when it does not exist."""
+    """Read a JSON file, or ``default`` when it does not exist.
+
+    Raises:
+        ValueError: the file is damaged (the message names the file and is readable).
+    """
     if not path.exists():
         return default
-    return json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
+    try:
+        return json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"The file {path.name} is damaged and cannot be read ({exc}). "
+            f"Restore it from a backup or remove it: {path}"
+        ) from exc

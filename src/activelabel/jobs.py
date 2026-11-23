@@ -23,15 +23,18 @@ FINISHED = (DONE, FAILED, CANCELLED)
 
 
 def readable_error(exc: BaseException) -> str:
-    """Message shown to people: FiftyOne database failures get a hint instead of a stack detail."""
+    """Message shown to people: no class name (it stays in the traceback of the job result).
+
+    FiftyOne database failures get a hint, with the technical detail at the end.
+    """
     name = type(exc).__name__
-    text = f"{name}: {exc}"
+    detail = f"{name}: {exc}"
     if name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in str(exc):
         return (
             "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel "
-            f"(another program using FiftyOne may be holding it). Details: {text}"
+            f"(another program using FiftyOne may be holding it). Details: {detail}"
         )
-    return text
+    return str(exc) or "The task failed (no details were given)."
 
 
 class Cancelled(Exception):
@@ -122,9 +125,9 @@ class JobManager:
         except Cancelled:
             job.status = CANCELLED
         except Exception as exc:  # noqa: BLE001 - shown to the user, the service keeps running
-            job.status = FAILED
             job.error = readable_error(exc)
             job.result = {"traceback": traceback.format_exc(limit=5)}
+            job.status = FAILED  # last: a reader that sees FAILED finds the error and the traceback
         job.finished = now()
 
     def cancel(self, job_id: str) -> Job:
