@@ -2,6 +2,15 @@
 (() => {
   'use strict';
 
+  /* Optional parts of a view are written `cond ? node : null`. el() skips them, but the DOM's own
+     replaceChildren/append would print "null": make them skip null/undefined/false too. */
+  for (const name of ['replaceChildren', 'append']) {
+    const native = Element.prototype[name];
+    Element.prototype[name] = function (...nodes) {
+      return native.apply(this, nodes.filter((n) => n !== null && n !== undefined && n !== false));
+    };
+  }
+
   const VL = window.VL || {};
   const I18N = window.I18N || {};
   const LOCALE = VL.locale || 'en';
@@ -1071,6 +1080,34 @@
           el('div', { class: 'session-actions' }, run, unlink));
       }
 
+      /* "Whole project", "Task Batch A" or "Task Batch A · Job 2" */
+      function scopeText(sc) {
+        if (!sc || sc.scope === 'project' || sc.task == null) return t('sync.scope_project');
+        const found = (ctx.tasksList || []).find((x) => x.id === sc.task);
+        const base = `${t('sync.scope_task')} ${found ? found.name : sc.task}`;
+        return sc.scope === 'job' && sc.job != null ? `${base} · ${t('sync.scope_job')} ${sc.job}` : base;
+      }
+
+      const RESULT_KEYS = ['pulled', 'pushed', 'added', 'removed_remote', 'removed_local', 'restored_remote', 'restored_local',
+        'tasks_created', 'tasks_imported', 'tasks_deleted', 'conflicts_left'];
+      const resultJob = () => {
+        const last = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
+        return last && last.status === 'done' && !ctx.syncDismissed.has(last.id) ? last : null;
+      };
+
+      function resultCard(job) {
+        const r = job.result || {};
+        const name = toolName(syncJobTool(job) || 'cvat');
+        const rows = RESULT_KEYS.filter((k) => Number(r[k]) > 0).map((k) => el('li', { class: 'dir-row' },
+          el('span', null, t(`sync.res_${k}`, { tool: name })), el('strong', null, num(r[k]))));
+        return el('div', { class: 'card sync-result', id: 'sync-result' },
+          el('div', { class: 'session-head' },
+            el('span', { class: 'session-tool' }, icon('check', 22), el('strong', null, t('sync.result_title')))),
+          rows.length ? el('ul', { class: 'plain dir-list res-list' }, ...rows) : el('p', { class: 'muted' }, t('sync.in_sync')),
+          el('div', { class: 'session-actions' },
+            el('button', { type: 'button', class: 'btn', onclick: () => { ctx.syncDismissed.add(job.id); draw(true); } }, t('common.close'))));
+      }
+
       function diffBlock(title, n, diff) {
         if (!n || !diff) return null;
         return el('details', { class: 'sync-diff', open: true }, el('summary', null, title), diffView(projectId, diff));
@@ -1084,17 +1121,50 @@
         const conflicts = plan.conflicts || [];
         const only = plan.remote_only || {};
         const pid = plan.plan_id;
-        if (!states.has(pid)) states.set(pid, { res: {}, def: null, error: null });
+        if (!states.has(pid)) states.set(pid, { res: {}, def: null, error: null, del: false });
         const st = states.get(pid);
-        const nothing = !(plan.pull || plan.push || plan.add || conflicts.length);
+        const tCreate = plan.tasks_create || [];
+        const tNew = plan.tasks_new || [];
+        const tDelete = plan.tasks_delete || [];
+        const nothing = !(plan.pull || plan.push || plan.add || conflicts.length || plan.remove_remote || plan.remove_local
+          || plan.restore_remote || plan.restore_local || tCreate.length || tNew.length || tDelete.length);
         const radios = [];
 
-        const tile = (cls, label, n) => el('div', { class: `stat ${cls}` }, el('span', { class: 'stat-label' }, label), el('strong', null, tn('sync.n_images', n || 0)));
-        const tiles = el('div', { class: 'diff-stats sync-tiles' },
-          tile('pull', t('sync.pull', { tool: name }), plan.pull),
-          tile('push', t('sync.push', { tool: name }), plan.push),
-          tile('add', t('sync.add', { tool: name }), plan.add),
-          tile('only', t('sync.only', { tool: name }), only.count));
+        const sub = (items, text) => (items.length
+          ? el('ul', { class: 'plain dir-sub' },
+              ...items.slice(0, 8).map((x) => el('li', null, text(x))),
+              items.length > 8 ? el('li', { class: 'muted' }, t('sync.only_more', { n: num(items.length - 8) })) : null)
+          : null);
+        const line = (label, n, extra) => (n
+          ? el('li', { class: 'dir-line' },
+              el('div', { class: 'dir-row' }, el('span', null, label), el('strong', null, num(n))),
+              extra || null)
+          : null);
+        const taskText = (x) => [x.name, tn('sync.n_images', Number(x.images) || 0), x.job_size ? t('sync.per_job', { n: num(x.job_size) }) : null].filter(Boolean).join(' · ');
+        const deleteBox = el('label', { class: 'dir-check' },
+          el('input', { type: 'checkbox', id: 'sync-delete-tasks', onchange: (e) => { st.del = e.target.checked; } }),
+          el('span', null, t('sync.delete_in_tool', { tool: name })),
+          el('small', { class: 'muted' }, t('sync.delete_in_tool_help', { tool: name })));
+        deleteBox.querySelector('input').checked = !!st.del;
+        const dir = (title, lines) => {
+          const shown = lines.filter(Boolean);
+          return el('section', { class: 'sync-dir' },
+            el('h4', null, title),
+            shown.length ? el('ul', { class: 'plain dir-list' }, ...shown) : el('p', { class: 'muted' }, t('sync.dir_empty')));
+        };
+        const dirs = el('div', { class: 'sync-dirs' },
+          dir(t('sync.push', { tool: name }), [
+            line(t('sync.row_tasks_create'), tCreate.length, sub(tCreate, taskText)),
+            line(t('sync.row_tasks_delete'), tDelete.length, el('div', null, sub(tDelete, (x) => x.name || `#${x.task}`), deleteBox)),
+            line(t('sync.row_add'), plan.add),
+            line(t('sync.row_annot'), plan.push),
+            line(t('sync.row_remove'), plan.remove_remote),
+            line(t('sync.row_restore'), plan.restore_remote)]),
+          dir(t('sync.pull', { tool: name }), [
+            line(t('sync.row_tasks_new'), tNew.length, sub(tNew, taskText)),
+            line(t('sync.row_annot'), plan.pull),
+            line(t('sync.row_remove'), plan.remove_local),
+            line(t('sync.row_restore'), plan.restore_local)]));
 
         const apply = el('button', { type: 'button', class: 'btn primary big', id: 'sync-apply' }, t('sync.apply'));
         const hint = el('p', { class: 'muted sync-hint', 'aria-live': 'polite' });
@@ -1113,7 +1183,8 @@
             ? [el('p', { class: 'report-line' }, icon('warning'), t('sync.stale')),
                el('button', { type: 'button', class: 'btn', onclick: async () => {
                  ctx.syncDismissed.add(pid);
-                 try { await startSync(tool); } catch (err) { toastError(err); }
+                 const sc = plan.scope || {};
+                 try { await startSync(tool, sc.scope && sc.scope !== 'project' ? { scope: sc.scope, task: sc.task, job: sc.job } : {}); } catch (err) { toastError(err); }
                  draw(true);
                } }, t('sync.again'))]
             : []));
@@ -1136,6 +1207,7 @@
               el('img', { src: `/api/projects/${projectId}/images/${encodeURIComponent(c.image_id)}/thumb`, alt: '', loading: 'lazy' })),
             el('div', { class: 'conflict-main' },
               el('strong', { class: 'conflict-name', title: c.name }, c.name),
+              el('p', { class: 'conflict-kind' }, t(`sync.kind_${c.kind in { removed_local: 1, removed_remote: 1 } ? c.kind : 'labels'}`, { tool: name })),
               el('div', { class: 'conflict-sides' },
                 el('p', null, el('span', { class: 'side-tag' }, t('sync.side_local')), perClassText(c.local)),
                 el('p', null, el('span', { class: 'side-tag' }, name), perClassText(c.remote)))),
@@ -1167,7 +1239,7 @@
           apply.disabled = true;
           st.error = null;
           try {
-            const job2 = await api('POST', `/projects/${projectId}/sync/${tool}/${encodeURIComponent(pid)}/apply`, { json: { resolutions: st.res, default: st.def } });
+            const job2 = await api('POST', `/projects/${projectId}/sync/${tool}/${encodeURIComponent(pid)}/apply`, { json: { resolutions: st.res, default: st.def, delete_tasks: !!(st.del && tDelete.length) } });
             ctx.syncDismissed.add(pid);
             if (job2 && job2.id) ctx.syncTool[job2.id] = tool;
             toast(t('sync.apply_started'), 'info', 3000);
@@ -1187,8 +1259,10 @@
           el('p', { class: 'session-meta' },
             isHttp(remote.url) ? el('a', { href: remote.url, target: '_blank', rel: 'noopener' }, remote.name || name, ' ', icon('external', 14)) : el('span', null, remote.name || name),
             remote.images != null ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
-            remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null),
-          tiles,
+            remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null,
+            el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+            el('strong', { class: 'sync-scope' }, scopeText(plan.scope))),
+          dirs,
           nothing ? el('p', { class: 'report-line ok' }, icon('check'), t('sync.in_sync')) : null,
           diffBlock(t('sync.diff_pull', { tool: name }), plan.pull, plan.diff_pull),
           diffBlock(t('sync.diff_push', { tool: name }), plan.push, plan.diff_push),
@@ -1210,7 +1284,8 @@
         const applying = ctx.jobs.some((j) => j.kind === 'sync_apply' && isActive(j));
         const stale = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
         const staleJob = stale && stale.status === 'failed' && isStale(stale) && !ctx.syncDismissed.has(stale.id) && !plan ? stale : null;
-        const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, staleJob && staleJob.id]);
+        const done = !plan && !applying ? resultJob() : null;
+        const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, staleJob && staleJob.id, done && done.id, (ctx.tasksList || []).length]);
         if (!force && sig === lastSig && !(st && st.error)) return;
         lastSig = sig;
         box.replaceChildren(...[
@@ -1227,6 +1302,7 @@
               try { await startSync(tool); } catch (err) { toastError(err); }
               draw(true);
             } }, t('sync.again'))) : null,
+          done ? resultCard(done) : null,
           job ? planCard(job) : null].filter(Boolean));
       }
 
@@ -1541,13 +1617,21 @@
           ? el('ul', { class: 'plain task-jobs', id: `${cid}-jobs`, hidden: !open },
             ...task.jobs.map((j) => {
               const on = filtered && filter.job === j.n;
+              /* state of the job in the linked CVAT project (new, in progress, completed, rejected) */
+              const rj = task.remote && (task.remote.jobs || []).find((x) => x.n === j.n);
+              const state = rj && rj.state ? String(rj.state).replace(/\s+/g, '_') : '';
+              const badge = state
+                ? el('span', { class: `job-state state-${state}`, title: rj.assignee ? t('tasks.job_assignee', { name: rj.assignee }) : '' },
+                  tr(`tasks.job_state.${state}`, rj.state))
+                : null;
               return el('li', null,
-                el('button', { type: 'button', class: `job-row${on ? ' is-filtered' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+                el('button', { type: 'button', class: `job-row${on ? ' is-filtered' : ''}${badge ? ' has-state' : ''}`, 'aria-pressed': on ? 'true' : 'false',
                   'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => taskSelectSync(task.id, j.n) },
                 el('span', { class: 'job-name' }, t('tasks.job_name', { n: j.n })),
                 el('span', { class: 'job-range muted' }, `${num(j.first)}–${num(j.last)}`),
                 thinBar(j.annotated, j.active, t('tasks.progress', { done: num(j.annotated), total: num(j.active) })),
-                el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`)));
+                el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`),
+                badge));
             }))
           : null;
 
@@ -1684,7 +1768,7 @@
     // ================================================================ step 2: annotate in an external tool
     function annotateBlock() {
       const storeKey = `al-annotate-tool-${projectId}`;
-      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false };
+      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false, cvat: { scope: 'project', task: null, job: null } };
       try {
         const saved = localStorage.getItem(storeKey);
         if (TOOLS.includes(saved)) state.tool = saved;
@@ -1737,6 +1821,7 @@
               state.tool = tool;
               try { localStorage.setItem(storeKey, tool); } catch (e) { /* no storage */ }
               drawTools();
+              drawScope();
               drawSend();
               toolsBox.querySelector(`input[value="${tool}"]`).focus();
             });
@@ -1756,8 +1841,84 @@
       }
 
       // ---- which images
+      /* CVAT: what to synchronise (whole project, one task or one job of it) */
+      const cvatTasks = () => ctx.tasksList || [];
+      const cvatTask = () => cvatTasks().find((x) => x.id === state.cvat.task) || null;
+      function normaliseCvat() {
+        const c = state.cvat;
+        const list = cvatTasks();
+        if (!list.length) { c.scope = 'project'; c.task = null; c.job = null; return; }
+        if (!list.some((x) => x.id === c.task)) c.task = list[0].id;
+        const task = cvatTask();
+        if (!task.jobs.some((j) => j.n === c.job)) c.job = task.jobs.length ? task.jobs[0].n : null;
+        if (c.scope === 'job' && c.job == null) c.scope = 'task';
+      }
+      function drawCvatScope() {
+        normaliseCvat();
+        const c = state.cvat;
+        const list = cvatTasks();
+        const task = cvatTask();
+        const focusedId = document.activeElement && document.activeElement.name === 'cvat-scope' ? document.activeElement.id : null;
+        const row = (scope, label, extra, ok = true) => {
+          const id = `cvat-scope-${scope}`;
+          const input = el('input', { type: 'radio', name: 'cvat-scope', id, value: scope, disabled: !ok });
+          input.checked = c.scope === scope;
+          input.addEventListener('change', () => { c.scope = scope; drawScope(); drawSend(); });
+          return el('div', { class: `scope-row${c.scope === scope ? ' selected' : ''}${ok ? '' : ' is-disabled'}` },
+            el('div', { class: 'scope-line' }, input, el('label', { for: id }, label), extra));
+        };
+        const taskSelect = el('select', {
+          id: 'cvat-task', 'aria-label': t('sync.scope_task'), disabled: !list.length,
+          onchange: (e) => { c.task = Number(e.target.value); c.job = null; if (c.scope === 'project') c.scope = 'task'; drawScope(); drawSend(); },
+        }, ...list.map((x) => el('option', { value: String(x.id), selected: x.id === c.task }, `${x.name} (${num(x.images)})`)));
+        const jobSelect = el('select', {
+          id: 'cvat-job', 'aria-label': t('sync.scope_job'), disabled: !task || !task.jobs.length,
+          onchange: (e) => { c.job = Number(e.target.value); c.scope = 'job'; drawScope(); drawSend(); },
+        }, ...(task ? task.jobs : []).map((j) => el('option', { value: String(j.n), selected: j.n === c.job }, t('tasks.job_option', { n: j.n, first: num(j.first), last: num(j.last) }))));
+        scopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
+          el('legend', null, t('sync.scope_title')),
+          el('div', { class: 'scope-rows' },
+            row('project', t('sync.scope_project'), el('span', { class: 'count' }, num(counts().active || 0))),
+            row('task', t('sync.scope_task'), taskSelect, list.length > 0),
+            row('job', t('sync.scope_job'), jobSelect,list.length > 0 && !!task && task.jobs.length > 0)),
+          list.length ? null : el('p', { class: 'hint' }, t('sync.no_tasks'))));
+        if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
+      }
+
+      function drawSend() {
+        if (!state.loaded) { sendBox.replaceChildren(); return; }
+        if (state.tool === 'cvat') { drawCvatSend(); return; }
+        drawSendDefault();
+      }
+
+      function drawCvatSend() {
+        const ready = isReady('cvat');
+        const linked = ctx.links.some((l) => l.tool === 'cvat');
+        sendBox.replaceChildren(...[  /* replaceChildren would print a null as text */
+          el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: ctx.jobs.some((j) => j.kind === 'sync_plan' && isActive(j)), onclick: (e) => syncCvat(e.currentTarget) },
+            icon('cvat', 20), ready ? t('sync.run_with', { tool: toolName('cvat') }) : t('sync.setup_and_run', { tool: toolName('cvat') })),
+          linked ? null : el('p', { class: 'muted' }, t('sync.creates', { tool: toolName('cvat') })),
+        ].filter(Boolean));
+      }
+
+      async function syncCvat(button) {
+        if (!isReady('cvat')) { openSetup('cvat'); return; }
+        normaliseCvat();
+        const c = state.cvat;
+        const body = { scope: c.scope };
+        if (c.scope !== 'project') body.task = c.task;
+        if (c.scope === 'job') body.job = c.job;
+        // no link yet: use the project of the same name in CVAT or create it
+        if (!ctx.links.some((l) => l.tool === 'cvat')) body.create = true;
+        button.disabled = true;
+        try {
+          await startSync('cvat', body);
+        } catch (err) { toastError(err); } finally { drawSend(); }
+      }
+
       function drawScope() {
         if (!state.loaded) return;
+        if (state.tool === 'cvat') { drawCvatScope(); return; }
         if (!state.scope || !scopeAvailable(state.scope)) state.scope = defaultScope();
         if (!state.issue || !state.issues[state.issue]) state.issue = (issueEntries()[0] || [''])[0];
         const focusedId = document.activeElement && document.activeElement.name === 'annotate-scope' ? document.activeElement.id : null;
@@ -1788,8 +1949,7 @@
         if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
       }
 
-      function drawSend() {
-        if (!state.loaded) { sendBox.replaceChildren(); return; }
+      function drawSendDefault() {
         const tool = state.tool;
         const n = scopeCount(state.scope);
         const ready = isReady(tool);
@@ -1932,6 +2092,13 @@
         drawScope();
         drawSend();
       }
+      async function loadTasks() {
+        try {
+          ctx.tasksList = (await api('GET', `/projects/${projectId}/tasks`)).tasks || [];
+        } catch (err) { if (err.status !== 404) toastError(err); }
+        sync.draw();
+        drawScope();
+      }
       async function loadIssues() {
         try {
           const summary = await api('GET', `/projects/${projectId}/curation`);
@@ -1951,9 +2118,9 @@
       return {
         node,
         reveal,
-        mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues()]); await loadSessions(); },
-        refresh: async () => { sync.draw(); await loadIssues(); await loadSessions(); },
-        show: async () => { await loadIssues(); drawScope(); drawSend(); },
+        mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues(), loadTasks()]); await loadSessions(); },
+        refresh: async () => { sync.draw(); await Promise.all([loadIssues(), loadTasks()]); await loadSessions(); },
+        show: async () => { await Promise.all([loadIssues(), loadTasks()]); drawScope(); drawSend(); },
       };
     }
 
@@ -2514,11 +2681,19 @@
         return tn('jobs.result_annotate_send', imagesOf(r.session), { tool: toolName(r.session.tool) });
       }
       if (job.kind === 'sync_plan' && 'plan_id' in r) {
-        return t('jobs.result_sync_plan', { pull: num(r.pull), push: num(r.push), add: num(r.add), conflicts: num((r.conflicts || []).length) });
+        /* every change counts: images, annotations and tasks, each way */
+        const len = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
+        const incoming = len(r.pull) + len(r.remove_local) + len(r.restore_local) + len(r.tasks_new);
+        const outgoing = len(r.push) + len(r.add) + len(r.remove_remote) + len(r.restore_remote) + len(r.tasks_create) + len(r.tasks_delete);
+        const conflicts = len(r.conflicts);
+        if (!incoming && !outgoing && !conflicts) return t('jobs.result_sync_plan_none');
+        return t('jobs.result_sync_plan', { pull: num(incoming), push: num(outgoing), conflicts: num(conflicts) });
       }
       if (job.kind === 'sync_apply') {
         const n = (...keys) => Number(keys.map((k) => r[k]).find((v) => v != null)) || 0;
-        const base = t('jobs.result_sync_apply', { pull: num(n('pulled', 'pull')), push: num(n('pushed', 'push')), add: num(n('added', 'add')) });
+        const incoming = n('pulled') + n('removed_local') + n('restored_local') + n('tasks_imported');
+        const outgoing = n('pushed') + n('added') + n('removed_remote') + n('restored_remote') + n('tasks_created') + n('tasks_deleted');
+        const base = t('jobs.result_sync_apply', { pull: num(incoming), push: num(outgoing) });
         const left = n('conflicts_left');
         return left ? `${base} ${tn('jobs.result_sync_left', left)}` : base;
       }
@@ -2888,7 +3063,7 @@
       const classes = Array.isArray(r.classes) ? r.classes.length : Number(r.classes) || 0;
       const fact = (label, value) => el('div', null, el('dt', null, label), el('dd', null, value));
       const problems = r.problems || [];
-      jobBox.replaceChildren(
+      jobBox.replaceChildren(...[  /* replaceChildren would print a null as text */
         el('h2', { class: 'ok-title' }, icon('check', 22), t('import.done_title')),
         el('p', null, el('strong', null, r.name || (state.job && state.job.name) || '')),
         el('dl', { class: 'facts result-facts' },
@@ -2900,7 +3075,8 @@
         problems.length ? el('div', { class: 'problems-box' }, el('h3', null, t('import.problems')), el('ul', { class: 'problems plain' }, ...problems.map(problemRow))) : null,
         el('div', { class: 'form-actions' },
           r.project_id ? el('a', { class: 'btn primary big', href: `/projects/${encodeURIComponent(r.project_id)}` }, t('import.open')) : null,
-          el('button', { type: 'button', class: 'btn', onclick: backToList }, t('import.another'))));
+          el('button', { type: 'button', class: 'btn', onclick: backToList }, t('import.another'))),
+      ].filter(Boolean));
     }
 
     drawSource();

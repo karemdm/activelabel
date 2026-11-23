@@ -508,10 +508,19 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .link-facts a { display: inline-flex; align-items: center; gap: 0.3rem; }
 .sync-plan { scroll-margin-top: 4.5rem; }
 .sync-plan.flash { outline: 3px solid var(--primary); outline-offset: 2px; }
-.sync-tiles { margin: 0.6rem 0; }
-.sync-tiles .stat-label { color: var(--text); font-weight: 600; font-size: 0.9rem; }
-.sync-tiles .stat strong { font-size: 1.25rem; }
-.sync-tiles .stat.only strong { color: var(--muted); }
+.sync-scope { color: var(--text); }
+.sync-dirs { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.8rem; margin: 0.6rem 0; }
+.sync-dir { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; background: var(--surface-2); }
+.sync-dir h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.dir-list { display: grid; gap: 0.35rem; }
+.dir-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem; }
+.dir-row strong { font-variant-numeric: tabular-nums; }
+.dir-sub { margin: 0.2rem 0 0 0.8rem; padding-left: 0.6rem; border-left: 2px solid var(--border); font-size: 0.9rem; color: var(--muted); display: grid; gap: 0.1rem; }
+.dir-check { display: grid; grid-template-columns: auto 1fr; column-gap: 0.5rem; align-items: center; margin: 0.4rem 0 0 0.8rem; font-size: 0.9rem; cursor: pointer; }
+.dir-check input { width: 18px; height: 18px; margin: 0; }
+.dir-check small { grid-column: 2; }
+.res-list { margin: 0.6rem 0; max-width: 32rem; }
+.conflict-kind { margin: 0; font-size: 0.85rem; color: var(--warn); }
 .sync-diff { border-top: 1px solid var(--border); padding: 0.6rem 0; }
 .sync-diff > summary { cursor: pointer; font-weight: 700; padding: 0.2rem 0; }
 .sync-diff > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -558,7 +567,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .icon-btn.small { width: 32px; height: 32px; border-color: transparent; background: transparent; color: var(--muted); }
 .icon-btn.small:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn.small.danger:hover { background: var(--danger-soft); color: var(--danger); }
-.task-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 1rem; align-items: start; margin: 0; }
+.task-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); gap: 1rem; align-items: start; margin: 0; }
 .task-item { min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.9rem 1rem; }
 .task-item.is-filtered { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft), var(--shadow); }
 .task-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
@@ -614,3 +623,11 @@ dialog .jobs.scroll-box { max-height: 60vh; }
   .job-row { grid-template-columns: 3rem 4rem minmax(2rem, 1fr) 2.8rem; gap: 0.4rem; }
   .tasks-head .btn { padding: 0.4rem 0.8rem; }
 }
+
+/* state of a job in the linked CVAT project */
+.job-row.has-state { grid-template-columns: 3rem 3.8rem minmax(2rem, 1fr) 2.8rem 7rem; }
+.job-state { justify-self: end; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.job-state.state-in_progress { color: var(--primary); border-color: var(--primary); }
+.job-state.state-completed { color: var(--ok); border-color: var(--ok); }
+.job-state.state-rejected { color: var(--danger); border-color: var(--danger); }
+@media (max-width: 480px) { .job-row.has-state { grid-template-columns: 3rem 4rem minmax(2rem, 1fr) 2.8rem; } .job-row.has-state .job-state { grid-column: 1 / -1; justify-self: start; } }
