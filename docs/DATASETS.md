@@ -1,6 +1,6 @@
 # ActiveLabel — dataset versions (split)
 
-Step **4 · Dataset** of a project. A *dataset version* is a frozen choice of images and labels split
+Step **4 · Divisão dos dados** (data split) of a project. A *dataset version* is a frozen choice of images and labels split
 into train / validation / test (or K folds plus a test part). Every training (a later step) points to
 one version, so it is always known exactly which images and labels it used.
 

@@ -1,6 +1,6 @@
 # ActiveLabel — training and models
 
-Steps **5 · Treinos** (train) and **6 · Modelos** (models) of a project. A training run uses one
+Steps **5 · Treinamento** (training) and **6 · Modelos** (models) of a project. A training run uses one
 dataset version (docs/DATASETS.md), so it is always known which images and labels it saw; its
 configuration is saved as YAML so it can be reproduced, on this or any other machine.
 
@@ -141,4 +141,4 @@ segmentation), which is then queued right after saving.
 3. Runner (separate process) + classification end to end, temporary folder, metrics, cancel.
 4. Detection (torchvision). 5. Segmentation and keypoints (torchvision). 6. YOLO (ultralytics).
 7. Grid search and K-fold orchestration.
-8. Screen: step 5 Treinos. 9. Step 6 Modelos: save, current, compare, download, ONNX export.
+8. Screen: step 5 Treinamento. 9. Step 6 Modelos: save, current, compare, download, ONNX export.
