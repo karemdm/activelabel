@@ -81,7 +81,7 @@ def test_new_project_description_and_rollback(tmp_path):
     origin = Origin("cvat", "http://c", "3", "project", "Street")
     with common.new_project(store, origin, "", "", Task.DETECTION) as project:
         assert project.name == "Street"
-        assert project.description == "Imported from CVAT (Street)"
+        assert project.description == ""  # the origin badge says where it came from
     with common.new_project(store, origin, "Mine", "my text", Task.DETECTION) as other:
         assert (other.name, other.description) == ("Mine", "my text")
     with pytest.raises(RuntimeError), common.new_project(store, origin, "Gone", "", Task.DETECTION) as bad:

@@ -144,7 +144,7 @@ def test_import_end_to_end(server, tmp_path, monkeypatch):
     assert "unmatched_entries" not in problems
     assert cdn and "Authorization" not in cdn[0][1].get("headers", {})  # the token stays on the server
     project = store.get(result["project_id"])
-    assert project.description == "Imported from Label Studio (Pets)"
+    assert project.description == ""
     names = sorted(r.name for r in Manifest(store.dir(project.id)).all())
     assert names == ["folder/img2.png", "img0.png", "img1.png", "img3.png"]
     ann = load_annotations(store.dir(project.id))

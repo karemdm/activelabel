@@ -183,8 +183,7 @@ def new_project(
     store: ProjectStore, origin: Origin, name: str, description: str, hint: Task
 ) -> Iterator[Project]:
     """Create the project; delete it again when the block fails or the job is cancelled."""
-    tool = TOOL_NAMES.get(origin.tool, origin.tool)
-    text = (description or "").strip() or f"Imported from {tool} ({origin.name})"
+    text = (description or "").strip()  # the origin badge says where it came from
     project = store.create(unique_name(store, name or origin.name), text[:MAX_DESCRIPTION], hint)
     try:
         yield project
