@@ -832,3 +832,11 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-cell.diag { font-weight: 700; }
 .tr-cell.zero { color: var(--muted); }
 @media (max-width: 480px) { .tr-actions .btn.small { flex: 1 1 auto; } .tr-del { margin-left: 0; } }
+
+/* grid search / all folds: the trainings of a run */
+.tr-rank td.num { text-align: right; white-space: nowrap; }
+.tr-rank tr.best th, .tr-rank tr.best td { background: var(--ok-soft); }
+.tr-rank tr.current th, .tr-rank tr.current td { background: var(--primary-soft); }
+.tr-fail-note { color: var(--danger); font-size: 0.85rem; font-weight: 400; }
+.tr-viewing { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.5rem; color: var(--muted); }
+.tr-viewing span { color: var(--text); }

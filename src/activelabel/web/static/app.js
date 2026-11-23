@@ -3747,8 +3747,14 @@
         if (d.mps) return 'Apple GPU';
         return d.torch ? 'CPU' : '';
       }
+      const childIndex = (r) => (r.current ? (r.children || []).findIndex((c) => c.id === r.current) : -1);
       function phaseText(r) {
         if (r.status === 'queued') return r.queue_position ? t('tr.st_queued_n', { n: r.queue_position }) : t('tr.st_queued');
+        const i = childIndex(r);
+        if (r.status === 'running' && i >= 0 && r.trainings) {
+          const own = r.epoch && r.epochs ? t('tr.ph_epoch', { e: r.epoch, n: r.epochs }) : t('tr.ph_training');
+          return `${t('tr.ph_child', { i: i + 1, n: r.trainings })} · ${own}`;
+        }
         if (r.status === 'running') {
           if (r.phase === 'environment') return t('tr.ph_environment');
           if (r.phase === 'preparing') return t('tr.ph_preparing');
@@ -3762,7 +3768,9 @@
         if (r.status !== 'running' || r.phase !== 'training' || !r.epochs) return null;
         const inEpoch = r.step && r.steps ? r.step / r.steps : 0;
         const done = r.step ? Math.max(0, (r.epoch || 1) - 1) + inEpoch : r.epoch || 0;
-        return Math.max(0, Math.min(100, Math.round((done / r.epochs) * 100)));
+        const i = childIndex(r);
+        const share = i >= 0 && r.trainings ? (i + done / r.epochs) / r.trainings : done / r.epochs;
+        return Math.max(0, Math.min(100, Math.round(share * 100)));
       }
       function badge(r) {
         const glyph = r.status === 'done' ? icon('check', 14) : r.status === 'failed' ? icon('error', 14) : r.status === 'cancelled' ? icon('close', 14) : el('span', { class: 'tr-dot', 'aria-hidden': 'true' });
@@ -3793,7 +3801,7 @@
         const pct = percentOf(r);
         const id = `run-${r.number}`;
         const best = r.best && r.best.value != null ? `${metricName(metric)} ${fmtVal(r.best.value)}` : '';
-        const meta = [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null].filter(Boolean);
+        const meta = [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null, r.trainings ? tn('tr.trainings', r.trainings) : null].filter(Boolean);
         const facts = [durationOf(r), deviceOf(r)].filter(Boolean);
         const act = (name, label, fn, cls = '') => el('button', { type: 'button', class: `btn small ${cls}`, 'data-act': name, onclick: fn }, label);
         return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
@@ -3930,8 +3938,8 @@
           foldSel.replaceChildren(el('option', { value: 'all' }, t('tr.fold_all')), ...Array.from({ length: k }, (_, i) => el('option', { value: String(i) }, t('ds.fold', { n: i + 1 }))));
           st.fold = 'all';
         }
-        datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); });
-        foldSel.addEventListener('change', () => { st.fold = foldSel.value; });
+        datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); changed(); });
+        foldSel.addEventListener('change', () => { st.fold = foldSel.value; changed(); });
 
         // model
         const modelSel = sel('tr-model');
@@ -4099,14 +4107,17 @@
             combos *= r.list.length;
           }
           const grid = st.mode === 'grid';
-          summary.hidden = !grid;
+          const folds = st.fold === 'all' ? foldCount(versionOf()) : 1;
+          const total = combos * folds;
+          summary.hidden = !grid && folds < 2;
           summary.classList.remove('bad', 'ok');
           let blocked = bad > 0;
           if (grid && !bad) {
             if (combos < 2) { summary.textContent = t('tr.grid_need'); summary.classList.add('bad'); blocked = true; }
-            else if (combos > MAX_GRID) { summary.textContent = t('tr.grid_max', { n: MAX_GRID }); summary.classList.add('bad'); blocked = true; }
-            else { summary.textContent = tn('tr.combos', combos); summary.classList.add('ok'); }
+            else if (total > MAX_GRID) { summary.textContent = t('tr.trainings_max', { total, n: MAX_GRID }); summary.classList.add('bad'); blocked = true; }
+            else { summary.textContent = folds > 1 ? t('tr.combos_folds', { c: tn('tr.combos', combos), k: folds, total }) : tn('tr.combos', combos); summary.classList.add('ok'); }
           } else if (grid) summary.textContent = '';
+          else if (folds > 1) { summary.textContent = t('tr.folds_runs', { k: folds }); summary.classList.add('ok'); }
           create.disabled = blocked;
           formError.hidden = true;
         }
@@ -4344,6 +4355,85 @@
             pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null);
         }
 
+        let childSel = null;   // training (child) whose curves and results are shown; null = the run's own
+        let childData = null;
+        const valueText = (k, v) => (k === 'start' ? startName(v) : typeof v === 'string' ? choiceName(v) : plain(v));
+        const childLabel = (c) => [
+          Object.entries(c.values || {}).map(([k, v]) => `${k === 'start' ? t('tr.start') : paramName(k)} ${valueText(k, v)}`).join(', '),
+          c.fold != null ? t('ds.fold', { n: Number(c.fold) + 1 }) : ''].filter(Boolean).join(' · ') || c.id;
+
+        async function showChild(id) {
+          if (!id) { childSel = null; childData = null; sig = ''; render(); return; }
+          try {
+            childData = await api('GET', `/projects/${projectId}/runs/${number}/children/${id}`);
+            childSel = id;
+            sig = '';
+            render();
+          } catch (err) { toastError(err); }
+        }
+
+        function trainingsBlock(r) {
+          const kids = r.children || [];
+          if (!kids.length) return null;
+          const res = r.results || {};
+          const metric = (r.config && r.config.metric) || res.metric || '';
+          const names = Object.keys(kids[0].values || {});
+          const perCombo = kids.filter((c) => c.combo === kids[0].combo).length;
+          const shown = childSel || (ACTIVE(r) ? r.current : r.best_child);
+          const viewBtn = (id, label) => el('button', {
+            type: 'button', class: `btn small${shown === id ? ' primary' : ''}`, 'aria-pressed': String(shown === id),
+            'aria-label': t('tr.show_curves_of', { name: label }),
+            onclick: () => showChild(id === (ACTIVE(r) ? r.current : r.best_child) ? null : id) }, t(shown === id ? 'tr.showing' : 'tr.show_curves'));
+          const head = el('tr', null,
+            el('th', { scope: 'col' }, '#'),
+            ...names.map((k) => el('th', { scope: 'col' }, k === 'start' ? t('tr.start') : paramName(k))),
+            perCombo > 1 ? el('th', { scope: 'col' }, t('tr.per_fold')) : null,
+            el('th', { scope: 'col' }, res.ranking && perCombo > 1 ? t('tr.mean_std', { m: metricName(metric) }) : metricName(metric)),
+            el('th', { scope: 'col' }, el('span', { class: 'sr-only' }, t('tr.curves'))));
+          let rows;
+          if (res.ranking) {
+            rows = res.ranking.map((row) => {
+              const ids = row.children || [];
+              const scores = row.scores || {};
+              const pick = ids.filter((id) => id in scores).sort((a, b) => scores[b] - scores[a])[0] || null;
+              const entry = kids.find((c) => c.id === (pick || ids[0])) || { values: row.values };
+              const failed = ids.map((id) => kids.find((c) => c.id === id)).filter((c) => c && c.status === 'failed');
+              const mean = row.mean == null ? '—' : perCombo > 1 ? `${nf3.format(row.mean)} ± ${nf3.format(row.std || 0)}` : nf3.format(row.mean);
+              return el('tr', { class: row.combo === res.best_combo ? 'best' : null },
+                el('th', { scope: 'row' }, row.mean == null ? '—' : String(row.rank)),
+                ...names.map((k) => el('td', null, valueText(k, (row.values || {})[k]))),
+                perCombo > 1 ? el('td', { class: 'muted' }, ids.map((id) => (id in scores ? nf3.format(scores[id]) : '—')).join(' · ')) : null,
+                el('td', { class: 'num', title: failed.length ? failed.map((c) => c.error).join('\n') : null },
+                  el('strong', null, mean), failed.length ? el('span', { class: 'tr-fail-note' }, ` ${tn('tr.failed_n', failed.length)}`) : null),
+                el('td', null, pick ? viewBtn(pick, childLabel(entry)) : null));
+            });
+          } else {
+            rows = kids.map((c, i) => el('tr', { class: c.id === r.current ? 'current' : null },
+              el('th', { scope: 'row' }, String(i + 1)),
+              ...names.map((k) => el('td', null, valueText(k, (c.values || {})[k]))),
+              perCombo > 1 ? el('td', null, t('ds.fold', { n: Number(c.fold) + 1 })) : null,
+              el('td', { class: 'num', title: c.error || null }, c.best && c.best.value != null ? nf3.format(c.best.value) : el('span', { class: 'muted' }, phaseText(c))),
+              el('td', null, c.status !== 'queued' ? viewBtn(c.id, childLabel(c)) : null)));
+          }
+          return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-children' },
+            el('h3', { id: 'trd-children', class: 'section-title' }, res.ranking ? t('tr.ranking') : t('tr.trainings_title')),
+            el('p', { class: 'muted tr-note' }, res.ranking ? t(perCombo > 1 ? 'tr.ranking_help_folds' : 'tr.ranking_help', { k: perCombo }) : tn('tr.trainings', kids.length)),
+            el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table tr-rank' },
+              el('caption', { class: 'sr-only' }, res.ranking ? t('tr.ranking') : t('tr.trainings_title')),
+              el('thead', null, head), el('tbody', null, ...rows))));
+        }
+
+        function viewingNote(r) {
+          const kids = r.children || [];
+          if (!kids.length) return null;
+          const id = childSel || (ACTIVE(r) ? r.current : r.best_child);
+          const c = kids.find((x) => x.id === id);
+          if (!c) return null;
+          const key = childSel ? 'tr.viewing' : ACTIVE(r) ? 'tr.viewing_current' : 'tr.viewing_best';
+          return el('p', { class: 'tr-viewing' }, icon('chart', 16), el('span', null, t(key, { name: childLabel(c) })),
+            childSel ? el('button', { type: 'button', class: 'btn small', onclick: () => showChild(null) }, t(ACTIVE(r) ? 'tr.view_current' : 'tr.view_best')) : null);
+        }
+
         function chartsBlock(r) {
           const rows = r.metrics || [];
           if (!rows.length) return null;
@@ -4382,7 +4472,8 @@
 
         function render() {
           const r = data;
-          const s = JSON.stringify(r) + part;
+          const view = childSel && childData ? { ...childData, number: r.number } : r;
+          const s = JSON.stringify(r) + part + (childSel ? JSON.stringify(childData) : '');
           if (s === sig) return;
           sig = s;
           const top = body.scrollTop;
@@ -4391,7 +4482,7 @@
               el('h2', null, t('tr.detail_title', { n: r.number })),
               badge(r),
               el('button', { type: 'button', class: 'icon-btn', 'data-act': 'close', 'aria-label': t('common.close'), onclick: () => dlg.close() }, icon('close', 18))),
-            progressBlock(r), chartsBlock(r), resultsBlock(r), configBlock(r)));
+            progressBlock(r), trainingsBlock(r), viewingNote(r), chartsBlock(view), resultsBlock(view), configBlock(r)));
           body.scrollTop = top;
           const text = phaseText(r);
           if (text !== lastLive) { lastLive = text; live.textContent = text; }
@@ -4401,6 +4492,7 @@
           clearTimeout(dtimer);
           try {
             data = await api('GET', `/projects/${projectId}/runs/${number}`);
+            if (childSel) childData = await api('GET', `/projects/${projectId}/runs/${number}/children/${childSel}`);
           } catch (err) {
             if (err.status === 404) { dlg.close(); toastError(err); return; }
             if (!data) { dlg.close(); toastError(err); return; }
