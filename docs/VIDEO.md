@@ -49,12 +49,15 @@ so tasks are created with `overlap = 0`; a task is made of the video with `start
 
 ## FiftyOne
 
-The project's FiftyOne dataset stays an image dataset (one sample per frame) with the fields
-`video`, `frame_number`, `time`, `task` and `job`. For each video task a saved view **groups the
-frames by video, ordered by frame number** (FiftyOne dynamic groups), so the App shows them as a
-sequence you can play through, with the objects and their track ids (`index`). Curation (blur,
-darkness, near duplicates) works per frame; near-duplicate detection is especially useful to drop
-almost identical consecutive frames.
+The project's FiftyOne dataset stays an image dataset (one sample per frame). Every sample has
+`task`, `task_name`, `job` and `position` (1-based, in the task); frames of a video task also have
+`video` (id), `video_name`, `frame_number` and `time` (seconds). Each task has a saved view
+`task-<id>` (description `Task: <name>`; the id keeps the URL stable when the task is renamed, and
+views of deleted tasks are removed on refresh). For a video task the view **groups the frames by
+video, ordered by frame number** (`group_by("video", order_by="frame_number")`, FiftyOne dynamic
+groups, saved with `save_view`), so the App shows each video as a sequence you can play through,
+with the objects and their track ids (`index`). Curation (blur, darkness, near duplicates) works
+per frame; near-duplicate detection is especially useful to drop almost identical consecutive frames.
 
 ## Not in this step
 

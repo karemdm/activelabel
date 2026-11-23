@@ -636,6 +636,8 @@ class OpenFiftyOne(BaseModel):
     """Body of POST /projects/{id}/fiftyone."""
 
     view: str | None = None
+    task: int | None = None  # open this task (saved view ``task-<id>``)
+    job: int | None = None  # with ``task``: only this job (view built on demand)
 
 
 @router.post("/projects/{project_id}/fiftyone")
@@ -647,6 +649,13 @@ def open_fiftyone(
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
     view = body.view if body else None
+    task_id = body.task if body else None
+    job_no = body.job if body else None
+    if task_id is not None:
+        try:
+            TaskStore(project_dir).get(task_id)
+        except TaskNotFound:
+            raise HTTPException(404, "Unknown task.") from None
 
     def run(progress: Progress) -> dict[str, Any]:
         from activelabel import fiftyone_bridge
@@ -654,7 +663,11 @@ def open_fiftyone(
         progress.update(message="Preparing the FiftyOne dataset")
         dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
         progress.update(message="Opening the FiftyOne App")
-        return {"url": fiftyone_bridge.launch_app(dataset, view), "view": view or "", "step": "curation"}
+        return {
+            "url": fiftyone_bridge.launch_app(dataset, view, task=task_id, job=job_no),
+            "view": view or "",
+            "step": "curation",
+        }
 
     return state.jobs.submit(project_id, "fiftyone", run).as_dict()
 

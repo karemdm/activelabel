@@ -7,6 +7,7 @@ the image id (field ``image_id``). Segmentation polygons become ``Polylines`` wi
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import fiftyone as fo
@@ -14,15 +15,19 @@ from fiftyone import ViewField as F
 
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
+from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
 from activelabel.tasks import Task
+from activelabel.tasks_store import ImageTask, TaskStore, jobs
 
 GROUND_TRUTH = "ground_truth"
 EXCLUDED_TAG = "excluded"
 VIEW_ALL_ISSUES = "curation - quality issues"
 VIEW_EXCLUDED = "curation - excluded"
 VIEW_DUPLICATES = "curation - near duplicates"
+
+TASK_VIEW_PREFIX = "task-"  # saved view of a task: ``task-<id>`` (stable; the name is its description)
 
 APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
 PORT_TRIES = 11  # APP_PORT and the next 10 ports
@@ -55,6 +60,14 @@ def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
         "sharpness": fo.FloatField,
         "duplicate_of": fo.StringField,
         "duplicate_group": fo.StringField,
+        "task_name": fo.StringField,
+        "video": fo.StringField,
+        "video_name": fo.StringField,
+        "task": fo.IntField,
+        "job": fo.IntField,
+        "position": fo.IntField,
+        "frame_number": fo.IntField,
+        "time": fo.FloatField,
     }
     for name, kind in scalars.items():
         dataset.add_sample_field(name, kind)
@@ -113,6 +126,7 @@ def _apply(
     annotations: AnnotationSet | None,
     duplicate_of: dict[str, str],
     kept: set[str],
+    where: dict[str, dict[str, Any]],
 ) -> None:
     sample.filepath = str(manifest.file_path(record).resolve())
     sample["image_id"] = record.id
@@ -124,12 +138,65 @@ def _apply(
     sample["quality_issues"] = list(record.issues)
     sample["duplicate_of"] = duplicate_of.get(record.id)
     sample["duplicate_group"] = duplicate_of.get(record.id) or (record.id if record.id in kept else None)
+    place = where.get(record.id, {})
+    sample["task"] = place.get("task")
+    sample["task_name"] = place.get("task_name")
+    sample["job"] = place.get("job")
+    sample["position"] = place.get("position")
+    sample["video"] = record.video or None
+    sample["video_name"] = place.get("video_name") if record.video else None
+    sample["frame_number"] = record.frame if record.video else None
+    sample["time"] = record.time if record.video else None
     tags = [t for t in sample.tags if t != EXCLUDED_TAG]
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
     sample[GROUND_TRUTH] = _ground_truth(task, annotations.images.get(record.id, []) if annotations else [])
 
 
-def _save_views(dataset: fo.Dataset) -> None:
+def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
+    """Task, job, position and video name of every image that is in a task."""
+    try:
+        names = {v.id: v.name for v in VideoStore(project_dir).list()}
+    except Exception:  # noqa: BLE001 - no video store: the names stay empty
+        names = {}
+    out: dict[str, dict[str, Any]] = {}
+    for task in tasks:
+        job_of = {i: j.n for j in jobs(task) for i in j.image_ids}
+        for position, image_id in enumerate(task.images, 1):
+            out[image_id] = {
+                "task": task.id,
+                "task_name": task.name,
+                "job": job_of.get(image_id),
+                "position": position,
+                "video_name": names.get(str((task.source or {}).get("video", ""))),
+            }
+    return out
+
+
+def task_view_name(task_id: int) -> str:
+    """Saved view name of a task (based on the id, so a rename does not change the URL)."""
+    return f"{TASK_VIEW_PREFIX}{task_id}"
+
+
+def task_view(dataset: fo.Dataset, task_id: int, job: int | None = None, *, video: bool | None = None) -> Any:
+    """View of a task (or one of its jobs), in task order; frames of a video task grouped by video.
+
+    Args:
+        dataset: the project's dataset.
+        task_id: id of the task.
+        job: job number to keep only that job, or None for the whole task.
+        video: whether the task is made from video; by default it is detected from the samples.
+    """
+    view = dataset.match(F("task") == task_id)
+    if job is not None:
+        view = view.match(F("job") == job)
+    if video is None:
+        video = len(view.match(F("video") != None)) > 0  # noqa: E711
+    if video:
+        return view.group_by("video", order_by="frame_number")
+    return view.sort_by("position")
+
+
+def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
     views: dict[str, fo.DatasetView] = {
         VIEW_ALL_ISSUES: dataset.match(F("quality_issues").length() > 0),
         VIEW_EXCLUDED: dataset.match_tags(EXCLUDED_TAG),
@@ -142,6 +209,15 @@ def _save_views(dataset: fo.Dataset) -> None:
             )
     for name, view in views.items():
         dataset.save_view(name, view, overwrite=True)
+    wanted: set[str] = set()
+    for task in tasks:
+        name = task_view_name(task.id)
+        wanted.add(name)
+        view = task_view(dataset, task.id, video=bool((task.source or {}).get("video")))
+        dataset.save_view(name, view, description=f"Task: {task.name}", overwrite=True)
+    for old in dataset.list_saved_views():
+        if old.startswith(TASK_VIEW_PREFIX) and old not in wanted:  # task deleted
+            dataset.delete_saved_view(old)
 
 
 def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSet | None) -> fo.Dataset:
@@ -150,7 +226,10 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     Samples are matched by ``image_id``: re-running updates them, adds new images and removes
     the samples of deleted images. Excluded images stay, tagged ``excluded``. The saved views
     ``curation - quality issues``, ``curation - excluded``, ``curation - near duplicates`` and
-    one ``curation - <issue>`` per issue (spaces instead of underscores) are refreshed too.
+    one ``curation - <issue>`` per issue (spaces instead of underscores) are refreshed too, and so is
+    one saved view ``task-<id>`` per task (description ``Task: <name>``); views of deleted tasks
+    are removed. Every sample gets ``task``, ``task_name``, ``job``, ``position`` and, for video
+    frames, ``video``, ``video_name``, ``frame_number`` and ``time``.
 
     Args:
         project: the project (name of the dataset, task, classes).
@@ -168,6 +247,8 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     records = {r.id: r for r in manifest.all()}
     duplicate_of = load_duplicate_of(manifest.project_dir)
     kept = set(duplicate_of.values())
+    tasks = TaskStore(manifest.project_dir).load()
+    where = _placement(manifest.project_dir, tasks)
 
     known: dict[str, str] = {}
     stale: list[str] = []
@@ -183,17 +264,26 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     for record in records.values():
         if record.id not in known:
             sample = fo.Sample(filepath=str(manifest.file_path(record).resolve()))
-            _apply(sample, record, manifest, project.task, annotations, duplicate_of, kept)
+            _apply(sample, record, manifest, project.task, annotations, duplicate_of, kept, where)
             new.append(sample)
     if new:
         dataset.add_samples(new)
     for sample in dataset.select(list(known.values())).iter_samples(autosave=True):
-        _apply(sample, records[sample["image_id"]], manifest, project.task, annotations, duplicate_of, kept)
+        _apply(
+            sample,
+            records[sample["image_id"]],
+            manifest,
+            project.task,
+            annotations,
+            duplicate_of,
+            kept,
+            where,
+        )
 
     dataset.classes = {GROUND_TRUTH: list(project.classes)}
     dataset.info = {**dataset.info, "project_id": project.id, "project_name": project.name}
     dataset.save()
-    _save_views(dataset)
+    _save_views(dataset, tasks)
     return dataset
 
 
@@ -206,6 +296,8 @@ def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:
     if not requested:
         return None
     saved = set(dataset.list_saved_views())
+    if re.fullmatch(rf"{TASK_VIEW_PREFIX}\d+", requested) and requested in saved:
+        return requested
     if requested in saved:
         return requested
     issue = requested.removeprefix("curation - ").strip()
@@ -233,7 +325,13 @@ def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
     return f"{url}?view={_slug(dataset, view)}" if view else url
 
 
-def launch_app(dataset: fo.Dataset, view: str | None = None, port: int = APP_PORT) -> str:
+def launch_app(
+    dataset: fo.Dataset,
+    view: str | None = None,
+    port: int = APP_PORT,
+    task: int | None = None,
+    job: int | None = None,
+) -> str:
     """Start the FiftyOne App in the background (no browser opened) and return a URL for the dataset.
 
     A session of ours that is already running is reused: it just switches to the dataset (and
@@ -245,14 +343,21 @@ def launch_app(dataset: fo.Dataset, view: str | None = None, port: int = APP_POR
         OSError: no port was free.
     """
     global _session
-    view = resolve_view(dataset, view)
+    if task is not None:
+        view = task_view_name(task) if task_view_name(task) in dataset.list_saved_views() else None
+    else:
+        view = resolve_view(dataset, view)
     if view and len(dataset.load_saved_view(view)) == 0:
         view = None  # an empty view looks like a broken App: show the whole dataset instead
     target: Any = dataset.load_saved_view(view) if view else dataset
+    if task is not None and job is not None:  # a job is not a saved view: built on demand
+        built = task_view(dataset, task, job)
+        if len(built):
+            view, target = None, built
     if _session is not None:
         try:
             _session.dataset = dataset
-            if view:
+            if view or target is not dataset:
                 _session.view = target
             return app_url(dataset, view, int(_session.port))
         except Exception:  # noqa: BLE001 - the session was closed: start a new one

@@ -83,7 +83,7 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | GET | `/projects/{id}/curation` | | summary (counts, ids per issue, histograms, thresholds) |
 | PUT | `/projects/{id}/curation/thresholds` | thresholds | summary (re-flagged) |
 | GET | `/projects/{id}/curation/suggested` | | ids |
-| POST | `/projects/{id}/fiftyone` | `{view}` | job → `{url}` |
+| POST | `/projects/{id}/fiftyone` | `{view, task?, job?}` | job → `{url}` |
 | POST | `/projects/{id}/fiftyone/pull-exclusions` | | `{excluded}` |
 | GET | `/projects/{id}/jobs` | | jobs |
 | POST | `/jobs/{job_id}/cancel` | | job |

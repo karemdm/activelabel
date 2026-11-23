@@ -634,5 +634,6 @@
   "video.created_other": "Task criada com {n} frames",
   "video.meta_every_frames_one": "todos os frames",
   "video.meta_every_frames_other": "a cada {n} frames",
-  "video.meta_every_seconds": "a cada {s} s"
+  "video.meta_every_seconds": "a cada {s} s",
+  "tasks.open_fo": "Abrir no FiftyOne"
 }
