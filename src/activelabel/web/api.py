@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -484,11 +484,28 @@ class ApplyAnnotations(BaseModel):
 
 
 @router.post("/projects/{project_id}/annotations")
-def check_annotations(project_id: int, files: UPLOADS, state: AppState = STATE) -> dict[str, Any]:
-    """Keep the uploaded annotation files aside and say what is in them (nothing is imported yet)."""
+def check_annotations(
+    project_id: int,
+    files: UPLOADS,
+    task: Annotated[int | None, Form()] = None,
+    class_name: Annotated[str, Form()] = "",
+    state: AppState = STATE,
+) -> dict[str, Any]:
+    """Keep the uploaded annotation files aside and say what is in them (nothing is imported yet).
+
+    ``task`` is a video task: its images are then matched by frame number (docs/VIDEO.md). Without it,
+    the project's only video task is used by the formats made for video (CVAT for video, MOT).
+    ``class_name`` names the objects of MOT files that come without a labels file.
+    """
     project = state.project(project_id)
     manifest = state.manifest_with_images(project_id)
     project_dir = state.store.dir(project_id)
+    try:
+        target = ann.build_target(project_dir, manifest, task, class_name)
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+    if task is not None and target is None:
+        raise _bad_request(ValueError("Choose a task made from a video."))
     try:
         token = ann.stage(project_dir, [(f.filename or "annotations", f.file) for f in files])
     except ValueError as exc:
@@ -500,11 +517,26 @@ def check_annotations(project_id: int, files: UPLOADS, state: AppState = STATE) 
         raise HTTPException(
             400,
             "The annotation format was not recognised. Supported: COCO JSON, YOLO txt (with data.yaml or "
-            "classes.txt), Pascal VOC XML, CVAT for images XML and Label Studio JSON.",
+            "classes.txt), Pascal VOC XML, CVAT for images or video XML, Label Studio JSON and MOT txt.",
         )
-    result = ann.parse(staged, fmt, manifest.active())
+    if target is not None and task is None and fmt not in ann.VIDEO_ONLY:
+        target = None  # image files are matched by name unless the task was chosen
+    if fmt in ann.VIDEO_ONLY and target is None:
+        ann.discard_staged(project_dir, token)
+        raise HTTPException(
+            400,
+            "This file is made for a video: choose the video task it belongs to (none or several found).",
+        )
+    if target is not None:
+        ann.set_target(project_dir, token, {"task": target.task, "class_name": target.class_name})
+    result = ann.parse(staged, fmt, target.images() if target else manifest.active(), target)
     report = ann.validate(result, project)
-    return {**report.as_dict(), "token": token, "has_annotations": load_annotations(project_dir) is not None}
+    return {
+        **report.as_dict(),
+        "token": token,
+        "has_annotations": load_annotations(project_dir) is not None,
+        "task": target.task if target else None,
+    }
 
 
 @router.post("/projects/{project_id}/annotations/{token}/apply")

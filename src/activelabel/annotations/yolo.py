@@ -49,8 +49,8 @@ def read_names(data: Any) -> dict[int, str] | None:
     return None
 
 
-def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
-    """Read YOLO label files (and data.yaml / classes.txt) into ``ctx``."""
+def load_names(ctx: ParseContext, files: list[Path]) -> tuple[dict[int, str] | None, tuple[int, int] | None]:
+    """Class names (and ``kpt_shape``) from data.yaml or classes.txt files; declares them in ``ctx``."""
     names: dict[int, str] | None = None
     kpt: tuple[int, int] | None = None
     for path in files:
@@ -78,6 +78,12 @@ def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
     if names:
         for index in sorted(names):
             ctx.add_class(names[index])
+    return names, kpt
+
+
+def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
+    """Read YOLO label files (and data.yaml / classes.txt) into ``ctx``."""
+    names, kpt = load_names(ctx, files)
     labels = [p for p in files if p.suffix.lower() == ".txt" and not is_names_file(p)]
     try:
         root = Path(os.path.commonpath([str(p.parent) for p in labels])) if labels else Path()

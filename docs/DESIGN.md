@@ -29,7 +29,7 @@ Principles (from what went wrong in the previous tool):
   thumbs/<id>.jpg     thumbnails (cache)
   annotations.json    ground truth in the internal format (activelabel.labels)
   curation.json       thresholds and near-duplicate groups
-  staging/<token>/    annotation files waiting for a decision
+  staging/<token>/    annotation files waiting for a decision (+ <token>.target.json: the video task)
 ```
 
 ## Screens
@@ -47,7 +47,9 @@ Principles (from what went wrong in the previous tool):
      project task (clear sentence), images matched, classes (new ones marked), problems
      with examples; then the possible actions as buttons with one-line explanations
      (*Import*, *Change the task to X and import*, *Convert to boxes and import*,
-     *Discard*); *Replace* or *Merge* when the project already has annotations.
+     *Discard*); *Replace* or *Merge* when the project already has annotations. When the project
+     has video tasks, a *For task* selector matches files made for a video by frame number
+     (docs/VIDEO.md, *Loading annotations of a video*).
    - **Curation**: *Analyze images* (job) → chips with counts per issue (filter the grid),
      thumbnails with issue tags and checkboxes, *Select suggested*, *Exclude selected*,
      *Restore*, *Delete permanently* (confirmation); *Excluded* tab; thresholds (advanced,
@@ -75,7 +77,7 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | POST | `/projects/{id}/images/exclude` | `{ids, reason}` | `{changed}` |
 | POST | `/projects/{id}/images/restore` | `{ids}` | `{changed}` |
 | POST | `/projects/{id}/images/delete` | `{ids, confirm: true}` | `{deleted}` |
-| POST | `/projects/{id}/annotations` | multipart `files` | validation report + `token` |
+| POST | `/projects/{id}/annotations` | multipart `files`, optional `task` (video task id), `class_name` | validation report + `token` (+ `task`) |
 | POST | `/projects/{id}/annotations/{token}/apply` | `{action, mode}` | import summary |
 | DELETE | `/projects/{id}/annotations/{token}` | | discard staged files |
 | GET | `/projects/{id}/annotations` | | summary of the ground truth |

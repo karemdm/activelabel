@@ -643,6 +643,9 @@
 
   // ---------------------------------------------------------------- annotation sessions (shared bits)
   const TOOLS = ['fiftyone', 'cvat', 'labelstudio'];
+  /* Label Studio is paused: its tool card is hidden; existing links and sessions are still shown */
+  const LABEL_STUDIO_ENABLED = false;
+  const EDIT_TOOLS = LABEL_STUDIO_ENABLED ? ['fiftyone', 'labelstudio'] : ['fiftyone'];
   const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
   const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
   const SESSION_STATUSES = ['open', 'pulled', 'applied', 'discarded', 'closed'];
@@ -1029,9 +1032,10 @@
     }
 
     function syncBlock() {
-      const node = el('section', { class: 'sync-section', id: 'annotate-sync', tabindex: '-1', 'aria-labelledby': 'h-sync' });
+      /* the review area of the CVAT section: the plan, its result and (paused tools) older links */
+      const node = el('div', { class: 'sync-section', id: 'annotate-sync', tabindex: '-1' });
       const box = el('div', { class: 'sync-box' });
-      node.append(el('h3', { id: 'h-sync' }, t('sync.title')), el('p', { class: 'muted' }, t('sync.intro')), box);
+      node.append(box);
       const states = new Map();  // plan_id -> {res, def, error}
       let lastSig = null;
 
@@ -1076,7 +1080,7 @@
             el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, toolName(tool)))),
           el('dl', { class: 'facts link-facts' },
             el('div', null, el('dt', null, t('sync.remote_project', { tool: toolName(tool) })), el('dd', null, open)),
-            el('div', null, el('dt', null, t('sync.images')), el('dd', null, num(link.images || 0))),
+            el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
             el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never')))),
           el('div', { class: 'session-actions' }, run, unlink));
       }
@@ -1185,7 +1189,9 @@
                el('button', { type: 'button', class: 'btn', onclick: async () => {
                  ctx.syncDismissed.add(pid);
                  const sc = plan.scope || {};
-                 try { await startSync(tool, sc.scope && sc.scope !== 'project' ? { scope: sc.scope, task: sc.task, job: sc.job } : {}); } catch (err) { toastError(err); }
+                 const again = sc.scope && sc.scope !== 'project' ? { scope: sc.scope, task: sc.task, job: sc.job } : {};
+                 if (plan.direction) again.direction = plan.direction;
+                 try { await startSync(tool, again); } catch (err) { toastError(err); }
                  draw(true);
                } }, t('sync.again'))]
             : []));
@@ -1235,6 +1241,20 @@
               only.count > onlyNames.length ? el('p', { class: 'muted' }, t('sync.only_more', { n: num(only.count - onlyNames.length) })) : null)
           : null;
 
+        /* "the tool wins": what exists only in this project is left alone */
+        const here = plan.only_here || {};
+        const hereTasks = here.tasks || [];
+        const hereImages = Number(here.images) || 0;
+        const hereBox = hereTasks.length || hereImages
+          ? el('details', { class: 'sync-diff' },
+              el('summary', null, t('sync.only_here')),
+              el('p', { class: 'muted' }, t('sync.only_here_help', { tool: name })),
+              el('ul', { class: 'plain only-list' },
+                hereImages ? el('li', null, tn('sync.n_images', hereImages)) : null,
+                ...hereTasks.map((x) => el('li', null, taskText(x)))))
+          : null;
+        const direction = plan.direction || 'both';
+
         apply.addEventListener('click', async () => {
           apply.dataset.busy = '1';
           apply.disabled = true;
@@ -1262,11 +1282,14 @@
             remote.images != null ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
             remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null,
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
-            el('strong', { class: 'sync-scope' }, scopeText(plan.scope))),
+            el('strong', { class: 'sync-scope' }, scopeText(plan.scope)),
+            el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+            el('span', { class: 'sync-direction' }, t(`sync.dir_${direction}`, { tool: name }))),
           dirs,
           nothing ? el('p', { class: 'report-line ok' }, icon('check'), t('sync.in_sync')) : null,
           diffBlock(t('sync.diff_pull', { tool: name }), plan.pull, plan.diff_pull),
           diffBlock(t('sync.diff_push', { tool: name }), plan.push, plan.diff_push),
+          hereBox,
           onlyBox,
           conflictBox,
           errorBox,
@@ -1290,9 +1313,10 @@
         if (!force && sig === lastSig && !(st && st.error)) return;
         lastSig = sig;
         box.replaceChildren(...[
-          ctx.links.length
-            ? el('ul', { class: 'plain link-list' }, ...ctx.links.map(linkCard))
-            : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('sync.none'))),
+          /* CVAT has its own card above; links with paused tools stay readable here */
+          ctx.links.some((l) => l.tool !== 'cvat')
+            ? el('ul', { class: 'plain link-list' }, ...ctx.links.filter((l) => l.tool !== 'cvat').map(linkCard))
+            : null,
           planningTools().length ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.comparing')) : null,
           applying ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.apply_started')) : null,
           staleJob ? el('div', { class: 'sync-error card', role: 'alert' },
@@ -1307,7 +1331,9 @@
           job ? planCard(job) : null].filter(Boolean));
       }
 
-      ctx.syncDraw = () => { if (ctx.panels && ctx.panels.annotations && ctx.panels.annotations.mounted) draw(false); };
+      ctx.syncDraw = () => {
+        if (ctx.panels && ctx.panels.annotations && ctx.panels.annotations.mounted) { draw(false); if (ctx.cvatDraw) ctx.cvatDraw(false); }
+      };
       const reveal = () => {
         node.scrollIntoView({ behavior: 'smooth', block: 'start' });
         node.focus({ preventScroll: true });
@@ -2119,26 +2145,33 @@
     // ================================================================ step 2: annotate in an external tool
     function annotateBlock() {
       const storeKey = `al-annotate-tool-${projectId}`;
-      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false, cvat: { scope: 'project', task: null, job: null } };
+      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false, cvat: { scope: 'project', task: null, job: null, direction: 'both' } };
       try {
         const saved = localStorage.getItem(storeKey);
-        if (TOOLS.includes(saved)) state.tool = saved;
+        if (EDIT_TOOLS.includes(saved)) state.tool = saved;
       } catch (e) { /* no storage */ }
 
       const toolsBox = el('div', { class: 'tool-cards-wrap' });
+      const cvatScopeBox = el('div', { class: 'scope-wrap' });
+      const cvatInfoBox = el('div', { class: 'cvat-info' });
+      const cvatDirBox = el('div', { class: 'cvat-dir' });
+      const cvatSendBox = el('div', { class: 'send-row' });
+      const cvatCtaBox = el('div', { class: 'cvat-cta card', hidden: true });
+      const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatDirBox, cvatSendBox);
       const scopeBox = el('div', { class: 'scope-wrap' });
       const sendBox = el('div', { class: 'send-row' });
       const sessionsBox = el('div', { class: 'sessions' });
       const sync = syncBlock();
       const node = el('div', { class: 'annotate' },
-        el('section', { class: 'annotate-box', 'aria-labelledby': 'h-annotate' },
-          el('h3', { id: 'h-annotate' }, t('annotate.title')),
-          el('p', { class: 'muted' }, t('annotate.intro')),
-          toolsBox, scopeBox, sendBox),
-        sync.node,
-        el('section', { class: 'sessions-section', id: 'annotate-sessions', 'aria-labelledby': 'h-sessions' },
-          el('h3', { id: 'h-sessions' }, t('annotate.sessions')),
-          sessionsBox));
+        el('section', { class: 'annot-section', id: 'annotate-cvat', 'aria-labelledby': 'h-cvat' },
+          el('h3', { id: 'h-cvat' }, toolName('cvat')),
+          cvatCtaBox, cvatCard, sync.node),
+        el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
+          el('h3', { id: 'h-fiftyone' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
+          toolsBox, scopeBox, sendBox,
+          el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
+            el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
+            sessionsBox)));
 
       const counts = () => (ctx.project && ctx.project.counts) || {};
       const isReady = (tool) => tool === 'fiftyone' || !!(state.tools[tool] && state.tools[tool].configured);
@@ -2160,10 +2193,12 @@
 
       // ---- tool cards
       function drawTools() {
+        toolsBox.hidden = EDIT_TOOLS.length < 2;
+        if (toolsBox.hidden) { toolsBox.replaceChildren(); return; }
         const focused = document.activeElement && document.activeElement.name === 'annotate-tool' ? document.activeElement.value : null;
         toolsBox.replaceChildren(el('fieldset', { class: 'field' },
           el('legend', null, t('annotate.tool_title')),
-          el('div', { class: 'task-cards tool-cards', role: 'radiogroup' }, ...TOOLS.map((tool) => {
+          el('div', { class: 'task-cards tool-cards', role: 'radiogroup' }, ...EDIT_TOOLS.map((tool) => {
             const id = `annotate-tool-${tool}`;
             const ready = isReady(tool);
             const input = el('input', { type: 'radio', name: 'annotate-tool', id, value: tool, class: 'sr-only' });
@@ -2226,7 +2261,7 @@
           id: 'cvat-job', 'aria-label': t('sync.scope_job'), disabled: !task || !task.jobs.length,
           onchange: (e) => { c.job = Number(e.target.value); c.scope = 'job'; drawScope(); drawSend(); },
         }, ...(task ? task.jobs : []).map((j) => el('option', { value: String(j.n), selected: j.n === c.job }, t('tasks.job_option', { n: j.n, first: num(j.first), last: num(j.last) }))));
-        scopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
+        cvatScopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
           el('legend', null, t('sync.scope_title')),
           el('div', { class: 'scope-rows' },
             row('project', t('sync.scope_project'), el('span', { class: 'count' }, num(counts().active || 0))),
@@ -2237,26 +2272,98 @@
       }
 
       function drawSend() {
-        if (!state.loaded) { sendBox.replaceChildren(); return; }
-        if (state.tool === 'cvat') { drawCvatSend(); return; }
+        drawCvatSend();
         drawSendDefault();
       }
 
-      function drawCvatSend() {
+      // ---- CVAT section: link info, direction, compare
+      const cvatLink = () => ctx.links.find((l) => l.tool === 'cvat') || null;
+      const cvatBusy = () => ctx.jobs.some((j) => j.kind === 'sync_plan' && isActive(j));
+      const DIRECTIONS = ['both', 'pull', 'push'];
+
+      function drawCvatInfo() {
+        const link = cvatLink();
         const ready = isReady('cvat');
-        const linked = ctx.links.some((l) => l.tool === 'cvat');
-        sendBox.replaceChildren(...[  /* replaceChildren would print a null as text */
-          el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: ctx.jobs.some((j) => j.kind === 'sync_plan' && isActive(j)), onclick: (e) => syncCvat(e.currentTarget) },
-            icon('cvat', 20), ready ? t('sync.run_with', { tool: toolName('cvat') }) : t('sync.setup_and_run', { tool: toolName('cvat') })),
-          linked ? null : el('p', { class: 'muted' }, t('sync.creates', { tool: toolName('cvat') })),
-        ].filter(Boolean));
+        const name = toolName('cvat');
+        cvatCtaBox.hidden = !state.loaded || ready || !!link;
+        cvatCard.hidden = !state.loaded || !(ready || link);
+        if (!state.loaded) return;
+        cvatCtaBox.replaceChildren(
+          icon('cvat', 24),
+          el('p', null, t('sync.cta_text', { tool: name })),
+          el('button', { type: 'button', class: 'btn primary', id: 'cvat-setup', onclick: () => openSetup('cvat') }, t('sync.cta', { tool: name })));
+        const unlink = el('button', { type: 'button', class: 'btn small', onclick: async () => {
+          const ok = await confirmDialog({ title: t('sync.unlink_title', { tool: name }), text: t('sync.unlink_text', { tool: name }), confirmLabel: t('sync.unlink') });
+          if (!ok) return;
+          try {
+            await api('DELETE', `/projects/${projectId}/links/cvat`);
+            toast(t('sync.unlinked', { tool: name }), 'success', 4000);
+            await refreshProject();
+            sync.draw();
+            drawCvatInfo();
+            drawCvatSend();
+          } catch (err) { toastError(err); }
+        } }, t('sync.unlink'));
+        const head = el('div', { class: 'cvat-head' },
+          el('span', { class: 'session-tool' }, icon('cvat', 22), el('strong', null, name)),
+          el('div', { class: 'cvat-head-actions' },
+            link ? unlink : null,
+            el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: name }), onclick: () => openSetup('cvat') }, t('annotate.settings'))));
+        const facts = link
+          ? el('dl', { class: 'facts link-facts' },
+              el('div', null, el('dt', null, t('sync.remote_project', { tool: name })), el('dd', null,
+                isHttp(link.url)
+                  ? el('a', { href: link.url, target: '_blank', rel: 'noopener' }, link.remote_name || name, ' ', icon('external', 14))
+                  : el('span', null, link.remote_name || name))),
+              el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
+              el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never'))))
+          : el('p', { class: 'muted' }, t('sync.creates', { tool: name }));
+        cvatInfoBox.replaceChildren(head, facts);
       }
+
+      function drawCvatDirection() {
+        const c = state.cvat;
+        const name = toolName('cvat');
+        const help = el('p', { class: 'muted dir-help', id: 'cvat-dir-help', 'aria-live': 'polite' }, t(`sync.dir_${c.direction}_help`, { tool: name }));
+        const focusedId = document.activeElement && document.activeElement.name === 'cvat-direction' ? document.activeElement.id : null;
+        const opts = DIRECTIONS.map((d) => {
+          const id = `cvat-direction-${d}`;
+          const input = el('input', { type: 'radio', name: 'cvat-direction', id, value: d, class: 'sr-only', 'aria-describedby': 'cvat-dir-help' });
+          input.checked = c.direction === d;
+          input.addEventListener('change', () => { c.direction = d; help.textContent = t(`sync.dir_${d}_help`, { tool: name }); });
+          return el('label', { for: id, class: 'seg-opt' }, input, t(`sync.dir_${d}`, { tool: name }));
+        });
+        cvatDirBox.replaceChildren(el('fieldset', { class: 'field' },
+          el('legend', null, t('sync.dir_title')),
+          el('div', { class: 'seg', role: 'radiogroup', 'aria-label': t('sync.dir_title') }, ...opts),
+          help));
+        if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
+      }
+
+      function drawCvatSend() {
+        if (!state.loaded) { cvatSendBox.replaceChildren(); return; }
+        cvatSendBox.replaceChildren(
+          el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: cvatBusy(), onclick: (e) => syncCvat(e.currentTarget) },
+            icon('cvat', 20), t('sync.compare', { tool: toolName('cvat') })));
+      }
+
+      /* redraws the CVAT card only when what it shows changed (keeps the focus) */
+      let cvatSig = null;
+      function cvatDraw(force) {
+        if (!state.loaded) return;
+        const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length]);
+        if (!force && sig === cvatSig) return;
+        cvatSig = sig;
+        drawCvatInfo();
+        drawCvatSend();
+      }
+      ctx.cvatDraw = cvatDraw;
 
       async function syncCvat(button) {
         if (!isReady('cvat')) { openSetup('cvat'); return; }
         normaliseCvat();
         const c = state.cvat;
-        const body = { scope: c.scope };
+        const body = { scope: c.scope, direction: c.direction };
         if (c.scope !== 'project') body.task = c.task;
         if (c.scope === 'job') body.job = c.job;
         // no link yet: use the project of the same name in CVAT or create it
@@ -2269,7 +2376,7 @@
 
       function drawScope() {
         if (!state.loaded) return;
-        if (state.tool === 'cvat') { drawCvatScope(); return; }
+        drawCvatScope();
         if (!state.scope || !scopeAvailable(state.scope)) state.scope = defaultScope();
         if (!state.issue || !state.issues[state.issue]) state.issue = (issueEntries()[0] || [''])[0];
         const focusedId = document.activeElement && document.activeElement.name === 'annotate-scope' ? document.activeElement.id : null;
@@ -2301,6 +2408,7 @@
       }
 
       function drawSendDefault() {
+        if (!state.loaded) { sendBox.replaceChildren(); return; }
         const tool = state.tool;
         const n = scopeCount(state.scope);
         const ready = isReady(tool);
@@ -2432,6 +2540,7 @@
         } catch (err) { toastError(err); }
         drawTools();
         drawSend();
+        cvatDraw(true);
       }
       async function loadSessions() {
         try {
@@ -2441,7 +2550,9 @@
         state.loaded = true;
         drawSessions();
         drawScope();
+        drawCvatDirection();
         drawSend();
+        cvatDraw(true);
       }
       async function loadTasks() {
         try {
@@ -2481,9 +2592,30 @@
       const panel = { node, mounted: false };
       const fileInput = el('input', { type: 'file', multiple: true, class: 'sr-only', id: 'ann-input', tabindex: '-1' });
       const reportBox = el('div', { class: 'ann-report', 'aria-live': 'polite' });
-      const gtBox = el('div', { class: 'gt-box' });
+      const gtBox = el('section', { class: 'annot-section gt-box', 'aria-label': t('ann.current') });
       let busy = false;
       const annotate = annotateBlock();
+
+      // video tasks: files made for a video are matched to the frames of the chosen task
+      let videoTasks = [];
+      let chosenTask = '';
+      const taskBox = el('div', { class: 'field ann-task', hidden: true });
+      function drawTask() {
+        taskBox.hidden = !videoTasks.length;
+        if (!videoTasks.length) return;
+        if (!videoTasks.some((x) => String(x.id) === chosenTask)) chosenTask = videoTasks.length === 1 ? String(videoTasks[0].id) : '';
+        taskBox.replaceChildren(
+          el('label', { for: 'ann-task' }, t('ann.for_task')),
+          el('select', { id: 'ann-task', onchange: (e) => { chosenTask = e.target.value; } },
+            el('option', { value: '', selected: chosenTask === '' }, t('ann.task_images')),
+            ...videoTasks.map((x) => el('option', { value: String(x.id), selected: String(x.id) === chosenTask }, x.name))));
+      }
+      async function loadVideoTasks() {
+        try {
+          videoTasks = ((await api('GET', `/projects/${projectId}/tasks`)).tasks || []).filter((x) => x.source && x.source.video);
+        } catch (err) { videoTasks = []; }
+        drawTask();
+      }
 
       const drop = el('div', { class: 'dropzone small', id: 'ann-drop' },
         icon('upload', 28),
@@ -2501,6 +2633,7 @@
         reportBox.replaceChildren(el('p', { class: 'muted' }, t('ann.checking')));
         const form = new FormData();
         files.forEach((f) => form.append('files', f, f.webkitRelativePath || f.name));
+        if (chosenTask) form.append('task', chosenTask);
         try {
           const report = await api('POST', `/projects/${projectId}/annotations`, { body: form });
           renderValidation(report);
@@ -2628,13 +2761,13 @@
         const labels = data.labels_total ?? data.labels ?? classes.reduce((a, c) => a + (c.count || 0), 0);
         const images = data.images_annotated ?? data.images_with_labels ?? data.images ?? 0;
         if (!images && !labels) {
-          gtBox.replaceChildren(el('h3', { class: 'section-title' }, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')));
+          gtBox.replaceChildren(el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')));
           return;
         }
         const max = Math.max(1, ...classes.map((c) => c.count || 0));
         gtBox.replaceChildren(
-          el('h3', { class: 'section-title' }, t('ann.current')),
-          el('p', null, `${tn('status.annotated', images)} · ${tn('ann.labels_n', labels)}`),
+          el('h3', null, t('ann.current')),
+          el('p', { class: 'gt-summary' }, `${tn('status.annotated', images)} · ${tn('ann.labels_n', labels)}`),
           classes.length
             ? el('ul', { class: 'bars' }, ...classes.map((c) =>
                 el('li', null,
@@ -2646,14 +2779,13 @@
 
       node.append(
         el('h2', { id: 'h-annotations' }, t('step.annotations')),
+        gtBox,
         annotate.node,
-        el('section', { class: 'load-files', 'aria-labelledby': 'h-load' },
+        el('section', { class: 'annot-section load-files', 'aria-labelledby': 'h-load' },
           el('h3', { id: 'h-load' }, t('ann.load_title')),
-          el('p', { class: 'muted' }, t('ann.intro')),
-          drop, fileInput, reportBox),
-        gtBox);
-      panel.mount = () => { loadGt(); annotate.mount(); };
-      panel.refresh = () => { loadGt(); annotate.refresh(); };
+          taskBox, drop, fileInput, reportBox));
+      panel.mount = () => { loadGt(); loadVideoTasks(); annotate.mount(); };
+      panel.refresh = () => { loadGt(); loadVideoTasks(); annotate.refresh(); };
       panel.show = annotate.show;
       panel.reveal = annotate.reveal;
       return panel;
