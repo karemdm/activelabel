@@ -10,6 +10,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import shutil
+import tempfile
 import uuid
 import zipfile
 import zlib
@@ -210,6 +212,17 @@ class _Ingester:
             tmp.unlink(missing_ok=True)
 
     def _expand_zip(self, archive_name: str, stream: BinaryIO) -> None:
+        with contextlib.ExitStack() as stack:
+            if not hasattr(stream, "seekable"):
+                # Python 3.10: an upload (SpooledTemporaryFile) has no seekable(), which zipfile needs
+                # to open the entries; copy it to a real temporary file first
+                copy: BinaryIO = stack.enter_context(tempfile.TemporaryFile())  # type: ignore[assignment]
+                shutil.copyfileobj(stream, copy, 1 << 20)
+                copy.seek(0)
+                stream = copy
+            self._read_zip(archive_name, stream)
+
+    def _read_zip(self, archive_name: str, stream: BinaryIO) -> None:
         try:
             archive = zipfile.ZipFile(stream)
         except zipfile.BadZipFile:
