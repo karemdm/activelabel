@@ -191,7 +191,7 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .project-title-row h1 { margin: 0; overflow-wrap: anywhere; }
 .project-head-actions { display: flex; gap: 0.5rem; align-items: flex-start; }
 
-.stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+.stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
 .step { display: flex; align-items: center; gap: 0.7rem; text-align: left; padding: 0.7rem 0.9rem; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; min-width: 0; }
 .step:hover { border-color: var(--primary); }
 .step.current { border-color: var(--primary); background: var(--primary-soft); }
@@ -200,6 +200,7 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .step-text { display: flex; flex-direction: column; min-width: 0; }
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
+.stepper .step-tag { display: inline-block; margin-left: 0.35rem; padding: 0 0.4rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; line-height: 1.4; white-space: nowrap; vertical-align: 1px; }
 .step-status { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; scroll-margin-top: 4rem; }
@@ -840,3 +841,19 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-fail-note { color: var(--danger); font-size: 0.85rem; font-weight: 400; }
 .tr-viewing { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.5rem; color: var(--muted); }
 .tr-viewing span { color: var(--text); }
+
+/* step 6: saved models */
+.md-model.current { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.md-current svg { color: var(--ok); }
+.md-note { display: flex; align-items: center; gap: 0.35rem; margin: 0.25rem 0 0.5rem; min-width: 0; }
+.md-note > span { overflow-wrap: anywhere; }
+.md-export { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.md-export.busy { color: var(--muted); font-size: 0.9rem; }
+.tr-saved { text-decoration: none; }
+.md-table td.num { text-align: right; white-space: nowrap; }
+.md-table th[scope="row"] { max-width: 28ch; white-space: normal; }
+.md-table td.best { font-weight: 700; background: var(--ok-soft); }
+.md-table th .md-arch { display: block; font-weight: 400; font-size: 0.8rem; color: var(--muted); }
+.md-table tr.sub th { font-weight: 400; color: var(--muted); }
+.md-star { color: var(--ok); margin-left: 0.25rem; vertical-align: middle; }
+.md-help { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
