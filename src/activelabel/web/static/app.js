@@ -80,6 +80,8 @@
   }
 
   const ICONS = {
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    star: '<path d="m12 4 2.5 5 5.5.8-4 3.9.9 5.5L12 16.6l-4.9 2.6.9-5.5-4-3.9 5.5-.8z"/>',
     classification: '<path d="M4 4h8l8 8-8 8-8-8z"/><circle cx="8.5" cy="8.5" r="1.2"/>',
     detection: '<rect x="4" y="6" width="16" height="12" rx="1" stroke-dasharray="3 2"/><path d="M4 6h4M4 6v4M20 18h-4M20 18v-4"/>',
     segmentation: '<path d="M5 15 3 8l6-4 5 3 6 1-2 8-7 3z"/>',
@@ -821,7 +823,7 @@
       syncTool: {},
       syncDismissed: new Set(),
     };
-    const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training'];
+    const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training', 'models'];
 
     // ---- header, stepper, panels skeleton
     const headerBox = el('header', { class: 'project-head card' });
@@ -883,6 +885,10 @@
         return `${tn('status.runs', ctx.runCount)}${ctx.runActive ? ` · ${tn('status.runs_active', ctx.runActive)}` : ''}`;
       }
       if (step === 'datasets') return ctx.datasetCount ? tn('status.versions', ctx.datasetCount) : t('status.versions_none');
+      if (step === 'models') {
+        if (!ctx.modelCount) return t('status.models_none');
+        return `${tn('status.models', ctx.modelCount)}${ctx.currentModel ? ` · ${t('status.current_model', { n: ctx.currentModel })}` : ''}`;
+      }
       return c.analyzed > 0 ? tn('status.issues', c.with_issues || 0) : t('status.not_analyzed');
     }
 
@@ -898,7 +904,7 @@
           },
             el('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
             el('span', { class: 'step-text' },
-              el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional' }, ` · ${t('step.optional')}`) : null),
+              el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
               el('span', { class: 'step-status' }, stepStatus(step))))));
     }
 
@@ -3818,6 +3824,10 @@
             : null,
           el('div', { class: 'tr-actions' },
             act('detail', t('tr.details'), () => openDetail(r.number)),
+            r.status === 'done' && r.model_number
+              ? el('a', { class: 'btn small tr-saved', href: '#models', 'data-act': 'model' }, icon('star', 14), t('md.saved_as', { n: r.model_number }))
+              : null,
+            r.status === 'done' && !r.model_number ? act('save', t('md.save'), () => saveModel(r), 'primary') : null,
             ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
             act('again', t('tr.reproduce'), () => reproduceRun(r)),
             ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
@@ -3895,6 +3905,32 @@
         } catch (err) { toastError(err); }
         await load(true);
       }
+      function saveModel(r) {
+        const note = el('textarea', { id: 'md-note', rows: '2', maxlength: '500', placeholder: t('md.note_placeholder') });
+        const save = el('button', { type: 'submit', class: 'btn primary' }, icon('star', 16), t('md.save'));
+        const dlg = el('dialog', { class: 'dialog', 'aria-labelledby': 'md-save-t' },
+          el('form', { class: 'dialog-body form', method: 'dialog' },
+            el('h2', { id: 'md-save-t' }, t('md.save_title', { n: r.number })),
+            el('p', { class: 'muted' }, t('md.save_help')),
+            el('div', { class: 'field' }, el('label', { for: 'md-note' }, t('md.note'), el('span', { class: 'optional' }, ` · ${t('step.optional')}`)), note),
+            el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+        dlg.querySelector('form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          save.disabled = true;
+          try {
+            const m = await api('POST', `/projects/${projectId}/models`, { json: { run: r.number, note: note.value } });
+            dlg.close();
+            toast(t('md.saved', { n: m.number }), 'success', 4000);
+            await load(true);
+            ctx.panels.models.count();
+          } catch (err) { save.disabled = false; toastError(err); }
+        });
+        dlg.addEventListener('close', () => dlg.remove());
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        note.focus();
+      }
+
       async function removeRun(r) {
         const ok = await confirmDialog({ title: t('tr.delete_title', { n: r.number }), text: t('tr.delete_text'), confirmLabel: t('tr.delete') });
         if (!ok) return;
@@ -4533,7 +4569,213 @@
     }
 
     // ---- assemble
-    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel() };
+    // ---------------------------------------------------------------- step 6: saved models
+    function modelsPanel() {
+      const node = el('section', { class: 'panel', id: 'panel-models', 'aria-labelledby': 'h-models' });
+      const panel = { node, mounted: false };
+      const box = el('div', { class: 'md-body' });
+      const announcer = el('p', { class: 'sr-only', 'aria-live': 'polite' });
+      const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
+      const labels = {};
+      let models = [];
+      let timer = null;
+      let sig = '';
+      const metricName = (m) => tr(`tr.metric.${m}`, String(m).replace(/_/g, ' '));
+      const startName = (s) => tr(`tr.start_${s}`, s);
+      const archName = (m) => labels[m.model] || m.model;
+      const busy = (m) => Object.values(m.exports || {}).some((e) => e && (e.status === 'queued' || e.status === 'running'));
+      const scalarsOf = (part) => Object.entries(part || {}).filter(([, v]) => typeof v === 'number');
+      const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
+
+      async function ensureLabels() {
+        if (Object.keys(labels).length) return;
+        try {
+          const cat = await api('GET', `/training/catalog?type=${encodeURIComponent(ctx.project.task)}`);
+          (cat.models || []).forEach((x) => { labels[x.id] = x.label; });
+        } catch (err) { /* the catalogue ids are shown instead */ }
+      }
+
+      async function change(m, body, message) {
+        try {
+          await api('PATCH', `/projects/${projectId}/models/${m.number}`, { json: body });
+          if (message) { toast(message, 'success', 3000); announcer.textContent = message; }
+        } catch (err) { toastError(err); }
+        await load(true);
+      }
+
+      function editNote(m) {
+        const input = el('textarea', { id: 'md-edit-note', rows: '3', maxlength: '500' }, m.note || '');
+        const save = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
+        const dlg = el('dialog', { class: 'dialog', 'aria-labelledby': 'md-note-t' },
+          el('form', { class: 'dialog-body form', method: 'dialog' },
+            el('h2', { id: 'md-note-t' }, t('md.note_title', { n: m.number })),
+            el('div', { class: 'field' }, el('label', { for: 'md-edit-note' }, t('md.note')), input),
+            el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+        dlg.querySelector('form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          dlg.close();
+          await change(m, { note: input.value }, t('md.note_saved'));
+        });
+        dlg.addEventListener('close', () => dlg.remove());
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        input.focus();
+      }
+
+      async function exportOnnx(m) {
+        try {
+          await api('POST', `/projects/${projectId}/models/${m.number}/export`, { json: { format: 'onnx' } });
+          announcer.textContent = t('md.export_queued');
+        } catch (err) { toastError(err); }
+        await load(true);
+      }
+
+      async function removeModel(m) {
+        const ok = await confirmDialog({ title: t('md.delete_title', { n: m.number }), text: t('md.delete_text'), confirmLabel: t('md.delete') });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/projects/${projectId}/models/${m.number}`, { json: { confirm: true } });
+          toast(t('md.deleted', { n: m.number }), 'success', 3000);
+        } catch (err) { toastError(err); }
+        await load(true);
+        ctx.panels.training.count();
+      }
+
+      const ONNX_KINDS = ['classification', 'semantic'];   // detection graphs are not reliable in ONNX yet
+      function onnxBlock(m) {
+        const e = (m.exports || {}).onnx || {};
+        if (!ONNX_KINDS.includes(m.task_kind) && e.status !== 'done') return el('span', { class: 'muted md-export' }, t('md.onnx_later'));
+        if (e.status === 'queued' || e.status === 'running') {
+          const text = e.status === 'queued' ? t('md.export_queued') : e.message && e.message.startsWith('train_env_install:') ? t('md.installing', { pkg: e.message.split(':')[1] }) : t('md.exporting');
+          return el('span', { class: 'md-export busy' }, el('span', { class: 'tr-dot', 'aria-hidden': 'true' }), text);
+        }
+        if (e.status === 'done') {
+          return el('a', { class: 'btn small', href: download(m, 'onnx'), download: '', 'data-act': 'onnx' }, icon('download', 14), t('md.download_onnx'), el('span', { class: 'muted' }, ` · ${fmtBytes(e.size || 0)}`));
+        }
+        return el('span', { class: 'md-export' },
+          el('button', { type: 'button', class: 'btn small', 'data-act': 'export', onclick: () => exportOnnx(m) }, e.status === 'failed' ? t('md.retry_onnx') : t('md.export_onnx')),
+          e.status === 'failed' ? el('span', { class: 'tr-fail' }, icon('error', 14), el('span', null, e.error === 'interrupted' ? t('md.interrupted') : e.error || '')) : null);
+      }
+
+      function card(m) {
+        const res = m.results || {};
+        const val = (res.val || {})[m.metric];
+        const test = (res.test || {})[m.metric];
+        const id = `model-${m.number}`;
+        return el('li', { class: `tr-run card md-model${m.current ? ' current' : ''}`, id, 'aria-labelledby': `${id}-t` },
+          el('div', { class: 'tr-run-head' },
+            el('h3', { id: `${id}-t` }, `m${m.number}`),
+            el('span', { class: 'tr-model' }, archName(m)),
+            m.current
+              ? el('span', { class: 'tr-badge done md-current' }, icon('star', 14), t('md.current'))
+              : el('button', { type: 'button', class: 'btn small', 'data-act': 'current', onclick: () => change(m, { current: true }, t('md.made_current', { n: m.number })) }, t('md.make_current'))),
+          el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDate(m.created)].join(' · ')),
+          el('p', { class: 'tr-facts' },
+            val != null ? el('strong', null, `${metricName(m.metric)} ${nf3.format(val)}`) : null,
+            test != null ? el('span', null, ` · ${t('md.test_value', { v: nf3.format(test) })}`) : null,
+            el('span', { class: 'muted' }, ` · ${fmtBytes(m.size || 0)}`)),
+          el('p', { class: 'md-note' },
+            m.note ? el('span', null, m.note) : el('span', { class: 'muted' }, t('md.no_note')),
+            el('button', { type: 'button', class: 'icon-btn', 'data-act': 'note', 'aria-label': t('md.edit_note_aria', { n: m.number }), title: t('md.edit_note'), onclick: () => editNote(m) }, icon('edit', 16))),
+          el('div', { class: 'tr-actions' },
+            el('a', { class: 'btn small', href: download(m, 'pytorch'), download: '', 'data-act': 'pt' }, icon('download', 14), t('md.download_pt')),
+            onnxBlock(m),
+            busy(m) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('md.delete_aria', { n: m.number }), title: t('md.delete'), onclick: () => removeModel(m) }, icon('trash', 18))));
+      }
+
+      function compareBlock() {
+        if (models.length < 2) return null;
+        const cols = [...models].sort((a, b) => a.number - b.number);
+        const rows = [];
+        for (const part of ['val', 'test']) {
+          const keys = [];
+          cols.forEach((m) => scalarsOf((m.results || {})[part]).forEach(([k]) => { if (!keys.includes(k) && k !== 'images') keys.push(k); }));
+          keys.forEach((k) => rows.push({ label: t('md.row', { part: t(part === 'val' ? 'tr.val' : 'tr.test'), metric: metricName(k) }), values: cols.map((m) => ((m.results || {})[part] || {})[k]), lower: k === 'loss' }));
+        }
+        const perKey = ['f1', 'ap50_95', 'iou'].find((k) => cols.some((m) => Object.values(((m.results || {}).val || {}).per_class || {}).some((c) => c && k in c)));
+        if (perKey) {
+          const classes = [];
+          cols.forEach((m) => Object.keys(((m.results || {}).val || {}).per_class || {}).forEach((c) => { if (!classes.includes(c)) classes.push(c); }));
+          classes.forEach((c) => rows.push({ label: t('md.class_row', { cls: c, metric: metricName(perKey) }), values: cols.map((m) => ((((m.results || {}).val || {}).per_class || {})[c] || {})[perKey]), cls: true }));
+        }
+        rows.push({ label: t('md.size'), values: cols.map((m) => m.size), size: true, lower: true });
+        const cell = (row, v, best) => el('td', { class: `num${best ? ' best' : ''}` }, v == null ? '—' : row.size ? fmtBytes(v) : nf3.format(v));
+        return el('section', { class: 'tr-section md-compare', 'aria-labelledby': 'md-compare-t' },
+          el('h3', { id: 'md-compare-t', class: 'section-title' }, t('md.compare')),
+          el('p', { class: 'muted tr-note' }, t('md.compare_help')),
+          el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table md-table' },
+            el('caption', { class: 'sr-only' }, t('md.compare')),
+            el('thead', null, el('tr', null, el('th', { scope: 'col' }, t('md.metric')),
+              ...cols.map((m) => el('th', { scope: 'col' }, `m${m.number}`, m.current ? el('span', { class: 'md-star', title: t('md.current') }, icon('star', 12)) : null, el('span', { class: 'md-arch' }, archName(m)))))),
+            el('tbody', null, ...rows.map((row) => {
+              const nums = row.values.filter((v) => typeof v === 'number');
+              const best = nums.length > 1 && new Set(nums).size > 1 ? (row.lower ? Math.min(...nums) : Math.max(...nums)) : null;   // a tie has no best
+              return el('tr', { class: row.cls ? 'sub' : null }, el('th', { scope: 'row' }, row.label), ...row.values.map((v) => cell(row, v, best != null && v === best)));
+            })))));
+      }
+
+      /* a redraw keeps the keyboard focus on the same button of the same model */
+      function refocus(redraw) {
+        const a = document.activeElement;
+        const act = a && box.contains(a) && a.dataset ? a.dataset.act : null;
+        const owner = act ? a.closest('li[id]') : null;
+        const ownerId = owner ? owner.id : null;
+        redraw();
+        if (!act) return;
+        const scope = (ownerId && document.getElementById(ownerId)) || box;
+        const again = scope.querySelector(`[data-act="${act}"]`) || scope.querySelector('[data-act]');
+        if (again) again.focus();
+      }
+
+      function draw() {
+        const s = JSON.stringify(models);
+        if (s === sig) return;
+        sig = s;
+        if (!models.length) {
+          box.replaceChildren(el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty')),
+            el('a', { class: 'btn', href: '#training' }, t('md.go_training'))));
+          return;
+        }
+        refocus(() => box.replaceChildren(
+          el('ul', { class: 'tr-cards' }, ...models.map(card)),
+          compareBlock(),
+          el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help'))));
+      }
+
+      async function load(quiet = false) {
+        clearTimeout(timer);
+        try {
+          await ensureLabels();
+          const d = await api('GET', `/projects/${projectId}/models`);
+          models = d.models || [];
+          ctx.modelCount = models.length;
+          ctx.currentModel = d.current;
+          renderStepper();
+          draw();
+        } catch (err) { if (!quiet) toastError(err); }
+        if (!node.hidden && models.some(busy)) timer = setTimeout(() => load(true), 2000);
+      }
+
+      node.append(
+        el('div', { class: 'ds-head' },
+          el('div', null, el('h2', { id: 'h-models' }, t('step.models')), el('p', { class: 'muted' }, t('md.intro'))),
+          el('a', { class: 'btn', href: '#training' }, t('md.go_training'))),
+        announcer,
+        box);
+      panel.mount = () => load();
+      panel.show = () => load(true);
+      panel.count = async () => {
+        try {
+          const d = await api('GET', `/projects/${projectId}/models`);
+          ctx.modelCount = (d.models || []).length;
+          ctx.currentModel = d.current;
+          renderStepper();
+        } catch (err) { /* the status stays "no models" */ }
+      };
+      return panel;
+    }
+
+    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel(), models: modelsPanel() };
     panelsBox.append(gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
     root.replaceChildren(headerBox, stepper, panelsBox, jobsBox);
     renderJobs();
@@ -4545,6 +4787,7 @@
       pollJobs();
       ctx.panels.datasets.count().then(() => { if (ctx.tab === 'training') showTab('training'); });
       ctx.panels.training.count();
+      ctx.panels.models.count();
     });
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
