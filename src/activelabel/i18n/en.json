@@ -968,5 +968,7 @@
   "md.format_pt": "PyTorch (.pt), the original output of the training",
   "md.format_onnx": "ONNX too (runs without PyTorch)",
   "md.format_onnx_help": "The ONNX file is made right after saving, in the training queue; you can also make it later.",
-  "md.saved_onnx": "Saved as model m{n}; the ONNX export is queued."
+  "md.saved_onnx": "Saved as model m{n}; the ONNX export is queued.",
+  "project.group_data": "Data",
+  "project.group_model": "Model"
 }
