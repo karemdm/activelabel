@@ -93,12 +93,27 @@ adds `ranking` (`rank`, `combo`, `values`, `children`, `scores`, `mean`, `std`, 
 
 ## Models (step 6)
 
-A finished run can be **saved as a model**: `<project>/models/m<N>/` with the best weights, the
-config, the results and a model card (dataset version, metrics, date, note). Models are versioned
-(m1, m2…), compared in a table (metric per class, size, speed), one can be marked **current**, and
-they can be exported (PyTorch, ONNX). Later steps use the current model to pre-annotate new tasks,
-which are reviewed (in CVAT), go into a new dataset version and a new training: the loop that
-improves the model with new data.
+A finished run is **saved as a model** (button *Salvar como modelo* on the run): `<project>/models/m<N>/`
+holds its best weights (`best.pt`), `config.yaml`, `results.json` and a card, `model.json` (run and
+best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
+the order of the network's outputs, device and package versions, size, note, exports). Numbers are
+never reused, a run is saved at most once, and saving removes the run's `last.pt`.
+
+- **Current model**: one model of the project is marked current (`models/current.json`); the first
+  saved model becomes current. Later steps use it to pre-annotate new tasks, which are reviewed (in
+  CVAT), go into a new dataset version and a new training: the loop that improves the model.
+- **Comparison**: the screen lists the models and compares them in a table (every validation and
+  test metric, the main per-class metric, size), highlighting the best value of each row.
+- **Downloads**: the PyTorch weights (`.pt`, a dict with `state_dict`, `classes`, `model`, `family`,
+  `image_size` and, for classification and segmentation, `mean`/`std`).
+- **ONNX export** (classification and semantic segmentation): queued with the training runs (one heavy
+  process at a time); the `onnx` package is installed in the training environment on the first
+  export; the network is rebuilt without downloading anything, the weights are loaded and the graph
+  is checked (`onnx.checker`). Input `images` (N×3×S×S, normalised with the ImageNet mean and std),
+  output `logits` (classes, or classes + background per pixel). Checked against PyTorch with ONNX
+  Runtime on real images (same classes and masks; differences below 1e-5). Detection, instance and
+  keypoint models (torchvision) are not exported yet: their traced graphs break in ONNX Runtime on
+  images without candidate boxes; their PyTorch weights can be downloaded.
 
 ## HTTP API (summary)
 
@@ -112,7 +127,10 @@ improves the model with new data.
 | GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
 | POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | |
 | DELETE | `/api/projects/{id}/runs/{n}` | after confirmation |
-| GET/POST/PATCH/DELETE | `/api/projects/{id}/models[/{n}]` | save a run as model, list, mark current, delete |
+| GET/POST | `/api/projects/{id}/models` | list (with results and the current model) / save a run (`{run, note}`) |
+| GET/PATCH/DELETE | `/api/projects/{id}/models/{n}` | card and results / note, `current` / delete (after confirmation) |
+| POST | `/api/projects/{id}/models/{n}/export` | queue an export (`{"format": "onnx"}`) |
+| GET | `/api/projects/{id}/models/{n}/download/{pytorch\|onnx}` | the weights or the export as a file |
 
 ## Delivery (small pull requests)
 
@@ -121,4 +139,4 @@ improves the model with new data.
 3. Runner (separate process) + classification end to end, temporary folder, metrics, cancel.
 4. Detection (torchvision). 5. Segmentation and keypoints (torchvision). 6. YOLO (ultralytics).
 7. Grid search and K-fold orchestration.
-8. Screen: step 5 Treinos. 9. Screen: step 6 Modelos.
+8. Screen: step 5 Treinos. 9. Step 6 Modelos: save, current, compare, download, ONNX export.

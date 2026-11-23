@@ -16,6 +16,7 @@ from activelabel.web import (
     api,
     datasets_api,
     import_api,
+    models_api,
     pages,
     sync_api,
     tasks_api,
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.include_router(sync_api.router)
     app.include_router(tasks_api.router)
     app.include_router(training_api.router)
+    app.include_router(models_api.router)
     app.include_router(video_api.router)
     app.include_router(pages.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

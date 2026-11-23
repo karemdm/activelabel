@@ -11,6 +11,7 @@ from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
+from activelabel.training.models import ModelStore
 from activelabel.training.runs import RunBusy, RunNotFound, RunStore
 from activelabel.web.state import AppState, get_state
 
@@ -115,7 +116,8 @@ def run_log(project_id: int, number: int, lines: int = 200, state: AppState = ST
 def list_runs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """Every run of the project, newest first."""
     store = _store(state, project_id)
-    return {"runs": [_summary(store, r) for r in store.list()]}
+    saved = {m["run"]: m["number"] for m in ModelStore(state.store.dir(project_id)).list()}
+    return {"runs": [{**_summary(store, r), "model_number": saved.get(r["number"])} for r in store.list()]}
 
 
 @router.post("/projects/{project_id}/runs")

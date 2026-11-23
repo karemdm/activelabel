@@ -36,6 +36,7 @@ from activelabel.storage import now, write_json
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree
+from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelStore
 from activelabel.training.runs import (
     CANCELLED,
     DONE,
@@ -57,6 +58,11 @@ WORKER_FILES = {
 }
 OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
+EXPORT_SCRIPT = WORKERS_DIR / "export_onnx.py"
+EXPORT_PACKAGES = {"onnx": ("onnx",)}  # installed only when a model is exported
+#: Kinds of task whose ONNX graph is checked to give the same results as PyTorch. Detection models
+#: (torchvision) trace into graphs that break on images without candidate boxes: they come later.
+ONNX_KINDS = ("classification", "semantic")
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
 COMES_LATER = "comes later"
 #: Status fields of a child that are also shown on the run itself (progress of the current child).
@@ -303,6 +309,7 @@ class TrainingRunner:
         self._job_ids: dict[tuple[int, int], str] = {}
         self._procs: dict[tuple[int, int], subprocess.Popen[str]] = {}
         self._tmp: dict[tuple[int, int], Path] = {}
+        self._export_procs: dict[tuple[int, int, str], subprocess.Popen[str]] = {}
 
     # -- public ------------------------------------------------------------
 
@@ -350,8 +357,38 @@ class TrainingRunner:
                 run = store.get(number)
         return run
 
+    def enqueue_export(self, project_id: int, number: int, fmt: str) -> dict[str, Any]:
+        """Queue the export of a saved model (in the same queue as the training runs).
+
+        Returns the model card. An export already queued or running is left as it is.
+
+        Raises:
+            ModelNotFound: unknown model.
+            ModelError: unknown format.
+        """
+        if fmt not in FORMATS:
+            raise ModelError(f"The format must be one of: {', '.join(FORMATS)}.")
+        store = ModelStore(self._project_dir(project_id))
+        card = store.get(number)
+        if ((card.get("exports") or {}).get(fmt) or {}).get("status") in (QUEUED, RUNNING):
+            return card
+        card = store.set_export(number, fmt, status=QUEUED, error="", message="", requested=now())
+        self._jobs.submit(project_id, "export", lambda p: self._export(project_id, number, fmt, p))
+        return card
+
     def recover(self) -> None:
-        """At startup: runs left ``running`` were interrupted (failed); queued ones go back in line."""
+        """At startup: runs left ``running`` were interrupted (failed); queued ones go back in line.
+
+        Exports left queued or running were interrupted too (they can be asked again).
+        """
+        for project_id in self._project_ids():
+            models = ModelStore(self._project_dir(project_id))
+            for card in models.list():
+                for fmt, export in (card.get("exports") or {}).items():
+                    if (export or {}).get("status") in (QUEUED, RUNNING):
+                        models.set_export(
+                            card["number"], fmt, status=FAILED, error="interrupted", finished=now()
+                        )
         queued: list[tuple[int, int]] = []
         for project_id in self._project_ids():
             store = self.store(project_id)
@@ -367,9 +404,140 @@ class TrainingRunner:
         """Stop the running process (if any) and the queue."""
         self._jobs.shutdown()
         with self._lock:
-            procs = list(self._procs.values())
+            procs = [*self._procs.values(), *self._export_procs.values()]
         for proc in procs:
             kill_tree(proc)
+
+    # -- export of a saved model ---------------------------------------------
+
+    def _export(self, project_id: int, number: int, fmt: str, progress: Progress) -> None:
+        store = ModelStore(self._project_dir(project_id))
+        try:
+            store.set_export(number, fmt, status=RUNNING, started=now(), message="")
+        except KeyError:
+            return  # the model was deleted while waiting
+        tmp: Path | None = None
+        try:
+            card = store.get(number)
+            folder = store.path(number)
+            config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
+            model = get_model(card["model"])
+            if model is None:
+                raise RunnerError(f"Unknown model '{card['model']}'.")
+            if model.family == "ultralytics" or model.task_kind not in ONNX_KINDS:
+                raise RunnerError(
+                    f"ONNX export of {model.task_kind} models {COMES_LATER}: download the PyTorch weights."
+                )
+            worker = self._scripts(model.task_kind).stem
+
+            def step(message: str) -> None:
+                store.set_export(number, fmt, message=message)
+
+            self.environment.ensure(
+                [*model.packages, *EXTRA_PACKAGES, *EXPORT_PACKAGES[fmt]], progress.check, step
+            )
+            progress.check()
+            store.set_export(number, fmt, message="")
+            self.tmp_root.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(prefix=f"m{number}-{fmt}-", dir=self.tmp_root))
+            spec = {
+                "checkpoint": str((folder / "best.pt").resolve()),
+                "output": str((folder / EXPORT_FILES[fmt]).resolve()),
+                "worker": worker,
+                "task": model.task_kind,
+                "build": {
+                    "model": model.id,
+                    "family": model.family,
+                    "classes": list(card.get("classes") or []),
+                    "params": config.effective_params(model),
+                    "start": config.start,
+                },
+            }
+            spec_file = tmp / "spec.json"
+            spec_file.write_text(json.dumps(spec), encoding="utf-8")
+            script = self._scripts(model.task_kind).parent / EXPORT_SCRIPT.name
+            cmd = [str(self.environment.python()), str(script), str(spec_file)]
+            info = self._run_export(project_id, number, fmt, cmd, tmp, folder / "export.log", progress)
+            store.set_export(number, fmt, status=DONE, finished=now(), message="", **info)
+        except Cancelled:
+            store.set_export(number, fmt, status=CANCELLED, finished=now(), message="")
+        except Exception as exc:  # noqa: BLE001 - shown to the person
+            store.set_export(number, fmt, status=FAILED, error=str(exc) or type(exc).__name__, finished=now())
+        finally:
+            if tmp is not None:
+                _remove_tree(tmp)
+
+    def _run_export(
+        self,
+        project_id: int,
+        number: int,
+        fmt: str,
+        cmd: list[str],
+        tmp: Path,
+        log_file: Path,
+        progress: Progress,
+    ) -> dict[str, Any]:
+        """Run the export process; returns the ``done`` event's results."""
+        creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        key = (project_id, number, fmt)
+        state: dict[str, Any] = {"results": None, "error": ""}
+        with log_file.open("a", encoding="utf-8", errors="replace") as log:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=tmp,
+                env={**os.environ, **download_env(tmp)},
+                creationflags=creation,
+            )
+            with self._lock:
+                self._export_procs[key] = proc
+            lines: queue.Queue[str | None] = queue.Queue()
+
+            def pump() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    lines.put(line)
+                lines.put(None)
+
+            reader = threading.Thread(target=pump, daemon=True)
+            reader.start()
+            try:
+                while True:
+                    progress.check()
+                    try:
+                        line = lines.get(timeout=self._poll)
+                    except queue.Empty:
+                        continue
+                    if line is None:
+                        break
+                    text = line.rstrip("\r\n")
+                    log.write(text + "\n")
+                    log.flush()
+                    try:
+                        event = json.loads(text)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict) and event.get("event") == "done":
+                        state["results"] = event.get("results") or {}
+                    elif isinstance(event, dict) and event.get("event") == "error":
+                        state["error"] = str(event.get("message", "error"))
+                code = proc.wait()
+                progress.check()
+            except BaseException:
+                kill_tree(proc)
+                raise
+            finally:
+                reader.join(timeout=2)
+                with self._lock:
+                    self._export_procs.pop(key, None)
+        if code != 0 or state["error"] or state["results"] is None:
+            raise RunnerError(state["error"] or f"The export process stopped with code {code}.")
+        return dict(state["results"])
 
     # -- one run -----------------------------------------------------------
 
