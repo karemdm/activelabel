@@ -23,6 +23,8 @@ Principles (from what went wrong in the previous tool):
   project.json        name, description, task, classes, dates
   images.json         one record per image (id = content hash, status, metrics, issues)
   tasks.json          tasks: packages of images, split into jobs (docs/TASKS.md)
+  videos.json         source videos (id, name, fps, frames, duration, size) (docs/VIDEO.md)
+  videos/<id>.<ext>   original videos; their selected frames become images
   images/<id>.<ext>   original files (never re-encoded)
   thumbs/<id>.jpg     thumbnails (cache)
   annotations.json    ground truth in the internal format (activelabel.labels)

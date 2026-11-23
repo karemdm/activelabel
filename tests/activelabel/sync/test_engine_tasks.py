@@ -396,3 +396,58 @@ def test_deleted_frame_of_a_remote_task_keeps_its_position(synced):
         again["remove_remote"],
         again["restore_remote"],
     ) == ([], 0, 0, 0, 0)
+
+
+def test_video_of_a_task_without_its_video_falls_back_to_images(tmp_path):
+    from activelabel.tasks_store import ImageTask
+
+    plain = ImageTask(1, "Images", "2026-01-01T00:00:00+00:00")
+    gone = ImageTask(2, "Clip", "2026-01-01T00:00:00+00:00", source={"video": "0" * 16, "stop": 9, "step": 1})
+    assert engine._video_of(tmp_path, plain) is None
+    assert engine._video_of(tmp_path, gone) is None
+
+
+def test_task_deleted_in_the_tool_excludes_its_images_here(synced):
+    env = synced
+    beta = env.tids[2]
+    images = TaskStore(env.dir).get(2).images
+    env.remote.delete_task(SETTINGS, beta)
+    p = plan(env)
+    assert p["remove_local"] == len(images) and p["tasks_create"] == []
+    apply(env, p["plan_id"])
+    records = Manifest(env.dir).load()
+    assert all(records[i].status == "excluded" for i in images)
+    again = plan(env)  # not sent again, nothing left to do
+    assert (again["tasks_create"], again["remove_local"], again["push"], again["add"]) == ([], 0, 0, 0)
+
+
+def test_tracked_frames_are_read_again_after_a_push(synced, monkeypatch):
+    """Writing a tracked object makes CVAT renumber the track and re-interpolate its neighbours."""
+    import copy
+
+    from activelabel.labels import AnnotationSet, Label, save_annotations
+
+    env = synced
+    tracked = [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3], track=7)]
+    for index in (0, 1):  # two frames of the same track, in sync on both sides
+        env.remote.projects[env.rid]["items"][env.key(index)].labels = copy.deepcopy(tracked)
+    apply(env, plan(env)["plan_id"])
+    annotations = load_annotations(env.dir)
+    annotations.images[env.ids[0]] = [Label("cat", bbox=[0.2, 0.1, 0.3, 0.3], track=7)]  # edited here
+    save_annotations(env.dir, AnnotationSet(annotations.task, annotations.classes, annotations.images, {}))
+    real_write = env.remote.write
+
+    def cvat_like_write(settings, rid, project, updates):
+        real_write(settings, rid, project, updates)
+        for index in (0, 1):  # new track id; frame 1 re-interpolated towards the new keyframe
+            item = env.remote.projects[rid]["items"][env.key(index)]
+            item.labels = [Label("cat", bbox=[0.2 if index == 0 else 0.15, 0.1, 0.3, 0.3], track=8)]
+
+    monkeypatch.setattr(env.remote, "write", cvat_like_write)
+    p = plan(env)
+    assert p["push"] == 1
+    apply(env, p["plan_id"])
+    after = load_annotations(env.dir).images
+    assert after[env.ids[0]][0].track == 8 and after[env.ids[1]][0].bbox[0] == 0.15
+    again = plan(env)
+    assert (again["pull"], again["push"], len(again["conflicts"])) == (0, 0, 0)

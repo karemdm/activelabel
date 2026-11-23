@@ -41,16 +41,18 @@ def _canonical(label: Label) -> str:
         data["polygons"] = _round(label.polygons)
     if label.keypoints:
         data["keypoints"] = _round(label.keypoints)
+    if label.track is not None:
+        data["track"] = label.track
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def label_hash(labels: list[Label]) -> str:
     """Stable SHA-256 (hex) of the labels of one image in the internal format.
 
-    Every label is written as canonical JSON (class, bbox, polygons, keypoints; the score is left
-    out) with coordinates rounded to 4 decimals, and the list is sorted, so the order of the labels
-    and geometry noise below 0.00005 of the image size do not change the hash. No labels give the
-    hash of the empty list.
+    Every label is written as canonical JSON (class, bbox, polygons, keypoints, track id when there is
+    one; the score is left out) with coordinates rounded to 4 decimals, and the list is sorted, so the
+    order of the labels and geometry noise below 0.00005 of the image size do not change the hash. No
+    labels give the hash of the empty list.
     """
     body = "\n".join(sorted(_canonical(lb) for lb in labels))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -68,7 +70,7 @@ def _close(a: Any, b: Any, tol: float) -> bool:
 
 
 def _label_close(a: Label, b: Label, tol: float) -> bool:
-    if a.label != b.label:
+    if a.label != b.label or a.track != b.track:
         return False
     return all(_close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints"))
 

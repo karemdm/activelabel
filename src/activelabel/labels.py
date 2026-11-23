@@ -30,6 +30,8 @@ class Label:
         polygons: one or more rings of ``[x, y]`` points (relative), for segmentation.
         keypoints: ``[x, y, visibility]`` per point (relative), for pose.
         score: confidence, for predictions; None for ground truth.
+        track: identity of the object across frames (the CVAT track id; FiftyOne ``index``); None for
+            objects that are not tracked.
     """
 
     label: str
@@ -37,6 +39,7 @@ class Label:
     polygons: list[list[Point]] | None = None
     keypoints: list[Keypoint] | None = None
     score: float | None = None
+    track: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form without empty fields."""
@@ -51,6 +54,7 @@ class Label:
             polygons=data.get("polygons"),
             keypoints=data.get("keypoints"),
             score=data.get("score"),
+            track=data.get("track"),
         )
 
 

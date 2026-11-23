@@ -90,4 +90,4 @@ def to_detection(label: Label) -> Label | None:
         bbox = bbox_of_points(p for ring in label.polygons for p in ring)
     if bbox is None and label.keypoints:
         bbox = bbox_of_points(k for k in label.keypoints if k[2] > 0)
-    return Label(label.label, bbox=bbox) if bbox else None
+    return Label(label.label, bbox=bbox, track=label.track) if bbox else None

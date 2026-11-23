@@ -33,6 +33,12 @@ def _box_of(points: list[list[float]]) -> list[float] | None:
     return [_r(min(xs)), _r(min(ys)), _r(max(xs) - min(xs)), _r(max(ys) - min(ys))]
 
 
+def _track(value: Any) -> int | None:
+    """FiftyOne object-tracking ``index`` -> track id (None when it has none)."""
+    index = getattr(value, "index", None)
+    return None if index is None or _is_nan(index) else int(index)
+
+
 def _classification(value: Any) -> list[Label]:
     if type(value).__name__ == "Classifications":
         items = list(value.classifications or [])
@@ -50,7 +56,7 @@ def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
         box = [_r(v) for v in det.bounding_box]
         if getattr(det, "mask", None) is not None:
             notes["mask_only"] = notes.get("mask_only", 0) + 1  # kept as a box: masks are not converted
-        out.append(Label(str(det.label), bbox=box))
+        out.append(Label(str(det.label), bbox=box, track=_track(det)))
     return out
 
 
@@ -63,7 +69,7 @@ def _polylines(value: Any) -> list[Label]:
         if not rings:
             continue
         flat = [p for ring in rings for p in ring]
-        out.append(Label(str(poly.label), bbox=_box_of(flat), polygons=rings))
+        out.append(Label(str(poly.label), bbox=_box_of(flat), polygons=rings, track=_track(poly)))
     return out
 
 
@@ -79,7 +85,7 @@ def _keypoints(value: Any) -> list[Label]:
             else:
                 points.append([_r(x), _r(y), 2.0])
         visible = [p[:2] for p in points if p[2] > 0]
-        out.append(Label(str(kp.label), bbox=_box_of(visible), keypoints=points))
+        out.append(Label(str(kp.label), bbox=_box_of(visible), keypoints=points, track=_track(kp)))
     return out
 
 
