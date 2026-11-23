@@ -4,7 +4,10 @@ Usage: ``python predict.py spec.json``. The spec has ``checkpoint`` (``best.pt``
 training worker module that builds the network: ``classification`` or ``detection``), ``task``
 (``classification``, ``detection`` or ``keypoints``), ``build`` (what that worker's ``build_model``
 reads), ``classes`` (in the order of the network's outputs), ``threshold`` (lowest confidence kept),
-``model`` (the saved model's name, e.g. ``m1``) and ``items`` (``[{"id", "path"}]``).
+``model`` (the saved model's name, e.g. ``m1``) and ``items`` (``[{"id", "path"}]``). For a public
+pretrained model the spec has ``public`` (``builder``, ``categories``, ``mapping``, ``task``) instead
+of ``checkpoint``, ``worker`` and ``build``: torchvision downloads the weights, and categories missing
+from the mapping are dropped.
 
 Prints JSON lines on stdout: ``progress`` (``step``/``steps``), one ``prediction`` per image
 (``{"id", "labels"}`` in ActiveLabel's label format, coordinates relative to the image), then
@@ -53,7 +56,7 @@ def detection_labels(
     scores: list[float],
     width: int,
     height: int,
-    classes: list[str],
+    classes: list[str | None],
     threshold: float,
     model: str,
     keypoints: list[list[list[float]]] | None = None,
@@ -61,8 +64,8 @@ def detection_labels(
     """Objects at or above ``threshold``: relative box ``[x, y, w, h]``, class name (0 is background)."""
     out = []
     for i, (box, label, score) in enumerate(zip(boxes, labels, scores, strict=True)):
-        if score < threshold or not 1 <= int(label) <= len(classes):
-            continue
+        if score < threshold or not 1 <= int(label) <= len(classes) or classes[int(label) - 1] is None:
+            continue  # below the threshold, background, or a category the project does not use
         x1, y1, x2, y2 = (float(v) for v in box)
         x, y = _clamp(x1 / width), _clamp(y1 / height)
         w, h = _clamp(x2 / width) - x, _clamp(y2 / height) - y
@@ -95,18 +98,29 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
     task = spec["task"]
     if task not in KINDS:
         raise ValueError(f"Pre-annotation with {task} models is not available yet.")
-    worker = importlib.import_module(spec["worker"])
-    checkpoint = torch.load(spec["checkpoint"], map_location="cpu", weights_only=False)
-    build = {**spec["build"], "num_keypoints": checkpoint.get("num_keypoints") or 0}
-    built = worker.build_model(build, False)
-    model = built[0] if isinstance(built, tuple) else built
-    result = model.load_state_dict(checkpoint["state_dict"], strict=False)
-    bad = [k for k in result.missing_keys if not k.endswith("num_batches_tracked")]
-    if bad or [k for k in result.unexpected_keys if not k.startswith("aux_classifier.")]:
-        raise ValueError("The weights do not match the network.")
+    public = spec.get("public")
+    checkpoint: dict[str, Any] = {}
+    if public:
+        # a public pretrained model: torchvision downloads its weights (into the run's temporary
+        # folder, removed afterwards); its categories become project classes through the mapping
+        import torchvision
+
+        model = getattr(torchvision.models.detection, public["builder"])(weights="DEFAULT")
+        classes: list[str | None] = [public["mapping"].get(c) for c in public["categories"][1:]]
+    else:
+        worker = importlib.import_module(spec["worker"])
+        checkpoint = torch.load(spec["checkpoint"], map_location="cpu", weights_only=False)
+        build = {**spec["build"], "num_keypoints": checkpoint.get("num_keypoints") or 0}
+        built = worker.build_model(build, False)
+        model = built[0] if isinstance(built, tuple) else built
+        result = model.load_state_dict(checkpoint["state_dict"], strict=False)
+        bad = [k for k in result.missing_keys if not k.endswith("num_batches_tracked")]
+        if bad or [k for k in result.unexpected_keys if not k.startswith("aux_classifier.")]:
+            raise ValueError("The weights do not match the network.")
+        classes = list(spec["classes"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
-    classes, threshold, name = list(spec["classes"]), float(spec["threshold"]), str(spec["model"])
+    threshold, name = float(spec["threshold"]), str(spec["model"])
     if task in DETECTION_KINDS:
         for part in ("roi_heads", "head"):  # keep candidates down to the threshold (the default is 0.05)
             module = getattr(model, part, None)
@@ -115,7 +129,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         if hasattr(model, "score_thresh"):
             model.score_thresh = min(float(model.score_thresh), threshold)
     else:
-        size = int(checkpoint.get("image_size") or build["params"]["image_size"])
+        size = int(checkpoint.get("image_size") or spec["build"]["params"]["image_size"])
         transform = worker.build_transforms(worker.eval_plan(size))
     items = spec["items"]
     totals = {"images": 0, "objects": 0, "unreadable": 0}
@@ -149,7 +163,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
             else:
                 logits = model(transform(image).unsqueeze(0).to(device))
                 probabilities = torch.softmax(logits, dim=1)[0].cpu().tolist()
-                labels = classification_labels(probabilities, classes, threshold, name)
+                labels = classification_labels(probabilities, [c or "" for c in classes], threshold, name)
             totals["images"] += 1 if labels else 0
             totals["objects"] += len(labels)
             emit("prediction", id=item["id"], labels=labels)

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from activelabel.training.models import EXPORT_FILES, WEIGHTS, ModelError, ModelNotFound, ModelStore
+from activelabel.training.public_models import get_public, public_for, suggest_mapping
 from activelabel.training.runs import RunNotFound
 from activelabel.web.state import AppState, get_state
 
@@ -22,6 +23,14 @@ class SaveModel(BaseModel):
     """Body of POST /projects/{id}/models."""
 
     run: int
+    note: str = ""
+
+
+class PublicModelBody(BaseModel):
+    """Body of POST /projects/{id}/models/public."""
+
+    public: str
+    mapping: dict[str, str]
     note: str = ""
 
 
@@ -59,6 +68,36 @@ def list_models(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     store = _store(state, project_id)
     models = [{**card, "results": store.results(card["number"])} for card in store.list()]
     return {"models": models, "current": store.current()}
+
+
+@router.get("/projects/{project_id}/models/public-catalog")
+def public_catalog(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+    """Public pretrained models for this project's type, each with a suggested mapping to its classes."""
+    project = state.project(project_id)
+    classes = list(project.classes)
+    return {
+        "models": [
+            {**m.as_dict(), "suggested": suggest_mapping(m, classes)} for m in public_for(project.task.value)
+        ],
+        "project_classes": classes,
+    }
+
+
+@router.post("/projects/{project_id}/models/public")
+def add_public_model(project_id: int, body: PublicModelBody, state: AppState = STATE) -> dict[str, Any]:
+    """Add a public pretrained model to the project, with its category → class mapping."""
+    project = state.project(project_id)
+    model = get_public(body.public)
+    if model is None:
+        raise HTTPException(404, "This public model does not exist.")
+    if model not in public_for(project.task.value):
+        raise HTTPException(400, "This public model does not make the labels this project uses.")
+    try:
+        return ModelStore(state.store.dir(project_id)).add_public(
+            body.public, body.mapping, list(project.classes), body.note
+        )
+    except ModelError as error:
+        raise HTTPException(400, str(error)) from None
 
 
 @router.post("/projects/{project_id}/models")

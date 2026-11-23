@@ -39,6 +39,7 @@ from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
 from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelNotFound, ModelStore
+from activelabel.training.public_models import get_public
 from activelabel.training.runs import (
     CANCELLED,
     DONE,
@@ -62,6 +63,7 @@ WORKER_FILES = {
 OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
 EXPORT_SCRIPT = WORKERS_DIR / "export_onnx.py"
+PUBLIC_PACKAGES = ("torch", "torchvision")  # what a public torchvision model needs
 PREDICT_SCRIPT = WORKERS_DIR / "predict.py"
 EXPORT_PACKAGES = {"onnx": ("onnx",)}  # installed only when a model is exported
 #: Kinds of task whose ONNX graph is checked to give the same results as PyTorch. Detection models
@@ -611,16 +613,19 @@ class TrainingRunner:
             models = ModelStore(project_dir)
             card = models.get(int(run["model"]))
             folder = models.path(int(run["model"]))
-            config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
-            model = get_model(card["model"])
-            if model is None:
+            public = get_public(str(card.get("public") or "")) if card.get("source") == "public" else None
+            if card.get("source") == "public" and public is None:
+                raise RunnerError("This public model is no longer in the catalogue.")
+            model = None if public else get_model(card["model"])
+            if public is None and model is None:
                 raise RunnerError(f"Unknown model '{card['model']}'.")
-            if model.family == "ultralytics" or model.task_kind not in preannotate.KINDS:
-                raise RunnerError(f"Pre-annotation with {model.task_kind} models {COMES_LATER}.")
+            kind = public.task_kind if public else model.task_kind  # type: ignore[union-attr]
+            if model is not None and (model.family == "ultralytics" or kind not in preannotate.KINDS):
+                raise RunnerError(f"Pre-annotation with {kind} models {COMES_LATER}.")
             project = self._project(project_id)
-            if not preannotate.fits(model.task_kind, project.task):
+            if not preannotate.fits(kind, project.task):
                 raise RunnerError(
-                    f"This model makes {model.task_kind} labels, but the project is now {project.task.value}."
+                    f"This model makes {kind} labels, but the project is now {project.task.value}."
                 )
             image_ids = preannotate.targets(project_dir, int(run["task"]), str(run["scope"]))
             if not image_ids:
@@ -638,27 +643,38 @@ class TrainingRunner:
             def step(message: str) -> None:
                 runs.update(number, message=message)
 
-            self.environment.ensure([*model.packages, *EXTRA_PACKAGES], progress.check, step)
+            packages = PUBLIC_PACKAGES if public else model.packages  # type: ignore[union-attr]
+            self.environment.ensure([*packages, *EXTRA_PACKAGES], progress.check, step)
             progress.check()
             runs.update(number, phase="predicting", message="", total=len(items), done=0)
             self.tmp_root.mkdir(parents=True, exist_ok=True)
             tmp = Path(tempfile.mkdtemp(prefix=f"p{number}-", dir=self.tmp_root))
-            spec = {
-                "checkpoint": str((folder / "best.pt").resolve()),
-                "worker": self._scripts(model.task_kind).stem,
-                "task": model.task_kind,
-                "build": {
-                    "model": model.id,
-                    "family": model.family,
-                    "classes": list(card.get("classes") or []),
-                    "params": config.effective_params(model),
-                    "start": config.start,
-                },
+            spec: dict[str, Any] = {
+                "task": kind,
                 "classes": list(card.get("classes") or []),
                 "threshold": float(run["threshold"]),
                 "model": f"m{card['number']}",
                 "items": items,
             }
+            if public:
+                spec["public"] = {
+                    "builder": public.builder,
+                    "categories": list(public.categories),
+                    "mapping": dict(card.get("mapping") or {}),
+                    "task": public.task_kind,
+                }
+            else:
+                assert model is not None
+                config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
+                spec["checkpoint"] = str((folder / "best.pt").resolve())
+                spec["worker"] = self._scripts(model.task_kind).stem
+                spec["build"] = {
+                    "model": model.id,
+                    "family": model.family,
+                    "classes": list(card.get("classes") or []),
+                    "params": config.effective_params(model),
+                    "start": config.start,
+                }
             spec_file = tmp / "spec.json"
             spec_file.write_text(json.dumps(spec), encoding="utf-8")
             predictions: dict[str, list[Label]] = {}
@@ -676,7 +692,7 @@ class TrainingRunner:
                     runs.update(number, done=event.get("step", 0), total=event.get("steps", len(items)))
                     progress.update(done=event.get("step"), total=event.get("steps"))
 
-            script = self._scripts(model.task_kind).parent / PREDICT_SCRIPT.name
+            script = self._scripts(kind).parent / PREDICT_SCRIPT.name
             cmd = [str(self.environment.python()), str(script), str(spec_file)]
             log_file = project_dir / "preannotations" / f"p{number}.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)

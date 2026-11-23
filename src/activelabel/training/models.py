@@ -1,8 +1,10 @@
 """Saved models: ``<project>/models/m<N>/`` (see docs/TRAINING.md, step 6).
 
 A model is the best weights of a finished training run, with the run's configuration and results
-and a card (``model.json``). Numbers are never reused. One model of the project can be marked
-*current* (``models/current.json``); exports (ONNX) are files next to the weights.
+and a card (``model.json``); a public pretrained model (training.public_models) is only a card, with
+``source: "public"`` and the mapping of its categories to the project's classes. Numbers are never
+reused. One model of the project can be marked *current* (``models/current.json``); exports (ONNX) are
+files next to the weights.
 """
 
 from __future__ import annotations
@@ -135,6 +137,64 @@ class ModelStore:
             if self.current() is None:
                 write_json(self.dir / "current.json", {"model": number})
         (run_dir / "last.pt").unlink(missing_ok=True)
+        return self.get(number)
+
+    def add_public(
+        self, public_id: str, mapping: dict[str, str], project_classes: list[str], note: str = ""
+    ) -> dict[str, Any]:
+        """Add a public pretrained model (no local training) as the next model.
+
+        Args:
+            public_id: id in training.public_models.
+            mapping: public category → project class; categories not in it are ignored.
+            project_classes: the project's classes (every target of the mapping must be one).
+            note: free text.
+
+        Raises:
+            ModelError: unknown public model, an empty mapping, or a category or class that does not
+                exist.
+        """
+        from activelabel.training.public_models import get_public
+
+        model = get_public(public_id)
+        if model is None:
+            raise ModelError("This public model does not exist.")
+        mapping = {str(k): str(v) for k, v in (mapping or {}).items() if v}
+        if not mapping:
+            raise ModelError("Map at least one of the model's categories to a class of the project.")
+        unknown = sorted(set(mapping) - set(model.classes()))
+        if unknown:
+            raise ModelError(f"The model has no category named {', '.join(unknown)}.")
+        missing = sorted(set(mapping.values()) - set(project_classes))
+        if missing:
+            raise ModelError(f"The project has no class named {', '.join(missing)}.")
+        with self._lock:
+            counter_file = self.dir / "counter.json"
+            counter = int((read_json(counter_file, {}) or {}).get("next", 1))
+            number = max([counter, *[n + 1 for n in self._numbers()]])
+            folder = self.path(number)
+            folder.mkdir(parents=True)
+            card: dict[str, Any] = {
+                "number": number,
+                "created": now(),
+                "note": str(note or "").strip()[:500],
+                "source": "public",
+                "public": model.id,
+                "run": None,
+                "model": model.builder,
+                "label": model.label,
+                "task_kind": model.task_kind,
+                "mapping": mapping,
+                "classes": [c for c in project_classes if c in set(mapping.values())],
+                "metric": "",
+                "value": None,
+                "size": None,
+                "exports": {},
+            }
+            write_json(folder / "model.json", card)
+            write_json(counter_file, {"next": number + 1})
+            if self.current() is None:
+                write_json(self.dir / "current.json", {"model": number})
         return self.get(number)
 
     def get(self, number: int) -> dict[str, Any]:
