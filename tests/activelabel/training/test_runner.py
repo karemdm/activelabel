@@ -1,125 +1,22 @@
 import importlib.util
 import json
 import sys
-import textwrap
-import time
 from pathlib import Path
 
 import pytest
-from api_client import make_client, upload
 from sample_images import make_image
+from training_fakes import finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
-from activelabel.labels import AnnotationSet, Label, save_annotations
-from activelabel.tasks import Task
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig
-from activelabel.training.environment import TrainingEnvironment
-from activelabel.training.runner import RunnerError, TrainingRunner, build_spec, download_env
+from activelabel.training.runner import RunnerError, build_spec, download_env
 from activelabel.training.runs import RunStore
-
-FAKE_WORKER = textwrap.dedent(
-    """
-    import json, os, sys, time
-    from pathlib import Path
-
-    spec = json.loads(Path(sys.argv[1]).read_text())
-    out = Path(spec["output_dir"])
-    fake = spec["params"].get("fake", "ok")
-    gate = spec["params"].get("gate", "")
-    started = time.time()
-    names = ("TORCH_HOME", "HF_HOME", "XDG_CACHE_HOME", "PIP_CACHE_DIR", "TMPDIR", "TEMP", "TMP")
-    (out / "env.json").write_text(json.dumps({
-        "env": {k: os.environ.get(k) for k in names}, "cwd": os.getcwd(), "spec": sys.argv[1]}))
-    print("not json noise", flush=True)
-    print(json.dumps({"event": "log", "message": "hello"}), flush=True)
-    for epoch in (1, 2):
-        print(json.dumps({"event": "progress", "phase": "training", "epoch": epoch, "step": 1, "steps": 2}),
-              flush=True)
-        print(json.dumps({"event": "epoch", "epoch": epoch, "train_loss": 1.0 / epoch, "val_loss": 0.5,
-                          "val_accuracy": 0.5 * epoch, "val_macro_f1": 0.4, "best": True}), flush=True)
-        if fake == "sleep":
-            time.sleep(60)
-        if gate:
-            while not Path(gate).exists():
-                time.sleep(0.05)
-    if fake == "fail":
-        print(json.dumps({"event": "error", "message": "boom"}), flush=True)
-        sys.exit(1)
-    (out / "times.json").write_text(json.dumps([started, time.time()]))
-    (out / "best.pt").write_text("weights")
-    (out / "last.pt").write_text("weights")
-    score = spec["params"].get("score", 1.0) + 0.01 * (spec["fold"] or 0)
-    results = {"best_epoch": 2, "val": {"accuracy": score}, "test": None}
-    print(json.dumps({"event": "done", "results": results}), flush=True)
-    """
-)
-
-
-class FakeEnv(TrainingEnvironment):
-    ensured: list[list[str]]
-
-    def ensure(self, packages, check, step):
-        self.ensured = [*getattr(self, "ensured", []), list(packages)]
-        step("train_env_install:torch")
-
-    def python(self):
-        return Path(sys.executable)
-
-    def installed(self):
-        return {"torch": "2.0.0", "Pillow": "10.0", "other": "1"}
-
-    def device_info(self):
-        return {"cuda": False, "torch": "2.0.0"}
-
-
-def wait_for(predicate, timeout=30):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        value = predicate()
-        if value:
-            return value
-        time.sleep(0.05)
-    raise AssertionError("timeout")
-
-
-@pytest.fixture
-def setup(tmp_path):
-    client, state = make_client(tmp_path)
-    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["a", "b"]})
-    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(20)]
-    assert upload(client, 1, paths).status_code == 200
-    ids = [r.id for r in state.manifest(1).all()]
-    images = {i: [Label("a" if k % 2 else "b")] for k, i in enumerate(ids)}
-    save_annotations(state.store.dir(1), AnnotationSet(Task.CLASSIFICATION, ["a", "b"], images, {}))
-    assert client.post("/api/projects/1/datasets", json={}).status_code == 200
-    assert client.post("/api/projects/1/datasets", json={"kfold": 2}).status_code == 200
-    script = tmp_path / "fake_worker.py"
-    script.write_text(FAKE_WORKER)
-    runner = TrainingRunner(
-        tmp_path / "ws",
-        state.store.dir,
-        lambda: [1],
-        environment=FakeEnv(tmp_path / "ws"),
-        scripts=lambda kind: script,
-        poll=0.05,
-    )
-    state.runner = runner
-    yield client, state, runner
-    runner.shutdown()
 
 
 def new_run(state, **params):
     config = RunConfig(dataset=1, model="resnet18", params=params, metric="accuracy")
     return RunStore(state.store.dir(1)).create(config)["number"]
-
-
-def tmp_dirs(runner):
-    return list(runner.tmp_root.iterdir()) if runner.tmp_root.exists() else []
-
-
-def finished(store, n):
-    return lambda: (r := store.get(n))["status"] in ("done", "failed", "cancelled") and r
 
 
 def test_success(setup):
