@@ -22,12 +22,15 @@ from __future__ import annotations
 import copy
 import logging
 import mimetypes
+import shutil
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import ImageRecord
+from activelabel.images.video import VIDEO_EXTENSIONS
 from activelabel.importing.cvat_import import _Http
 from activelabel.labels import Label
 from activelabel.projects import Project
@@ -45,6 +48,16 @@ ALL = 1_000_000  # "no limit" for paginated lists
 MISSING_CORNER = (0.0, 0.0)  # position of a point that is not labeled (as in cvat_tool)
 
 
+def _meta_selection(meta: dict[str, Any]) -> tuple[int, int, int]:
+    """``(start, stop, step)`` of a video task from its meta (``start_frame``, ``stop_frame``, ``step=N``)."""
+    start = int(meta.get("start_frame") or 0)
+    filt = str(meta.get("frame_filter") or "")
+    step = int(filt.split("=", 1)[1]) if filt.startswith("step=") and filt.split("=", 1)[1].isdigit() else 1
+    step = max(1, step)
+    last = start + (int(meta.get("size") or 1) - 1) * step
+    return start, max(int(meta.get("stop_frame") or 0), last), step
+
+
 def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
     """One entry per frame of a task (``/data/meta``).
 
@@ -56,9 +69,7 @@ def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
     size = int(meta.get("size") or len(frames))
     if len(frames) != 1 or size <= 1:
         return frames
-    start = int(meta.get("start_frame") or 0)
-    filt = str(meta.get("frame_filter") or "")
-    step = int(filt.split("=", 1)[1]) if filt.startswith("step=") and filt.split("=", 1)[1].isdigit() else 1
+    start, _, step = _meta_selection(meta)
     stem = Path(str(frames[0].get("name") or "video")).stem
     return [{**frames[0], "name": f"{stem}_frame_{start + i * step:06d}.jpg"} for i in range(size)]
 
@@ -388,6 +399,67 @@ class CvatRemote:
         if r.status_code >= 400:
             raise ToolError(f"CVAT error {r.status_code} while downloading frame {frame} of task {task_id}.")
         return bytes(r.content)
+
+    def video_source(
+        self, settings: ToolSettings, task_id: str, dest_dir: Path
+    ) -> tuple[Path, dict[str, int]] | None:
+        """The original video of a video task, taken from the task backup (None for an image task).
+
+        Raises:
+            ToolError: the backup could not be made, downloaded or does not contain the video.
+        """
+        api = self._api(settings)
+        meta = api.get(f"/api/tasks/{task_id}/data/meta") or {}
+        frames = list(meta.get("frames") or [])
+        if len(frames) != 1 or int(meta.get("size") or 0) <= 1:
+            return None
+        start, stop, step = _meta_selection(meta)
+        answer = api.request("POST", f"/api/tasks/{task_id}/backup/export", timeout=UPLOAD_TIMEOUT)
+        rq_id = str((answer or {}).get("rq_id") or "") if isinstance(answer, dict) else ""
+        if not rq_id:
+            raise ToolError("CVAT did not start the task backup.")
+        url = ""
+        for _ in range(MAX_POLLS):
+            data = api.get(f"/api/requests/{rq_id}") or {}
+            state = str(data.get("status", "")).lower()
+            if state == "failed":
+                raise ToolError(
+                    f"CVAT could not make the task backup: {str(data.get('message') or '')[:200]}"
+                )
+            if state == "finished":
+                url = str(data.get("result_url") or "")
+                break
+            _sleep(POLL_INTERVAL)
+        if not url:
+            raise ToolError("CVAT did not finish the task backup in time.")
+        if url.startswith("/"):
+            url = f"{api.url}{url}"
+        try:
+            r = api._http.request("GET", url, auth=api._auth, timeout=UPLOAD_TIMEOUT)  # noqa: SLF001
+        except Exception:  # noqa: BLE001 - never echo the exception text
+            raise ToolError(f"Cannot reach CVAT at {api.url}: check the address and your network.") from None
+        if r.status_code >= 400:
+            raise ToolError(f"CVAT error {r.status_code} while downloading the backup of task {task_id}.")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        archive = dest_dir / "backup.zip"
+        archive.write_bytes(bytes(r.content))
+        try:
+            with zipfile.ZipFile(archive) as zf:
+                names = [n for n in zf.namelist() if n.startswith("data/") and not n.endswith("/")]
+                wanted = str(frames[0].get("name") or "")
+                pick = next((n for n in names if n == f"data/{wanted}"), None) or next(
+                    (n for n in names if Path(n).suffix.lower() in VIDEO_EXTENSIONS), None
+                )
+                if pick is None:
+                    raise ToolError("The task backup does not contain the original video.")
+                target = dest_dir / Path(pick).name  # the name only: nothing is written outside dest_dir
+                with zf.open(pick) as src, target.open("wb") as out:
+                    shutil.copyfileobj(src, out)
+        except zipfile.BadZipFile:
+            raise ToolError("The task backup from CVAT is not a valid archive.") from None
+        finally:
+            archive.unlink(missing_ok=True)
+        return target, {"start": start, "stop": stop, "step": step}
 
     # -- helpers --
     @staticmethod

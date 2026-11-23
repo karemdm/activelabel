@@ -43,6 +43,8 @@ class FakeCvat:
         self.auth: Any = None
         self.polls = 0
         self.fail: dict[tuple[str, str], int] = {}
+        self.backup_polls = 0
+        self.backup_zip = b""
         self.status_only = False  # old CVAT without /api/requests
 
     # requests.Session surface
@@ -96,7 +98,25 @@ class FakeCvat:
     def routes(self) -> list[tuple[tuple[str, str], Any]]:
         def meta(kw: dict[str, Any], t: str) -> Resp:
             task = self.tasks[int(t)]
-            return Resp(200, {"frames": task["frames"], "deleted_frames": task.get("deleted", [])})
+            return Resp(
+                200,
+                {"frames": task["frames"], "deleted_frames": task.get("deleted", []), **task.get("meta", {})},
+            )
+
+        def backup_export(kw: dict[str, Any], t: str) -> Resp:
+            self.backup_polls = 0
+            return Resp(202, {"rq_id": f"bk{t}"})
+
+        def backup_request(kw: dict[str, Any], rq: str) -> Resp:
+            self.backup_polls += 1
+            if self.backup_polls < 2:
+                return Resp(200, {"status": "started"})
+            return Resp(200, {"status": "finished", "result_url": f"https://cvat.test/api/backup/{rq}.zip"})
+
+        def backup_file(kw: dict[str, Any], rq: str) -> Resp:
+            r = Resp(200, {})
+            r.content = self.backup_zip
+            return r
 
         def ann(kw: dict[str, Any], t: str) -> Resp:
             return Resp(200, copy.deepcopy(self.tasks[int(t)]["ann"]))
@@ -113,6 +133,12 @@ class FakeCvat:
             (("GET", r"/api/tasks/(\d+)/annotations"), ann),
             (("PUT", r"/api/tasks/(\d+)/annotations"), self.put_ann),
             (("POST", r"/api/tasks/(\d+)/data"), self.post_data),
+            (("POST", r"/api/tasks/(\d+)/backup/export"), backup_export),
+            (("GET", r"/api/requests/(bk\w+)"), backup_request),
+            (("GET", r"/api/backup/(\w+)\.zip"), backup_file),
+            (("POST", r"/api/tasks/(\d+)/backup/export"), backup_export),
+            (("GET", r"/api/requests/(bk\w+)"), backup_request),
+            (("GET", r"/api/backup/(\w+)\.zip"), backup_file),
             (("GET", r"/api/requests/(\w+)"), self.get_request),
             (("GET", r"/api/tasks/(\d+)/status"), self.get_status),
         ]
@@ -608,3 +634,42 @@ def test_video_task_meta_lists_every_frame():
         "frames": [{"width": 1, "height": 1, "name": "a.jpg"}, {"width": 2, "height": 2, "name": "b.jpg"}],
     }
     assert _meta_frames(images) == images["frames"]
+
+
+def video_task(cvat: FakeCvat, zip_names: list[str]) -> int:
+    import io
+    import zipfile
+
+    pid, _ = seeded(cvat)
+    tid = cvat.add_task(pid, [])
+    cvat.tasks[tid]["frames"] = [{"name": "clip.mp4", "width": 64, "height": 48}]
+    cvat.tasks[tid]["meta"] = {"size": 5, "start_frame": 10, "stop_frame": 50, "frame_filter": "step=10"}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for n in zip_names:
+            zf.writestr(n, b"video-bytes" if n.startswith("data/") else b"{}")
+    cvat.backup_zip = buf.getvalue()
+    return tid
+
+
+def test_video_source_downloads_the_video_from_the_task_backup(cvat: FakeCvat, tmp_path: Any) -> None:
+    tid = video_task(cvat, ["task.json", "annotations.json", "data/clip.mp4"])
+    found = CvatRemote().video_source(SETTINGS, str(tid), tmp_path / "dl")
+    assert found is not None
+    path, sel = found
+    assert path == tmp_path / "dl" / "clip.mp4" and path.read_bytes() == b"video-bytes"
+    assert sel == {"start": 10, "stop": 50, "step": 10}
+    assert not (tmp_path / "dl" / "backup.zip").exists()
+    assert ("POST", f"/api/tasks/{tid}/backup/export") in [(m, p) for m, p, _ in cvat.calls]
+
+
+def test_video_source_is_none_for_image_tasks_and_errors_are_readable(cvat: FakeCvat, tmp_path: Any) -> None:
+    pid, tid = seeded(cvat)
+    assert CvatRemote().video_source(SETTINGS, str(tid), tmp_path) is None
+    assert not any("backup" in p for _, p, _ in cvat.calls)
+    vid = video_task(cvat, ["task.json"])
+    with pytest.raises(ToolError, match="original video"):
+        CvatRemote().video_source(SETTINGS, str(vid), tmp_path / "a")
+    cvat.fail[("POST", f"/api/tasks/{vid}/backup")] = 500
+    with pytest.raises(ToolError, match="500"):
+        CvatRemote().video_source(SETTINGS, str(vid), tmp_path / "b")

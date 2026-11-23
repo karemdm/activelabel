@@ -143,6 +143,12 @@ class LabelStudioRemote:
         """Not available in Label Studio."""
         raise ToolError("Label Studio has no tasks to delete.")
 
+    def video_source(
+        self, settings: ToolSettings, task_id: str, dest_dir: Path
+    ) -> tuple[Path, dict[str, int]] | None:
+        """Label Studio has no video tasks here."""
+        return None
+
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
         """Not available in Label Studio."""
         raise ToolError("Label Studio has no task frames.")

@@ -10,8 +10,12 @@ labels, in which case the other side wins; equal labels are never a conflict.
 
 from __future__ import annotations
 
+import hashlib
 import io
+import logging
 import re
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -30,6 +34,8 @@ from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject
 from activelabel.tasks_store import ImageTask, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
 
+log = logging.getLogger(__name__)
+
 PULL, PUSH, CONFLICT, SAME, ADD = "pull", "push", "conflict", "same", "add"
 REMOVE_REMOTE, REMOVE_LOCAL = "remove_remote", "remove_local"  # image removed on the other side
 RESTORE_REMOTE, RESTORE_LOCAL = "restore_remote", "restore_local"  # image restored on the other side
@@ -44,6 +50,9 @@ KEEP_PLANS = 10
 _PLAN_ID = re.compile(r"^[0-9a-f]{6,32}$")
 CHANGED_REMOTE = "The remote project changed since the comparison. Synchronise again."
 CHANGED_LOCAL = "The project's annotations changed since the comparison. Synchronise again."
+
+
+log = logging.getLogger(__name__)
 
 
 class SyncError(ToolError):
@@ -612,7 +621,8 @@ def apply_plan(
     Returns:
         Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
-        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``backup``, ``skipped``.
+        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``backup``, ``skipped``,
+        ``warnings``.
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -769,6 +779,7 @@ def apply_plan(
         manifest.set_status(restored_here, ACTIVE)
 
     imported = 0
+    warnings: list[str] = []
     remote_jobs: dict[str, dict[str, str]] = {}
     if plan.get("tasks_new"):
         remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
@@ -785,6 +796,7 @@ def apply_plan(
             items,
             tmap,
             remote_jobs.get(str(spec["remote_task"]), {}),
+            warnings,
         )
 
     final = _local_labels(project_dir)
@@ -833,6 +845,7 @@ def apply_plan(
         "new_classes": counts["new_classes"],
         "backup": counts["backup"],
         "skipped": counts["skipped"],
+        "warnings": warnings,
     }
 
 
@@ -928,10 +941,13 @@ def _import_remote_task(
     items: dict[str, dict[str, Any]],
     tmap: dict[str, Any],
     remote_jobs: dict[str, str] | None = None,
+    warnings: list[str] | None = None,
 ) -> int:
     """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0.
 
-    ``remote_jobs`` is ``{job number: remote job id}`` for the link's tasks mapping.
+    ``remote_jobs`` is ``{job number: remote job id}`` for the link's tasks mapping. A video task also
+    brings its original video (``remote.video_source``): the local task is then made from the video
+    (docs/VIDEO.md); when that is not possible the task stays as images and ``warnings`` gets a note.
     """
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
@@ -950,6 +966,7 @@ def _import_remote_task(
         if not ids:
             return 0
         task = tstore.create(str(spec["name"] or "") or None, spec.get("job_size"), ids)
+        _attach_video(project_dir, tstore, manifest, remote, settings, spec, task, ids, ordered, warnings)
     by_name = {Path(str(x["name"])).name: x for x in ordered}
     stored = manifest.load()
     pulled: dict[str, list[Label]] = {}
@@ -974,6 +991,78 @@ def _import_remote_task(
         "jobs": dict(remote_jobs or {}),
     }
     return 1
+
+
+def _attach_video(
+    project_dir: Path,
+    tstore: TaskStore,
+    manifest: Manifest,
+    remote: RemoteProject,
+    settings: ToolSettings,
+    spec: dict[str, Any],
+    task: ImageTask,
+    ids: list[str],
+    ordered: list[dict[str, Any]],
+    warnings: list[str] | None,
+) -> None:
+    """Bring the original video of a remote video task and make the local task a task from a video.
+
+    Never fails the import: without the video (not a video task, tool without the feature, download or
+    probe problem, selection that does not fit) the task stays as images, with a warning when a video
+    was expected.
+    """
+    from activelabel.images.video import VideoStore, probe
+
+    name = str(spec.get("name") or spec["remote_task"])
+    folder = Path(tempfile.mkdtemp(prefix="activelabel-video-"))
+    try:
+        try:
+            found = remote.video_source(settings, str(spec["remote_task"]), folder)
+        except Exception as err:  # noqa: BLE001 - the frames are already imported
+            log.warning("video of remote task %s not downloaded: %s", spec["remote_task"], err)
+            found = None
+            if warnings is not None:
+                warnings.append(
+                    f"The original video of task '{name}' could not be downloaded: it stays as images."
+                )
+        if found is None:
+            return
+        path, sel = found
+        try:
+            start, stop, step = int(sel["start"]), int(sel["stop"]), max(1, int(sel["step"]))
+            fps, frames, _, _ = probe(path)
+            if not 0 <= start <= stop < frames:
+                raise ValueError("selection outside the video")
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1 << 20), b""):
+                    digest.update(chunk)
+            video_id = digest.hexdigest()[:16]
+            videos = VideoStore(project_dir)
+            videos.folder.mkdir(parents=True, exist_ok=True)
+            tmp = videos.folder / f".upload-{uuid.uuid4().hex}{path.suffix}"
+            shutil.copyfile(path, tmp)
+            info = videos.add(path.name, path.suffix.lower() or ".mp4", tmp, video_id, path.stat().st_size)
+        except (ValueError, KeyError, TypeError, OSError, ZeroDivisionError) as err:
+            log.warning("video of remote task %s not usable: %s", spec["remote_task"], err)
+            if warnings is not None:
+                warnings.append(f"The original video of task '{name}' could not be used: it stays as images.")
+            return
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    stored = manifest.load()
+    by_name = {Path(str(x["name"])).name: x for x in ordered}
+    changes: dict[str, dict[str, Any]] = {}
+    for image_id in ids:
+        x = by_name.get(Path(stored[image_id].name).name)
+        if x is None:
+            continue
+        index = start + _key_frame(x["key"]) * step
+        changes[image_id] = {"video": info.id, "frame": index, "time": index / info.fps}
+    manifest.update(changes)
+    tstore.set_source(
+        task.id, {"video": info.id, "start": start, "stop": stop, "step": step, "fps": info.fps}
+    )
 
 
 # -- links made by send and import ------------------------------------------------
