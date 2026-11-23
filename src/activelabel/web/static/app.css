@@ -861,3 +861,5 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-table tr.sub th { font-weight: 400; color: var(--muted); }
 .md-star { color: var(--ok); margin-left: 0.25rem; vertical-align: middle; }
 .md-help { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
+.md-formats { display: grid; gap: 0.35rem; border: 0; padding: 0; margin: 0 0 0.75rem; }
+.md-formats legend { font-weight: 600; margin-bottom: 0.25rem; }

@@ -963,5 +963,10 @@
   "jobs.close": "Close (finished activities stay in the history)",
   "jobs.show": "Show the activities",
   "jobs.running_n_one": "{n} running",
-  "jobs.running_n_other": "{n} running"
+  "jobs.running_n_other": "{n} running",
+  "md.formats": "Weights to keep",
+  "md.format_pt": "PyTorch (.pt), the original output of the training",
+  "md.format_onnx": "ONNX too (runs without PyTorch)",
+  "md.format_onnx_help": "The ONNX file is made right after saving, in the training queue; you can also make it later.",
+  "md.saved_onnx": "Saved as model m{n}; the ONNX export is queued."
 }
