@@ -609,7 +609,7 @@
             el('div', { class: 'lightbox-head' },
               el('h2', null, img.name),
               el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
-            img.width ? el('p', { class: 'muted' }, `${num(img.width)} × ${num(img.height)} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
+            img.width ? el('p', { class: 'muted' }, `${img.width} × ${img.height} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
             img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
             el('h3', null, t('lightbox.issues')),
             (img.issues || []).length
@@ -1922,7 +1922,7 @@
         vDrop.hidden = true;
         vUp.hidden = true;
         vSel.hidden = false;
-        vInfo.textContent = [fmtClock(v.duration), t('video.fps_n', { n: nf1.format(v.fps) }), `${num(v.width)}×${num(v.height)}`, tn('video.frames_n', v.frames)].join(' · ');
+        vInfo.textContent = [fmtClock(v.duration), t('video.fps_n', { n: nf1.format(v.fps) }), `${v.width}×${v.height}`, tn('video.frames_n', v.frames)].join(' · ');
         vStart.value = '0';
         vStop.value = String(Math.max(0, v.frames - 1));
         vEvery.value = '1';
@@ -3252,6 +3252,11 @@
       if (!ok) return;
       showTab(ctx.tab);
       pollJobs();
+    });
+    /* a link to another step of this page (#annotations...) changes the step without reloading */
+    window.addEventListener('hashchange', () => {
+      const step = location.hash.replace('#', '');
+      if (STEPS.includes(step) && step !== ctx.tab) showTab(step);
     });
   }
 
