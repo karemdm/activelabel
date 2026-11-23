@@ -210,3 +210,16 @@ def test_close(server):
 
 def test_image_id_parsing():
     assert ls._image_id({"data": {"image": "/data/upload/1/1a2b3c4d-my.img.jpg?x=1"}}) == "my.img"
+
+
+def test_rotated_box_on_a_wide_image_matches_the_import():
+    from activelabel.annotate.labelstudio_tool import from_results
+    from activelabel.annotations.labelstudio import _rect_box as pixel_box
+    from activelabel.tasks import Task
+
+    value = {"x": 40, "y": 10, "width": 20, "height": 40, "rotation": 30, "rectanglelabels": ["c"]}
+    result = {"type": "rectanglelabels", "original_width": 2000, "original_height": 1000, "value": value}
+    (label,) = from_results([result], Task.DETECTION)
+    x, y, w, h = pixel_box(value, 2000, 1000)
+    assert label.bbox == pytest.approx([x / 2000, y / 1000, w / 2000, h / 1000], abs=1e-6)
+    assert label.bbox == pytest.approx([0.3, 0.1, 0.2732, 0.5464], abs=1e-3)

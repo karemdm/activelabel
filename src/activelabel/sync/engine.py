@@ -835,6 +835,12 @@ def apply_plan(
         if not key:
             continue
         rec = records.get(image_id)
+        if (
+            action == SAME
+            and rec is not None
+            and links.label_hash(final.get(image_id, [])) != decisions[image_id]["local_hash"]
+        ):
+            continue  # edited here after the comparison: the old base stays, so the next plan sends it
         removed = action in (REMOVE_LOCAL, REMOVE_REMOTE, GONE) or (
             action == SAME and bool((items.get(image_id) or {}).get("removed"))
         )

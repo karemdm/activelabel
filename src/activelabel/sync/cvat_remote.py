@@ -388,6 +388,17 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
     return all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True)))
 
 
+def _visible(task: Task, label: Label) -> bool:
+    """Whether a label read from CVAT is one the project keeps (the same rule as annotate.diff)."""
+    if task is Task.DETECTION:
+        return bool(label.bbox)
+    if task is Task.SEGMENTATION:
+        return bool(label.polygons)
+    if task is Task.KEYPOINTS:
+        return bool(label.keypoints)
+    return False
+
+
 def _merge_frame(
     old_shapes: list[dict[str, Any]],
     old_tags: list[dict[str, Any]],
@@ -395,12 +406,15 @@ def _merge_frame(
     ids: dict[str, int],
     frame: int,
     size: tuple[int, int],
-    classification: bool,
+    task: Task,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Shapes and tags of one frame after writing ``labels``: what CVAT has, changed only where needed.
 
-    See the module docstring for what is converted. Unchanged shapes and tags are the old objects.
+    See the module docstring for what is converted. Unchanged shapes and tags are the old objects. Only
+    shapes the project can see (``task``: boxes for detection, polygons for segmentation, points for
+    keypoints) are matched or removed; the others stay in CVAT as they are.
     """
+    classification = task is Task.CLASSIFICATION
     w, h = size
     new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h)
     known = set(ids.values())
@@ -408,7 +422,8 @@ def _merge_frame(
     convertible: list[dict[str, Any]] = []
     for s in old_shapes:
         mine = not classification and s.get("type") in TRACKABLE and s.get("label_id") in known
-        mine = mine and shape_to_label(s, "x", w, h) is not None
+        converted = shape_to_label(s, "x", w, h) if mine else None
+        mine = converted is not None and _visible(task, converted)
         (convertible if mine else kept_shapes).append(s)
     for shape in new_shapes:
         match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h)), None)
@@ -751,7 +766,7 @@ class CvatRemote:
                     ids,
                     frame,
                     size,
-                    classification,
+                    project.task,
                 )
                 shapes += new_shapes
                 tags += new_tags

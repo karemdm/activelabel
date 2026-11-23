@@ -261,6 +261,9 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
     new_labels = {i: [Label.from_dict(x) for x in items] for i, items in data.items()}
     project_dir = state.store.dir(project_id)
     with annotations_lock(project_dir):  # the check and the write see the same labels
+        session = _session(state, project_id, session_id)  # again: a second click may have applied it
+        if session["status"] == sessions.APPLIED:
+            raise HTTPException(409, "These annotations were already applied.")
         base: dict[str, str] = session.get("base") or {}
         current = _local_hashes(project_dir, session["image_ids"])
         changed = sum(1 for i, h in current.items() if base.get(i) != h)
@@ -280,7 +283,9 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
 @router.post("/projects/{project_id}/annotate/{session_id}/discard")
 def discard_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, bool]:
     """Throw away the pulled annotations (the project does not change)."""
-    _session(state, project_id, session_id)
+    session = _session(state, project_id, session_id)
+    if session["status"] == sessions.APPLIED:
+        raise HTTPException(409, "These annotations were already applied: there is nothing to discard.")
     sessions.update(state.store.dir(project_id), session_id, status=sessions.DISCARDED)
     return {"discarded": True}
 

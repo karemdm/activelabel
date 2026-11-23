@@ -22,7 +22,6 @@ The token never appears in logs, files or exception messages.
 
 from __future__ import annotations
 
-import math
 import mimetypes
 import re
 import uuid
@@ -33,6 +32,7 @@ from xml.sax.saxutils import quoteattr
 import requests
 
 from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings
+from activelabel.annotations.labelstudio import _rect_box as _pixel_box
 from activelabel.labels import Label
 from activelabel.projects import Project
 from activelabel.tasks import Task
@@ -125,15 +125,15 @@ def to_results(labels: list[Label], task: Task, size: tuple[int, int]) -> list[d
     return out
 
 
-def _rect_box(v: dict[str, Any]) -> list[float]:
-    """Percent rectangle -> relative ``[x, y, w, h]`` (rotated ones become their enclosing box)."""
-    x, y, w, h = (float(v[k]) / 100 for k in ("x", "y", "width", "height"))
-    angle = math.radians(float(v.get("rotation") or 0))
-    if angle:
-        c, s = math.cos(angle), math.sin(angle)
-        pts = [(x + dx * c - dy * s, y + dx * s + dy * c) for dx, dy in ((0, 0), (w, 0), (w, h), (0, h))]
-        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-        x, y, w, h = min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+def _rect_box(v: dict[str, Any], width: float, height: float) -> list[float]:
+    """Percent rectangle -> relative ``[x, y, w, h]`` (rotated ones become their enclosing box).
+
+    The rotation is done in pixels (``width`` x ``height`` of the image), as the import does: in percent
+    units a rotated box on an image that is not square comes out wrong.
+    """
+    width, height = max(float(width or 0), 1.0), max(float(height or 0), 1.0)
+    x, y, w, h = _pixel_box(v, width, height)
+    x, y, w, h = x / width, y / height, w / width, h / height
     x0, y0 = _clamp(x), _clamp(y)
     return [x0, y0, _clamp(x + w) - x0, _clamp(y + h) - y0]
 
@@ -148,7 +148,8 @@ def from_results(results: list[dict[str, Any]], task: Task, keypoints: int = 0) 
         if task is Task.CLASSIFICATION and kind == "choices" and val.get("choices"):
             return [Label(str(val["choices"][0]))]
         if task is Task.DETECTION and kind == "rectanglelabels" and val.get("rectanglelabels"):
-            labels.append(Label(str(val["rectanglelabels"][0]), bbox=_rect_box(val)))
+            size = (res.get("original_width") or 100, res.get("original_height") or 100)
+            labels.append(Label(str(val["rectanglelabels"][0]), bbox=_rect_box(val, *size)))
         elif task is Task.SEGMENTATION and kind == "polygonlabels" and val.get("polygonlabels"):
             ring = [[_clamp(float(x) / 100), _clamp(float(y) / 100)] for x, y in val.get("points") or []]
             if len(ring) >= 3:
