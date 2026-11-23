@@ -517,6 +517,8 @@
       const q = query();
       const params = new URLSearchParams({ status: q.status || 'active', offset: String(page * size), limit: String(size) });
       if (q.issue) params.set('issue', q.issue);
+      if (q.task != null) params.set('task', String(q.task));
+      if (q.job != null) params.set('job', String(q.job));
       try {
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         if (mine !== token) return;
@@ -545,6 +547,8 @@
       for (;;) {
         const params = new URLSearchParams({ status: q.status || 'active', offset: String(offset), limit: '200' });
         if (q.issue) params.set('issue', q.issue);
+        if (q.task != null) params.set('task', String(q.task));
+        if (q.job != null) params.set('job', String(q.job));
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         const got = data.items || [];
         got.forEach((i) => ids.push(i.id));
@@ -1298,12 +1302,21 @@
       async function startUpload(entries) {
         const files = entries.filter((e) => !SKIP_FILES.has(e.name.split('/').pop().toLowerCase()));
         if (!files.length || uploading) return;
+        const jobSize = jobSizeInput.value.trim();
+        if (jobSize && !/^[1-9]\d*$/.test(jobSize)) {
+          jobSizeInput.setAttribute('aria-invalid', 'true');
+          jobSizeInput.focus();
+          toast(t('tasks.job_size_invalid'), 'error');
+          return;
+        }
+        jobSizeInput.removeAttribute('aria-invalid');
         uploading = true;
         controller = new AbortController();
         reportBox.replaceChildren();
         const merged = emptyReport();
         let sent = 0;
         let cancelled = false;
+        let created = null; // the task made by the first chunk
         const draw = () => {
           progressBox.hidden = false;
           progressBox.replaceChildren(
@@ -1318,7 +1331,16 @@
           const form = new FormData();
           chunk.forEach((e) => form.append('files', e.file, e.name));
           try {
-            mergeReport(merged, await api('POST', `/projects/${projectId}/images`, { body: form, signal: controller.signal }));
+            if (!created) {
+              form.append('name', nameInput.value.trim());
+              form.append('job_size', jobSize);
+              form.append('open', 'true');
+              const res = await api('POST', `/projects/${projectId}/tasks`, { body: form, signal: controller.signal });
+              created = res.task;
+              mergeReport(merged, res.report || {});
+            } else {
+              mergeReport(merged, await api('POST', `/projects/${projectId}/tasks/${created.id}/images`, { body: form, signal: controller.signal }));
+            }
           } catch (err) {
             if (err.name === 'AbortError') cancelled = true; else toastError(err);
             break;
@@ -1326,11 +1348,19 @@
           sent += chunk.length;
           draw();
         }
+        if (created) {
+          // close the task (its images become fixed), also after a cancel or an error: best effort
+          try { await api('PATCH', `/projects/${projectId}/tasks/${created.id}`, { json: { open: false } }); } catch (e) { /* the next task closes it */ }
+          nameInput.value = '';
+          jobSizeInput.value = '';
+          toast(t('tasks.created', { name: created.name }), 'success', 4000);
+        }
         uploading = false;
         progressBox.hidden = true;
         if (cancelled) toast(t('images.cancelled', { done: num(sent) }), 'info');
         renderReport(merged, sent < files.length);
         await afterChange();
+        await loadTasks();
         grid.reload();
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
       }
@@ -1367,21 +1397,212 @@
         reportBox.replaceChildren(el('div', { class: 'card report-card' }, el('h3', null, t('images.result')), ...rows));
       }
 
+      // ---- tasks (cards), and the filter of the grid
+      let tasks = [];
+      let filter = { task: null, job: null };
+      let renaming = null; // id of the task being renamed
+      let renameDraft = null; // text typed so far (kept if the cards are redrawn)
+      const expanded = new Set();
+      let focusAfter = null; // selector to focus once the cards are drawn
+
+      const tasksBox = el('div', { class: 'tasks-wrap' });
+      const filterBox = el('div', { class: 'task-filter' });
+      const taskById = (id) => tasks.find((x) => x.id === id);
+
       const grid = imageGrid({
         projectId,
-        query: () => ({ status: 'active', emptyText: t('grid.no_images') }),
+        query: () => ({
+          status: 'active',
+          task: filter.task,
+          job: filter.job,
+          emptyText: filter.task != null ? t('tasks.filter_empty') : t('grid.no_images'),
+        }),
         onOpen: (items, i) => openLightbox(projectId, items, i),
       });
+      const gridTitle = el('h3', { class: 'section-title', id: 'h-images-grid', tabindex: '-1' }, t('images.grid_title'));
+
+      async function loadTasks() {
+        try {
+          tasks = (await api('GET', `/projects/${projectId}/tasks`)).tasks || [];
+        } catch (err) {
+          toastError(err);
+          return;
+        }
+        const current = taskById(filter.task);
+        if (!current) filter = { task: null, job: null };
+        else if (filter.job != null && !current.jobs.some((j) => j.n === filter.job)) filter.job = null;
+        if (!tasks.some((x) => x.id === renaming)) renaming = null;
+        nameInput.placeholder = t('tasks.name_placeholder', { id: tasks.reduce((m, x) => Math.max(m, x.id), 0) + 1 });
+        drawTasks();
+        drawFilter();
+      }
+
+      function setFilter(task, job, { reveal = false } = {}) {
+        filter = { task, job };
+        drawFilter();
+        grid.reload();
+        if (reveal) {
+          gridTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          gridTitle.focus({ preventScroll: true });
+        }
+      }
+
+      function drawFilter() {
+        const task = taskById(filter.task);
+        const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('.task-filter') ? document.activeElement.id : null;
+        const taskSelect = el('select', {
+          id: 'filter-task',
+          onchange: (e) => setFilter(e.target.value === '' ? null : Number(e.target.value), null),
+        },
+        el('option', { value: '' }, t('tasks.filter_all_tasks')),
+        ...tasks.map((x) => el('option', { value: String(x.id), selected: x.id === filter.task }, x.name)));
+        const jobSelect = task && task.jobs.length > 1
+          ? el('select', {
+            id: 'filter-job',
+            onchange: (e) => setFilter(filter.task, e.target.value === '' ? null : Number(e.target.value)),
+          },
+          el('option', { value: '' }, t('tasks.filter_all_jobs')),
+          ...task.jobs.map((j) => el('option', { value: String(j.n), selected: j.n === filter.job }, t('tasks.job_line', { n: j.n, first: num(j.first), last: num(j.last), annotated: num(j.annotated), active: num(j.active) }))))
+          : null;
+        const chipText = task
+          ? (filter.job != null ? t('tasks.filter_chip_job', { name: task.name, n: filter.job }) : t('tasks.filter_chip', { name: task.name }))
+          : null;
+        filterBox.replaceChildren(
+          el('div', { class: 'task-filter-row' },
+            el('div', { class: 'field inline' }, el('label', { for: 'filter-task' }, t('tasks.filter_task')), taskSelect),
+            jobSelect ? el('div', { class: 'field inline' }, el('label', { for: 'filter-job' }, t('tasks.filter_job')), jobSelect) : null,
+            chipText
+              ? el('span', { class: 'chip filter-chip', role: 'status' }, chipText,
+                el('button', { type: 'button', class: 'chip-x', id: 'filter-clear', 'aria-label': t('tasks.filter_clear'), title: t('tasks.filter_clear'), onclick: () => { setFilter(null, null); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
+              : null));
+        if (focused) { const f = document.getElementById(focused); if (f) f.focus(); }
+      }
+
+      function taskCard(task) {
+        const cid = `task-${task.id}`;
+        const open = expanded.has(task.id);
+        const isRenaming = renaming === task.id;
+        const stat = (label, value) => el('div', { class: 'task-stat' }, el('dt', null, label), el('dd', null, value));
+        const hasJobs = task.jobs.length > 0;
+
+        let title;
+        if (isRenaming) {
+          const input = el('input', { type: 'text', id: `${cid}-name`, value: renameDraft == null ? task.name : renameDraft, 'aria-label': t('tasks.rename_label', { name: task.name }), autocomplete: 'off' });
+          input.addEventListener('input', () => { renameDraft = input.value; });
+          const cancel = () => { renaming = null; renameDraft = null; focusAfter = `#${cid}-rename`; drawTasks(); };
+          const form = el('form', { class: 'task-rename', novalidate: true,
+            onsubmit: async (e) => {
+              e.preventDefault();
+              const name = input.value.trim();
+              if (!name || name === task.name) { cancel(); return; }
+              try {
+                await api('PATCH', `/projects/${projectId}/tasks/${task.id}`, { json: { name } });
+                toast(t('tasks.renamed'), 'success', 3000);
+                renaming = null;
+                renameDraft = null;
+                focusAfter = `#${cid}-rename`;
+                await loadTasks();
+              } catch (err) { toastError(err); input.focus(); }
+            } },
+          input,
+          el('button', { type: 'submit', class: 'btn small primary' }, t('common.save')),
+          el('button', { type: 'button', class: 'btn small', onclick: cancel }, t('common.cancel')));
+          input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } });
+          title = form;
+          focusAfter = `#${cid}-name`;
+        } else {
+          title = el('h4', { class: 'task-name' }, task.name);
+        }
+
+        const jobsList = hasJobs
+          ? el('ol', { class: 'plain task-jobs', id: `${cid}-jobs`, hidden: !open },
+            ...task.jobs.map((j) => el('li', { class: 'task-job' },
+              el('span', { class: 'task-job-text' }, t('tasks.job_line', { n: j.n, first: num(j.first), last: num(j.last), annotated: num(j.annotated), active: num(j.active) })),
+              el('button', { type: 'button', class: 'btn small', 'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => { taskSelectSync(task.id, j.n); } }, t('tasks.see_images')))))
+          : null;
+
+        return el('li', { class: `task-item card${filter.task === task.id ? ' is-filtered' : ''}`, id: cid, 'aria-label': task.name },
+          el('div', { class: 'task-head' },
+            title,
+            isRenaming ? null : el('div', { class: 'task-actions' },
+              el('button', { type: 'button', class: 'btn small primary', 'aria-label': t('tasks.see_images_task', { name: task.name }), onclick: () => taskSelectSync(task.id, null) }, t('tasks.see_images')),
+              el('button', { type: 'button', class: 'btn small', id: `${cid}-rename`, 'aria-label': `${t('tasks.rename')}: ${task.name}`, onclick: () => { renaming = task.id; renameDraft = null; drawTasks(); } }, t('tasks.rename')),
+              el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': `${t('tasks.delete')}: ${task.name}`, onclick: () => deleteTask(task) }, t('tasks.delete')))),
+          el('dl', { class: 'task-stats' },
+            stat(t('tasks.stat_images'), `${num(task.active)}/${num(task.images)}`),
+            stat(t('tasks.stat_annotated'), num(task.annotated)),
+            stat(t('tasks.stat_job_size'), task.job_size ? num(task.job_size) : t('tasks.one_job')),
+            stat(t('tasks.stat_jobs'), num(task.jobs.length))),
+          hasJobs
+            ? el('button', { type: 'button', class: 'btn small task-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-controls': `${cid}-jobs`,
+              onclick: () => {
+                if (expanded.has(task.id)) expanded.delete(task.id); else expanded.add(task.id);
+                focusAfter = `#${cid} .task-toggle`;
+                drawTasks();
+              } }, open ? t('tasks.hide_jobs') : t('tasks.show_jobs', { n: num(task.jobs.length) }))
+            : null,
+          jobsList);
+      }
+
+      const taskSelectSync = (task, job) => setFilter(task, job, { reveal: true });
+
+      function drawTasks() {
+        tasksBox.replaceChildren(tasks.length
+          ? el('ul', { class: 'plain task-list' }, ...tasks.map(taskCard))
+          : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('tasks.none'))));
+        if (focusAfter) {
+          const f = tasksBox.querySelector(focusAfter);
+          focusAfter = null;
+          if (f) f.focus();
+        }
+      }
+
+      async function deleteTask(task) {
+        const ok = await confirmDialog({
+          title: t('tasks.delete_title', { name: task.name }),
+          text: tn('tasks.delete_text', task.images),
+          confirmLabel: t('tasks.delete_confirm'),
+        });
+        if (!ok) return;
+        try {
+          const r = await api('DELETE', `/projects/${projectId}/tasks/${task.id}`, { json: { confirm: true } });
+          toast(tn('tasks.deleted', Number(r && r.deleted) || 0), 'success', 5000);
+        } catch (err) { toastError(err); return; }
+        expanded.delete(task.id);
+        await afterChange();
+        await loadTasks();
+        grid.reload();
+        if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
+      }
+
+      // ---- "new task" form (name, images per job, then the files)
+      const nameInput = el('input', { type: 'text', id: 'task-name', autocomplete: 'off', maxlength: '200' });
+      const jobSizeInput = el('input', { type: 'number', id: 'task-job-size', min: '1', step: '1', inputmode: 'numeric', 'aria-describedby': 'task-job-size-hint' });
+      jobSizeInput.addEventListener('input', () => jobSizeInput.removeAttribute('aria-invalid'));
+      const newTask = el('section', { class: 'new-task card', 'aria-labelledby': 'h-new-task' },
+        el('h3', { id: 'h-new-task' }, t('tasks.new_title')),
+        el('div', { class: 'new-task-fields' },
+          el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput),
+          el('div', { class: 'field' },
+            el('label', { for: 'task-job-size' }, t('tasks.job_size')), jobSizeInput,
+            el('p', { class: 'hint', id: 'task-job-size-hint' }, t('tasks.job_size_hint')))),
+        drop, fileInput, folderInput, progressBox);
 
       node.append(
         el('h2', { id: 'h-images' }, t('step.images')),
         el('p', { class: 'muted' }, t('images.intro')),
-        drop, fileInput, folderInput, progressBox, reportBox,
-        el('h3', { class: 'section-title' }, t('images.grid_title')),
+        el('h3', { class: 'section-title' }, t('tasks.title')),
+        el('p', { class: 'muted' }, t('tasks.intro')),
+        tasksBox,
+        newTask,
+        reportBox,
+        gridTitle,
+        filterBox,
         grid.node);
 
-      panel.mount = () => grid.reload();
-      panel.refresh = () => grid.reload();
+      const reload = () => { loadTasks(); grid.reload(); };
+      panel.mount = reload;
+      panel.refresh = reload;
       return panel;
     }
 
