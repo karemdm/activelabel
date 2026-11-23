@@ -9,10 +9,10 @@ from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
-from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, models_for
+from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.models import ModelStore
-from activelabel.training.runs import RunBusy, RunNotFound, RunStore
+from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -60,6 +60,17 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
         checked = validate(config, project.task.value, len(version["folds"] or []))
     except ConfigError as error:
         raise HTTPException(400, str(error)) from None
+    model = get_model(checked.model)
+    if model is not None and model.family == "ultralytics":
+        raise HTTPException(400, "Training YOLO models is not available yet.")
+    if version.get("incomplete"):
+        raise HTTPException(
+            400, "Some images of this dataset version were deleted from the project: make a new version."
+        )
+    if not version.get("folds") and not (version.get("sizes") or {}).get("val"):
+        raise HTTPException(
+            400, "This dataset version has no validation images: make a version with validation."
+        )
     checked.dataset_fingerprint = version["fingerprint"]
     return checked
 
@@ -90,9 +101,10 @@ def environment(state: AppState = STATE) -> dict[str, Any]:
 
     env = TrainingEnvironment(state.settings.workspace)
     gpu = env.gpu()
-    installed: dict[str, str] = env.installed() if env.exists() else {}
+    exists = env.exists()
+    installed: dict[str, str] = env.installed() if exists else {}
     return {
-        "exists": env.exists(),
+        "exists": exists,
         "packages": installed,
         "gpu": None if gpu is None else gpu.as_dict(),
     }
@@ -181,6 +193,8 @@ def delete_run(
     if not (body and body.confirm):
         raise HTTPException(400, "Confirm the deletion of this run.")
     try:
+        if store.get(number)["status"] == QUEUED:  # also leave the queue of the runner
+            state.runner.cancel(project_id, number)
         store.delete(number)
     except RunNotFound:
         raise HTTPException(404, "This run does not exist.") from None

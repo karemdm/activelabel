@@ -61,7 +61,8 @@ class RunStore:
         """Folder of a run."""
         return self.dir / f"r{number}"
 
-    def _numbers(self) -> list[int]:
+    def numbers(self) -> list[int]:
+        """Numbers of the run folders, oldest first (even when a ``run.json`` is damaged)."""
         if not self.dir.exists():
             return []
         return sorted(int(p.name[1:]) for p in self.dir.glob("r*") if p.is_dir() and p.name[1:].isdigit())
@@ -77,7 +78,7 @@ class RunStore:
         with self._lock:
             counter_file = self.dir / "counter.json"
             counter = int((read_json(counter_file, {}) or {}).get("next", 1))
-            number = max([counter, *[n + 1 for n in self._numbers()]])
+            number = max([counter, *[n + 1 for n in self.numbers()]])
             folder = self.path(number)
             folder.mkdir(parents=True)
             (folder / "config.yaml").write_text(config.to_yaml(), encoding="utf-8", newline="\n")
@@ -105,7 +106,7 @@ class RunStore:
     def list(self) -> list[dict[str, Any]]:
         """``run.json`` of every run, newest first."""
         out = []
-        for n in reversed(self._numbers()):
+        for n in reversed(self.numbers()):
             data = read_json(self.path(n) / "run.json")
             if data:
                 out.append(data)

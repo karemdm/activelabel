@@ -30,6 +30,7 @@ def nothing():
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setattr(envmod, "IS_WINDOWS", False)
+    monkeypatch.setattr(envmod, "capture", lambda cmd, timeout=30: (0, "{}"))  # pip works
     return TrainingEnvironment(tmp_path)
 
 
@@ -194,6 +195,75 @@ def test_create_failure_mentions_log(env, monkeypatch):
     monkeypatch.setattr(envmod, "run_logged", lambda *a, **k: 1)
     with pytest.raises(TrainingEnvError, match="install.log"):
         env.create(nothing, lambda s: None)
+
+
+def test_create_failure_removes_half_made_folder(env, monkeypatch):
+    def run(cmd, log, check, poll=0.5):
+        Recorder(env)(cmd, log, check)  # leaves a python behind, then fails
+        (env.path / "lib").mkdir()
+        return 1
+
+    monkeypatch.setattr(envmod, "run_logged", run)
+    with pytest.raises(TrainingEnvError):
+        env.create(nothing, lambda s: None)
+    assert not env.path.exists()
+
+
+def test_create_cancel_removes_half_made_folder(env, monkeypatch):
+    def run(cmd, log, check, poll=0.5):
+        Recorder(env)(cmd, log, check)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(envmod, "run_logged", run)
+    with pytest.raises(KeyboardInterrupt):
+        env.create(nothing, lambda s: None)
+    assert not env.path.exists()
+
+
+def test_venv_without_pip_is_recreated(env, monkeypatch):
+    rec = Recorder(env)
+    monkeypatch.setattr(envmod, "run_logged", rec)
+    pip_ok = {"value": False}
+    monkeypatch.setattr(envmod, "capture", lambda cmd, timeout=30: (0 if pip_ok["value"] else 1, "{}"))
+    env.python().parent.mkdir(parents=True)
+    env.python().write_text("")
+    (env.path / "stale.txt").write_text("old")
+    assert not env.exists()
+    pip_ok["value"] = False
+    steps = []
+
+    def run_and_fix(cmd, log, check, poll=0.5):
+        code = rec(cmd, log, check)
+        pip_ok["value"] = True  # the new venv has pip
+        return code
+
+    monkeypatch.setattr(envmod, "run_logged", run_and_fix)
+    env.create(nothing, steps.append)
+    assert steps == ["train_env_create"] and not (env.path / "stale.txt").exists()
+    assert env.exists() and len(rec.cmds) == 1
+
+
+def test_remove_tree_clears_read_only_and_never_raises(tmp_path):
+    import os
+    import stat
+
+    folder = tmp_path / "x"
+    (folder / "sub").mkdir(parents=True)
+    locked = folder / "sub" / "f.txt"
+    locked.write_text("1")
+    os.chmod(locked, stat.S_IREAD)
+    envmod.remove_tree(folder)
+    assert not folder.exists()
+    envmod.remove_tree(tmp_path / "missing")  # nothing to remove: no error
+
+
+def test_remove_tree_gives_up_quietly(tmp_path, monkeypatch):
+    folder = tmp_path / "stuck"
+    folder.mkdir()
+    monkeypatch.setattr(envmod.shutil, "rmtree", lambda *a, **k: None)
+    monkeypatch.setattr(envmod.time, "sleep", lambda s: None)
+    envmod.remove_tree(folder)  # still there, no exception
+    assert folder.exists()
 
 
 def test_ensure_installs_only_missing(env, monkeypatch):

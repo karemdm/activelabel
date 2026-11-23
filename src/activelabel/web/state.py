@@ -46,10 +46,19 @@ class AppState:
             raise HTTPException(400, "Add images to the project first (step 1).")
         return manifest
 
-    def busy(self, project_id: int) -> None:
-        """HTTP 409 when the project has a job queued or running."""
+    def busy(self, project_id: int, training: bool = False) -> None:
+        """HTTP 409 when the project has a job queued or running.
+
+        With ``training`` a training run, ONNX export or pre-annotation of the project counts too
+        (use it before deleting the project or its images).
+        """
         if self.jobs.active(project_id):
             raise HTTPException(409, "Wait for the running task to finish, or cancel it, and try again.")
+        if training and self.runner.has_active(project_id):
+            raise HTTPException(
+                409,
+                "Wait for the training, export or pre-annotation of this project to finish, or cancel it.",
+            )
 
 
 def get_state(request: Request) -> Any:

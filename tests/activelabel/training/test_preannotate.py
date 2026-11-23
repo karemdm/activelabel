@@ -244,3 +244,22 @@ def test_review_fixes(pre):
         "/api/projects/1/preannotations", json={"model": 1, "task": task_id, "scope": "unreviewed"}
     )
     assert resp.status_code == 400 and "does not use" in resp.json()["detail"]
+
+
+def test_no_readable_image_fails_readably(pre):
+    client, state, runner, empty = pre
+    manifest = state.manifest(1)
+    records = manifest.load()
+    for image_id in empty:  # the files of every image waiting for pre-annotation are gone
+        manifest.file_path(records[image_id]).unlink()
+    task_id = client.get("/api/projects/1/preannotations").json()["tasks"][0]["id"]
+    resp = client.post("/api/projects/1/preannotations", json={"model": 1, "task": task_id})
+    assert resp.status_code == 200, resp.text
+    failed = wait_for(
+        lambda: (
+            (r := client.get("/api/projects/1/preannotations").json()["runs"][0])["status"] == "failed" and r
+        )
+    )
+    assert failed["error"] == "None of the images of this task could be read."
+    wait_for(lambda: not runner.has_active(1))
+    assert runner._pre_jobs == {} and tmp_dirs(runner) == []

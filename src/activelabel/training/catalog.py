@@ -7,6 +7,7 @@ CPU: a small batch and few epochs.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -67,12 +68,19 @@ class ParamSpec:
             return value
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ValueError(f"'{name}' must be a number.")
-        if self.kind == "int":
-            if int(value) != value:
-                raise ValueError(f"'{name}' must be a whole number.")
-            value = int(value)
-        else:
-            value = float(value)
+        try:
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError(f"'{name}' must be a finite number.")
+            if self.kind == "int":
+                if int(value) != value:
+                    raise ValueError(f"'{name}' must be a whole number.")
+                value = int(value)
+            else:
+                value = float(value)
+        except OverflowError:
+            raise ValueError(f"'{name}' is too large.") from None
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"'{name}' must be a finite number.")
         if self.min is not None and value < self.min:
             raise ValueError(f"'{name}' must be at least {self.min:g}.")
         if self.max is not None and value > self.max:
