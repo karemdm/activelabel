@@ -7,20 +7,23 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 ## Principles
 
 - **Works on any machine, nothing to configure.** The device is chosen when a run starts (`auto`:
-  a CUDA GPU when there is one, else the CPU). No path, device or machine setting is stored in a
+  a CUDA GPU when there is one, else Apple MPS, else the CPU). No path, device or machine setting is stored in a
   configuration.
 - **Install only what is needed, when it is needed.** Before a run, ActiveLabel checks that the
   packages of the chosen model are present in the training environment and installs the missing
   ones (a visible step of the run, with progress). PyTorch is installed with GPU support when an
-  NVIDIA GPU is found (`nvidia-smi`), otherwise the CPU build. Ultralytics is installed only when a
-  YOLO model is chosen (its licence is AGPL-3.0).
+  NVIDIA GPU is found (`nvidia-smi`), otherwise the CPU build. Ultralytics (licence AGPL-3.0) is meant to be
+  installed only when a YOLO model is chosen; YOLO is not available yet (see *Status*).
 - **Separate environment.** Training packages live in their own Python environment managed by
   ActiveLabel (`<workspace>/training/env`, or a short folder under `%LOCALAPPDATA%` on Windows when
   the path is long), so ActiveLabel itself stays light and free of version conflicts.
-- **Downloads are temporary.** Pretrained weights, the dataset converted to the model's format and
-  any other download go to a temporary folder of the run, removed when the run ends (finished,
-  failed or cancelled). Only the run's results stay.
-- **One run at a time.** Runs are queued; a heavy process never runs in parallel with another.
+- **Downloads are temporary.** Pretrained weights, the `spec.json` of the run and
+  any other download go to a temporary folder (`<workspace>/training/tmp`), removed when the run ends
+  (finished, failed or cancelled). Folders left by a process that was killed are removed when
+  ActiveLabel starts. Only the run's results stay.
+- **One run at a time.** Runs are queued; a heavy process never runs in parallel with another. There
+  is a single queue for the whole app, shared by training runs, ONNX exports and pre-annotation
+  (docs/PREANNOTATE.md), for all projects.
 
 ## Model catalogue
 
@@ -28,10 +31,13 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | --- | --- | --- | --- |
 | Classification | timm / torchvision | ResNet-18/50, EfficientNet-B0/B3, ConvNeXt-T, ViT-B/16, Swin-T, MobileNetV3 | torch, torchvision, timm |
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
-| Detection | ultralytics | YOLOv8 / YOLO11 n s m l | ultralytics |
+| Detection | ultralytics (**planned, not available**) | YOLOv8 / YOLO11 n s m l | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
-| Segmentation (instance) | torchvision / ultralytics | Mask R-CNN; YOLOv8/11-seg | torch, torchvision / ultralytics |
-| Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
+| Segmentation (instance) | torchvision / ultralytics (YOLO planned) | Mask R-CNN; YOLOv8/11-seg | torch, torchvision / ultralytics |
+| Keypoints | torchvision / ultralytics (YOLO planned) | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
+
+YOLO/Ultralytics models are listed in the catalogue, but the runner refuses to train them ("comes
+later"); the screen is meant to hide them until they work.
 
 The catalogue is data (`training/catalog.py`): each model lists its family, packages, input size,
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds
@@ -50,13 +56,15 @@ Options chosen on the screen and saved in `config.yaml`:
 | Model | model; start: **transfer learning** (pretrained, backbone frozen, only the head trains) / **fine-tuning** (pretrained, everything trains; backbone learning rate × factor) / **from scratch** |
 | Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50) |
 | Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer, weight decay, scheduler, image size, augmentation preset, early stopping patience, seed, and model-specific ones |
-| Selection | metric that chooses the best epoch / best run (default per type: accuracy or macro F1; mAP50-95; mIoU) |
+| Selection | metric that chooses the best epoch / best run, per type: classification accuracy (default) or macro F1; detection, instance segmentation and keypoints mAP50-95 (default) or mAP50; semantic segmentation mIoU (default) or pixel accuracy |
 
-Label conversion is automatic: from the dataset version to the format the model needs (class
-folders or index lists for classification, torchvision targets, YOLO txt + data.yaml, masks drawn
-from polygons for semantic segmentation), written in the run's temporary folder.
+There is no label conversion step. The runner writes a `spec.json` in the run's temporary folder (absolute
+image paths, class indexes and the labels of each part, plus the model and hyperparameters); the worker
+process reads it and builds the targets in memory (class indexes, torchvision targets, masks drawn from
+polygons for semantic segmentation). A version needs images in the training and validation parts that
+have labels (docs/DATASETS.md).
 
-During the run: phases (preparing environment, converting, training, evaluating), epoch progress,
+During the run: phases (`environment`, `preparing`, `training`, `evaluating`), epoch progress,
 loss and validation metric per epoch (live curves), cancel. At the end the test part (if the
 version has one) is evaluated with the best epoch.
 
@@ -67,7 +75,9 @@ trainings per run (combinations × folds). A child that fails is recorded and th
 run fails only if every child fails. At the end the combinations are ranked by the mean of the
 selection metric on validation over their folds (± standard deviation); the best fold of the best
 combination is the run's result: its curves, results and weights are copied to the run's folder, and
-the other children keep their curves and results but no weights. The screen shows the ranking (or,
+the other children keep their curves and results but no weights. The ranking value (the mean over folds)
+is the run's headline value; the weights of a model saved from such a run are those of the best fold,
+not an average. The screen shows the ranking (or,
 while running, every child with its status) and the curves of any child.
 
 ## Storage
@@ -79,7 +89,7 @@ while running, every child with its status) and the curves of any child.
 | `config.yaml` | everything needed to repeat the run (dataset version and its fingerprint, model, start, mode, hyperparameters, seed) — no device or path |
 | `run.json` | status, times, device used, package versions, ActiveLabel version, child runs (grid / folds) |
 | `metrics.jsonl` | one line per epoch: losses and validation metrics |
-| `results.json` | best epoch, validation and test metrics (confusion matrix, per-class metrics, PR curve points when the type has them) |
+| `results.json` | best epoch, validation and test metrics (confusion matrix and per-class metrics when the type has them) |
 | `best.pt`, `last.pt` | weights (of the best child for grid / all folds; `last.pt` removed when the run is saved as a model) |
 | `log.txt` | output of the training process (every child, each after a `== c<k>: … ==` line) |
 | `c<k>/` | a child of a grid / all-folds run: `config.yaml` (single mode, one fold), `metrics.jsonl`, `results.json` |
@@ -90,6 +100,11 @@ adds `ranking` (`rank`, `combo`, `values`, `children`, `scores`, `mean`, `std`, 
 `best_combo`, `best_child`, `best_value`, `folds` and `metric`.
 
 *Reproduce* starts a new run with the same `config.yaml`.
+
+**Cancel** kills the worker process: the run gets the status `cancelled` and keeps its partial curves
+(`metrics.jsonl`) and its log, but not usable results, and it cannot be saved as a model (only a
+finished run can). Deleting a run that is running answers **409** ("cancel it before deleting"). A run
+that was running when ActiveLabel stopped ends as failed (`interrupted`); queued ones go back in line.
 
 ## Models (step 6)
 
@@ -111,9 +126,9 @@ segmentation), which is then queued right after saving.
 - **ONNX export** (classification and semantic segmentation): queued with the training runs (one heavy
   process at a time); the `onnx` package is installed in the training environment on the first
   export; the network is rebuilt without downloading anything, the weights are loaded and the graph
-  is checked (`onnx.checker`). Input `images` (N×3×S×S, normalised with the ImageNet mean and std),
-  output `logits` (classes, or classes + background per pixel). Checked against PyTorch with ONNX
-  Runtime on real images (same classes and masks; differences below 1e-5). Detection, instance and
+  is checked (`onnx.checker`). Opset 17, dynamic batch size and the fixed image size of the training.
+  Input `images` (N×3×S×S, normalised with the ImageNet mean and std), output `logits` (classes, or
+  classes + background per pixel). Detection, instance and
   keypoint models (torchvision) are not exported yet: their traced graphs break in ONNX Runtime on
   images without candidate boxes; their PyTorch weights can be downloaded.
 
@@ -134,11 +149,11 @@ segmentation), which is then queued right after saving.
 | POST | `/api/projects/{id}/models/{n}/export` | queue an export (`{"format": "onnx"}`) |
 | GET | `/api/projects/{id}/models/{n}/download/{pytorch\|onnx}` | the weights or the export as a file |
 
-## Delivery (small pull requests)
+## Status
 
-1. Catalogue, run configuration and run store (no training yet).
-2. Training environment: detection of the GPU, on-demand install, package check.
-3. Runner (separate process) + classification end to end, temporary folder, metrics, cancel.
-4. Detection (torchvision). 5. Segmentation and keypoints (torchvision). 6. YOLO (ultralytics).
-7. Grid search and K-fold orchestration.
-8. Screen: step 5 Treinamento. 9. Step 6 Modelos: save, current, compare, download, ONNX export.
+Done: catalogue, training environment, runner, classification, detection, semantic segmentation and
+keypoints (torchvision), grid search and all folds, the step 5 screen (Treinamento), and step 6
+(Modelos) with save, current model, comparison, download and ONNX export.
+
+Not yet: YOLO / Ultralytics models (training them is refused), instance segmentation in pre-annotation,
+and regression.

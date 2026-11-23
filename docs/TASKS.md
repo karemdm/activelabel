@@ -16,8 +16,8 @@ project ── task 1 ── job 1, job 2, …
   with every image of the task. Example: 100 images, 10 per job → jobs 1–10.
 
 Names in the interface: *Task* and *Job* in every language (as in CVAT). The project's annotation
-kind (classification, detection…) is called **Type**, and the footer of background processing is
-called **Activities**. In the code, `Project.task` (the type) and `activelabel.jobs` (background
+kind (classification, detection…) is called **Type**, and the card of background processing (bottom-right
+corner of the project page) is called **Activities**. In the code, `Project.task` (the type) and `activelabel.jobs` (background
 processing) keep their names; the new concepts live in `activelabel.tasks_store` (`ImageTask`,
 `TaskJob`) to avoid confusion.
 
@@ -124,10 +124,11 @@ project with that one task, linked to the task's project in CVAT when it has one
 
 ## Interface
 
-- **Images** step: the project's tasks as cards (name, images, annotated, jobs). *New task*: name,
-  images per job (optional), files or folder. A task card lists its jobs (images 1–10, 11–20…;
-  CVAT state when linked) and opens the image grid filtered on the task or job.
-- **Annotations** step, *Annotate*: tool + scope (project / task / job). For CVAT the button is
-  *Synchronise with CVAT* (plan, review, apply); for FiftyOne the session works as today, limited
-  to the scope.
+- **Images** step, tab *Tasks e jobs*: the project's tasks as cards (name, images, annotated, jobs).
+  *New task*: name, images per job (optional), files, folder or video (docs/VIDEO.md). A task card
+  lists its jobs (images 1–10, 11–20…; CVAT state when linked) and opens the tab *Galeria*
+  filtered on the task or job; *Galeria* also has task and job filters of its own.
+- **Annotations** step, tabs *CVAT* and *FiftyOne*: tool + scope (project / task / job). For CVAT the
+  button is *Synchronise with CVAT* (plan, review, apply); for FiftyOne the session works as in
+  docs/ANNOTATION.md, limited to the scope.
 - Wherever images can be chosen (curation, annotate), the task and job filters are available.

@@ -3,11 +3,10 @@
 Image datasets from curation to trained models, step by step, in a simple web interface
 (English and Portuguese, light and dark theme).
 
-**Stage 1 (this version):** create a project, choose its task, upload images, load
-existing annotations (checked against the task) and curate the images: find corrupt,
-blurry, dark, overexposed, low-contrast, small and near-duplicate images, and exclude them.
-Later stages (annotation, training several models, evaluation, review of predictions as the
-next ground truth) build on this.
+A project goes from images to a trained model in six steps, in two groups: **Data** (images,
+annotations, curation) and **Model** (data split, training, models). A trained model can then
+pre-annotate new images, which a person reviews in CVAT or FiftyOne and feeds back into the next
+training.
 
 Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Design notes: [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -34,28 +33,65 @@ unless you are on a trusted network.
 
 ## How it works
 
-1. **New project**: name, description and task (classification, detection, segmentation
-   or keypoints). The project number is automatic. Classes are optional; they can come
-   from the annotation files.
-2. **Images**: drop files, a folder or a .zip. Files are stored unchanged; identical
-   images are added once; unreadable files are listed with the reason. Annotation files
-   sent together with the images are pointed to step 2. Each upload is added as a task
-   (split into jobs of a chosen size, see docs/TASKS.md).
-3. **Annotations** (optional): drop the annotation files (or a .zip). The format is
-   detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for
-   images XML, Label Studio JSON), the files are matched with the project images and a
-   report shows what was found and any problem. Nothing is imported until you choose:
-   *Import*, *Change the project task and import* (when the annotations are of another
-   task), *Convert and import* (for example outlines to boxes) or *Discard*.
-4. **Curation**: *Analyze images* measures brightness, contrast, sharpness, size and a
-   perceptual hash of each image (a task with progress that can be cancelled). Filters
-   per issue show the flagged images; select and *Exclude* them (reversible, *Excluded*
-   tab) or delete them for good (asks first). *Open in FiftyOne* opens the same filter in
-   the FiftyOne App; images tagged `exclude` there can be brought back with *Bring
-   exclusions from FiftyOne*.
+**New project** (not a step): name, description and task (classification, detection,
+segmentation or keypoints). The project number is automatic. Classes are optional; they can
+come from the annotation files. A project that already exists in CVAT or Label Studio can
+be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
+bar with the six steps.
 
-Long tasks appear in the **Tasks** bar at the bottom of the project page, with progress,
-*Cancel* and *See result*.
+### Data
+
+1. **Images** has two tabs. *Galeria* is the grid of images, filtered by task and job.
+   *Tasks e jobs* lists the tasks (one upload, or one video, is one task) split into jobs of a
+   chosen size, as in CVAT; *New task* takes files, a folder, a .zip or a video. Files are
+   stored unchanged, identical images are added once and unreadable files are listed with the
+   reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
+2. **Annotations** (optional) has five tabs:
+   - *Resumo*: what the project has (annotated, to review, classes).
+   - *Pré-anotar*: a saved model suggests labels for the images of a task; see
+     [docs/PREANNOTATE.md](docs/PREANNOTATE.md).
+   - *CVAT*: send images to CVAT and synchronise annotations in both directions, with a review
+     before anything changes; see [docs/ANNOTATION.md](docs/ANNOTATION.md) and
+     [docs/SYNC.md](docs/SYNC.md).
+   - *FiftyOne*: edit annotations in the FiftyOne App and bring them back.
+   - *Importar anotações*: drop annotation files (or a .zip). The format is detected (COCO JSON,
+     YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or video XML, MOT,
+     Label Studio JSON, class folders), the files are matched with the images and a report shows what was found
+     and any problem. Nothing is imported until you choose *Import*, *Change the project task
+     and import*, *Convert and import* (for example outlines to boxes) or *Discard*. Files made for
+     a whole video go to a video task by frame number ([docs/VIDEO.md](docs/VIDEO.md)).
+3. **Curation**: *Analyze images* measures brightness, contrast, sharpness, size and a
+   perceptual hash of each image. Filters per issue (corrupt, blurry, dark, overexposed, low
+   contrast, small, near duplicate) show the flagged images; select and *Exclude* them
+   (reversible, *Excluded* tab) or delete them for good (asks first). *Open in FiftyOne* opens
+   the same filter in the FiftyOne App; images tagged `exclude` there can be brought back with
+   *Bring exclusions from FiftyOne*.
+
+### Model
+
+4. **Data split** freezes a *dataset version*: train, validation and test parts (or K folds
+   plus a test part) that keep frames of one video and near duplicates together, balanced by
+   class; see [docs/DATASETS.md](docs/DATASETS.md).
+5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
+   fine-tuning or from scratch; single run, grid search or all folds) with live curves and
+   evaluation on the test part. Classification, detection, semantic segmentation and
+   keypoints (torchvision) are available; YOLO/Ultralytics models are planned, not available
+   yet. Packages are installed on demand in a separate environment. See
+   [docs/TRAINING.md](docs/TRAINING.md).
+6. **Models** keeps the runs you save as models: compare them, choose the current one,
+   download the weights and export ONNX (classification and semantic segmentation). The
+   current model pre-annotates new images (*Anotações*, *Pré-anotar*).
+
+### Activities
+
+Background jobs (analysis, uploads, synchronisation, training, export, pre-annotation) appear
+in a small card in the bottom-right corner of the project page, with progress, *Cancel* and
+*See result*. It can be minimised or closed; finished activities stay in its history. Only one
+heavy process (training, export or pre-annotation) runs at a time; the others wait in a queue.
+
+More: [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models),
+[docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API) and
+[docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md) (user guide in Portuguese).
 
 ## Settings
 

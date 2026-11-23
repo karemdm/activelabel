@@ -5,7 +5,7 @@ and the task uses a selection of its frames.
 
 ## Creating a task from a video
 
-*New task* → *Video*:
+In the **Images** step, tab *Tasks e jobs*: *New task* → *Video*:
 
 | Field | Meaning |
 | --- | --- |
@@ -26,7 +26,7 @@ task will have**, and a strip of thumbnails at the chosen step.
   (index in the video) and `time` (seconds).
 - The task records its source: `{"video": id, "start": 0, "stop": 8999, "step": 30}`.
 
-Frames are images for everything else: annotations, curation, jobs, sync, FiftyOne and, later,
+Frames are images for everything else: annotations, curation, jobs, sync, FiftyOne, dataset versions and
 training. Nothing has to know about video formats except the extraction.
 
 ## CVAT
@@ -68,7 +68,7 @@ per frame; near-duplicate detection is especially useful to drop almost identica
 ## Loading annotations of a video
 
 Annotation files made for the **whole video** can be loaded into a video task. In the Annotations
-step, with video tasks in the project, choose *For task* (the only video task is preselected;
+step, tab *Importar anotações*, with video tasks in the project, choose *For task* (the only video task is preselected;
 *Project images* keeps the matching by file name used for images) and upload the files. They go
 through the same review (format, matched images, classes, problems) and the same *Import*, with
 *Merge* or *Replace*. Labels are matched by **frame number of the video**: a label at frame *f*
