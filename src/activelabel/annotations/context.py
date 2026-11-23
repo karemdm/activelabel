@@ -42,6 +42,25 @@ def bbox_of_points(points: Iterable[Sequence[float]]) -> list[float] | None:
     return [x0, y0, x1 - x0, y1 - y0]
 
 
+def declared_size(
+    ctx: ParseContext, rec: ImageRecord, width: object, height: object, name: str
+) -> tuple[float, float]:
+    """Size of an image as a file declares it, checked against the stored image.
+
+    A missing, non-numeric, non-finite or non-positive value means "not declared": the stored size
+    is used. A declared size that differs from the stored one is reported (``size_mismatch``).
+    """
+    try:
+        w, h = float(width), float(height)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return float(rec.width), float(rec.height)
+    if not (math.isfinite(w) and math.isfinite(h)) or w <= 0 or h <= 0:
+        return float(rec.width), float(rec.height)
+    if (int(w), int(h)) != (rec.width, rec.height):
+        ctx.problem("size_mismatch", f"{name}: {int(w)}x{int(h)} vs {rec.width}x{rec.height}")
+    return w, h
+
+
 def _clip(value: float) -> float:
     return min(1.0, max(0.0, value))
 

@@ -164,8 +164,8 @@ def resolve_selection(
     """
     stop = info.frames - 1 if stop is None else stop
     if every_seconds is not None:
-        if not every_seconds > 0:
-            raise ValueError("Seconds between frames must be greater than 0.")
+        if not 0 < every_seconds <= 86_400:  # also refuses NaN and infinity
+            raise ValueError("Seconds between frames must be greater than 0 and at most one day.")
         step = max(1, round(every_seconds * info.fps))
     if step < 1:
         raise ValueError("Take one frame every 1 or more frames.")
@@ -208,8 +208,11 @@ def extract_frames(
             if not ok:
                 break
             path = target / f"{index:08d}.jpg"
-            if not cv2.imwrite(str(path), image, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]):
+            # encode in memory and write with Python: cv2.imwrite fails on non-ASCII paths on Windows
+            ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if not ok:
                 raise ValueError(f"Frame {index} could not be saved.")
+            path.write_bytes(encoded.tobytes())
             out.append((index, path))
             if progress is not None:
                 progress.update(len(out), total, "Extracting frames")

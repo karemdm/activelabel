@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
@@ -253,9 +254,12 @@ def delete_task(project_id: int, task_id: int, body: DeleteTask, state: AppState
             raise HTTPException(
                 400, "Deleting a task deletes its images and cannot be undone: confirm it first."
             )
-        state.busy(project_id)
-        ids = store.delete(task_id)
-        deleted = delete_image_files(state, project_id, ids)
+        state.busy(project_id, training=True)  # checked before anything changes (deleting images needs it)
+        # images first: their task goes with its last image; deleting the task first would leave
+        # them without a task for a moment, and reading the tasks would rebuild one with a new id
+        deleted = delete_image_files(state, project_id, list(task.images))
+        with contextlib.suppress(TaskNotFound):
+            store.delete(task_id)  # a task that had no images
         video = (task.source or {}).get("video")
         if video:
             VideoStore(state.store.dir(project_id)).drop_if_unused(str(video), store.load())

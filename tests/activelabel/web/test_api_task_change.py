@@ -112,7 +112,7 @@ def test_reset_curation(tmp_path):
     assert overview["steps"]["curation"] == "not_analyzed" and overview["counts"]["with_issues"] == 0
     assert all(not r.phash and not r.metrics and not r.issues for r in manifest.all())
     assert load_thresholds(folder).dark == 50.0
-    assert read_json(curation_path(folder))["duplicate_of"] == {}
+    assert "duplicate_of" not in read_json(curation_path(folder))  # "not analysed" again
     assert client.delete("/api/projects/9/curation").status_code == 404
 
 

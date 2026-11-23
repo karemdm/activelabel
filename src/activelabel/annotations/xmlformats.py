@@ -10,7 +10,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from activelabel.annotations.context import ParseContext, bbox_of_points, norm_name
+from activelabel.annotations.context import ParseContext, bbox_of_points, declared_size, norm_name
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label
 
@@ -48,11 +48,7 @@ def _f(value: str | None, default: float = 0.0) -> float:
 
 
 def _size(ctx: ParseContext, rec: ImageRecord, width: float, height: float, name: str) -> tuple[float, float]:
-    if width <= 0 or height <= 0:
-        return float(rec.width), float(rec.height)
-    if (int(width), int(height)) != (rec.width, rec.height):
-        ctx.problem("size_mismatch", f"{name}: {int(width)}x{int(height)} vs {rec.width}x{rec.height}")
-    return width, height
+    return declared_size(ctx, rec, width, height, name)
 
 
 # -- Pascal VOC ----------------------------------------------------------------

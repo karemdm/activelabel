@@ -8,6 +8,7 @@ or dict), else ``classes.txt`` / ``obj.names``; without names, ``class_<n>`` is 
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -62,8 +63,10 @@ def load_names(ctx: ParseContext, files: list[Path]) -> tuple[dict[int, str] | N
                     shape = data.get("kpt_shape")
                     if isinstance(shape, list) and len(shape) == 2:
                         kpt = (int(shape[0]), int(shape[1]))
+                        if kpt[0] < 1 or kpt[1] not in (2, 3):
+                            raise ValueError(f"kpt_shape must be [points, 2 or 3], not {shape}")
                     ctx.files.append(path.name)
-            except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+            except (OSError, ValueError, TypeError, OverflowError, yaml.YAMLError) as exc:
                 ctx.problem("invalid_file", f"{path.name}: {exc}")
     if names is None:
         for path in files:
@@ -124,7 +127,7 @@ def _line(
     where: str,
 ) -> Label | None:
     vals = _numbers(line)
-    if not vals or vals[0] != int(vals[0]) or vals[0] < 0:
+    if not vals or not all(math.isfinite(v) for v in vals) or vals[0] != int(vals[0]) or vals[0] < 0:
         ctx.problem("invalid_annotation", where)
         return None
     cls = int(vals[0])

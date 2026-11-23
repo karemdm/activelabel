@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from statistics import median
+from typing import Any
 
 import numpy as np
 
@@ -47,6 +49,39 @@ class Thresholds:
     max_aspect: float = 3.0
     phash_distance: int = 6
 
+    def __post_init__(self) -> None:
+        """Check every value (finite, within its limits) and make the whole-number ones ``int``.
+
+        Raises:
+            ValueError: a value that is not a number, not finite, or outside its limits.
+        """
+        for name, (low, high) in LIMITS.items():
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{name} must be a number.")
+            if not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"{name} must be between {low:g} and {high:g}.")
+            if name in WHOLE:
+                if value != int(value):
+                    raise ValueError(f"{name} must be a whole number.")
+                setattr(self, name, int(value))
+            else:
+                setattr(self, name, float(value))
+
+
+LIMITS: dict[str, tuple[float, float]] = {
+    "dark": (0, 255),
+    "bright": (0, 255),
+    "low_contrast": (0, 255),
+    "blur_relative": (0, 1),
+    "blur_ceiling": (0, 1_000_000),
+    "blur_floor": (0, 1_000_000),
+    "min_side": (1, 100_000),
+    "max_aspect": (1, 1_000),
+    "phash_distance": (0, 64),
+}
+WHOLE = ("min_side", "phash_distance")
+
 
 def curation_path(project_dir: Path) -> Path:
     """File with the thresholds and duplicate map of a project."""
@@ -56,8 +91,15 @@ def curation_path(project_dir: Path) -> Path:
 def load_thresholds(project_dir: Path) -> Thresholds:
     """Thresholds of a project: the defaults with the saved overrides applied."""
     saved = read_json(curation_path(project_dir), {}).get("thresholds", {})
-    defaults = asdict(Thresholds())
-    values = {k: type(defaults[k])(v) for k, v in saved.items() if k in defaults}
+    values: dict[str, Any] = {}
+    for key, value in (saved if isinstance(saved, dict) else {}).items():
+        if key not in LIMITS:
+            continue
+        try:
+            Thresholds(**{key: value})  # a bad saved value (an older version allowed them) is ignored
+        except (TypeError, ValueError):
+            continue
+        values[key] = value
     return Thresholds(**values)
 
 
@@ -182,5 +224,7 @@ def reset_curation(manifest: Manifest) -> int:
     records = manifest.all()
     cleared = [r.id for r in records if r.metrics or r.issues or r.phash]
     manifest.update({r.id: {"metrics": {}, "issues": [], "phash": ""} for r in records})
-    _save_duplicate_of(manifest.project_dir, {})
+    data = read_json(curation_path(manifest.project_dir), {})
+    data.pop("duplicate_of", None)  # "not analysed" again: a new data split warns about it
+    write_json(curation_path(manifest.project_dir), data)
     return len(cleared)

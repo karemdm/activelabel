@@ -136,9 +136,11 @@ class JobManager:
         Raises:
             KeyError: unknown job.
         """
-        job = self._jobs[job_id]
+        with self._lock:
+            job = self._jobs[job_id]
+            event = self._cancel[job_id]
         if job.status not in FINISHED:
-            self._cancel[job_id].set()
+            event.set()
             if job.status == QUEUED:
                 job.message = "Cancelling…"
         return job
@@ -149,7 +151,8 @@ class JobManager:
 
     def list(self, project_id: int | None = None) -> list[Job]:
         """Jobs, newest first (optionally of one project)."""
-        jobs = [j for j in self._jobs.values() if project_id is None or j.project_id == project_id]
+        with self._lock:  # submit and clear change the dict from other threads
+            jobs = [j for j in self._jobs.values() if project_id is None or j.project_id == project_id]
         return sorted(jobs, key=lambda j: j.created, reverse=True)
 
     def active(self, project_id: int) -> builtins.list[Job]:
@@ -179,6 +182,8 @@ class JobManager:
 
     def shutdown(self) -> None:
         """Cancel everything and stop the worker."""
-        for event in self._cancel.values():
+        with self._lock:
+            events = list(self._cancel.values())
+        for event in events:
             event.set()
         self._pool.shutdown(wait=False, cancel_futures=True)
