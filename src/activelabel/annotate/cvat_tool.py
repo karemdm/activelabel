@@ -81,6 +81,11 @@ def _labels_from_fo(value: Any, task: Task) -> list[Label]:
     return labels_from_fo(value, task)
 
 
+def _has_status(low: str, code: int) -> bool:
+    """Whether the text names an HTTP status as a number of its own (not inside an id or a path)."""
+    return re.search(rf"(?<![\w/.-]){code}(?![\w.-])", low) is not None
+
+
 def explain(err: Exception, url: str = "") -> ToolError:
     """Turn CVAT / FiftyOne / network errors into a readable :class:`ToolError`."""
     if isinstance(err, ToolError):
@@ -89,17 +94,29 @@ def explain(err: Exception, url: str = "") -> ToolError:
     low = text.lower()
     name = type(err).__name__.lower()
     where = f" at {url}" if url else ""
-    if "auth/login" in low or "401" in low or "unauthorized" in low or "403" in low:
-        return ToolError(f"CVAT login failed{where}: check the username and password.")
-    if "429" in low or "too many requests" in low:
-        return ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
-    if "maximum number of" in low or "upgrade" in low:
+    if (
+        "maximum number of" in low or "upgrade" in low
+    ):  # a plan limit often comes as a 403: not a login problem
         return ToolError(f"CVAT plan limit reached: {text.splitlines()[0] if text else 'see your plan'}")
+    if "auth/login" in low or _has_status(low, 401) or "unauthorized" in low:
+        return ToolError(f"CVAT login failed{where}: check the username and password.")
+    if _has_status(low, 403) or "forbidden" in low:
+        return ToolError(
+            f"CVAT refused the request{where}: the account is not allowed to do this "
+            f"({text.splitlines()[0] if text else 'forbidden'})."
+        )
+    if _has_status(low, 429) or "too many requests" in low:
+        return ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
     if "connection" in name or "timeout" in name or "max retries" in low or "name or service" in low:
         return ToolError(f"Cannot reach CVAT{where}: check the address and your network.")
-    if "404" in low or "not found" in low or "invalidurl" in name or "missingschema" in name:
+    if _has_status(low, 404) or "not found" in low or "invalidurl" in name or "missingschema" in name:
         return ToolError(f"CVAT answered 'not found'{where}: check the address (or the task was deleted).")
     return ToolError(f"CVAT error: {text.splitlines()[0] if text else type(err).__name__}")
+
+
+def _need_dataset(dataset: Any) -> None:
+    if dataset is None:
+        raise ToolError("Open the project in FiftyOne first.")
 
 
 def _login(settings: ToolSettings) -> Any:
@@ -188,6 +205,7 @@ class CvatTool:
         anno_key = str(ref.get("anno_key") or "")
         if not anno_key:
             raise ToolError("This session has no CVAT annotation run.")
+        _need_dataset(dataset)
         field = pull_field(anno_key)
         try:
             dataset.load_annotations(anno_key, dest_field=field, unexpected="keep", cleanup=False, **creds)
@@ -218,6 +236,7 @@ class CvatTool:
         anno_key = str(ref.get("anno_key") or "")
         if not anno_key:
             return
+        _need_dataset(dataset)
         if anno_key not in dataset.list_annotation_runs():
             return
         if delete_remote:
