@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from activelabel import annotations as ann
 from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
+from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.importing.common import read_origin
@@ -332,18 +333,24 @@ def list_images(
     ids: str = "",
     task: int | None = None,
     job: int | None = None,
+    dataset: int | None = None,
+    part: str | None = None,
+    fold: int | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=MAX_PAGE),
     state: AppState = STATE,
 ) -> dict[str, Any]:
     """A page of images, filtered by status, issue, task, job or a comma-separated list of ids.
 
-    With ``task`` the items are in task order; ``job`` (1-based) needs ``task``.
+    With ``task`` the items are in task order; ``job`` (1-based) needs ``task``. ``dataset`` keeps the
+    images of a dataset version, of one ``part`` (train, val, test) or ``fold`` (0-based).
     """
     manifest = state.manifest(project_id)
     records = manifest.all()
     if job is not None and task is None:
         raise HTTPException(400, "Give the task of the job.")
+    if (part is not None or fold is not None) and dataset is None:
+        raise HTTPException(400, "Give the dataset version of the part or fold.")
     if task is not None:
         try:
             chosen = TaskStore(state.store.dir(project_id)).get(task)
@@ -357,6 +364,19 @@ def list_images(
             order = found[0].image_ids
         by_id = {r.id: r for r in records}
         records = [by_id[i] for i in order if i in by_id]
+    if dataset is not None:
+        try:
+            members = DatasetStore(state.store.dir(project_id)).image_ids(dataset, part, fold)
+        except DatasetNotFound:
+            raise HTTPException(404, "This dataset version does not exist.") from None
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        if task is None:
+            by_id = {r.id: r for r in records}
+            records = [by_id[i] for i in members if i in by_id]
+        else:
+            keep = set(members)
+            records = [r for r in records if r.id in keep]
     if status != "all":
         records = [r for r in records if r.status == status]
     if issue:
