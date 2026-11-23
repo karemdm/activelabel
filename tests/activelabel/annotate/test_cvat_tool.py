@@ -172,3 +172,30 @@ def test_pull_with_real_labels():
     dataset.get_field_schema.return_value = {}
     out = CvatTool().pull(dataset, ["a"], project(), SETTINGS, {"anno_key": "k"})
     assert out["a"][0].label == "cat"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "403 Forbidden: You have reached the maximum number of tasks",
+        "HTTP 403: please upgrade your plan",
+    ],
+)
+def test_plan_limit_is_not_a_login_problem(text):
+    err = cvat_tool.explain(RuntimeError(text), "https://cvat.example")
+    assert "plan limit" in str(err) and "login" not in str(err)
+
+
+def test_status_codes_are_matched_as_numbers_not_inside_ids():
+    assert "login failed" in str(cvat_tool.explain(RuntimeError("HTTP 401 Unauthorized")))
+    assert "refused" in str(cvat_tool.explain(RuntimeError("403 Forbidden")))
+    assert "slow down" in str(cvat_tool.explain(RuntimeError("Error 429")))
+    for text in ("task 14031 failed", "/api/tasks/403/data broke", "id 4010 and 2401"):
+        assert str(cvat_tool.explain(RuntimeError(text))) == f"CVAT error: {text}"
+
+
+def test_pull_and_close_need_the_dataset():
+    with pytest.raises(ToolError, match="Open the project in FiftyOne first"):
+        CvatTool().pull(None, ["a"], project(), SETTINGS, {"anno_key": "k"})
+    with pytest.raises(ToolError, match="Open the project in FiftyOne first"):
+        CvatTool().close(None, SETTINGS, {"anno_key": "k"}, True)
