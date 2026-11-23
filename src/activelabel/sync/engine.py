@@ -10,6 +10,7 @@ labels, in which case the other side wins; equal labels are never a conflict.
 
 from __future__ import annotations
 
+import io
 import re
 import uuid
 from pathlib import Path
@@ -17,7 +18,8 @@ from typing import Any
 
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import ToolError, ToolSettings
-from activelabel.images.manifest import ACTIVE, ImageRecord, Manifest
+from activelabel.images.ingest import ingest_files
+from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.importing.common import read_origin
 from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
@@ -25,8 +27,15 @@ from activelabel.projects import Project, ProjectStore
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject
+from activelabel.tasks_store import ImageTask, TaskStore
+from activelabel.tasks_store import jobs as task_jobs
 
 PULL, PUSH, CONFLICT, SAME, ADD = "pull", "push", "conflict", "same", "add"
+REMOVE_REMOTE, REMOVE_LOCAL = "remove_remote", "remove_local"  # image removed on the other side
+RESTORE_REMOTE, RESTORE_LOCAL = "restore_remote", "restore_local"  # image restored on the other side
+GONE = "gone"  # removed on both sides
+ACTIONS = (PULL, PUSH, CONFLICT, SAME, ADD, REMOVE_REMOTE, REMOVE_LOCAL, RESTORE_REMOTE, RESTORE_LOCAL, GONE)
+SCOPES = ("project", "task", "job")
 CHOICES = ("local", "remote")
 MAX_EXAMPLES = 10
 KEEP_PLANS = 10
@@ -182,6 +191,52 @@ def _find_remote(
     return info
 
 
+def _key_task(key: str) -> str:
+    """Remote task of an item key (``"<task>:<frame>"`` in CVAT)."""
+    return str(key).partition(":")[0]
+
+
+def _key_frame(key: str) -> int:
+    return int(str(key).partition(":")[2] or 0)
+
+
+def _scope(
+    tasks: list[ImageTask], scope: str, task_id: int | None, job: int | None
+) -> tuple[list[ImageTask], list[str]]:
+    """Tasks touched by the scope and the image ids it covers (task order)."""
+    if scope not in SCOPES:
+        raise SyncError("The scope must be project, task or job.")
+    if scope == "project":
+        return tasks, [i for t in tasks for i in t.images]
+    found = next((t for t in tasks if t.id == task_id), None)
+    if found is None:
+        raise SyncError("This task does not exist (it may have been deleted).")
+    if scope == "task":
+        return [found], list(found.images)
+    chosen = next((j for j in task_jobs(found) if j.n == job), None)
+    if chosen is None:
+        raise SyncError("This job does not exist in the task.")
+    return [found], list(chosen.image_ids)
+
+
+def _task_mapping(
+    tasks: list[ImageTask], tmap: dict[str, Any], link_items: dict[str, Any], supports: bool
+) -> dict[str, str]:
+    """Local task id -> remote task id, from the link (or inferred from the keys of an older link)."""
+    out: dict[str, str] = {}
+    for t in tasks:
+        known = (tmap.get(str(t.id)) or {}).get("remote_task")
+        if known:
+            out[str(t.id)] = str(known)
+        elif supports:
+            found = {
+                _key_task(link_items[i]["key"]) for i in t.images if (link_items.get(i) or {}).get("key")
+            }
+            if len(found) == 1:
+                out[str(t.id)] = found.pop()
+    return out
+
+
 def make_plan(
     store: ProjectStore,
     project_id: int,
@@ -191,8 +246,14 @@ def make_plan(
     progress: Progress,
     create: bool = False,
     remote_id: str | None = None,
+    scope: str = "project",
+    task_id: int | None = None,
+    job: int | None = None,
 ) -> dict[str, Any]:
-    """Compare the project with its remote project and save the plan (job ``sync_plan``).
+    """Compare the project (or one task / one job) with its remote project and save the plan.
+
+    Images and annotations are compared, in both directions: tasks and images added, removed or
+    restored, labels added / modified / removed (docs/TASKS.md, docs/SYNC.md).
 
     Args:
         store: projects.
@@ -204,37 +265,65 @@ def make_plan(
         create: when there is no link and no remote project with the project's name, plan to create
             it (it is created on apply, never while planning).
         remote_id: remote project to link when there is no link yet.
+        scope: ``project``, ``task`` or ``job``.
+        task_id: the task (scopes task and job).
+        job: the job number in the task (scope job).
 
     Returns:
-        The plan as described in docs/SYNC.md.
+        The plan summary (docs/SYNC.md).
 
     Raises:
-        SyncError: nothing to synchronise with.
+        SyncError: nothing to synchronise with, unknown task/job.
         ToolError: the tool's own problems (readable message).
     """
     project = store.get(project_id)
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
+    local_tasks = TaskStore(project_dir).load()
+    scoped_tasks, scope_ids = _scope(local_tasks, scope, task_id, job)
+    supports = bool(getattr(remote, "supports_tasks", False))
     link = links.get_link(project_dir, tool)
+    link_items: dict[str, dict[str, Any]] = (link or {}).get("items", {})
+    tmap: dict[str, Any] = (link or {}).get("tasks", {})
     progress.update(message=f"Reading {tool}")
     info = _find_remote(remote, settings, project, link, remote_id, create)
-    items = remote.items(settings, info.id, project.task) if info else []
+    rtasks = remote.tasks(settings, info.id) if info and supports else []
+    rtask_ids = {rt.id for rt in rtasks}
+    mapping = _task_mapping(local_tasks, tmap, link_items, supports)
+
+    # which remote tasks are read: all of them for the project, else the ones of the scope
+    read: set[str] | None = None  # None: everything
+    if supports and scope != "project":
+        read = {mapping[str(t.id)] for t in scoped_tasks if str(t.id) in mapping}
+        read |= {_key_task(link_items[i]["key"]) for i in scope_ids if (link_items.get(i) or {}).get("key")}
+        read &= rtask_ids
+    if info is None or (read is not None and not read):
+        items: list[RemoteItem] = []
+    else:
+        items = remote.items(settings, info.id, project.task, sorted(read) if read is not None else None)
     progress.update(message="Comparing")
 
-    records = {r.id: r for r in manifest.all()}
+    records = manifest.load()
     local = _local_labels(project_dir)
-    link_items: dict[str, dict[str, Any]] = (link or {}).get("items", {})
     by_key = {it.key: it for it in items}
-    mapped: dict[str, RemoteItem] = {}
-    for image_id, entry in link_items.items():
-        item = by_key.get(entry.get("key", ""))
-        if image_id in records and item is not None:
-            mapped[image_id] = item
-    used = {it.key for it in mapped.values()}
-    free_records = [r for i, r in records.items() if i not in mapped]
-    mapped.update(links.match_by_name(free_records, [it for it in items if it.key not in used]))
-    used = {it.key for it in mapped.values()}
-    unmatched = [it for it in items if it.key not in used]
+    known_tasks = rtask_ids if read is None else read
+
+    def remote_known(key: str) -> bool:
+        """Whether the remote side of this key was read (a missing item then means removed)."""
+        return not supports or _key_task(key) in known_tasks
+
+    # candidates: images of the scope, plus (project/task scope) linked images deleted locally
+    in_tasks = {i for t in local_tasks for i in t.images}
+    candidates = list(scope_ids)
+    if scope != "job":
+        for image_id, link_entry in link_items.items():
+            key = link_entry.get("key", "")
+            if image_id not in in_tasks and key and remote_known(key) and (read is None or supports):
+                candidates.append(image_id)
+    linked = {i for i in candidates if (link_items.get(i) or {}).get("key")}
+    used = {link_items[i]["key"] for i in linked}
+    free_records = [records[i] for i in candidates if i not in linked and i in records]
+    by_name = links.match_by_name(free_records, [it for it in items if it.key not in used])
 
     decisions: dict[str, dict[str, Any]] = {}
     remote_labels: dict[str, list[dict[str, Any]]] = {}
@@ -242,47 +331,144 @@ def make_plan(
     push_changes: dict[str, tuple[list[Label], list[Label]]] = {}
     conflicts: list[dict[str, Any]] = []
     names = {i: r.name for i, r in records.items()}
-    for image_id, item in mapped.items():
+    unsynced: list[str] = []
+    for image_id in candidates:
         progress.check()
-        if records[image_id].status != ACTIVE:
-            continue  # excluded locally: left alone
-        mine = local.get(image_id, [])
-        theirs = _clean(project, item.labels)
-        action = _decide(link_items.get(image_id), mine, theirs)
+        rec = records.get(image_id)
+        entry = link_items.get(image_id)
+        key = (entry or {}).get("key", "")
+        if key and not remote_known(key):
+            continue
+        item = by_key.get(key) if key else by_name.get(image_id)
+        if not key and item is None:
+            unsynced.append(image_id)
+            continue
+        key = key or item.key  # type: ignore[union-attr]
+        here = rec is not None and rec.status == ACTIVE
+        there = item is not None
+        base_removed = bool((entry or {}).get("removed"))
+        mine = local.get(image_id, []) if rec is not None else []
+        theirs = _clean(project, item.labels) if item is not None else []
+        base = links.base_labels(entry) if entry else None
+        kind = ""
+        if here and there:
+            action = _decide(None if base_removed else entry, mine, theirs)
+            kind = "labels" if action == CONFLICT else ""
+        elif not here and not there:
+            action = SAME if base_removed else GONE
+        elif here:  # missing in the tool
+            if base_removed:
+                action = RESTORE_REMOTE if supports else SAME
+            elif base is not None and not links.same_labels(mine, base):
+                action, kind = CONFLICT, "removed_remote"
+            else:
+                action = REMOVE_LOCAL
+        else:  # removed here, present in the tool
+            if not supports or (base_removed and rec is None):
+                action = SAME  # Label Studio: local removals are not sent; deleted for good here
+            elif base_removed:
+                action = RESTORE_LOCAL
+            elif base is not None and not links.same_labels(theirs, base):
+                action, kind = CONFLICT, "removed_local"
+            else:
+                action = REMOVE_REMOTE
         decisions[image_id] = {
-            "key": item.key,
+            "key": key,
             "action": action,
+            "kind": kind,
+            "here": here,
+            "there": there,
             "local_hash": links.label_hash(mine),
             "remote_hash": links.label_hash(theirs),
         }
-        if action in (PULL, CONFLICT):
-            remote_labels[item.key] = [lb.as_dict() for lb in theirs]
-        if action == PULL:
+        if action in (PULL, CONFLICT, RESTORE_LOCAL) and item is not None:
+            remote_labels[key] = [lb.as_dict() for lb in theirs]
+        if action in (PULL, RESTORE_LOCAL):
             pull_new[image_id] = theirs
-        elif action == PUSH:
+        elif action in (PUSH, RESTORE_REMOTE):
             push_changes[image_id] = (theirs, mine)
         elif action == CONFLICT:
             conflicts.append(
-                {"image_id": image_id, "name": names[image_id], "local": _side(mine), "remote": _side(theirs)}
+                {
+                    "image_id": image_id,
+                    "name": names.get(image_id, image_id),
+                    "kind": kind,
+                    "local": {**_side(mine), "removed": not here},
+                    "remote": {**_side(theirs), "removed": not there},
+                }
             )
-    added = [r.id for r in records.values() if r.status == ACTIVE and r.id not in mapped]
-    for image_id in added:
-        mine = local.get(image_id, [])
-        push_changes[image_id] = ([], mine)
-        decisions[image_id] = {"key": "", "action": ADD, "local_hash": links.label_hash(mine)}
+
+    # tasks to create in the tool (never sent), images to add to a task already there (older links)
+    unsynced_set = set(unsynced)
+    tasks_create: list[dict[str, Any]] = []
+    added: list[str] = []
+    for t in scoped_tasks:
+        sent = str(t.id) in mapping or any((link_items.get(i) or {}).get("key") for i in t.images)
+        sent = sent or any(i in decisions for i in t.images)
+        if supports and not sent:
+            tasks_create.append(
+                {"task": t.id, "name": t.name, "job_size": t.job_size, "images": len(t.images)}
+            )
+            for image_id in t.images:
+                unsynced_set.discard(image_id)
+                if image_id in records and records[image_id].status == ACTIVE:
+                    push_changes[image_id] = ([], local.get(image_id, []))
+    for image_id in unsynced:
+        if image_id in unsynced_set and image_id in records and records[image_id].status == ACTIVE:
+            added.append(image_id)
+            mine = local.get(image_id, [])
+            push_changes[image_id] = ([], mine)
+            decisions[image_id] = {"key": "", "action": ADD, "kind": "", "local_hash": links.label_hash(mine)}
+
+    # tasks deleted here (still in the tool) and tasks added in the tool (project scope)
+    local_ids = {str(t.id) for t in local_tasks}
+    tasks_delete = [
+        {"task": int(tid), "remote_task": str(m.get("remote_task")), "name": str(m.get("name", ""))}
+        for tid, m in tmap.items()
+        if tid not in local_ids
+        and str(m.get("remote_task")) in rtask_ids
+        and (read is None or str(m.get("remote_task")) in read)
+    ]
+    mapped_remote = set(mapping.values()) | {_key_task(d["key"]) for d in decisions.values() if d["key"]}
+    tasks_new: list[dict[str, Any]] = []
+    if supports and scope == "project":
+        tasks_new = [
+            {"remote_task": rt.id, "name": rt.name, "job_size": rt.job_size, "images": rt.size}
+            for rt in rtasks
+            if rt.id not in mapped_remote
+        ]
+    new_remote = {t["remote_task"] for t in tasks_new}
+    leftovers = [it for it in items if it.key not in {d["key"] for d in decisions.values()}]
+    unmatched = [it for it in leftovers if not supports or _key_task(it.key) not in new_remote]
 
     plan_id = uuid.uuid4().hex[:10]
     remote_only = {"count": len(unmatched), "examples": [it.file_name for it in unmatched[:MAX_EXAMPLES]]}
-    pushes = sum(1 for d in decisions.values() if d["action"] == PUSH)
+    count = {a: sum(1 for d in decisions.values() if d["action"] == a) for a in ACTIONS}
     plan: dict[str, Any] = {
         "plan_id": plan_id,
         "tool": tool,
         "created": now(),
         "create": info is None,
+        "scope": {"scope": scope, "task": task_id, "job": job},
         "remote": _info_dict(info, remote_name(project)),
         "decisions": decisions,
         "remote_labels": remote_labels,
         "remote_only": remote_only,
+        "tasks_create": tasks_create,
+        "tasks_new": tasks_new,
+        "tasks_delete": tasks_delete,
+        "new_items": {
+            rt: [
+                {
+                    "key": it.key,
+                    "name": it.file_name,
+                    "labels": [lb.as_dict() for lb in _clean(project, it.labels)],
+                }
+                for it in items
+                if _key_task(it.key) == rt
+            ]
+            for rt in new_remote
+        },
     }
     write_json(plans_dir(project_dir) / f"{plan_id}.json", plan)
     _prune(project_dir)
@@ -291,12 +477,25 @@ def make_plan(
         "tool": tool,
         "remote": plan["remote"],
         "create": plan["create"],
-        "pull": len(pull_new),
-        "push": pushes,
+        "scope": plan["scope"],
+        "pull": count[PULL],
+        "push": count[PUSH],
         "add": len(added),
+        "remove_remote": sum(  # images of tasks deleted here are counted in tasks_delete
+            1
+            for d in decisions.values()
+            if d["action"] == REMOVE_REMOTE
+            and _key_task(d["key"]) not in {str(t["remote_task"]) for t in tasks_delete}
+        ),
+        "remove_local": count[REMOVE_LOCAL],
+        "restore_remote": count[RESTORE_REMOTE],
+        "restore_local": count[RESTORE_LOCAL],
+        "tasks_create": tasks_create,
+        "tasks_new": tasks_new,
+        "tasks_delete": tasks_delete,
         "conflicts": conflicts,
         "remote_only": remote_only,
-        "unchanged": sum(1 for d in decisions.values() if d["action"] == SAME),
+        "unchanged": count[SAME] + count[GONE],
         "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
         "diff_push": _push_summary(project, names, push_changes),
     }
@@ -311,19 +510,34 @@ def _choice(value: Any, what: str) -> str | None:
     return str(value)
 
 
+# what a resolved conflict becomes: kind -> {choice: action}
+RESOLVE = {
+    "labels": {"local": PUSH, "remote": PULL},
+    "removed_local": {"local": REMOVE_REMOTE, "remote": RESTORE_LOCAL},  # removed here, edited there
+    "removed_remote": {"local": RESTORE_REMOTE, "remote": REMOVE_LOCAL},  # edited here, removed there
+}
+
+
 def _check_unchanged(
-    plan: dict[str, Any],
+    decisions: dict[str, dict[str, Any]],
     current: dict[str, RemoteItem],
     project: Project,
     local: dict[str, list[Label]],
-    needed: list[str],
+    records: dict[str, ImageRecord],
+    ids: list[str],
 ) -> None:
-    for image_id in needed:
-        entry = plan["decisions"][image_id]
-        item = current.get(entry["key"])
-        if item is None or links.label_hash(_clean(project, item.labels)) != entry["remote_hash"]:
+    for image_id in ids:
+        d = decisions[image_id]
+        item = current.get(d["key"])
+        if (item is not None) != d.get("there", item is not None):
             raise RemoteChanged(CHANGED_REMOTE)
-        if links.label_hash(local.get(image_id, [])) != entry["local_hash"]:
+        if item is not None and links.label_hash(_clean(project, item.labels)) != d["remote_hash"]:
+            raise RemoteChanged(CHANGED_REMOTE)
+        rec = records.get(image_id)
+        here = rec is not None and rec.status == ACTIVE
+        if here != d.get("here", here):
+            raise RemoteChanged(CHANGED_LOCAL)
+        if rec is not None and links.label_hash(local.get(image_id, [])) != d["local_hash"]:
             raise RemoteChanged(CHANGED_LOCAL)
 
 
@@ -337,15 +551,18 @@ def apply_plan(
     resolutions: dict[str, str],
     default: str | None,
     progress: Progress,
+    delete_tasks: bool = False,
 ) -> dict[str, Any]:
     """Carry out a saved plan (job ``sync_apply``).
 
-    Conflicts take ``resolutions[image_id]`` (``"local"`` keeps ActiveLabel's labels, ``"remote"``
-    brings the remote ones), else ``default``; a conflict with neither is left as it is.
+    Conflicts take ``resolutions[image_id]`` (``"local"`` keeps ActiveLabel's side, ``"remote"`` the
+    tool's), else ``default``; a conflict with neither is left as it is. Tasks deleted in ActiveLabel
+    are deleted in the tool only with ``delete_tasks``.
 
     Returns:
-        Counts: ``pulled``, ``pushed``, ``added``, ``conflicts_left``, ``unchanged``, ``new_classes``,
-        ``backup``, ``skipped``.
+        Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
+        ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
+        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``backup``, ``skipped``.
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -357,23 +574,34 @@ def apply_plan(
         raise SyncError("This comparison no longer exists. Synchronise again.")
     fallback = _choice(default, "The default")
     decisions: dict[str, dict[str, Any]] = plan["decisions"]
-    pull_ids = [i for i, d in decisions.items() if d["action"] == PULL]
-    push_ids = [i for i, d in decisions.items() if d["action"] == PUSH]
-    add_ids = [i for i, d in decisions.items() if d["action"] == ADD]
+    final_action: dict[str, str] = {}
     conflicts_left = 0
     for image_id, d in decisions.items():
-        if d["action"] != CONFLICT:
-            continue
-        choice = _choice(resolutions.get(image_id), "A resolution") or fallback
-        if choice == "remote":
-            pull_ids.append(image_id)
-        elif choice == "local":
-            push_ids.append(image_id)
-        else:
-            conflicts_left += 1
+        action = d["action"]
+        if action == CONFLICT:
+            choice = _choice(resolutions.get(image_id), "A resolution") or fallback
+            if choice is None:
+                conflicts_left += 1
+                continue
+            action = RESOLVE[d.get("kind") or "labels"][choice]
+        final_action[image_id] = action
+
+    # tasks deleted here: without delete_tasks their remote task is left exactly as it is
+    planned_drop = {str(t["remote_task"]) for t in plan.get("tasks_delete") or []}
+    if not delete_tasks:
+        for image_id in [
+            i
+            for i, a in final_action.items()
+            if a == REMOVE_REMOTE and _key_task(decisions[i]["key"]) in planned_drop
+        ]:
+            del final_action[image_id]
+
+    def ids_of(*actions: str) -> list[str]:
+        return [i for i, a in final_action.items() if a in actions]
 
     project = store.get(project_id)
     manifest = Manifest(project_dir)
+    tstore = TaskStore(project_dir)
     records = manifest.load()
     local = _local_labels(project_dir)
     rid = str(plan["remote"]["id"])
@@ -384,17 +612,24 @@ def apply_plan(
         if remote.find(settings, remote_name(project)) is not None:
             raise RemoteChanged(CHANGED_REMOTE)
     else:
-        current = {it.key: it for it in remote.items(settings, rid, project.task)}
-    _check_unchanged(plan, current, project, local, pull_ids + push_ids)
-    for image_id in add_ids:
+        wanted = sorted({_key_task(d["key"]) for d in decisions.values() if d["key"]})
+        supports = bool(getattr(remote, "supports_tasks", False))
+        if wanted or not supports:
+            current = {
+                it.key: it for it in remote.items(settings, rid, project.task, wanted if supports else None)
+            }
+    checked = [i for i, a in final_action.items() if a not in (SAME, GONE, ADD)]
+    _check_unchanged(decisions, current, project, local, records, checked)
+    for image_id in ids_of(ADD):
         if (
             image_id not in records
             or links.label_hash(local.get(image_id, [])) != decisions[image_id]["local_hash"]
         ):
             raise RemoteChanged(CHANGED_LOCAL)
 
+    pull_ids = ids_of(PULL, RESTORE_LOCAL)
     new_labels = {
-        i: [Label.from_dict(x) for x in plan["remote_labels"][decisions[i]["key"]]] for i in pull_ids
+        i: [Label.from_dict(x) for x in plan["remote_labels"].get(decisions[i]["key"], [])] for i in pull_ids
     }
     found = diffing.diff(project_dir, pull_ids, new_labels, project) if pull_ids else {}
     classes_after = [*project.classes, *found.get("unknown_classes", [])]
@@ -404,32 +639,108 @@ def apply_plan(
     if to_create:
         info = remote.create(settings, project)
         rid = info.id
-    new_keys: dict[str, str] = {}
-    if push_ids or add_ids:
+    old = links.get_link(project_dir, tool)
+    keep = old is not None and str(old["remote_id"]) == rid
+    items: dict[str, dict[str, Any]] = dict(old["items"]) if old and keep else {}
+    tmap: dict[str, Any] = dict(old.get("tasks", {})) if old and keep else {}
+    push_ids = ids_of(PUSH, RESTORE_REMOTE)
+    if push_ids or ids_of(ADD) or plan.get("tasks_create"):
         remote.ensure_classes(settings, rid, classes_after)
+
+    # tasks never sent: created whole, in order, with jobs of job_size; excluded images -> deleted frames
+    created = 0
+    for spec in plan.get("tasks_create") or []:
+        progress.check()
+        task = next((t for t in tstore.load() if t.id == spec["task"]), None)
+        if task is None:
+            continue
+        ordered = [i for i in task.images if i in records]
+        uploads = [(records[i], manifest.file_path(records[i]), local.get(i, [])) for i in ordered]
+        rtask, keys = remote.add_task(settings, rid, project, task.name, task.job_size, uploads)
+        hidden = [_key_frame(keys[i]) for i in ordered if i in keys and records[i].status != ACTIVE]
+        if hidden:
+            remote.set_frames(settings, rtask.id, hidden, [])
+        tmap[str(task.id)] = {
+            "remote_task": rtask.id,
+            "name": task.name,
+            "jobs": {str(j.n): j.id for j in rtask.jobs},
+        }
+        for image_id in ordered:
+            if image_id in keys:
+                removed = records[image_id].status != ACTIVE
+                items[image_id] = links.base_entry(keys[image_id], local.get(image_id, []), removed)
+        created += 1
+    new_keys: dict[str, str] = {}
+    if ids_of(ADD):
+        uploads = [(records[i], manifest.file_path(records[i]), local.get(i, [])) for i in ids_of(ADD)]
+        new_keys = remote.add(settings, rid, project, uploads)
     if push_ids:
         remote.write(settings, rid, project, {decisions[i]["key"]: local.get(i, []) for i in push_ids})
-    if add_ids:
-        uploads = [(records[i], manifest.file_path(records[i]), local.get(i, [])) for i in add_ids]
-        new_keys = remote.add(settings, rid, project, uploads)
+
+    # frames removed / restored in the tool (not for tasks that are deleted whole)
+    dropping = planned_drop if delete_tasks else set()
+    frames: dict[str, tuple[list[int], list[int]]] = {}
+    for image_id in ids_of(REMOVE_REMOTE):
+        key = decisions[image_id]["key"]
+        if _key_task(key) not in dropping:
+            frames.setdefault(_key_task(key), ([], []))[0].append(_key_frame(key))
+    for image_id in ids_of(RESTORE_REMOTE):
+        key = decisions[image_id]["key"]
+        frames.setdefault(_key_task(key), ([], []))[1].append(_key_frame(key))
+    for rtask_id, (delete, restore) in frames.items():
+        remote.set_frames(settings, rtask_id, delete, restore)
+    deleted_tasks = 0
+    for spec in plan.get("tasks_delete") or []:
+        if delete_tasks:
+            remote.delete_task(settings, str(spec["remote_task"]))
+            deleted_tasks += 1
+            tmap.pop(str(spec["task"]), None)
 
     progress.update(message="Updating the project")
     counts: dict[str, Any] = {"new_classes": [], "backup": "", "skipped": 0}
     if pull_ids:
         counts = diffing.apply(store, project_id, manifest, pull_ids, new_labels)
+    removed_here = ids_of(REMOVE_LOCAL)
+    if removed_here:
+        manifest.set_status(removed_here, EXCLUDED, f"deleted in {tool}")
+    restored_here = [i for i in ids_of(RESTORE_LOCAL) if i in records]
+    if restored_here:
+        manifest.set_status(restored_here, ACTIVE)
+
+    imported = 0
+    for spec in plan.get("tasks_new") or []:
+        progress.check()
+        imported += _import_remote_task(
+            store,
+            project_id,
+            tool,
+            settings,
+            remote,
+            spec,
+            plan["new_items"].get(spec["remote_task"], []),
+            items,
+            tmap,
+        )
+
     final = _local_labels(project_dir)
-    old = links.get_link(project_dir, tool)
-    keep = old is not None and str(old["remote_id"]) == rid
-    items: dict[str, dict[str, str]] = dict(old["items"]) if old and keep else {}
-    for image_id, d in decisions.items():
-        key = new_keys.get(image_id, "") if d["action"] == ADD else str(d["key"])
+    records = manifest.load()
+    for image_id, action in final_action.items():
+        key = new_keys.get(image_id, "") if action == ADD else str(decisions[image_id]["key"])
         if not key:
             continue
-        if d["action"] == CONFLICT and image_id not in pull_ids and image_id not in push_ids:
-            items.setdefault(image_id, {"key": key})
-        else:
-            items[image_id] = links.base_entry(key, final.get(image_id, []))
+        rec = records.get(image_id)
+        removed = action in (REMOVE_LOCAL, REMOVE_REMOTE, GONE) or (
+            action == SAME and bool((items.get(image_id) or {}).get("removed"))
+        )
+        labels = (
+            final.get(image_id, []) if rec is not None else links.base_labels(items.get(image_id, {})) or []
+        )
+        items[image_id] = links.base_entry(key, labels, removed)
+    for image_id, d in decisions.items():  # conflicts left as they are keep their old base
+        if image_id not in final_action and d["key"]:
+            items.setdefault(image_id, {"key": d["key"]})
     record = links.new_link(info.url, rid, info.name, items)
+    record["tasks"] = tmap
     if old and keep:
         record["created"] = old.get("created", record["created"])
     links.save_link(project_dir, tool, record)
@@ -437,15 +748,65 @@ def apply_plan(
     if path is not None:
         path.unlink(missing_ok=True)
     return {
-        "pulled": len(pull_ids),
-        "pushed": len(push_ids),
+        "pulled": len(ids_of(PULL)),
+        "pushed": len(ids_of(PUSH)),
         "added": len(new_keys),
+        "removed_remote": len(ids_of(REMOVE_REMOTE)),
+        "removed_local": len(removed_here),
+        "restored_remote": len(ids_of(RESTORE_REMOTE)),
+        "restored_local": len(restored_here),
+        "tasks_created": created,
+        "tasks_imported": imported,
+        "tasks_deleted": deleted_tasks,
         "conflicts_left": conflicts_left,
-        "unchanged": sum(1 for d in decisions.values() if d["action"] == SAME),
+        "unchanged": len(ids_of(SAME, GONE)),
         "new_classes": counts["new_classes"],
         "backup": counts["backup"],
         "skipped": counts["skipped"],
     }
+
+
+def _import_remote_task(
+    store: ProjectStore,
+    project_id: int,
+    tool: str,
+    settings: ToolSettings,
+    remote: RemoteProject,
+    spec: dict[str, Any],
+    new_items: list[dict[str, Any]],
+    items: dict[str, dict[str, Any]],
+    tmap: dict[str, Any],
+) -> int:
+    """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0."""
+    project_dir = store.dir(project_id)
+    manifest = Manifest(project_dir)
+    tstore = TaskStore(project_dir)
+    ordered = sorted(new_items, key=lambda x: _key_frame(x["key"]))
+    if not ordered:
+        return 0
+    files = [
+        (str(x["name"]), io.BytesIO(remote.frame(settings, spec["remote_task"], _key_frame(x["key"]))))
+        for x in ordered
+    ]
+    with tstore.locked():
+        report = ingest_files(manifest, files)
+        ids = list(report.ids)
+        if not ids:
+            return 0
+        task = tstore.create(str(spec["name"] or "") or None, spec.get("job_size"), ids)
+    by_name = {Path(str(x["name"])).name: x for x in ordered}
+    stored = manifest.load()
+    pulled: dict[str, list[Label]] = {}
+    for image_id in ids:
+        x = by_name.get(Path(stored[image_id].name).name)
+        if x is None:
+            continue
+        pulled[image_id] = [Label.from_dict(lb) for lb in x["labels"]]
+        items[image_id] = links.base_entry(str(x["key"]), pulled[image_id])
+    if any(pulled.values()):
+        diffing.apply(store, project_id, manifest, list(pulled), pulled)
+    tmap[str(task.id)] = {"remote_task": str(spec["remote_task"]), "name": task.name, "jobs": {}}
+    return 1
 
 
 # -- links made by send and import ------------------------------------------------

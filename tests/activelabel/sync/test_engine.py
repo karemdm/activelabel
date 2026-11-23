@@ -130,8 +130,9 @@ def test_conflicts_listed_with_summary(env):
     assert len(p["conflicts"]) == 3 and p["pull"] == 0 and p["push"] == 0
     first = next(c for c in p["conflicts"] if c["image_id"] == env.ids[0])
     assert first["name"] == "img0.png"
-    assert first["local"] == {"labels": 1, "per_class": {"cat": 1}}
-    assert first["remote"] == {"labels": 1, "per_class": {"cat": 1}}
+    assert first["kind"] == "labels"
+    assert first["local"] == {"labels": 1, "per_class": {"cat": 1}, "removed": False}
+    assert first["remote"] == {"labels": 1, "per_class": {"cat": 1}, "removed": False}
 
 
 def test_apply_resolutions_and_default(env):
@@ -195,14 +196,25 @@ def test_excluded_images_are_ignored(env):
     set_local(env, 0, CAT2)
     set_remote(env, "img0.png", CAT3)
     p = plan(env)
-    assert (p["pull"], p["push"], p["add"], p["conflicts"], p["unchanged"]) == (0, 0, 0, [], 2)
-    assert p["remote_only"]["count"] == 0
+    assert (p["pull"], p["push"], p["add"], p["conflicts"], p["unchanged"]) == (0, 0, 0, [], 3)
+    # a local removal is not sent to a flat remote (no deleted frames): the image counts as unchanged
+    assert p["remove_remote"] == 0 and p["remote_only"]["count"] == 0
 
 
 def test_excluded_image_missing_remotely_is_not_added(env):
+    # linked images whose remote item disappeared are now removed locally (remove_local), not re-added;
+    # the excluded one is removed on both sides (unchanged)
     env.remote.projects[env.rid]["items"].clear()
     Manifest(env.dir).set_status([env.ids[0]], "excluded", "test")
-    assert plan(env)["add"] == 2
+    p = plan(env)
+    assert (p["add"], p["remove_local"], p["unchanged"]) == (0, 2, 1)
+
+
+def test_unlinked_excluded_image_is_not_added(tmp_path):
+    e = build(tmp_path, 3, {})
+    e.rid = e.remote.seed("Pets remote").id
+    Manifest(e.dir).set_status([e.ids[0]], "excluded", "test")
+    assert plan(e, remote_id=e.rid)["add"] == 2
 
 
 def test_refuses_when_remote_changed_after_plan(env):
