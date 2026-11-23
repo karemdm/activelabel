@@ -107,6 +107,12 @@ modelo atual, baixe os pesos e exporte para ONNX (classificação e segmentaçã
 4. Crie uma nova versão em *Divisão dos dados* e treine de novo. Pré-anotações não revisadas
    nunca entram numa versão do dataset.
 
+Sem nenhum treino ainda, dá para começar com um **modelo público**: em *Modelos*, *Adicionar
+modelo público*, escolha um modelo treinado no COCO (detecção ou pontos-chave) e diga qual
+categoria dele vira cada classe do projeto (a tela sugere quando os nomes batem). Ele aparece
+como mais um modelo e pode ser usado em *Pré-anotar*. Os pesos são baixados a cada uso, numa
+pasta temporária apagada no fim; é preciso internet.
+
 ### Atividades
 
 As tarefas demoradas (análise, envio, sincronização, treinamento, exportação, pré-anotação)

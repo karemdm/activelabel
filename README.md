@@ -48,7 +48,8 @@ bar with the six steps.
    reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs:
    - *Resumo*: what the project has (annotated, to review, classes).
-   - *Pré-anotar*: a saved model suggests labels for the images of a task; see
+   - *Pré-anotar*: a saved model, or a public pretrained one (COCO), suggests labels for the
+     images of a task; see
      [docs/PREANNOTATE.md](docs/PREANNOTATE.md).
    - *CVAT*: send images to CVAT and synchronise annotations in both directions, with a review
      before anything changes; see [docs/ANNOTATION.md](docs/ANNOTATION.md) and

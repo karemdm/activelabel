@@ -927,3 +927,16 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-always .icon { color: var(--ok); }
 .ann-ways { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
 .ann-ways li { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+/* step 6: public pretrained models */
+.md-head-actions, .md-empty-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+.md-public { display: inline-block; padding: 0 0.45rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
+.md-mapping { margin: 0.25rem 0 0.5rem; overflow-wrap: anywhere; }
+.md-public-list { display: grid; gap: 0.4rem; }
+.field .md-public-choice, .md-public-choice { display: flex; font-weight: 400; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+.md-public-choice.selected { border-color: var(--primary); background: var(--primary-soft); }
+.md-public-text { display: flex; flex-direction: column; gap: 0.1rem; }
+.md-map-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.5rem 1rem; }
+.md-map-row { display: grid; grid-template-columns: minmax(6rem, auto) 1fr; gap: 0.5rem; align-items: center; }
+.md-map-row label { font-weight: 600; overflow-wrap: anywhere; }
+.md-public-choice input { margin-top: 0.25rem; flex: none; }
