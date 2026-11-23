@@ -958,5 +958,10 @@
   "md.class_row": "{cls} · {metric}",
   "md.size": "Tamanho",
   "md.export_help": "O ONNX roda sem PyTorch (onnxruntime, OpenCV, TensorRT…). O pacote onnx é instalado na primeira exportação.",
-  "md.onnx_later": "ONNX para modelos de detecção virá depois"
+  "md.onnx_later": "ONNX para modelos de detecção virá depois",
+  "jobs.minimize": "Minimizar",
+  "jobs.close": "Fechar (as concluídas continuam no histórico)",
+  "jobs.show": "Mostrar as atividades",
+  "jobs.running_n_one": "{n} em andamento",
+  "jobs.running_n_other": "{n} em andamento"
 }

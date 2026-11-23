@@ -3151,21 +3151,53 @@
         job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${job.error}`) : null);
     }
 
-    /* The bar shows what is running and the latest finished task; the rest is in the history. */
+    /* A small card in the corner: what is running and the latest finished activity (the rest is in
+       the history). It can be minimised to a pill and closed; finished activities that were closed
+       stay closed. Both choices are remembered per project in this browser. */
+    const jobsKey = `al.jobs.${projectId}`;
+    const jobsPrefs = (() => {
+      try { const v = JSON.parse(localStorage.getItem(jobsKey) || '{}'); return { min: !!v.min, closed: new Set(v.closed || []) }; } catch (err) { return { min: false, closed: new Set() }; }
+    })();
+    function saveJobsPrefs() {
+      try { localStorage.setItem(jobsKey, JSON.stringify({ min: jobsPrefs.min, closed: [...jobsPrefs.closed].slice(-200) })); } catch (err) { /* not remembered */ }
+    }
+    let jobsFocus = null;
     function renderJobs() {
       if (ctx.syncDraw) ctx.syncDraw();
       const all = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created)));
       const running = all.filter(isActive);
       const finished = all.filter((j) => !isActive(j));
-      const shown = [...running, ...finished.slice(0, 1)];
+      const latest = finished.slice(0, 1).filter((j) => !jobsPrefs.closed.has(j.id));
+      const shown = [...running, ...latest];
       jobsBox.hidden = !shown.length;
-      document.getElementById('main').classList.toggle('no-jobs', !shown.length);
+      jobsBox.classList.toggle('min', jobsPrefs.min);
       if (!shown.length) { jobsBox.replaceChildren(); return; }
-      const head = el('div', { class: 'jobs-head' }, el('h2', null, t('jobs.title')),
-        finished.length > 1
-          ? el('button', { type: 'button', class: 'btn small', onclick: openHistory }, t('jobs.history', { n: num(finished.length) }))
-          : null);
-      jobsBox.replaceChildren(head, el('ul', { class: 'jobs' }, ...shown.map(jobRow)));
+      const pct = running.length === 1 && running[0].total ? Math.round((running[0].done / running[0].total) * 100) : null;
+      const summary = running.length
+        ? `${tn('jobs.running_n', running.length)}${pct != null ? ` · ${pct}%` : ''}`
+        : `${statusText(latest[0].status)} · ${kindText(latest[0].kind, latest[0])}`;
+      const glyph = running.length ? el('span', { class: 'tr-dot', 'aria-hidden': 'true' }) : icon(latest[0].status === 'done' ? 'check' : 'error', 14);
+      const toggle = (min) => { jobsPrefs.min = min; saveJobsPrefs(); jobsFocus = min ? 'open' : 'min'; renderJobs(); };
+      const close = () => {
+        finished.forEach((j) => jobsPrefs.closed.add(j.id));
+        if (running.length) jobsPrefs.min = true;
+        saveJobsPrefs();
+        jobsFocus = running.length ? 'open' : null;
+        renderJobs();
+      };
+      if (jobsPrefs.min) {
+        jobsBox.replaceChildren(el('button', { type: 'button', class: 'jobs-pill', 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
+          glyph, el('span', null, summary), el('span', { class: 'sr-only' }, t('jobs.show'))));
+      } else {
+        const head = el('div', { class: 'jobs-head' },
+          el('h2', null, t('jobs.title')),
+          el('span', { class: 'muted jobs-summary' }, summary),
+          finished.length > 1 ? el('button', { type: 'button', class: 'btn small', onclick: openHistory }, t('jobs.history', { n: num(finished.length) })) : null,
+          el('button', { type: 'button', class: 'icon-btn', 'data-jobs': 'min', 'aria-expanded': 'true', 'aria-label': t('jobs.minimize'), title: t('jobs.minimize'), onclick: () => toggle(true) }, icon('chevron', 16)),
+          el('button', { type: 'button', class: 'icon-btn', 'data-jobs': 'close', 'aria-label': t('jobs.close'), title: t('jobs.close'), onclick: close }, icon('close', 16)));
+        jobsBox.replaceChildren(head, el('ul', { class: 'jobs' }, ...shown.map(jobRow)));
+      }
+      if (jobsFocus) { const b = jobsBox.querySelector(`[data-jobs="${jobsFocus}"]`); if (b) b.focus(); jobsFocus = null; }
       if (historyDlg && historyDlg.open) fillHistory();
     }
 
