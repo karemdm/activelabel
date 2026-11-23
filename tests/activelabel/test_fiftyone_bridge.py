@@ -9,6 +9,7 @@ from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
 from activelabel.tasks import Task
+from activelabel.tasks_store import TaskStore
 
 pytestmark = pytest.mark.integration
 
@@ -152,3 +153,66 @@ def test_classification_ground_truth_is_one_class(tmp_path, project):
     sample = dataset.match(fo.ViewField("image_id") == "i0").first()
     assert sample.ground_truth.label == "cat"
     assert dataset.match(fo.ViewField("image_id") == "i1").first().ground_truth is None
+
+
+def _video_manifest(tmp_path):
+    manifest = Manifest(tmp_path)
+    records = []
+    for i in range(4):  # two videos, frames added out of order
+        make_image(tmp_path / "images" / f"v{i}.png", seed=i)
+        video, frame = ("va", "vb")[i % 2], (3 - i) * 10
+        records.append(
+            ImageRecord(
+                f"v{i}", f"v{i}.png", f"images/v{i}.png", 64, 48, 1, "2026",
+                video=video, frame=frame, time=frame / 10,
+            )
+        )  # fmt: skip
+    manifest.add(records)
+    return manifest
+
+
+def test_task_fields_and_views(tmp_path, project):
+    manifest = build(tmp_path, 3)
+    store = TaskStore(tmp_path)
+    tasks = store.load()  # migration: every image in "Task 1"
+    tasks[0].name, tasks[0].job_size = "Mine", 2
+    store._write(2, tasks)  # noqa: SLF001
+    dataset = bridge.sync_dataset(project, manifest, None)
+    sample = dataset.match(fo.ViewField("image_id") == "i2").first()
+    assert (sample.task, sample.task_name, sample.job, sample.position) == (1, "Mine", 2, 3)
+    assert sample.video is None and sample.frame_number is None and sample.time is None
+    assert bridge.task_view_name(1) in dataset.list_saved_views()
+    assert dataset.load_saved_view("task-1").values("image_id") == ["i0", "i1", "i2"]
+    assert bridge.resolve_view(dataset, "task-1") == "task-1"
+    info = next(i for i in dataset.list_saved_views(info=True) if i["name"] == "task-1")
+    assert info["description"] == "Task: Mine"
+    assert bridge.task_view(dataset, 1, 2).values("image_id") == ["i2"]
+
+
+def test_video_task_view_groups_frames(tmp_path, project):
+    manifest = _video_manifest(tmp_path)
+    store = TaskStore(tmp_path)
+    store.load()  # migration: every image in "Task 1"
+    store.delete(1)
+    store.create("Clips", images=["v0", "v1", "v2", "v3"], source={"video": "va"})
+    dataset = bridge.sync_dataset(project, manifest, None)
+    sample = dataset.match(fo.ViewField("image_id") == "v0").first()
+    assert (sample.video, sample.frame_number, sample.time) == ("va", 30, 3.0)
+    view = dataset.load_saved_view("task-2")
+    assert view._is_dynamic_groups  # noqa: SLF001
+    assert len(view) == 2  # two videos, two groups
+    assert view.get_dynamic_group("va").values("frame_number") == [10, 30]
+
+
+def test_refresh_after_task_deleted(tmp_path, project):
+    manifest = build(tmp_path, 3)
+    store = TaskStore(tmp_path)
+    store.load()  # migration: every image in "Task 1"
+    store.remove_images(["i2"])
+    store.create("B", images=["i2"])
+    dataset = bridge.sync_dataset(project, manifest, None)
+    assert {"task-1", "task-2"} <= set(dataset.list_saved_views())
+    manifest.delete(store.delete(1))  # the images of the deleted task go away too
+    dataset = bridge.sync_dataset(project, manifest, None)
+    assert "task-1" not in dataset.list_saved_views() and "task-2" in dataset.list_saved_views()
+    assert dataset.distinct("task") == [2]

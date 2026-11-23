@@ -1651,6 +1651,7 @@
           el('div', { class: 'task-head' },
             title,
             isRenaming ? null : el('div', { class: 'task-actions' },
+              iconButton('fiftyone', `${t('tasks.open_fo')}: ${task.name}`, '', () => openTaskInFiftyOne(task)),
               iconButton('edit', `${t('tasks.rename')}: ${task.name}`, '', () => { renaming = task.id; renameDraft = null; drawTasks(); }, `${cid}-rename`),
               iconButton('trash', `${t('tasks.delete')}: ${task.name}`, 'danger', () => deleteTask(task)),
               manyJobs
@@ -1691,6 +1692,16 @@
           focusAfter = null;
           if (f) f.focus();
         }
+      }
+
+      /** The task's own FiftyOne view (a video task shows each video as an ordered sequence). */
+      async function openTaskInFiftyOne(task) {
+        try {
+          const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { task: task.id } });
+          if (job && job.id) ctx.openWhenDone.add(job.id);
+          toast(t('cur.fo_starting'), 'info', 4000);
+          jobStarted(job);
+        } catch (err) { toastError(err); }
       }
 
       async function deleteTask(task) {
