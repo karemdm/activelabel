@@ -1,0 +1,152 @@
+import importlib.util
+import json
+import random
+import sys
+from pathlib import Path
+
+import pytest
+
+WORKER = Path(__file__).parents[3] / "src" / "activelabel" / "training" / "workers" / "segmentation.py"
+
+
+@pytest.fixture(scope="module")
+def worker():
+    spec = importlib.util.spec_from_file_location("segmentation_worker", WORKER)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["segmentation_worker"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+CLASSES = ["cat", "dog"]
+SQUARE = [[0.0, 0.0], [0.5, 0.0], [0.5, 0.5], [0.0, 0.5]]
+
+
+def test_rasterize_polygons_over_each_other(worker):
+    big = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    objs = [{"label": 0, "polygons": [big]}, {"label": "dog", "polygons": [SQUARE]}]
+    mask = worker.rasterize_mask(objs, 20, 20, CLASSES)
+    assert mask.size == (20, 20)
+    assert mask.getpixel((2, 2)) == 2  # the later object (dog) is on top
+    assert mask.getpixel((15, 15)) == 1  # cat elsewhere
+
+
+def test_rasterize_background_box_only_and_degenerate(worker):
+    objs = [
+        {"label": 1, "bbox": [0.5, 0.5, 0.5, 0.5]},  # box only -> filled rectangle
+        {"label": 0, "polygons": [[[0.0, 0.0], [0.1, 0.1]]]},  # 2 points: no polygon, no box -> skipped
+        {"label": 0},
+    ]
+    mask = worker.rasterize_mask(objs, 10, 10, CLASSES)
+    assert mask.getpixel((0, 0)) == 0  # background
+    assert mask.getpixel((7, 7)) == 2
+    assert dict((v, c) for c, v in mask.getcolors())[2] == 25
+    assert {v for _, v in mask.getcolors()} == {0, 2}
+    assert worker.count_box_only({"train": [{"objects": objs}], "val": [{"objects": [objs[0]]}]}) == 2
+    with pytest.raises(worker.SpecError):
+        worker.rasterize_mask([{"label": "bird", "bbox": [0, 0, 1, 1]}], 4, 4, CLASSES)
+    with pytest.raises(worker.SpecError):
+        worker.class_id(5, CLASSES)
+
+
+def test_augment_pair_is_consistent(worker):
+    from PIL import Image
+
+    image = Image.new("RGB", (40, 30), (120, 120, 120))
+    mask = worker.rasterize_mask([{"label": 0, "polygons": [SQUARE]}], 40, 30, CLASSES)
+    for preset in ("none", "light", "standard", "strong"):
+        img, msk = worker.augment_pair(image, mask, preset, 16, random.Random(1))
+        assert img.size == msk.size == (16, 16)
+        assert {v for _, v in msk.getcolors()} <= {0, 1}  # nearest: no invented class values
+    img, msk = worker.augment_pair(image, mask, "none", 16)
+    assert msk.getpixel((2, 2)) == 1 and msk.getpixel((14, 14)) == 0
+    with pytest.raises(worker.SpecError):
+        worker.augmentation_plan("wild")
+    left, top, right, bottom = worker.random_crop_box(100, 50, 0.4, random.Random(3))
+    assert 0 <= left < right <= 100 and 0 <= top < bottom <= 50
+
+
+# classes: background, cat, dog. matrix[true][predicted]
+MATRIX = [[50, 5, 5], [10, 20, 0], [0, 10, 0]]
+
+
+def test_confusion_and_metrics(worker):
+    assert worker.confusion_from_lists([0, 0, 1, 2], [0, 1, 1, 1], 3) == [[1, 1, 0], [0, 1, 0], [0, 1, 0]]
+    cat = worker.class_scores(MATRIX, 1)  # tp 20, support 30, predicted 35
+    assert cat[0] == pytest.approx(20 / 45) and cat[1] == pytest.approx(40 / 65)
+    assert cat[2:] == (30, 35)
+    dog = worker.class_scores(MATRIX, 2)  # tp 0, support 10, predicted 5
+    assert dog[0] == 0 and dog[1] == 0
+    miou, dice = worker.mean_scores(MATRIX)  # background excluded
+    assert miou == pytest.approx((20 / 45 + 0) / 2)
+    assert dice == pytest.approx((40 / 65 + 0) / 2)
+    assert worker.pixel_accuracy(MATRIX) == pytest.approx(70 / 100)
+    ev = worker.evaluation(MATRIX, CLASSES)
+    assert ev["classes"] == ["background", "cat", "dog"]
+    assert ev["background_iou"] == pytest.approx(50 / 70)
+    assert ev["per_class"]["background"]["support"] == 60
+    assert ev["per_class"]["cat"]["iou"] == pytest.approx(20 / 45)
+    assert ev["confusion_matrix"] == MATRIX
+
+
+def test_absent_classes_do_not_count(worker):
+    only_bg = [[10, 0, 0], [0, 0, 0], [0, 0, 0]]
+    assert worker.mean_scores(only_bg) == (0.0, 0.0)
+    assert worker.pixel_accuracy(only_bg) == 1.0
+    # dog never appears in truth or prediction: the mean is over cat only
+    m = [[8, 2, 0], [0, 4, 0], [0, 0, 0]]
+    assert worker.mean_scores(m)[0] == pytest.approx(4 / 6)
+    assert worker.pixel_accuracy([[0, 0], [0, 0]]) == 0.0
+
+
+def test_load_spec(worker, tmp_path):
+    spec = {
+        "task": "semantic",
+        "model": "fcn_resnet50",
+        "family": "torchvision",
+        "start": "transfer",
+        "params": {},
+        "classes": CLASSES,
+        "parts": {"train": [{"path": "a"}, {"path": "b"}], "val": [{"path": "c"}]},
+        "output_dir": str(tmp_path),
+        "metric": "miou",
+    }
+    path = tmp_path / "spec.json"
+
+    def check(**changes):
+        path.write_text(json.dumps({**spec, **changes}))
+        return worker.load_spec(path)
+
+    assert check()["model"] == "fcn_resnet50"
+    for bad in (
+        {"task": "classification"},
+        {"model": "resnet18"},
+        {"start": "x"},
+        {"metric": "accuracy"},
+        {"fold": "all"},
+        {"parts": {"train": [{"path": "a"}, {"path": "b"}], "val": []}},
+        {"parts": {"train": [{"path": "a"}], "val": [{"path": "c"}]}},
+    ):
+        with pytest.raises(worker.SpecError):
+            check(**bad)
+
+
+def test_dataset_and_tiny_model(worker, tmp_path):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("torchvision")
+    from PIL import Image
+
+    Image.new("RGB", (32, 24), (200, 10, 10)).save(tmp_path / "a.png")
+    items = [{"path": str(tmp_path / "a.png"), "objects": [{"label": 1, "polygons": [SQUARE]}]}]
+    image, mask = worker.SegmentationDataset(items, CLASSES, 16, None)[0]
+    assert image.shape == (3, 16, 16) and mask.shape == (16, 16) and mask.dtype == torch.long
+    assert set(mask.unique().tolist()) == {0, 2}
+    params = {"lr": 0.01, "weight_decay": 0.0, "optimizer": "sgd", "backbone_lr_factor": 0.1}
+    spec = {"model": "lraspp_mobilenet_v3_large", "classes": CLASSES, "start": "scratch", "params": params}
+    model = worker.build_model(spec, pretrained=False)
+    out = model(image[None].repeat(2, 1, 1, 1))
+    assert out["out"].shape == (2, 3, 16, 16)
+    loss = worker.segmentation_loss(out, mask[None].repeat(2, 1, 1), torch.nn.CrossEntropyLoss())
+    assert float(loss) > 0
+    assert worker.make_optimizer(spec, model, torch) is not None
+    assert worker.pick_device(torch) in ("cuda", "mps", "cpu")
