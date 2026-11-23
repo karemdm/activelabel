@@ -451,3 +451,52 @@ def test_tracked_frames_are_read_again_after_a_push(synced, monkeypatch):
     assert after[env.ids[0]][0].track == 8 and after[env.ids[1]][0].bbox[0] == 0.15
     again = plan(env)
     assert (again["pull"], again["push"], len(again["conflicts"])) == (0, 0, 0)
+
+
+# -- direction ------------------------------------------------------------------------
+def test_pull_direction_makes_the_project_like_the_tool(synced):
+    env = synced
+    set_local(env, 0, CAT2)  # changed here only
+    set_remote(env, 1, CAT3)  # changed there only
+    set_local(env, 2, CAT2)  # changed on both sides
+    set_remote(env, 2, CAT3)
+    Manifest(env.dir).set_status([env.ids[3]], "excluded", "x")  # removed here
+    p = plan(env, direction="pull")
+    assert p["direction"] == "pull" and p["conflicts"] == [] and p["push"] == 0
+    assert (p["pull"], p["restore_local"]) == (3, 1)
+    apply(env, p["plan_id"])
+    assert local(env, 0) == CAT and local(env, 1) == CAT3 and local(env, 2) == CAT3
+    assert Manifest(env.dir).load()[env.ids[3]].status == "active"
+    again = plan(env)
+    assert (again["pull"], again["push"], again["remove_remote"], len(again["conflicts"])) == (0, 0, 0, 0)
+
+
+def test_push_direction_makes_the_tool_like_the_project(synced):
+    env = synced
+    set_remote(env, 0, CAT3)  # changed there only
+    set_local(env, 2, CAT2)  # changed on both sides
+    set_remote(env, 2, CAT3)
+    Manifest(env.dir).set_status([env.ids[3]], "excluded", "x")  # removed here
+    p = plan(env, direction="push")
+    assert p["conflicts"] == [] and p["pull"] == 0 and (p["push"], p["remove_remote"]) == (2, 1)
+    apply(env, p["plan_id"])
+    assert env.remote.labels(env.rid, "img0.png") == CAT and env.remote.labels(env.rid, "img2.png") == CAT2
+    again = plan(env)
+    assert (again["pull"], again["push"], again["remove_local"], len(again["conflicts"])) == (0, 0, 0, 0)
+
+
+def test_one_way_leaves_what_exists_only_on_the_other_side(env):
+    first = plan(env, create=True, scope="task", task_id=1)  # only Alpha is sent; Beta stays here only
+    apply(env, first["plan_id"])
+    rid = links.get_link(env.dir, "cvat")["remote_id"]
+    new = env.remote.new_task(rid, "Only there", [("z0.png", CAT)])
+    pulled = plan(env, direction="pull")
+    assert pulled["tasks_create"] == [] and [t["name"] for t in pulled["only_here"]["tasks"]] == ["Beta"]
+    assert [t["remote_task"] for t in pulled["tasks_new"]] == [new]
+    pushed = plan(env, direction="push")
+    assert pushed["tasks_new"] == [] and [t["name"] for t in pushed["tasks_create"]] == ["Beta"]
+
+
+def test_unknown_direction(synced):
+    with pytest.raises(engine.SyncError, match="direction"):
+        plan(synced, direction="sideways")
