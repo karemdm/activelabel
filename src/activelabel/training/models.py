@@ -88,10 +88,15 @@ class ModelStore:
         results = runs.results(run_number) or {}
         spec = get_model(config.model)
         metric = results.get("metric") or config.metric or (spec.default_metric() if spec else "")
-        try:
-            classes = list(DatasetStore(self.project_dir).read(config.dataset)["classes"])
-        except (DatasetNotFound, KeyError):
-            raise ModelError("The dataset version of this run no longer exists.") from None
+        classes = run.get("classes")  # recorded when the run started (older runs: read the version)
+        if not classes:
+            try:
+                classes = list(DatasetStore(self.project_dir).read(config.dataset)["classes"])
+            except (DatasetNotFound, KeyError):
+                raise ModelError(
+                    "The data split version of this run was deleted and the run has no list of classes."
+                ) from None
+        classes = list(classes)
         with self._lock:
             for existing in self.list():
                 if existing.get("run") == run_number:
@@ -118,6 +123,7 @@ class ModelStore:
                 "mode": config.mode,
                 "metric": metric,
                 "value": (run.get("best") or {}).get("value"),
+                "best_fold_value": (run.get("best") or {}).get("best_fold_value"),
                 "classes": classes,
                 "device": run.get("device"),
                 "packages": run.get("packages"),

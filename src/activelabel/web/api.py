@@ -299,7 +299,7 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     project = state.project(project_id)
     if body.confirm_name.strip() != project.name:
         raise HTTPException(400, "The name does not match; nothing was deleted.")
-    state.busy(project_id)
+    state.busy(project_id, training=True)
     state.store.delete(project_id)
     return {"deleted": project_id}
 
@@ -465,7 +465,7 @@ def delete_images(project_id: int, body: ImageIds, state: AppState = STATE) -> d
 
 def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
     """Delete images for good: files, thumbnails, annotations and their place in a task."""
-    state.busy(project_id)
+    state.busy(project_id, training=True)
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
     tasks = TaskStore(project_dir)

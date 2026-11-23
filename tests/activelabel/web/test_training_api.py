@@ -56,7 +56,7 @@ def test_create_list_get_reproduce_delete(tmp_path):
 
 def test_running_run_is_not_deleted(tmp_path):
     client, state = _setup(tmp_path)
-    client.post(RUNS, json={"dataset": 1, "model": "yolov8n"})
+    client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"})
     RunStore(state.store.dir(1)).update(1, status="running")
     assert client.request("DELETE", f"{RUNS}/1", json={"confirm": True}).status_code == 409
 
@@ -80,15 +80,21 @@ def test_readable_errors(tmp_path):
 
 def test_fold_only_for_kfold_versions(tmp_path):
     client, _ = _setup(tmp_path, kfold=3)
-    assert client.post(RUNS, json={"dataset": 1, "model": "yolov8n"}).status_code == 200
+    assert client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).status_code == 200
     assert client.get(f"{RUNS}/1").json()["config"]["fold"] == "all"
-    assert client.post(RUNS, json={"dataset": 1, "model": "yolov8n", "fold": 1}).status_code == 200
-    assert client.post(RUNS, json={"dataset": 1, "model": "yolov8n", "fold": 3}).status_code == 400
+    assert (
+        client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn", "fold": 1}).status_code
+        == 200
+    )
+    assert (
+        client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn", "fold": 3}).status_code
+        == 400
+    )
 
 
 def test_cancel_queued_run_and_unknown(tmp_path):
     client, _ = _setup(tmp_path)
-    client.post(RUNS, json={"dataset": 1, "model": "yolov8n"})
+    client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"})
     assert client.post(f"{RUNS}/1/cancel").json()["status"] == "cancelled"
     assert client.post(f"{RUNS}/7/cancel").status_code == 404
 

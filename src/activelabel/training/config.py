@@ -221,6 +221,11 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         if len({repr(v) for v in checked}) != len(checked):
             raise ConfigError(f"The grid list of '{name}' repeats a value.")
         grid[name] = checked
+    if model.task_kind == "semantic":
+        batches = [params["batch_size"]] if "batch_size" in params else []
+        batches += grid.get("batch_size", [])
+        if any(b < 2 for b in batches):
+            raise ConfigError("Segmentation models need a batch size of at least 2.")
     if config.mode == "single" and grid:
         raise ConfigError("A single run has no grid: use the grid mode or remove the lists.")
     if config.mode == "grid" and not grid:

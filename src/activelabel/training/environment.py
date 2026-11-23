@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
+import shutil
+import stat
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +105,37 @@ def capture(cmd: list[str], timeout: float = 30) -> tuple[int, str]:
     except (OSError, subprocess.SubprocessError):
         return -1, ""
     return done.returncode, done.stdout or ""
+
+
+LOG = logging.getLogger(__name__)
+
+
+def _clear_readonly(function: Callable[[str], Any], path: str, *_: Any) -> None:
+    """``rmtree`` error handler: clear the read-only flag and retry once (never raises)."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    except OSError:
+        pass
+
+
+def remove_tree(path: Path) -> None:
+    """Remove a folder or file as well as possible, retrying; never raises (a leftover is cleaned later)."""
+    try:
+        for _ in range(5):
+            if path.is_dir() and not path.is_symlink():
+                if sys.version_info >= (3, 12):
+                    shutil.rmtree(path, onexc=_clear_readonly)
+                else:
+                    shutil.rmtree(path, onerror=_clear_readonly)
+            else:
+                path.unlink(missing_ok=True)
+            if not path.exists():
+                return
+            time.sleep(0.2)
+    except OSError:
+        pass
+    LOG.warning("Could not remove %s", path)
 
 
 def kill_tree(proc: subprocess.Popen[str]) -> None:
@@ -242,8 +277,12 @@ class TrainingEnvironment:
         return self.path / "bin" / "python"
 
     def exists(self) -> bool:
-        """Whether the environment has been created."""
-        return self.python().exists()
+        """Whether the environment has been created and works (a venv without pip does not count)."""
+        python = self.python()
+        if not python.exists():
+            return False
+        code, _ = capture([str(python), "-m", "pip", "--version"], timeout=60)
+        return code == 0
 
     # -- detection -------------------------------------------------------
 
@@ -284,13 +323,24 @@ class TrainingEnvironment:
         return TrainingEnvError(f"{what}. Details in {self.log}")
 
     def create(self, check: CheckFn, step: StepFn) -> None:
-        """Create the virtual environment when it is missing."""
+        """Create the virtual environment when it is missing (or broken: no Python or no pip).
+
+        A creation that is cancelled or fails does not leave a half-made folder behind.
+        """
         if self.exists():
             return
         step("train_env_create")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        code = run_logged([sys.executable, "-m", "venv", str(self.path)], self.log, check)
-        if code != 0 or not self.exists():
+        if self.path.exists():  # left by an earlier failure, or a venv without pip
+            remove_tree(self.path)
+        try:
+            code = run_logged([sys.executable, "-m", "venv", str(self.path)], self.log, check)
+            created = code == 0 and self.exists()
+        except BaseException:
+            remove_tree(self.path)
+            raise
+        if not created:
+            remove_tree(self.path)
             raise self._fail("Could not create the training environment")
 
     def ensure(self, packages: Iterable[str], check: CheckFn, step: StepFn) -> None:

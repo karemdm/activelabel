@@ -15,6 +15,7 @@ selection metric over the folds; only the weights of the best child are kept, in
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import shutil
@@ -29,14 +30,14 @@ from pathlib import Path
 from typing import Any
 
 from activelabel import __version__, preannotate
-from activelabel.datasets import DatasetStore
+from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, JobManager, Progress
 from activelabel.labels import Label
 from activelabel.storage import now, write_json
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
-from activelabel.training.environment import TrainingEnvironment, kill_tree
+from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
 from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.runs import (
     CANCELLED,
@@ -48,6 +49,7 @@ from activelabel.training.runs import (
     RunStore,
 )
 
+LOG = logging.getLogger(__name__)
 WORKERS_DIR = Path(__file__).parent / "workers"
 #: Worker script (a file of ``workers/``) of each kind of task.
 WORKER_FILES = {
@@ -235,7 +237,9 @@ def rank_children(
         n_folds: folds per combination (1 without K-fold).
 
     Returns:
-        ``{"ranking", "best_combo", "best_child", "best_value", "folds"}``. A ranking row has
+        ``{"ranking", "best_combo", "best_child", "best_value", "best_fold_value", "folds"}``
+        (``best_value`` is the mean over the folds, ``best_fold_value`` the score of ``best_child``).
+        A ranking row has
         ``rank``, ``combo``, ``values``, ``children``, ``scores`` (per finished child), ``mean``,
         ``std`` and ``complete``; complete combinations come first. ``best_child`` is the best fold
         of the best combination (``None`` when no child finished).
@@ -274,16 +278,12 @@ def rank_children(
         "best_combo": top["combo"] if top else None,
         "best_child": best_child,
         "best_value": top["mean"] if top else None,
+        "best_fold_value": top["scores"][best_child] if top and best_child else None,
         "folds": n_folds,
     }
 
 
-def _remove_tree(path: Path) -> None:
-    for attempt in range(5):
-        shutil.rmtree(path, ignore_errors=attempt < 4)
-        if not path.exists():
-            return
-        time.sleep(0.2)
+_remove_tree = remove_tree
 
 
 class TrainingRunner:
@@ -355,6 +355,7 @@ class TrainingRunner:
             was_waiting = key in self._waiting
             if was_waiting:
                 self._waiting.remove(key)
+                self._job_ids.pop(key, None)  # the job is cancelled below and will never run
             proc = self._procs.get(key)
         if job_id:
             self._jobs.cancel(job_id)
@@ -414,25 +415,89 @@ class TrainingRunner:
             kill_tree(proc)
         if run["status"] == QUEUED:
             runs.update(number, status=CANCELLED, finished=now())
+            with self._lock:
+                self._pre_jobs.pop((project_id, number), None)
         else:
             deadline = time.monotonic() + 10
             while runs.get(number)["status"] == RUNNING and time.monotonic() < deadline:
                 time.sleep(0.05)
 
+    def has_active(self, project_id: int) -> bool:
+        """Whether a training run, ONNX export or pre-annotation of the project is queued or running."""
+        return bool(self._jobs.active(project_id))
+
     def recover(self) -> None:
         """At startup: runs left ``running`` were interrupted (failed); queued ones go back in line.
 
         Exports and pre-annotations left queued or running were interrupted too (they can be asked again),
-        and temporary folders left by a process that was killed are removed.
+        and temporary folders left by a process that was killed are removed. A failing step is logged
+        and skipped: it never stops the app from starting.
         """
-        if self.tmp_root.exists():
-            for leftover in self.tmp_root.iterdir():
-                _remove_tree(leftover)
-        for project_id in self._project_ids():
+        try:
+            if self.tmp_root.exists():
+                for leftover in list(self.tmp_root.iterdir()):
+                    _remove_tree(leftover)
+        except OSError:
+            LOG.exception("Could not clean the temporary training folder")
+        try:
+            project_ids = list(self._project_ids())
+        except Exception:  # noqa: BLE001 - startup must go on
+            LOG.exception("Could not list the projects to recover")
+            return
+        for project_id in project_ids:
+            self._recover_tools(project_id)
+        queued: list[tuple[int, int]] = []
+        for project_id in project_ids:
+            try:
+                store = self.store(project_id)
+                for number in store.numbers():  # oldest first
+                    try:
+                        queued.extend(self._recover_run(store, project_id, store.get(number)))
+                    except Exception:  # noqa: BLE001 - one broken run must not stop the others
+                        LOG.exception("Could not recover run %s of project %s", number, project_id)
+            except Exception:  # noqa: BLE001
+                LOG.exception("Could not recover the runs of project %s", project_id)
+        for project_id, number in queued:
+            try:
+                self.enqueue(project_id, number)
+            except Exception:  # noqa: BLE001
+                LOG.exception("Could not queue run %s of project %s again", number, project_id)
+
+    def _recover_run(self, store: RunStore, project_id: int, run: dict[str, Any]) -> list[tuple[int, int]]:
+        number = run["number"]
+        if run["status"] == RUNNING:
+            fields: dict[str, Any] = {}
+            if run.get("children"):  # a composite run: its unfinished children were interrupted too
+                fields["children"] = [
+                    {**c, "status": FAILED, "error": "interrupted", "finished": now()}
+                    if c.get("status") in (QUEUED, RUNNING)
+                    else c
+                    for c in run["children"]
+                ]
+            store.update(
+                number,
+                status=FAILED,
+                error="interrupted",
+                finished=now(),
+                phase="",
+                current=None,
+                queue_position=None,
+                **fields,
+            )
+        elif run["status"] == QUEUED:
+            return [(project_id, number)]
+        return []
+
+    def _recover_tools(self, project_id: int) -> None:
+        """Pre-annotations and exports left queued or running are marked as interrupted."""
+        try:
             pre = preannotate.PreannotationStore(self._project_dir(project_id))
             for run in pre.list():
                 if run["status"] in (QUEUED, RUNNING):
                     pre.update(run["number"], status=FAILED, error="interrupted", finished=now())
+        except Exception:  # noqa: BLE001
+            LOG.exception("Could not recover the pre-annotations of project %s", project_id)
+        try:
             models = ModelStore(self._project_dir(project_id))
             for card in models.list():
                 for fmt, export in (card.get("exports") or {}).items():
@@ -440,16 +505,8 @@ class TrainingRunner:
                         models.set_export(
                             card["number"], fmt, status=FAILED, error="interrupted", finished=now()
                         )
-        queued: list[tuple[int, int]] = []
-        for project_id in self._project_ids():
-            store = self.store(project_id)
-            for run in reversed(store.list()):  # oldest first
-                if run["status"] == RUNNING:
-                    store.update(run["number"], status=FAILED, error="interrupted", finished=now(), phase="")
-                elif run["status"] == QUEUED:
-                    queued.append((project_id, run["number"]))
-        for project_id, number in queued:
-            self.enqueue(project_id, number)
+        except Exception:  # noqa: BLE001
+            LOG.exception("Could not recover the exports of project %s", project_id)
 
     def shutdown(self) -> None:
         """Stop the running process (if any) and the queue."""
@@ -471,6 +528,7 @@ class TrainingRunner:
         try:
             card = store.get(number)
             folder = store.path(number)
+            part = (folder / EXPORT_FILES[fmt]).with_suffix(".part")
             config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
             model = get_model(card["model"])
             if model is None:
@@ -480,6 +538,8 @@ class TrainingRunner:
                     f"ONNX export of {model.task_kind} models {COMES_LATER}: download the PyTorch weights."
                 )
             worker = self._scripts(model.task_kind).stem
+            (folder / EXPORT_FILES[fmt]).unlink(missing_ok=True)  # an old export is not kept as the new one
+            part.unlink(missing_ok=True)
 
             def step(message: str) -> None:
                 store.set_export(number, fmt, message=message)
@@ -512,11 +572,27 @@ class TrainingRunner:
             store.set_export(number, fmt, status=DONE, finished=now(), message="", **info)
         except Cancelled:
             store.set_export(number, fmt, status=CANCELLED, finished=now(), message="")
+        except ModelNotFound:
+            self._export_failed(store, number, fmt, "This model was deleted.")
+        except FileNotFoundError:
+            message = "A file of this model is missing (best.pt): save the training run as a model again."
+            self._export_failed(store, number, fmt, message)
         except Exception as exc:  # noqa: BLE001 - shown to the person
-            store.set_export(number, fmt, status=FAILED, error=str(exc) or type(exc).__name__, finished=now())
+            self._export_failed(store, number, fmt, str(exc) or type(exc).__name__)
         finally:
+            try:
+                (store.path(number) / EXPORT_FILES[fmt]).with_suffix(".part").unlink(missing_ok=True)
+            except OSError:
+                pass
             if tmp is not None:
                 _remove_tree(tmp)
+
+    @staticmethod
+    def _export_failed(store: ModelStore, number: int, fmt: str, message: str) -> None:
+        try:
+            store.set_export(number, fmt, status=FAILED, error=message, finished=now())
+        except ModelNotFound:
+            pass  # the model folder is gone: nothing to record
 
     def _preannotate(self, project_id: int, number: int, progress: Progress) -> None:
         project_dir = self._project_dir(project_id)
@@ -524,9 +600,11 @@ class TrainingRunner:
         try:
             run = runs.get(number)
         except preannotate.RunNotFound:
+            run = None
+        if run is None or run["status"] != QUEUED:  # deleted, or cancelled while waiting
+            with self._lock:
+                self._pre_jobs.pop((project_id, number), None)
             return
-        if run["status"] != QUEUED:
-            return  # cancelled while waiting
         runs.update(number, status=RUNNING, started=now(), phase="environment")
         tmp: Path | None = None
         try:
@@ -554,6 +632,8 @@ class TrainingRunner:
                 path = manifest.file_path(records[image_id])
                 if path is not None and path.exists():
                     items.append({"id": image_id, "path": str(path.resolve())})
+            if not items:
+                raise RunnerError("None of the images of this task could be read.")
 
             def step(message: str) -> None:
                 runs.update(number, message=message)
@@ -725,9 +805,12 @@ class TrainingRunner:
                 self._waiting.remove(key)
         self._write_positions()
         try:
-            if store.get(number)["status"] != QUEUED:
-                return  # cancelled while waiting
+            waiting = store.get(number)["status"] == QUEUED
         except RunNotFound:
+            waiting = False
+        if not waiting:  # deleted, or cancelled while waiting
+            with self._lock:
+                self._job_ids.pop(key, None)
             return
         store.update(number, status=RUNNING, started=now(), queue_position=None, phase="environment")
         try:
@@ -773,7 +856,10 @@ class TrainingRunner:
         with self._lock:
             self._tmp[key] = tmp
         project_dir = self._project_dir(project_id)
-        version = DatasetStore(project_dir).read(config.dataset)
+        try:
+            version = DatasetStore(project_dir).read(config.dataset)
+        except (DatasetNotFound, KeyError):
+            raise RunnerError("The data split version of this run was deleted.") from None
         installed = {k.lower(): v for k, v in env.installed().items()}
         store.update(
             number,
@@ -781,6 +867,7 @@ class TrainingRunner:
             packages={k: installed[k] for k in PACKAGES_RECORDED if k in installed},
             activelabel_version=__version__,
             epoch=0,
+            classes=list(version.get("classes") or []),
         )
         python = str(env.python())
         if config.is_composite():
@@ -901,7 +988,11 @@ class TrainingRunner:
         store.update(
             number,
             current=None,
-            best={"epoch": best_results.get("best_epoch"), "value": summary["best_value"]},
+            best={
+                "epoch": best_results.get("best_epoch"),
+                "value": summary["best_value"],
+                "best_fold_value": summary["best_fold_value"],
+            },
             best_child=best_id,
         )
 

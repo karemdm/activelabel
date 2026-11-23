@@ -79,7 +79,11 @@ def test_grid_search_ranks_and_keeps_best_weights(setup):
     assert [c["id"] for c in run["children"]] == ["c1", "c2", "c3"] and run["trainings"] == 3
     assert [c["values"] for c in run["children"]] == [{"score": 0.3}, {"score": 0.9}, {"score": 0.5}]
     assert all(c["status"] == "done" and c["best"]["epoch"] == 2 for c in run["children"])
-    assert run["best_child"] == "c2" and run["best"] == {"epoch": 2, "value": 0.9} and run["current"] is None
+    assert (
+        run["best_child"] == "c2"
+        and run["best"] == {"epoch": 2, "value": 0.9, "best_fold_value": 0.9}
+        and run["current"] is None
+    )
     results = store.results(n)
     assert [r["combo"] for r in results["ranking"]] == [2, 3, 1] and results["best_combo"] == 2
     assert results["ranking"][0]["rank"] == 1 and results["ranking"][0]["std"] == 0.0

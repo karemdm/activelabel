@@ -66,7 +66,7 @@ def save_model(project_id: int, body: SaveModel, state: AppState = STATE) -> dic
     """Save the best weights of a finished training run as the next model."""
     store = _store(state, project_id)
     try:
-        return store.save_run(body.run, body.note)
+        return store.save_run(body.run, body.note.strip()[:500])
     except RunNotFound:
         raise HTTPException(404, "This training run does not exist.") from None
     except ModelError as error:
