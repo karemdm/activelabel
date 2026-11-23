@@ -24,7 +24,7 @@ from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
-from activelabel.importing.common import read_origin
+from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
 from activelabel.projects import Project, ProjectStore
@@ -50,6 +50,9 @@ KEEP_PLANS = 10
 _PLAN_ID = re.compile(r"^[0-9a-f]{6,32}$")
 CHANGED_REMOTE = "The remote project changed since the comparison. Synchronise again."
 CHANGED_LOCAL = "The project's annotations changed since the comparison. Synchronise again."
+CHANGED_LINK = (
+    "The link with the tool changed since the comparison (another synchronisation ran). Synchronise again."
+)
 
 
 log = logging.getLogger(__name__)
@@ -443,6 +446,7 @@ def make_plan(
     # tasks to create in the tool (never sent), images to add to a task already there (older links)
     unsynced_set = set(unsynced)
     tasks_create: list[dict[str, Any]] = []
+    skipped_tasks: list[dict[str, Any]] = []  # never sent: empty, or still receiving images
     only_here_tasks: list[dict[str, Any]] = []  # pull: never sent, left alone
     added: list[str] = []
     for t in scoped_tasks:
@@ -451,6 +455,9 @@ def make_plan(
         if supports and not sent and direction == PULL_ONLY:
             only_here_tasks.append({"task": t.id, "name": t.name, "images": len(t.images)})
             unsynced_set.difference_update(t.images)
+        elif supports and not sent and (why := _skip_reason(t, records)):
+            skipped_tasks.append({"task": t.id, "name": t.name, "reason": why, "images": len(t.images)})
+            unsynced_set.difference_update(t.images)  # not sent one by one either
         elif supports and not sent:
             tasks_create.append(
                 {"task": t.id, "name": t.name, "job_size": t.job_size, "images": len(t.images)}
@@ -509,8 +516,10 @@ def make_plan(
         "remote_labels": remote_labels,
         "remote_only": remote_only,
         "tasks_create": tasks_create,
+        "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
+        "link": _link_token(link),
         "new_items": {rt: _new_task_items(remote, settings, project, rt, items) for rt in new_remote},
     }
     write_json(plans_dir(project_dir) / f"{plan_id}.json", plan)
@@ -536,6 +545,7 @@ def make_plan(
         "restore_remote": count[RESTORE_REMOTE],
         "restore_local": count[RESTORE_LOCAL],
         "tasks_create": tasks_create,
+        "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
         "conflicts": conflicts,
@@ -544,6 +554,20 @@ def make_plan(
         "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
         "diff_push": _push_summary(project, names, push_changes),
     }
+
+
+def _skip_reason(task: ImageTask, records: dict[str, ImageRecord]) -> str:
+    """Why a task is not created in the tool: ``open`` (still receiving images), ``no_images``, or ``""``."""
+    if task.open:
+        return "open"
+    if not any(i in records for i in task.images):
+        return "no_images"
+    return ""
+
+
+def _link_token(link: dict[str, Any] | None) -> list[Any] | None:
+    """What identifies the state of a link (None: no link), kept in the plan to notice changes."""
+    return None if not link else [int(link.get("revision", 0)), str(link.get("last_sync", ""))]
 
 
 def _directed(action: str, kind: str, direction: str, here_exists: bool, there: bool) -> str:
@@ -632,6 +656,8 @@ def apply_plan(
     plan = load_plan(project_dir, plan_id)
     if plan is None or plan.get("tool") != tool:
         raise SyncError("This comparison no longer exists. Synchronise again.")
+    if "link" in plan and plan["link"] != _link_token(links.get_link(project_dir, tool)):
+        raise RemoteChanged(CHANGED_LINK)  # another synchronisation (or a send) ran after this comparison
     fallback = _choice(default, "The default")
     decisions: dict[str, dict[str, Any]] = plan["decisions"]
     final_action: dict[str, str] = {}
@@ -666,6 +692,7 @@ def apply_plan(
     local = _local_labels(project_dir)
     rid = str(plan["remote"]["id"])
     to_create = bool(plan.get("create")) and not rid
+    warnings: list[str] = []
     progress.update(message=f"Reading {tool}")
     current: dict[str, RemoteItem] = {}
     if to_create:
@@ -680,6 +707,7 @@ def apply_plan(
             }
     checked = [i for i, a in final_action.items() if a not in (SAME, GONE, ADD)]
     _check_unchanged(decisions, current, project, local, records, checked)
+    dropping = _safe_drops(remote, settings, plan, decisions, final_action, delete_tasks, warnings)
     for image_id in ids_of(ADD):
         if (
             image_id not in records
@@ -689,7 +717,10 @@ def apply_plan(
 
     pull_ids = ids_of(PULL, RESTORE_LOCAL)
     new_labels = {
-        i: [Label.from_dict(x) for x in plan["remote_labels"].get(decisions[i]["key"], [])] for i in pull_ids
+        i: links.carry_predictions(
+            local.get(i, []), [Label.from_dict(x) for x in plan["remote_labels"].get(decisions[i]["key"], [])]
+        )
+        for i in pull_ids
     }
     found = diffing.diff(project_dir, pull_ids, new_labels, project) if pull_ids else {}
     classes_after = [*project.classes, *found.get("unknown_classes", [])]
@@ -740,7 +771,6 @@ def apply_plan(
         remote.write(settings, rid, project, {decisions[i]["key"]: local.get(i, []) for i in push_ids})
 
     # frames removed / restored in the tool (not for tasks that are deleted whole)
-    dropping = planned_drop if delete_tasks else set()
     frames: dict[str, tuple[list[int], list[int]]] = {}
     for image_id in ids_of(REMOVE_REMOTE):
         key = decisions[image_id]["key"]
@@ -753,7 +783,7 @@ def apply_plan(
         remote.set_frames(settings, rtask_id, delete, restore)
     deleted_tasks = 0
     for spec in plan.get("tasks_delete") or []:
-        if delete_tasks:
+        if str(spec["remote_task"]) in dropping:
             remote.delete_task(settings, str(spec["remote_task"]))
             deleted_tasks += 1
             tmap.pop(str(spec["task"]), None)
@@ -779,7 +809,6 @@ def apply_plan(
         manifest.set_status(restored_here, ACTIVE)
 
     imported = 0
-    warnings: list[str] = []
     remote_jobs: dict[str, dict[str, str]] = {}
     if plan.get("tasks_new"):
         remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
@@ -849,6 +878,49 @@ def apply_plan(
     }
 
 
+def _safe_drops(
+    remote: RemoteProject,
+    settings: ToolSettings,
+    plan: dict[str, Any],
+    decisions: dict[str, dict[str, Any]],
+    final_action: dict[str, str],
+    delete_tasks: bool,
+    warnings: list[str],
+) -> set[str]:
+    """Remote tasks that can really be deleted now (``delete_tasks``, planned, nothing of them is kept).
+
+    A task is kept (with a warning) when any of its images ends otherwise than removed or equal on both
+    sides, e.g. a conflict resolved or left as "remote". A task that has frames the plan knows nothing
+    about (added in the tool after the link) is never deleted: nothing is written at all.
+    """
+    if not delete_tasks:
+        return set()
+    drop: set[str] = set()
+    for spec in plan.get("tasks_delete") or []:
+        rt = str(spec["remote_task"])
+        mine = [i for i, d in decisions.items() if d["key"] and _key_task(d["key"]) == rt]
+        if any(final_action.get(i) not in (REMOVE_REMOTE, SAME, GONE) for i in mine):
+            name = spec.get("name") or rt
+            warnings.append(
+                f"The task '{name}' was not deleted in the tool: some of its images are kept there."
+            )
+            continue
+        try:
+            frames = remote.frames(settings, rt)
+        except RemoteNotFound:
+            drop.add(rt)  # already gone: nothing to check
+            continue
+        known = {_key_frame(decisions[i]["key"]) for i in mine}
+        extra = [f for f, (_, deleted) in enumerate(frames) if not deleted and f not in known]
+        if extra:
+            raise RemoteChanged(
+                f"The task '{spec.get('name') or rt}' in the tool has {len(extra)} image(s) that were added "
+                "after the last synchronisation, so it is not deleted. Synchronise again."
+            )
+        drop.add(rt)
+    return drop
+
+
 def _refresh_tracked(
     remote: RemoteProject,
     settings: ToolSettings,
@@ -890,7 +962,7 @@ def _refresh_tracked(
             continue
         unchanged_here = image_id in pushed or links.same_labels(mine, links.base_labels(entry) or [])
         if unchanged_here and not links.same_labels(mine, theirs):
-            out[image_id] = theirs
+            out[image_id] = links.carry_predictions(mine, theirs)
     return out
 
 
@@ -1110,7 +1182,18 @@ def link_from_items(
 
 def remote_gone(err: ToolError) -> bool:
     """Whether a tool error means the remote project does not exist (HTTP 404), not a network problem."""
-    return "not found" in str(err).lower()
+    return isinstance(err, RemoteNotFound)
+
+
+def _server_answers(remote: RemoteProject, settings: ToolSettings) -> bool:
+    """Whether the tool's server itself answers (a 404 from a wrong address is not a deleted project)."""
+    check = getattr(remote, "server_answers", None)
+    if check is None:
+        return True
+    try:
+        return bool(check(settings))
+    except ToolError:
+        return False
 
 
 def existing_remote(
@@ -1128,7 +1211,9 @@ def existing_remote(
         try:
             info = remote.get(settings, str(link["remote_id"]))
         except ToolError as err:
-            if remote_gone(err):  # deleted in the tool: the link means nothing any more
+            if remote_gone(err) and _server_answers(
+                remote, settings
+            ):  # deleted in the tool: the link means nothing any more
                 links.remove_link(project_dir, tool)
                 link = None
             else:  # unreachable: the link still stands

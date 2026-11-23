@@ -87,3 +87,37 @@ def test_same_labels_tolerates_round_trip_noise():
     assert not same_labels(a, [Label("cat", bbox=[0.12, 0.2, 0.3, 0.4]), a[1]])
     assert not same_labels(a, [Label("bird", bbox=[0.1, 0.2, 0.3, 0.4]), a[1]])
     assert not same_labels(a, a[:1])
+
+
+def test_match_by_name_duplicate_names_are_not_collapsed():
+    twin_a, twin_b, other = record("a", "same.png"), record("b", "same.png"), record("c", "other.png")
+    items = [RemoteItem("1", "same.png", 1, 1), RemoteItem("2", "other.png", 1, 1)]
+    assert {i: it.key for i, it in links.match_by_name([twin_a, twin_b, other], items).items()} == {"c": "2"}
+    # two items with one name and one image: nobody is paired by guessing
+    twins = [RemoteItem("1", "same.png", 1, 1), RemoteItem("2", "same.png", 1, 1)]
+    assert links.match_by_name([record("a", "same.png")], twins) == {}
+    # a name that is unique on both sides is still paired
+    assert {i: it.key for i, it in links.match_by_name([record("a", "same.png")], twins[:1]).items()} == {
+        "a": "1"
+    }
+
+
+def test_save_link_counts_revisions(tmp_path):
+    links.save_link(tmp_path, "cvat", links.new_link("u", "1", "n"))
+    assert links.get_link(tmp_path, "cvat")["revision"] == 1
+    links.save_link(tmp_path, "cvat", links.new_link("u", "1", "n"))
+    assert links.get_link(tmp_path, "cvat")["revision"] == 2
+
+
+def test_carry_predictions_only_for_the_same_untouched_label():
+    scored = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], score=0.9, model="m1")
+    other = Label("cat", bbox=[0.6, 0.6, 0.2, 0.2], score=0.7, model="m1")
+    new = [
+        Label("cat", bbox=[0.1005, 0.1, 0.2, 0.2], track=4),  # same place (track id ignored)
+        Label("dog", bbox=[0.1, 0.1, 0.2, 0.2]),  # another class: a person's label
+        Label("cat", bbox=[0.3, 0.3, 0.2, 0.2]),  # moved: reviewed
+    ]
+    out = links.carry_predictions([scored, other], new)
+    assert [(lb.score, lb.model) for lb in out] == [(0.9, "m1"), (None, None), (None, None)]
+    assert out[0].track == 4 and new[0].score is None  # a copy: the input is not modified
+    assert links.carry_predictions([scored], [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])] * 2)[1].score is None

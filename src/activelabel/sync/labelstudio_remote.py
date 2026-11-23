@@ -33,6 +33,7 @@ from activelabel.annotate.labelstudio_tool import (
     to_results,
 )
 from activelabel.images.manifest import ImageRecord
+from activelabel.importing.common import RemoteNotFound
 from activelabel.labels import Label
 from activelabel.projects import Project
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteTask
@@ -185,7 +186,12 @@ class LabelStudioRemote:
     def get(self, settings: ToolSettings, remote_id: str) -> RemoteInfo:
         """One project (ToolError when it is gone)."""
         client = _Client(settings)
-        return self._info(client, client.request("GET", f"/api/projects/{remote_id}").json())
+        try:
+            return self._info(client, client.request("GET", f"/api/projects/{remote_id}").json())
+        except ToolError as err:
+            if "answered 'not found'" in str(err):
+                raise RemoteNotFound(str(err)) from None
+            raise
 
     def create(self, settings: ToolSettings, project: Project) -> RemoteInfo:
         """Create the project with the labeling config of the task and the project classes."""

@@ -88,6 +88,32 @@ def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
     return True
 
 
+def _geometry_close(a: Label, b: Label, tol: float) -> bool:
+    return a.label == b.label and all(
+        _close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints")
+    )
+
+
+def carry_predictions(old: list[Label], new: list[Label], tol: float = TOLERANCE) -> list[Label]:
+    """``new`` with the ``score`` and ``model`` of the pre-annotations of ``old`` they still match.
+
+    A label of ``new`` with the same class and geometry (within ``tol``, track id ignored) as a model
+    pre-annotation of ``old`` (one with a score or a model) is that same untouched label that went
+    through a tool that does not keep scores, so it keeps them. A label that matches nothing was made
+    or edited by a person: it stays without score (reviewed). Every old label is used at most once.
+    """
+    free = [lb for lb in old if lb.score is not None or lb.model is not None]
+    out: list[Label] = []
+    for label in new:
+        match = next((i for i, o in enumerate(free) if _geometry_close(o, label, tol)), None)
+        if match is None or label.score is not None:
+            out.append(label)
+            continue
+        source = free.pop(match)
+        out.append(Label(**{**label.__dict__, "score": source.score, "model": source.model}))
+    return out
+
+
 def base_entry(key: str, labels: list[Label], removed: bool = False) -> dict[str, Any]:
     """Link entry of one image: its remote key, its labels at this synchronisation (and their hash).
 
@@ -129,9 +155,11 @@ def get_link(project_dir: Path, tool: str) -> dict[str, Any] | None:
 
 
 def save_link(project_dir: Path, tool: str, link: dict[str, Any]) -> None:
-    """Create or replace the link with one tool."""
+    """Create or replace the link with one tool (its ``revision`` goes up by one: plans notice it)."""
     with _lock:
         data = load_links(project_dir)
+        before = data.get(tool)
+        link["revision"] = (int(before.get("revision", 0)) if isinstance(before, dict) else 0) + 1
         data[tool] = link
         write_json(_file(project_dir), data)
 
@@ -178,23 +206,33 @@ def public_view(tool: str, link: dict[str, Any]) -> dict[str, Any]:
 def match_by_name(records: list[ImageRecord], items: list[RemoteItem]) -> dict[str, RemoteItem]:
     """Pair remote items with project images by file name: ``{image_id: item}``.
 
-    The full name is tried first (sub-folders included), then the base name ignoring case when it
-    is unique on both sides. Every image and every item is used at most once.
+    The full name is tried first (sub-folders included), then the base name ignoring case. A name is
+    paired only when it is unique on both sides (two images or two items with the same name are
+    ambiguous and stay unpaired, never silently collapsed). Every image and every item is used at
+    most once.
     """
-    by_name = {r.name: r for r in records}
+    by_name: dict[str, list[ImageRecord]] = {}
     by_base: dict[str, list[ImageRecord]] = {}
     for r in records:
+        by_name.setdefault(r.name, []).append(r)
         by_base.setdefault(Path(r.name.replace("\\", "/")).name.lower(), []).append(r)
+    item_names: dict[str, int] = {}
+    for item in items:
+        item_names[item.file_name] = item_names.get(item.file_name, 0) + 1
     pairs: dict[str, RemoteItem] = {}
     rest: list[RemoteItem] = []
     for item in items:
-        record = by_name.get(item.file_name)
-        if record is not None and record.id not in pairs:
-            pairs[record.id] = item
+        same = by_name.get(item.file_name, [])
+        if len(same) == 1 and item_names[item.file_name] == 1 and same[0].id not in pairs:
+            pairs[same[0].id] = item
         else:
             rest.append(item)
     # images sent from ActiveLabel keep the stored file name "<image id>.<ext>" in the remote tool
     by_id = {r.id: r for r in records}
+    bases: dict[str, int] = {}
+    for item in rest:
+        base = Path(item.file_name.replace("\\", "/")).name.lower()
+        bases[base] = bases.get(base, 0) + 1
     for item in rest:
         base = Path(item.file_name.replace("\\", "/")).name.lower()
         record = by_id.get(Path(base).stem)
@@ -202,6 +240,6 @@ def match_by_name(records: list[ImageRecord], items: list[RemoteItem]) -> dict[s
             pairs[record.id] = item
             continue
         candidates = [r for r in by_base.get(base, []) if r.id not in pairs]
-        if len(candidates) == 1:
+        if len(candidates) == 1 and bases[base] == 1:
             pairs[candidates[0].id] = item
     return pairs

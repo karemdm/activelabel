@@ -571,3 +571,91 @@ def test_video_is_sent_under_its_original_name(tmp_path):
     )
     path, selection = engine._video_of(tmp_path, task)
     assert path.name == f"{'a' * 16}.mp4" and selection["name"] == "abbey_road.mp4" and selection["step"] == 3
+
+
+# -- safety: deleting tasks, empty / open tasks, stale plans, scores, deleted projects ---------------
+def test_task_with_a_kept_image_is_not_deleted(synced):
+    env = synced
+    beta = env.tids[2]
+    delete_local_task(env, 2)
+    set_remote(env, 5, CAT2)  # edited in the tool while deleted here: a conflict
+    p = plan(env)
+    assert len(p["conflicts"]) == 1 and len(p["tasks_delete"]) == 1
+    result = apply(env, p["plan_id"], default="remote", delete_tasks=True)
+    assert result["tasks_deleted"] == 0 and ("delete_task", beta) not in env.remote.calls
+    assert beta in {t.id for t in env.remote.tasks(SETTINGS, env.rid)}
+    assert any("not deleted" in w for w in result["warnings"])
+    assert "2" in links.get_link(env.dir, "cvat")["tasks"]
+
+
+def test_task_with_frames_added_after_the_plan_is_refused(synced):
+    env = synced
+    beta = env.tids[2]
+    delete_local_task(env, 2)
+    p = plan(env)
+    env.remote.put(env.rid, "late.png", [], key=f"{beta}:3")  # someone adds an image in the tool
+    with pytest.raises(engine.RemoteChanged, match="added after"):
+        apply(env, p["plan_id"], delete_tasks=True)
+    assert not any(c[0] in ("delete_task", "set_frames") for c in env.remote.calls)
+    assert beta in {t.id for t in env.remote.tasks(SETTINGS, env.rid)}
+
+
+def _set_tasks(env, *tasks):
+    write_json(env.dir / "tasks.json", {"next_id": 9, "tasks": [t.as_dict() for t in tasks]})
+
+
+def test_open_and_empty_tasks_are_not_created(env):
+    alpha = ImageTask(1, "Alpha", "2026-01-01T00:00:00", 2, env.ids[:5])
+    beta = ImageTask(2, "Beta", "2026-01-01T00:00:01", None, env.ids[5:], open=True)
+    empty = ImageTask(3, "Empty", "2026-01-01T00:00:02", None, [])
+    _set_tasks(env, alpha, beta, empty)
+    p = plan(env, create=True)
+    assert [t["task"] for t in p["tasks_create"]] == [1]
+    assert {(s["task"], s["reason"]) for s in p["skipped_tasks"]} == {(2, "open"), (3, "no_images")}
+    assert p["add"] == 0  # the images of the open task are not sent one by one either
+    apply(env, p["plan_id"])
+    assert [c[1] for c in env.remote.calls if c[0] == "add_task"] == ["Alpha"]
+    assert not any(c[0] == "add" for c in env.remote.calls)
+
+
+def test_two_plans_cannot_both_be_applied(synced):
+    env = synced
+    set_local(env, 0, CAT2)
+    first, second = plan(env), plan(env)
+    apply(env, first["plan_id"])
+    env.remote.calls.clear()
+    with pytest.raises(engine.RemoteChanged, match="link"):
+        apply(env, second["plan_id"])
+    assert env.remote.calls == []  # nothing was written
+
+
+def test_untouched_model_label_keeps_its_score_on_pull(synced):
+    env = synced
+    kept, moved = box("cat", 0.1, 0.1, 0.2, 0.2), box("dog", 0.5, 0.5, 0.2, 0.2)
+    kept.score, kept.model = 0.9, "m1"
+    moved.score, moved.model = 0.8, "m1"
+    set_local(env, 0, [kept, moved])
+    apply(env, plan(env)["plan_id"])  # pushed (the fake keeps scores; CVAT does not)
+    set_remote(env, 0, [box("cat", 0.1, 0.1, 0.2, 0.2), box("dog", 0.6, 0.6, 0.2, 0.2)])
+    result = apply(env, plan(env)["plan_id"])
+    assert result["pulled"] == 1
+    cat, dog = sorted(local(env, 0), key=lambda lb: lb.label)
+    assert (cat.score, cat.model) == (0.9, "m1")  # untouched: still a pre-annotation
+    assert (dog.score, dog.model) == (None, None)  # edited by a person: reviewed
+
+
+def test_link_is_dropped_only_when_the_project_is_really_gone(synced, monkeypatch):
+    env = synced
+    project = env.project
+    args = (env.store, project, "cvat", SETTINGS, env.remote)
+    env.remote.fail = "Something was not found on the way"  # a plain ToolError, not a 404
+    assert engine.existing_remote(*args)["linked"] is True
+    assert links.get_link(env.dir, "cvat") is not None
+    env.remote.fail = ""
+    env.remote.projects.pop(env.rid)
+    monkeypatch.setattr(env.remote, "server_answers", lambda settings: False, raising=False)
+    assert engine.existing_remote(*args)["linked"] is True  # the server does not answer: wrong address
+    assert links.get_link(env.dir, "cvat") is not None
+    monkeypatch.setattr(env.remote, "server_answers", lambda settings: True, raising=False)
+    assert engine.existing_remote(*args) is None  # really deleted
+    assert links.get_link(env.dir, "cvat") is None
