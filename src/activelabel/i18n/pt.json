@@ -970,5 +970,10 @@
   "md.format_onnx_help": "O ONNX é gerado logo depois de salvar, na fila de treinos; também dá para gerar depois.",
   "md.saved_onnx": "Salvo como modelo m{n}; a exportação ONNX está na fila.",
   "project.group_data": "Dados",
-  "project.group_model": "Modelo"
+  "project.group_model": "Modelo",
+  "images.tab_gallery": "Galeria",
+  "images.tab_tasks": "Tasks e jobs",
+  "ann.tab_summary": "Resumo",
+  "ann.tab_files": "Importar arquivos",
+  "ann.load_intro": "Os arquivos de anotação (COCO, YOLO, CVAT, Pascal VOC, MOT… ou um .zip) são conferidos com as imagens da task escolhida antes de importar qualquer coisa."
 }

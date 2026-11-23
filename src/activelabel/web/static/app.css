@@ -884,3 +884,13 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   .step-group-title, .step-status, .stepper .step-tag { display: none; }
   .step { width: auto; flex: none; }
 }
+
+/* tabs inside a step: one subject per tab */
+.step-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 0.25rem 0 1rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.tasks-head:has(.tasks-title.sr-only) { justify-content: flex-end; }
+.step-tab { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.55rem 0.9rem; margin-bottom: -1px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.step-tab:hover { color: var(--text); }
+.step-tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+.step-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: 6px; }
+.step-tab-count { font-size: 0.75rem; font-weight: 600; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); }
+.step-tab-pane > .annot-section { border-top: 0; margin-top: 0; padding-top: 0; }
