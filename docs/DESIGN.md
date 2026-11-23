@@ -23,6 +23,7 @@ Principles (from what went wrong in the previous tool):
   project.json        name, description, task, classes, dates
   images.json         one record per image (id = content hash, status, metrics, issues)
   tasks.json          tasks: packages of images, split into jobs (docs/TASKS.md)
+  datasets/v<N>.json  frozen dataset versions: train/val/test split + label copy (docs/DATASETS.md)
   videos.json         source videos (id, name, fps, frames, duration, size) (docs/VIDEO.md)
   videos/<id>.<ext>   original videos; their selected frames become images
   images/<id>.<ext>   original files (never re-encoded)
@@ -95,3 +96,6 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 Images are added as **tasks** (one upload = one task), each split into fixed-size **jobs**, as in CVAT.
 Storage, endpoints (`/projects/{id}/tasks`), the `task`/`job` image filters and the CVAT mirror are
 specified in [TASKS.md](TASKS.md); the code is `activelabel.tasks_store` and `activelabel.web.tasks_api`.
+Dataset versions (`/projects/{id}/datasets`, preview/create/get/delete, and the `dataset`/`part`/`fold`
+image filters) are specified in [DATASETS.md](DATASETS.md); the code is `activelabel.datasets` and
+`activelabel.web.datasets_api`.
