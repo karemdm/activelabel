@@ -39,7 +39,8 @@ unless you are on a trusted network.
    from the annotation files.
 2. **Images**: drop files, a folder or a .zip. Files are stored unchanged; identical
    images are added once; unreadable files are listed with the reason. Annotation files
-   sent together with the images are pointed to step 2.
+   sent together with the images are pointed to step 2. Each upload is added as a task
+   (split into jobs of a chosen size, see docs/TASKS.md).
 3. **Annotations** (optional): drop the annotation files (or a .zip). The format is
    detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for
    images XML, Label Studio JSON), the files are matched with the project images and a

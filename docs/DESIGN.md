@@ -22,6 +22,7 @@ Principles (from what went wrong in the previous tool):
 <workspace>/projects/<id>/
   project.json        name, description, task, classes, dates
   images.json         one record per image (id = content hash, status, metrics, issues)
+  tasks.json          tasks: packages of images, split into jobs (docs/TASKS.md)
   images/<id>.<ext>   original files (never re-encoded)
   thumbs/<id>.jpg     thumbnails (cache)
   annotations.json    ground truth in the internal format (activelabel.labels)
@@ -64,9 +65,9 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | GET | `/projects/{id}` | | project + counts + step status |
 | PATCH | `/projects/{id}` | any of `name, description, task, classes`; `annotations` (`convert`/`discard`) and `classes_action` (`remove_annotations`) answer a 409 (`task_change_annotations`, `classes_in_use`) | project (+ `annotations_result`, `classes_result`) |
 | DELETE | `/projects/{id}` | `{confirm_name}` | `{deleted: id}` |
-| POST | `/projects/{id}/images` | multipart `files` (images and/or .zip) | ingest report |
+| POST | `/projects/{id}/images` | multipart `files` (images and/or .zip); creates a new task | ingest report (+ `task`) |
 | POST | `/projects/{id}/images/folder` | `{path}` | job (folder import) |
-| GET | `/projects/{id}/images` | `status, issue, offset, limit` | `{total, items}` |
+| GET | `/projects/{id}/images` | `status, issue, task, job, offset, limit` | `{total, items}` |
 | GET | `/projects/{id}/images/{image_id}/thumb` | | JPEG |
 | GET | `/projects/{id}/images/{image_id}/file` | | original file |
 | POST | `/projects/{id}/images/exclude` | `{ids, reason}` | `{changed}` |
@@ -84,3 +85,9 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | POST | `/projects/{id}/fiftyone/pull-exclusions` | | `{excluded}` |
 | GET | `/projects/{id}/jobs` | | jobs |
 | POST | `/jobs/{job_id}/cancel` | | job |
+
+## Tasks and jobs
+
+Images are added as **tasks** (one upload = one task), each split into fixed-size **jobs**, as in CVAT.
+Storage, endpoints (`/projects/{id}/tasks`), the `task`/`job` image filters and the CVAT mirror are
+specified in [TASKS.md](TASKS.md); the code is `activelabel.tasks_store` and `activelabel.web.tasks_api`.

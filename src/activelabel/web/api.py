@@ -22,6 +22,8 @@ from activelabel.jobs import Job, Progress
 from activelabel.labels import AnnotationSet, annotations_path, load_annotations, save_annotations
 from activelabel.projects import Project
 from activelabel.tasks import Task
+from activelabel.tasks_store import TaskNotFound, TaskStore
+from activelabel.tasks_store import jobs as task_jobs
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -106,6 +108,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
             "labels": sum(len(annotations.images[i]) for i in labelled) if annotations else 0,
             "with_issues": len(with_issues),
             "analyzed": len(measured),
+            "tasks": len(TaskStore(project_dir).load()),
         },
         "steps": {
             "images": "done" if active else "empty",
@@ -279,25 +282,44 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
 
 
 # -- images -------------------------------------------------------------------
+def ingest_uploads(manifest: Manifest, files: list[UploadFile]) -> tuple[dict[str, Any], list[str]]:
+    """Store uploaded files with the ingest code; returns the report and the ids actually added, in order."""
+    report = ingest_files(manifest, [(f.filename or "image", f.file) for f in files])
+    return report.as_dict(), report.ids
+
+
 @router.post("/projects/{project_id}/images")
 def upload_images(project_id: int, files: UPLOADS, state: AppState = STATE) -> dict[str, Any]:
-    """Add uploaded images and .zip archives (the interface sends them in chunks)."""
+    """Add uploaded images and .zip archives as a new task (the interface sends them in chunks)."""
     manifest = state.manifest(project_id)
-    report = ingest_files(manifest, [(f.filename or "image", f.file) for f in files])
-    return report.as_dict()
+    tasks = TaskStore(state.store.dir(project_id))
+    with tasks.locked():  # ingest and registration are atomic
+        tasks.ensure()  # migrate before the new images exist, so they do not end up in "Task 1"
+        report, added = ingest_uploads(manifest, files)
+        if added:
+            task = tasks.create(images=added)
+            report["task"] = task.id
+    return report
 
 
 @router.post("/projects/{project_id}/images/folder")
 def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) -> dict[str, Any]:
-    """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT), as a job."""
+    """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT) as a new task, as a job."""
     manifest = state.manifest(project_id)
     root = state.settings.import_root
     if root is None:
         raise HTTPException(400, "Importing by path is off: set ACTIVELABEL_IMPORT_ROOT.")
     folder = Path(body.path).expanduser()
+    tasks = TaskStore(state.store.dir(project_id))
 
     def run(progress: Progress) -> dict[str, Any]:
-        return ingest_folder(manifest, folder, root, progress).as_dict()
+        with tasks.locked():
+            tasks.ensure()
+            ingested = ingest_folder(manifest, folder, root, progress)
+            result = ingested.as_dict()
+            if ingested.ids:
+                result["task"] = tasks.create(images=ingested.ids).id
+            return result
 
     return state.jobs.submit(project_id, "import_folder", run).as_dict()
 
@@ -308,13 +330,33 @@ def list_images(
     status: str = Query("active", pattern="^(active|excluded|all)$"),
     issue: str = "",
     ids: str = "",
+    task: int | None = None,
+    job: int | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=MAX_PAGE),
     state: AppState = STATE,
 ) -> dict[str, Any]:
-    """A page of images, filtered by status, issue or a comma-separated list of ids."""
+    """A page of images, filtered by status, issue, task, job or a comma-separated list of ids.
+
+    With ``task`` the items are in task order; ``job`` (1-based) needs ``task``.
+    """
     manifest = state.manifest(project_id)
     records = manifest.all()
+    if job is not None and task is None:
+        raise HTTPException(400, "Give the task of the job.")
+    if task is not None:
+        try:
+            chosen = TaskStore(state.store.dir(project_id)).get(task)
+        except TaskNotFound:
+            raise HTTPException(404, "This task does not exist.") from None
+        order = chosen.images
+        if job is not None:
+            found = [j for j in task_jobs(chosen) if j.n == job]
+            if not found:
+                raise HTTPException(404, "This job does not exist.")
+            order = found[0].image_ids
+        by_id = {r.id: r for r in records}
+        records = [by_id[i] for i in order if i in by_id]
     if status != "all":
         records = [r for r in records if r.status == status]
     if issue:
@@ -376,18 +418,27 @@ def delete_images(project_id: int, body: ImageIds, state: AppState = STATE) -> d
     """Delete images and their files for good (also their annotations and thumbnails)."""
     if not body.confirm:
         raise HTTPException(400, "Deleting cannot be undone: confirm it first.")
+    return {"deleted": delete_image_files(state, project_id, body.ids)}
+
+
+def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
+    """Delete images for good: files, thumbnails, annotations and their place in a task."""
     state.busy(project_id)
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
-    deleted = manifest.delete(body.ids)
-    for image_id in body.ids:
+    tasks = TaskStore(project_dir)
+    with tasks.locked():
+        tasks.load()  # migrate first, then take the images out
+        deleted = manifest.delete(ids)
+        tasks.remove_images(ids)
+    for image_id in ids:
         (project_dir / "thumbs" / f"{image_id}.jpg").unlink(missing_ok=True)
     annotations = load_annotations(project_dir)
-    if annotations and any(i in annotations.images for i in body.ids):
-        for image_id in body.ids:
+    if annotations and any(i in annotations.images for i in ids):
+        for image_id in ids:
             annotations.images.pop(image_id, None)
         save_annotations(project_dir, annotations)
-    return {"deleted": deleted}
+    return deleted
 
 
 # -- jobs -----------------------------------------------------------------------

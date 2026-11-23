@@ -46,12 +46,14 @@ class IngestReport:
         rejected: ``{"name": ..., "reason": ...}`` for files that were not stored
             (``corrupt``, ``too small``, ``unsupported``, ``unsafe path``, ...).
         other_files: names of annotation files (json, txt, xml, yaml) sent with the images or inside archives.
+        ids: ids of the images stored by this import, in order (not part of :meth:`as_dict`).
     """
 
     added: int = 0
     duplicates: list[str] = field(default_factory=list)
     rejected: list[dict[str, str]] = field(default_factory=list)
     other_files: list[str] = field(default_factory=list)
+    ids: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form: counts plus at most 200 examples of each list."""
@@ -184,6 +186,7 @@ class _Ingester:
             self.known.add(image_id)
             self.pending.append(ImageRecord(image_id, name, relative, width, height, size, now()))
             self.report.added += 1
+            self.report.ids.append(image_id)
             if len(self.pending) >= BATCH_SIZE:
                 self.flush()
             return size
