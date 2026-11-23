@@ -3713,7 +3713,7 @@
         if (code === 'class_missing') return short ? t('ds.b_class_missing', { class: w.class, part }) : t('ds.w_class_missing', { class: w.class, part });
         if (code === 'classes_missing') {
           const list = w.classes.slice(0, 6).join(', ') + (w.classes.length > 6 ? ` (+${w.classes.length - 6})` : '');
-          return short ? t('ds.b_classes_missing', { n: num(w.classes.length), part }) : t('ds.w_classes_missing', { n: num(w.classes.length), part, list });
+          return short ? tn('ds.b_classes_missing', w.classes.length, { part }) : tn('ds.w_classes_missing', w.classes.length, { part, list });
         }
         if (code === 'part_empty') return short ? t('ds.b_part_empty', { part }) : t('ds.w_part_empty', { part });
         if (code === 'few_images') return short ? t('ds.b_few_images', { part }) : t('ds.w_few_images', { part });
@@ -4631,7 +4631,7 @@
             el('caption', { class: 'sr-only' }, t('tr.confusion')),
             el('thead', null, el('tr', null, el('th', { scope: 'col', class: 'corner' }, t('tr.actual_vs_pred')), ...keep.map((j) => el('th', { scope: 'col', title: classes[j] }, classes[j])))),
             el('tbody', null, ...keep.map((i) => el('tr', null, el('th', { scope: 'row', title: classes[i] }, classes[i]), ...keep.map((j) => cell(i, j))))))),
-          n > keep.length && total <= LIMIT ? el('p', { class: 'muted tr-note' }, t('tr.hidden_classes', { n: n - keep.length })) : null);
+          n > keep.length && total <= LIMIT ? el('p', { class: 'muted tr-note' }, tn('tr.hidden_classes', n - keep.length)) : null);
       }
 
       function perClassTable(per) {

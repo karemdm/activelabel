@@ -215,7 +215,7 @@ def test_import_task_without_annotations(cvat, tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "projects")
     result = run(store, tmp_path, kind="task", remote_id="12", task=Task.KEYPOINTS, name="Mine")
     assert (result["task"], result["labels"], result["name"]) == ("keypoints", 0, "Mine")
-    assert store.get(result["project_id"]).description == "Imported from CVAT (Loose)"
+    assert store.get(result["project_id"]).description == ""
 
 
 def test_unreadable_files_are_reported(cvat, tmp_path, monkeypatch):
