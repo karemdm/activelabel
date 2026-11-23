@@ -216,7 +216,8 @@ class _Ingester:
             if not hasattr(stream, "seekable"):
                 # Python 3.10: an upload (SpooledTemporaryFile) has no seekable(), which zipfile needs
                 # to open the entries; copy it to a real temporary file first
-                copy: BinaryIO = stack.enter_context(tempfile.TemporaryFile())  # type: ignore[assignment]
+                raw: Any = stack.enter_context(tempfile.TemporaryFile())  # its type differs per OS
+                copy: BinaryIO = raw
                 shutil.copyfileobj(stream, copy, 1 << 20)
                 copy.seek(0)
                 stream = copy
