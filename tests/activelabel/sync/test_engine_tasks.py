@@ -554,3 +554,20 @@ def test_one_way_leaves_what_exists_only_on_the_other_side(env):
 def test_unknown_direction(synced):
     with pytest.raises(engine.SyncError, match="direction"):
         plan(synced, direction="sideways")
+
+
+def test_video_is_sent_under_its_original_name(tmp_path):
+    from make_video import make_video
+
+    from activelabel.images.video import VideoStore
+    from activelabel.tasks_store import ImageTask
+
+    store = VideoStore(tmp_path)
+    store.folder.mkdir(parents=True, exist_ok=True)
+    tmp = make_video(store.folder / "upload.mp4", frames=30)
+    info = store.add("abbey_road.mp4", ".mp4", tmp, "a" * 16, tmp.stat().st_size)
+    task = ImageTask(
+        1, "Clip", "2026-01-01T00:00:00", source={"video": info.id, "start": 0, "stop": 29, "step": 3}
+    )
+    path, selection = engine._video_of(tmp_path, task)
+    assert path.name == f"{'a' * 16}.mp4" and selection["name"] == "abbey_road.mp4" and selection["step"] == 3

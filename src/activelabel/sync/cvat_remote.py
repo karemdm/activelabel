@@ -786,13 +786,15 @@ class CvatRemote:
             "stop_frame": int(sel["stop"]),
             "frame_filter": f"step={int(sel.get('step') or 1)}",
         }
-        mime = mimetypes.guess_type(path.name)[0] or "video/mp4"
+        # the original file name (the project stores videos under their content id)
+        name = Path(str(sel.get("name") or path.name)).name
+        mime = mimetypes.guess_type(name)[0] or "video/mp4"
         with path.open("rb") as fh:
             answer = api.request(
                 "POST",
                 f"/api/tasks/{tid}/data",
                 data=data,
-                files=[("client_files[0]", (path.name, fh, mime))],
+                files=[("client_files[0]", (name, fh, mime))],
                 timeout=UPLOAD_TIMEOUT,
             )
         self._wait_ready(api, tid, (answer or {}).get("rq_id") if isinstance(answer, dict) else None)
