@@ -33,8 +33,10 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        state.runner.recover()
         yield
         state.jobs.shutdown()
+        state.runner.shutdown()
 
     app = FastAPI(title="activelabel", version=__version__, lifespan=lifespan)
     app.state.activelabel = state

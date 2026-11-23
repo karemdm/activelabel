@@ -21,6 +21,7 @@ from activelabel.web.state import AppState
 
 def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestClient, AppState]:
     state = AppState(Settings(workspace=tmp_path / "ws", import_root=import_root))
+    state.runner.enqueue = lambda project_id, number: None  # type: ignore[method-assign]  # runs stay queued
     app = FastAPI()
     app.state.activelabel = state
     app.include_router(api.router)

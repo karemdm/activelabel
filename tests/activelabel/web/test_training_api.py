@@ -84,3 +84,10 @@ def test_fold_only_for_kfold_versions(tmp_path):
     assert client.get(f"{RUNS}/1").json()["config"]["fold"] == "all"
     assert client.post(RUNS, json={"dataset": 1, "model": "yolov8n", "fold": 1}).status_code == 200
     assert client.post(RUNS, json={"dataset": 1, "model": "yolov8n", "fold": 3}).status_code == 400
+
+
+def test_cancel_queued_run_and_unknown(tmp_path):
+    client, _ = _setup(tmp_path)
+    client.post(RUNS, json={"dataset": 1, "model": "yolov8n"})
+    assert client.post(f"{RUNS}/1/cancel").json()["status"] == "cancelled"
+    assert client.post(f"{RUNS}/7/cancel").status_code == 404

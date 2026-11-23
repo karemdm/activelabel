@@ -10,6 +10,7 @@ from activelabel.config import Settings
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import JobManager
 from activelabel.projects import Project, ProjectNotFound, ProjectStore
+from activelabel.training.runner import TrainingRunner
 
 
 class AppState:
@@ -19,6 +20,9 @@ class AppState:
         self.settings = settings
         self.store = ProjectStore(settings.projects_dir)
         self.jobs = jobs or JobManager()
+        self.runner = TrainingRunner(
+            settings.workspace, self.store.dir, lambda: [p.id for p in self.store.list()]
+        )
 
     def project(self, project_id: int) -> Project:
         """A project, or HTTP 404 with a readable message."""

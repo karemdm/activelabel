@@ -25,11 +25,8 @@ class DeleteRun(BaseModel):
 
 
 def start_run(state: AppState, project_id: int, number: int) -> None:
-    """Hand a queued run to the runner.
-
-    TODO(runner item): enqueue the run so it starts when no other heavy process is running.
-    Until then a created run stays ``queued``.
-    """
+    """Hand a queued run to the runner (it starts when no other run is running)."""
+    state.runner.enqueue(project_id, number)
 
 
 def _store(state: AppState, project_id: int) -> RunStore:
@@ -144,3 +141,14 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
     except RunNotFound:
         raise HTTPException(404, "This run does not exist.") from None
     return _create(state, project, config)
+
+
+@router.post("/projects/{project_id}/runs/{number}/cancel")
+def cancel_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
+    """Cancel a queued or running run (a finished run is left as it is)."""
+    store = _store(state, project_id)
+    try:
+        state.runner.cancel(project_id, number)
+        return _summary(store, store.get(number))
+    except RunNotFound:
+        raise HTTPException(404, "This run does not exist.") from None
