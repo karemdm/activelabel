@@ -129,6 +129,8 @@ class FakeCvat:
             (("GET", r"/api/labels"), self.list_labels),
             (("GET", r"/api/tasks"), self.list_tasks),
             (("POST", r"/api/tasks"), self.post_task),
+            (("DELETE", r"/api/tasks/(\d+)"), self.delete_task),
+            (("GET", r"/api/server/about"), lambda kw: Resp(200, {"name": "CVAT"})),
             (("GET", r"/api/tasks/(\d+)/data/meta"), meta),
             (("GET", r"/api/tasks/(\d+)/annotations"), ann),
             (("PUT", r"/api/tasks/(\d+)/annotations"), self.put_ann),
@@ -177,6 +179,10 @@ class FakeCvat:
         tid = self.add_task(kw["json"]["project_id"], [])
         self.tasks[tid]["name"] = kw["json"]["name"]
         return Resp(201, {"id": tid})
+
+    def delete_task(self, kw: dict[str, Any], t: str) -> Resp:
+        self.tasks.pop(int(t), None)
+        return Resp(204)
 
     def put_ann(self, kw: dict[str, Any], t: str) -> Resp:
         self.tasks[int(t)]["ann"] = copy.deepcopy(kw["json"])
@@ -673,3 +679,116 @@ def test_video_source_is_none_for_image_tasks_and_errors_are_readable(cvat: Fake
     cvat.fail[("POST", f"/api/tasks/{vid}/backup")] = 500
     with pytest.raises(ToolError, match="500"):
         CvatRemote().video_source(SETTINGS, str(vid), tmp_path / "b")
+
+
+# -- safety of write / create / errors -------------------------------------------------------------
+def frame_ann(cvat: FakeCvat, pid: int, tid: int) -> dict[str, Any]:
+    cat = cvat.label_id(pid, "cat")
+    cvat.tasks[tid]["ann"] = {
+        "version": 1,
+        "tags": [{"frame": 0, "label_id": cat, "group": 0, "source": "manual", "attributes": []}],
+        "shapes": [
+            {
+                **rect(0, cat, [20, 10, 120, 60]),
+                "occluded": True,
+                "rotation": 0,
+                "group": 5,
+                "z_order": 3,
+                "source": "auto",
+                "attributes": [{"spec_id": 1, "value": "red"}],
+            },
+            {"type": "polyline", "frame": 0, "label_id": cat, "points": [1, 1, 9, 9], "attributes": []},
+            {"type": "ellipse", "frame": 0, "label_id": cat, "points": [5, 5, 9, 9], "attributes": []},
+        ],
+        "tracks": [],
+    }
+    return cvat.tasks[tid]["ann"]
+
+
+def test_write_keeps_unconverted_shapes_tags_and_attributes_of_unchanged_shapes(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    frame_ann(cvat, pid, tid)
+    labels = [Label("cat", bbox=[0.1, 0.1, 0.5, 0.5]), Label("dog", bbox=[0.5, 0.5, 0.25, 0.25])]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": labels})
+    ann = cvat.tasks[tid]["ann"]
+    shapes = [s for s in ann["shapes"] if s["frame"] == 0]
+    assert sorted(s["type"] for s in shapes) == ["ellipse", "polyline", "rectangle", "rectangle"]
+    cat = next(s for s in shapes if s["type"] == "rectangle" and s["label_id"] == cvat.label_id(pid, "cat"))
+    assert (cat["group"], cat["z_order"], cat["source"], cat["occluded"]) == (5, 3, "auto", True)
+    assert cat["attributes"] == [{"spec_id": 1, "value": "red"}]
+    dog = next(s for s in shapes if s["label_id"] == cvat.label_id(pid, "dog"))
+    assert (
+        dog["source"] == "manual" and dog["attributes"] == [] and dog["points"] == [100.0, 50.0, 150.0, 75.0]
+    )
+    assert len(ann["tags"]) == 1  # the tag is not converted in a detection project
+
+
+def test_write_replaces_only_what_changed(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    frame_ann(cvat, pid, tid)
+    moved = [Label("cat", bbox=[0.5, 0.5, 0.25, 0.25])]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": moved})
+    shapes = [s for s in cvat.tasks[tid]["ann"]["shapes"] if s["frame"] == 0]
+    rects = [s for s in shapes if s["type"] == "rectangle"]
+    assert len(rects) == 1 and rects[0]["points"] == [100.0, 50.0, 150.0, 75.0]
+    assert rects[0]["group"] == 0 and rects[0]["attributes"] == []  # a moved shape is a new one
+    assert sorted(s["type"] for s in shapes if s["type"] != "rectangle") == ["ellipse", "polyline"]
+    # one pixel of noise is the same shape
+    frame_ann(cvat, pid, tid)
+    CvatRemote().write(
+        SETTINGS, str(pid), project(), {f"{tid}:0": [Label("cat", bbox=[0.1001, 0.1, 0.5, 0.5])]}
+    )
+    kept = [s for s in cvat.tasks[tid]["ann"]["shapes"] if s["type"] == "rectangle"]
+    assert kept[0]["group"] == 5
+
+
+def test_write_classification_keeps_shapes_and_matches_tags(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    frame_ann(cvat, pid, tid)
+    cat, dog = cvat.label_id(pid, "cat"), cvat.label_id(pid, "dog")
+    cvat.tasks[tid]["ann"]["tags"][0]["group"] = 9
+    CvatRemote().write(SETTINGS, str(pid), project(Task.CLASSIFICATION), {f"{tid}:0": [Label("cat")]})
+    ann = cvat.tasks[tid]["ann"]
+    assert [t["group"] for t in ann["tags"] if t["frame"] == 0] == [9]  # same class: the old tag stays
+    assert len([s for s in ann["shapes"] if s["frame"] == 0]) == 3  # no shape is converted
+    CvatRemote().write(SETTINGS, str(pid), project(Task.CLASSIFICATION), {f"{tid}:0": [Label("dog")]})
+    tags = [t for t in cvat.tasks[tid]["ann"]["tags"] if t["frame"] == 0]
+    assert [t["label_id"] for t in tags] == [dog] and cat != dog
+
+
+def test_failed_task_creation_deletes_the_new_task(
+    cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid, _ = seeded(cvat)
+    monkeypatch.setattr(FakeCvat, "post_data", lambda self, kw, t: Resp(500, {}))
+    before = set(cvat.tasks)
+    with pytest.raises(ToolError, match="error 500"):
+        CvatRemote().add_task(SETTINGS, str(pid), project(), "T", None, make_images(tmp_path, ["a.jpg"]))
+    assert set(cvat.tasks) == before  # the half-made task is gone
+    assert any(c[0] == "DELETE" for c in cvat.calls)
+
+
+def test_failed_cleanup_keeps_the_original_error(
+    cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid, _ = seeded(cvat)
+    monkeypatch.setattr(FakeCvat, "post_data", lambda self, kw, t: Resp(500, {}))
+    cvat.fail[("DELETE", "/api/tasks")] = 500
+    with pytest.raises(ToolError, match="error 500 on /api/tasks/\\d+/data"):
+        CvatRemote().add_task(SETTINGS, str(pid), project(), "T", None, make_images(tmp_path, ["a.jpg"]))
+
+
+def test_forbidden_json_body_becomes_a_sentence(cvat: FakeCvat, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {"detail": "You have reached the maximum number of tasks for the free plan"}
+    monkeypatch.setattr(FakeCvat, "list_projects", lambda self, kw: Resp(403, body))
+    with pytest.raises(ToolError) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert str(err.value) == (
+        "CVAT refused the request. CVAT says: You have reached the maximum number of tasks for the free plan."
+    )
+
+
+def test_server_answers(cvat: FakeCvat) -> None:
+    assert CvatRemote().server_answers(SETTINGS) is True
+    cvat.fail[("GET", "/api/server/about")] = 500
+    assert CvatRemote().server_answers(SETTINGS) is False

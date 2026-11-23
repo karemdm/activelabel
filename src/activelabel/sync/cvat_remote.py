@@ -14,7 +14,19 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
   :func:`_write_tracks` for how edits go back into the tracks).
 * Other shape types (polyline, ellipse, cuboid, mask, skeleton) are not converted: they are neither
   read nor touched when writing (tracks of those types are kept as they are).
-* Attributes are never sent (CVAT rejects attribute specs of another label).
+* Attributes are never invented (CVAT rejects attribute specs of another label): a new shape has none.
+
+What :meth:`CvatRemote.write` touches, exactly. Only the frames it is given; on each of them:
+
+* shapes of the converted types (rectangle, polygon, points) of a known class are compared with the new
+  labels by type, class and geometry (:data:`SAME_SHAPE` of the image side). One that matches is kept
+  as CVAT has it, with its attributes, occluded, rotation, group, z_order and source; one that has no
+  match is removed; a new label without a match is added as a fresh shape. In a classification
+  project no shape is converted, so none is touched;
+* shapes of any other type (or of a class the project does not know) are kept as they are;
+* tags: in a classification project the tags of a known class are matched by class in the same way;
+  in the other projects every tag is kept (a label without geometry only adds a tag that is missing);
+* tracks are handled by :func:`_write_tracks`; frames that are not given are not touched.
 """
 
 from __future__ import annotations
@@ -31,9 +43,11 @@ from typing import Any
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import ImageRecord
 from activelabel.images.video import VIDEO_EXTENSIONS
+from activelabel.importing.common import RemoteNotFound
 from activelabel.importing.cvat_import import _Http
 from activelabel.labels import Label
 from activelabel.projects import Project
+from activelabel.sync import links
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteJob, RemoteTask
 from activelabel.tasks import Task
 
@@ -96,11 +110,9 @@ class _Api(_Http):
         if status == 401:
             raise ToolError(f"CVAT login failed at {self.url}: check the username and password.")
         if status == 403:  # logged in, not allowed (plan limits, permissions): say what CVAT says
-            reason = " ".join((getattr(r, "text", "") or "").split())[:300]
+            reason = _forbidden_reason(r)
             raise ToolError("CVAT refused the request." + (f" CVAT says: {reason}" if reason else ""))
         if status == 404:
-            from activelabel.importing.common import RemoteNotFound
-
             raise RemoteNotFound(f"CVAT answered 'not found' for {where}: it may have been deleted.")
         if status == 429:
             raise ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
@@ -118,6 +130,26 @@ class _Api(_Http):
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """GET a JSON document."""
         return self.request("GET", path, params=params)
+
+
+def _forbidden_reason(r: Any) -> str:
+    """What CVAT says in a 403: the ``detail`` / ``message`` of a JSON body as one sentence, else the text."""
+    try:
+        body = r.json()
+    except Exception:  # noqa: BLE001 - not JSON (or a fake without a body)
+        body = None
+    found: Any = None
+    if isinstance(body, dict):
+        found = body.get("detail") or body.get("message")
+    elif isinstance(body, list) and body:
+        found = body
+    if isinstance(found, (list, tuple)):
+        found = " ".join(str(x) for x in found)
+    if found:
+        text = " ".join(str(found).split())[:300]
+    else:
+        text = " ".join((getattr(r, "text", "") or "").split())[:300]
+    return text if not text or text.endswith((".", "!", "?")) else text + "."
 
 
 # -- conversions ---------------------------------------------------------------------------------
@@ -342,6 +374,57 @@ def _apply_edits(
     track["frame"] = min(keys)
 
 
+SAME_SHAPE = links.TOLERANCE  # relative to the image side: shapes closer than this are the same shape
+
+
+def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> bool:
+    """Whether a shape CVAT has and a shape built from a label are the same (type, class, geometry)."""
+    if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
+        return False
+    a, b = [float(v) for v in old.get("points") or []], [float(v) for v in new.get("points") or []]
+    if len(a) != len(b):
+        return False
+    sides = (max(w, 1), max(h, 1))
+    return all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True)))
+
+
+def _merge_frame(
+    old_shapes: list[dict[str, Any]],
+    old_tags: list[dict[str, Any]],
+    labels: list[Label],
+    ids: dict[str, int],
+    frame: int,
+    size: tuple[int, int],
+    classification: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Shapes and tags of one frame after writing ``labels``: what CVAT has, changed only where needed.
+
+    See the module docstring for what is converted. Unchanged shapes and tags are the old objects.
+    """
+    w, h = size
+    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h)
+    known = set(ids.values())
+    kept_shapes: list[dict[str, Any]] = []
+    convertible: list[dict[str, Any]] = []
+    for s in old_shapes:
+        mine = not classification and s.get("type") in TRACKABLE and s.get("label_id") in known
+        mine = mine and shape_to_label(s, "x", w, h) is not None
+        (convertible if mine else kept_shapes).append(s)
+    for shape in new_shapes:
+        match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h)), None)
+        kept_shapes.append(convertible.pop(match) if match is not None else shape)
+    # what is left in ``convertible`` is gone from the labels: it is not written back
+    old_known = [t for t in old_tags if classification and t.get("label_id") in known]
+    kept_tags = [t for t in old_tags if not any(t is o for o in old_known)]
+    for tag in new_tags:
+        if classification:
+            match = next((i for i, o in enumerate(old_known) if o.get("label_id") == tag["label_id"]), None)
+            kept_tags.append(old_known.pop(match) if match is not None else tag)
+        elif not any(o.get("label_id") == tag["label_id"] for o in kept_tags):
+            kept_tags.append(tag)
+    return kept_shapes, kept_tags
+
+
 def _split_key(key: str) -> tuple[int, int]:
     task, _, frame = str(key).partition(":")
     if not (task.isdigit() and frame.isdigit()):
@@ -375,13 +458,21 @@ class CvatRemote:
         deleted = {int(d) for d in meta.get("deleted_frames") or []}
         return [(str(fr.get("name", "")), i in deleted) for i, fr in enumerate(_meta_frames(meta))]
 
+    def server_answers(self, settings: ToolSettings) -> bool:
+        """Whether the CVAT server answers (``/api/server/about``): tells "deleted" from "wrong server"."""
+        try:
+            self._api(settings).get("/api/server/about")
+        except ToolError:
+            return False
+        return True
+
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
         """Delete a CVAT task with its frames and annotations (nothing when it is already gone)."""
         api = self._api(settings)
         try:
             api.request("DELETE", f"/api/tasks/{task_id}")
         except ToolError as err:
-            if "not found" not in str(err).lower():
+            if not isinstance(err, RemoteNotFound):
                 raise
 
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
@@ -626,10 +717,11 @@ class CvatRemote:
     def write(
         self, settings: ToolSettings, remote_id: str, project: Project, updates: dict[str, list[Label]]
     ) -> None:
-        """Replace the shapes/tags of the updated frames; other frames stay as they are.
+        """Write the labels of the updated frames; other frames stay as they are.
 
-        Labels with the id of a track of the task go into that track (see :func:`_write_tracks`);
-        the other tracks are kept as they are.
+        Only what changed is replaced: shapes that match a label keep everything CVAT has for them, and
+        shapes or tags ActiveLabel does not convert are kept (module docstring). Labels with the id of
+        a track of the task go into that track (see :func:`_write_tracks`); the other tracks are kept.
         """
         api = self._api(settings)
         by_task: dict[int, dict[int, list[Label]]] = {}
@@ -647,11 +739,19 @@ class CvatRemote:
             shapes = [s for s in ann.get("shapes") or [] if s.get("frame") not in per]
             tags = [t for t in ann.get("tags") or [] if t.get("frame") not in per]
             tracks = copy.deepcopy(ann.get("tracks") or [])
-            if project.task is not Task.CLASSIFICATION:
+            classification = project.task is Task.CLASSIFICATION
+            if not classification:
                 per = _write_tracks(tracks, per, ids, frames)
             for frame, labels in per.items():
-                new_shapes, new_tags = labels_to_cvat(
-                    labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"])
+                size = (int(frames[frame]["width"]), int(frames[frame]["height"]))
+                new_shapes, new_tags = _merge_frame(
+                    [s for s in ann.get("shapes") or [] if s.get("frame") == frame],
+                    [t for t in ann.get("tags") or [] if t.get("frame") == frame],
+                    labels,
+                    ids,
+                    frame,
+                    size,
+                    classification,
                 )
                 shapes += new_shapes
                 tags += new_tags
@@ -717,6 +817,29 @@ class CvatRemote:
             body["overlap"] = 0  # CVAT repeats frames between jobs of a video by default
         task = api.request("POST", "/api/tasks", json=body)
         tid = task["id"]
+        try:
+            return self._populate_task(api, tid, job_size, batch, ids, video)
+        except Exception:
+            self._discard_task(api, tid)  # a retry must not leave empty tasks (they count in the plan)
+            raise
+
+    @staticmethod
+    def _discard_task(api: _Api, tid: Any) -> None:
+        """Delete a task whose creation failed half way (best effort: the original error is what matters)."""
+        try:
+            api.request("DELETE", f"/api/tasks/{tid}")
+        except Exception:  # noqa: BLE001 - never hide the real failure
+            log.warning("could not delete the half-made CVAT task %s", tid)
+
+    def _populate_task(
+        self,
+        api: _Api,
+        tid: Any,
+        job_size: int | None,
+        batch: list[tuple[ImageRecord, Path, list[Label]]],
+        ids: dict[str, int],
+        video: tuple[Path, dict[str, Any]] | None,
+    ) -> tuple[str, dict[str, str]]:
         if video is not None:
             return self._fill_from_video(api, tid, video, job_size, batch, ids)
         names: dict[str, str] = {}  # image id -> file name in CVAT (unique inside the task)
@@ -833,7 +956,7 @@ class CvatRemote:
                 try:
                     data = api.get(f"/api/requests/{rq_id}") or {}
                 except ToolError as err:
-                    if "not found" not in str(err):
+                    if not isinstance(err, RemoteNotFound):
                         raise
                     rq_id = None  # older CVAT: use the task status
                 else:
