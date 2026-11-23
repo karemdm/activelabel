@@ -36,6 +36,8 @@ RESTORE_REMOTE, RESTORE_LOCAL = "restore_remote", "restore_local"  # image resto
 GONE = "gone"  # removed on both sides
 ACTIONS = (PULL, PUSH, CONFLICT, SAME, ADD, REMOVE_REMOTE, REMOVE_LOCAL, RESTORE_REMOTE, RESTORE_LOCAL, GONE)
 SCOPES = ("project", "task", "job")
+BOTH, PULL_ONLY, PUSH_ONLY = "both", "pull", "push"  # direction of a synchronisation
+DIRECTIONS = (BOTH, PULL_ONLY, PUSH_ONLY)
 CHOICES = ("local", "remote")
 MAX_EXAMPLES = 10
 KEEP_PLANS = 10
@@ -250,6 +252,7 @@ def make_plan(
     task_id: int | None = None,
     job: int | None = None,
     remote_tasks: list[str] | None = None,
+    direction: str = BOTH,
 ) -> dict[str, Any]:
     """Compare the project (or one task / one job) with its remote project and save the plan.
 
@@ -271,6 +274,10 @@ def make_plan(
         job: the job number in the task (scope job).
         remote_tasks: project scope only: limit ``tasks_new`` (tasks added in the tool) to these remote
             task ids, and read only those. Used by the import of one CVAT task of a project.
+        direction: ``both`` (each change goes the way it was made; conflicts are asked), ``pull``
+            (the tool wins: this project becomes like it; what exists only here is left alone and
+            listed) or ``push`` (this project wins: the tool becomes like it; what exists only there
+            is left alone and listed).
 
     Returns:
         The plan summary (docs/SYNC.md).
@@ -279,6 +286,8 @@ def make_plan(
         SyncError: nothing to synchronise with, unknown task/job.
         ToolError: the tool's own problems (readable message).
     """
+    if direction not in DIRECTIONS:
+        raise SyncError("The direction must be both, pull or push.")
     project = store.get(project_id)
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
@@ -392,6 +401,10 @@ def make_plan(
                 action, kind = CONFLICT, "removed_local"
             else:
                 action = REMOVE_REMOTE
+        if direction != BOTH:  # one side wins: no conflicts, every difference goes one way
+            action, kind = _directed(action, kind, direction, rec is not None, there), ""
+            if action == RESTORE_REMOTE and supports and _key_task(key) not in rtask_ids:
+                action = SAME  # its task no longer exists in the tool: nothing to restore there
         decisions[image_id] = {
             "key": key,
             "action": action,
@@ -421,11 +434,15 @@ def make_plan(
     # tasks to create in the tool (never sent), images to add to a task already there (older links)
     unsynced_set = set(unsynced)
     tasks_create: list[dict[str, Any]] = []
+    only_here_tasks: list[dict[str, Any]] = []  # pull: never sent, left alone
     added: list[str] = []
     for t in scoped_tasks:
         sent = str(t.id) in mapping or any((link_items.get(i) or {}).get("key") for i in t.images)
         sent = sent or any(i in decisions for i in t.images)
-        if supports and not sent:
+        if supports and not sent and direction == PULL_ONLY:
+            only_here_tasks.append({"task": t.id, "name": t.name, "images": len(t.images)})
+            unsynced_set.difference_update(t.images)
+        elif supports and not sent:
             tasks_create.append(
                 {"task": t.id, "name": t.name, "job_size": t.job_size, "images": len(t.images)}
             )
@@ -433,8 +450,12 @@ def make_plan(
                 unsynced_set.discard(image_id)
                 if image_id in records and records[image_id].status == ACTIVE:
                     push_changes[image_id] = ([], local.get(image_id, []))
+    only_here = 0
     for image_id in unsynced:
         if image_id in unsynced_set and image_id in records and records[image_id].status == ACTIVE:
+            if direction == PULL_ONLY:  # the tool wins: images only here are left alone
+                only_here += 1
+                continue
             added.append(image_id)
             mine = local.get(image_id, [])
             push_changes[image_id] = ([], mine)
@@ -445,13 +466,14 @@ def make_plan(
     tasks_delete = [
         {"task": int(tid), "remote_task": str(m.get("remote_task")), "name": str(m.get("name", ""))}
         for tid, m in tmap.items()
-        if tid not in local_ids
+        if direction != PULL_ONLY  # the tool wins: its task stays
+        and tid not in local_ids
         and str(m.get("remote_task")) in rtask_ids
         and (read is None or str(m.get("remote_task")) in read)
     ]
     mapped_remote = set(mapping.values()) | {_key_task(d["key"]) for d in decisions.values() if d["key"]}
     tasks_new: list[dict[str, Any]] = []
-    if supports and scope == "project":
+    if supports and scope == "project" and direction != PUSH_ONLY:  # push: the tool's extra tasks stay
         tasks_new = [
             {"remote_task": rt.id, "name": rt.name, "job_size": rt.job_size, "images": rt.size}
             for rt in rtasks
@@ -472,6 +494,7 @@ def make_plan(
         "created": now(),
         "create": info is None,
         "scope": {"scope": scope, "task": task_id, "job": job},
+        "direction": direction,
         "remote": _info_dict(info, remote_name(project)),
         "decisions": decisions,
         "remote_labels": remote_labels,
@@ -489,6 +512,8 @@ def make_plan(
         "remote": plan["remote"],
         "create": plan["create"],
         "scope": plan["scope"],
+        "direction": direction,
+        "only_here": {"images": only_here, "tasks": only_here_tasks},
         "pull": count[PULL],
         "push": count[PUSH],
         "add": len(added),
@@ -510,6 +535,20 @@ def make_plan(
         "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
         "diff_push": _push_summary(project, names, push_changes),
     }
+
+
+def _directed(action: str, kind: str, direction: str, here_exists: bool, there: bool) -> str:
+    """What a per-image action becomes when one side wins (``pull``: the tool, ``push``: this project)."""
+    if action == CONFLICT:
+        side = "remote" if direction == PULL_ONLY else "local"
+        action = RESOLVE[kind or "labels"][side]
+    if direction == PULL_ONLY:
+        action = {PUSH: PULL, REMOVE_REMOTE: RESTORE_LOCAL, RESTORE_REMOTE: REMOVE_LOCAL}.get(action, action)
+        if action == RESTORE_LOCAL and not here_exists:
+            action = SAME  # deleted here for good: cannot be brought back from the record
+    else:
+        action = {PULL: PUSH, REMOVE_LOCAL: RESTORE_REMOTE, RESTORE_LOCAL: REMOVE_REMOTE}.get(action, action)
+    return action
 
 
 # -- apply ----------------------------------------------------------------------

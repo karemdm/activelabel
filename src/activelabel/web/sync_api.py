@@ -26,6 +26,7 @@ class PlanBody(BaseModel):
     create: bool = False
     remote_id: str | int | None = None
     scope: str = "project"  # project, task or job (docs/TASKS.md)
+    direction: str = "both"  # both, pull (the tool wins) or push (this project wins)
     task: int | None = None
     job: int | None = None
 
@@ -85,6 +86,8 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
     settings = _settings(state, tool)
     remote = _remote(tool)
     body = body or PlanBody()
+    if body.direction not in engine.DIRECTIONS:
+        raise HTTPException(400, "The direction must be both, pull or push.")
     if body.scope not in engine.SCOPES:
         raise HTTPException(400, "The scope must be project, task or job.")
     if body.scope != "project" and body.task is None:
@@ -107,6 +110,7 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
             scope=body.scope,
             task_id=body.task,
             job=body.job,
+            direction=body.direction,
         )
 
     return state.jobs.submit(project_id, "sync_plan", run).as_dict()

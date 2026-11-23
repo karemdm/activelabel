@@ -62,6 +62,18 @@ with the session.
 Classes: classes found remotely but missing locally are added to the project; local classes
 missing in the remote project are added to it (CVAT labels / Label Studio config).
 
+## Direction
+
+The person chooses the direction before comparing (`direction` in `POST /sync/{tool}`):
+
+| Direction | What happens |
+| --- | --- |
+| `both` (default) | each change goes the way it was made; a change on both sides is a conflict the person resolves |
+| `pull` | the tool wins: this project becomes like it (labels brought, images removed/restored as there); no conflicts; images and tasks that exist only here are left alone and listed (`only_here`) |
+| `push` | this project wins: the tool becomes like it; no conflicts; tasks that exist only in the tool are left alone |
+
+A task deleted here is deleted in the tool only in `both`/`push` and only when confirmed.
+
 ## Tracks (CVAT)
 
 CVAT objects marked with *tracks* (interpolation) are synchronised as one label per frame where the
