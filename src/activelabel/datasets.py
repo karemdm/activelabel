@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import threading
+from bisect import bisect_left
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +20,7 @@ from typing import Any
 
 from activelabel.curation.issues import curation_path, load_duplicate_of
 from activelabel.images.manifest import ACTIVE, Manifest
+from activelabel.images.video import VideoStore
 from activelabel.labels import Label, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
@@ -29,6 +32,12 @@ DEFAULT_SPLIT = {"train": 70, "val": 20, "test": 10}
 MIN_IMAGES = 5  # a part with fewer images gets a warning
 DRIFT = 5.0  # percentage points between requested and real share that trigger a warning
 MAX_NOTE = 1000
+VIDEO_MODES = ("auto", "whole")
+MAX_GAP = 3600.0  # seconds
+SEGMENTS_PER_VIDEO = 10  # a split video gives about this many segments...
+SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
+SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
+MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -54,6 +63,10 @@ class DatasetOptions:
         kfold: None, or K (2..10): K folds of the non-test part (``val`` is then ignored).
         background: include active images without annotations (never for classification).
         seed: seed of the random generator.
+        videos: "auto" (a video that is too big to reach the requested proportions is cut into
+            segments spread over the parts) or "whole" (a video always stays in one part).
+        gap_seconds: frames of a train part closer than this to a val/test segment of the same
+            video are left out of the version (0 = keep them).
     """
 
     tasks: list[int] = field(default_factory=list)
@@ -61,6 +74,8 @@ class DatasetOptions:
     kfold: int | None = None
     background: bool = False
     seed: int = 42
+    videos: str = "auto"
+    gap_seconds: float = 0.5
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form."""
@@ -70,6 +85,8 @@ class DatasetOptions:
             "kfold": self.kfold,
             "background": self.background,
             "seed": self.seed,
+            "videos": self.videos,
+            "gap_seconds": self.gap_seconds,
         }
 
 
@@ -84,7 +101,7 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
 
     Raises:
         ValueError: percentages not whole numbers or not summing to 100, train empty, K-fold outside
-            2..10, seed not a whole number, unknown task id.
+            2..10, seed not a whole number, unknown task id, unknown ``videos`` mode, bad gap.
     """
     data = data or {}
     split = {**DEFAULT_SPLIT, **(data.get("split") or {})}
@@ -110,6 +127,14 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
     background = data.get("background", False)
     if not isinstance(background, bool):
         raise ValueError("Background must be true or false.")
+    videos = data.get("videos", "auto")
+    if videos not in VIDEO_MODES:
+        raise ValueError('Videos must be "auto" or "whole".')
+    gap = data.get("gap_seconds", 0.5)
+    if isinstance(gap, bool) or not isinstance(gap, (int, float)) or not math.isfinite(gap):
+        raise ValueError("The safety gap must be a number of seconds.")
+    if not 0 <= gap <= MAX_GAP:
+        raise ValueError(f"The safety gap must be between 0 and {MAX_GAP:g} seconds.")
     tasks = data.get("tasks") or []
     if not isinstance(tasks, list):
         raise ValueError("Tasks must be a list of task ids.")
@@ -117,15 +142,20 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
     missing = [t for t in tasks if t not in existing_tasks]
     if missing:
         raise ValueError(f"Task {missing[0]} does not exist.")
-    return DatasetOptions(list(dict.fromkeys(tasks)), split, kfold, background, seed)
+    return DatasetOptions(list(dict.fromkeys(tasks)), split, kfold, background, seed, videos, float(gap))
 
 
 @dataclass
 class Group:
-    """Images that must stay together, with the classes they hold."""
+    """Images that must stay together, with the classes they hold.
+
+    A group with ``video`` set is one *segment* (contiguous frames, number ``index``) of a split video.
+    """
 
     images: list[str]
     classes: Counter[str] = field(default_factory=Counter)  # class -> images of the group that have it
+    video: str = ""
+    index: int = -1
 
 
 def build_groups(
@@ -133,8 +163,16 @@ def build_groups(
     videos: dict[str, str],
     duplicate_of: dict[str, str],
     classes_of: dict[str, set[str]],
+    segment_of: dict[str, tuple[str, int]] | None = None,
 ) -> list[Group]:
-    """Groups of candidate images: same video, or linked (transitively) as near duplicates."""
+    """Groups of candidate images: same video, or linked (transitively) as near duplicates.
+
+    ``videos`` maps image ids (candidates or not) to their video. ``segment_of`` maps the images of
+    videos being split to ``(video, segment number)``: those join their segment instead of the whole
+    video, and near-duplicate links between two frames of the same split video are ignored.
+    """
+    segment_of = segment_of or {}
+    split_videos = {v for v, _ in segment_of.values()}
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -151,27 +189,55 @@ def build_groups(
 
     for image_id in candidates:
         find(image_id)
-        if videos.get(image_id):
+        if image_id in segment_of:
+            video, number = segment_of[image_id]
+            union(image_id, f"segment:{video}#{number}")
+        elif videos.get(image_id):
             union(image_id, "video:" + videos[image_id])
     for dup, kept in duplicate_of.items():
+        if videos.get(dup) in split_videos and videos.get(dup) == videos.get(kept):
+            continue  # neighbouring frames are similar by nature: the safety gap handles the borders
         union(dup, kept)  # through images that are not candidates too: they still link the others
     roots: dict[str, Group] = {}
     for image_id in candidates:  # keeps candidate order
         group = roots.setdefault(find(image_id), Group([]))
         group.images.append(image_id)
         group.classes.update(classes_of.get(image_id, ()))
+    for group in roots.values():
+        keys = {segment_of.get(i) for i in group.images}
+        only = next(iter(keys))
+        if len(keys) == 1 and only is not None:  # a pure segment (not glued to other images)
+            group.video, group.index = only
     return list(roots.values())
 
 
-def assign(groups: list[Group], fractions: dict[str, float], rng: random.Random) -> dict[str, list[Group]]:
+def assign(
+    groups: list[Group], fractions: dict[str, float], rng: random.Random, rest: str | None = None
+) -> dict[str, list[Group]]:
     """Give each group to a part: iterative stratification, rarest classes first.
 
     A group goes to the part furthest below its target for the group's rarest class, then below its
     targets for the group's other classes, then below its image target; remaining ties are broken
     with ``rng``. Groups without classes (background) come last and are spread by image count.
+
+    Segments of split videos (groups with ``video``) are placed first, video by video: each part
+    other than ``rest`` gets as many segments as it still needs (proportional to its missing images),
+    taken evenly spread over the video's timeline and never adjacent when avoidable; the other
+    segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
+    same way, neighbours going to different parts. Which part gets which chosen segment follows the
+    class stratification.
     """
     parts = list(fractions)
     out: dict[str, list[Group]] = {p: [] for p in parts}
+    by_video: dict[str, list[Group]] = {}
+    regular: list[Group] = []
+    for g in groups:
+        if g.video:
+            by_video.setdefault(g.video, []).append(g)
+        else:
+            regular.append(g)
+    for video in [v for v, segs in by_video.items() if len(segs) < 2]:
+        regular += by_video.pop(video)
     total_images = sum(len(g.images) for g in groups)
     totals: Counter[str] = Counter()
     for g in groups:
@@ -179,26 +245,78 @@ def assign(groups: list[Group], fractions: dict[str, float], rng: random.Random)
     want_images = {p: total_images * fractions[p] for p in parts}
     got_images = dict.fromkeys(parts, 0)
     got: dict[str, Counter[str]] = {p: Counter() for p in parts}
-    order = list(groups)
+
+    def score(p: str, names: list[str]) -> tuple[float, float, float]:
+        deficits = [totals[c] * fractions[p] - got[p][c] for c in names]
+        return (
+            round(deficits[0], 6) if deficits else 0.0,
+            round(sum(deficits[1:]), 6),
+            round(want_images[p] - got_images[p], 6),
+        )
+
+    def pick(g: Group, candidates: list[str]) -> str:
+        names = sorted(g.classes, key=lambda c: (totals[c], c))
+        best = max(score(p, names) for p in candidates)
+        return rng.choice([p for p in candidates if score(p, names) == best])
+
+    def put(g: Group, p: str) -> None:
+        out[p].append(g)
+        got_images[p] += len(g.images)
+        got[p].update(g.classes)
+
+    def place_video(segs: list[Group]) -> None:
+        m = len(segs)
+        movable = [p for p in parts if p != rest]
+        if not movable:
+            for g in segs:
+                put(g, parts[0])
+            return
+        need = {p: max(0.0, want_images[p] - got_images[p]) for p in movable}
+        if rest is None:  # every segment goes to some part
+            weights = need if sum(need.values()) > 0 else dict.fromkeys(movable, 1.0)
+            raw = {p: m * weights[p] / sum(weights.values()) for p in movable}
+            quota = {p: int(raw[p]) for p in movable}
+            by_remainder = sorted(movable, key=lambda p: (quota[p] - raw[p], movable.index(p)))
+            for p in by_remainder[: m - sum(quota.values())]:
+                quota[p] += 1
+            chosen = list(range(m))
+        else:
+            length = sum(len(g.images) for g in segs) / m
+            quota = {p: int(need[p] / length + 0.5) for p in movable}
+            for p in movable:  # a requested part is never left empty when it can have a segment
+                if quota[p] == 0 and need[p] > 0 and got_images[p] == 0:
+                    quota[p] = 1
+            while sum(quota.values()) > m - 1:  # the rest keeps at least one segment
+                quota[max(movable, key=lambda p: (quota[p], movable.index(p)))] -= 1
+            total = sum(quota.values())
+            chosen = sorted({int((k + 0.5) * m / total) for k in range(total)})
+        remaining = dict(quota)
+        last: tuple[int, str] | None = None
+        taken: set[int] = set()
+        for pos in chosen:
+            candidates = [p for p in movable if remaining[p] > 0]
+            if not candidates:
+                break
+            if last and segs[pos].index - last[0] == 1 and len(candidates) > 1:
+                candidates = [p for p in candidates if p != last[1]] or candidates
+            p = pick(segs[pos], candidates)
+            remaining[p] -= 1
+            put(segs[pos], p)
+            taken.add(pos)
+            last = (segs[pos].index, p)
+        for pos, g in enumerate(segs):
+            if pos not in taken:
+                put(g, rest if rest is not None else movable[0])
+
+    for segs in sorted(by_video.values(), key=lambda s: (-sum(len(g.images) for g in s), s[0].video)):
+        place_video(sorted(segs, key=lambda g: g.index))
+
+    order = list(regular)
     rng.shuffle(order)
     inf = float("inf")
     order.sort(key=lambda g: (min((totals[c] for c in g.classes), default=inf), -len(g.images)))
     for g in order:
-        names = sorted(g.classes, key=lambda c: (totals[c], c))
-
-        def score(p: str, names: list[str] = names) -> tuple[float, float, float]:
-            deficits = [totals[c] * fractions[p] - got[p][c] for c in names]
-            return (
-                round(deficits[0], 6) if deficits else 0.0,
-                round(sum(deficits[1:]), 6),
-                round(want_images[p] - got_images[p], 6),
-            )
-
-        best = max(score(p) for p in parts)
-        chosen = rng.choice([p for p in parts if score(p) == best])
-        out[chosen].append(g)
-        got_images[chosen] += len(g.images)
-        got[chosen].update(g.classes)
+        put(g, pick(g, parts))
     return out
 
 
@@ -225,6 +343,7 @@ class Plan:
     stats: dict[str, Any]
     warnings: list[dict[str, Any]]
     duplicates_analysed: bool
+    videos: list[dict[str, Any]] = field(default_factory=list)
 
     def sizes(self) -> dict[str, Any]:
         """Images per part (``{test, folds: [...]}`` with K-fold)."""
@@ -245,6 +364,7 @@ class Plan:
             "stats": self.stats,
             "warnings": self.warnings,
             "duplicates_analysed": self.duplicates_analysed,
+            "videos": self.videos,
         }
 
 
@@ -276,10 +396,11 @@ def _slot_warnings(
     if len(ids) < MIN_IMAGES:
         out.append({"code": "few_images", **key, "images": len(ids)})
     target = total * fraction
-    if biggest > target:
-        out.append({"code": "group_too_big", **key, "images": biggest, "target": round(target, 1)})
     real = 100.0 * len(ids) / total
-    if abs(real - 100.0 * fraction) > DRIFT:
+    drifted = abs(real - 100.0 * fraction) > DRIFT
+    if biggest > target and drifted:  # a big group only matters when it moved the proportions
+        out.append({"code": "group_too_big", **key, "images": biggest, "target": round(target, 1)})
+    if drifted:
         out.append(
             {"code": "ratio_drift", **key, "expected": round(100.0 * fraction, 1), "actual": round(real, 1)}
         )
@@ -288,6 +409,88 @@ def _slot_warnings(
 
 def _flatten(groups: list[Group], position: dict[str, int]) -> list[str]:
     return sorted((i for g in groups for i in g.images), key=position.__getitem__)
+
+
+def _chunks(frames: int) -> list[tuple[int, int]]:
+    """Bounds ``(start, stop)`` of the contiguous segments of a video with ``frames`` frames.
+
+    Length = ``frames / 10`` rounded up, at least 2 and at most 30 frames (so a video gives about
+    10 segments, more when it is long); a last piece of 1 frame joins the previous segment.
+    """
+    length = min(SEGMENT_MAX_FRAMES, max(SEGMENT_MIN_FRAMES, -(-frames // SEGMENTS_PER_VIDEO)))
+    out = [(a, min(frames, a + length)) for a in range(0, frames, length)]
+    if len(out) > 1 and out[-1][1] - out[-1][0] < SEGMENT_MIN_FRAMES:
+        out[-2:] = [(out[-2][0], frames)]
+    return out
+
+
+def _video_meta(project_dir: Path, tasks: list[Any]) -> tuple[dict[str, str], dict[str, float]]:
+    """Names and frame rates of the project's videos (``{id: name}``, ``{id: fps}``)."""
+    names: dict[str, str] = {}
+    fps: dict[str, float] = {}
+    try:
+        for info in VideoStore(project_dir).list():
+            names[info.id] = info.name
+            fps[info.id] = info.fps
+    except Exception:  # noqa: BLE001 - no video store: names stay empty, fps comes from the tasks
+        pass
+    for task in tasks:
+        source = task.source or {}
+        video = str(source.get("video", ""))
+        if video and source.get("fps") and video not in fps:
+            fps[video] = float(source["fps"])
+    return names, fps
+
+
+def _gap_ids(
+    frames_of: dict[str, list[str]],
+    times: dict[str, float | None],
+    protected: set[str],
+    droppable: set[str],
+    seconds: float,
+) -> dict[str, set[str]]:
+    """Per video, the droppable frames within ``seconds`` of a protected frame (needs every frame's time)."""
+    out: dict[str, set[str]] = {}
+    if seconds <= 0:
+        return out
+    for video, ids in frames_of.items():
+        at: dict[str, float] = {}
+        for i in ids:
+            t = times.get(i)
+            if t is None:
+                break
+            at[i] = t
+        if len(at) < len(ids):
+            continue  # no time for some frame: nothing to measure the gap with
+        near = sorted(at[i] for i in ids if i in protected)
+        drop: set[str] = set()
+        for i in ids if near else ():
+            if i not in droppable:
+                continue
+            k = bisect_left(near, at[i])
+            closest = min(abs(at[i] - near[j]) for j in (k - 1, k) if 0 <= j < len(near))
+            if closest <= seconds + 1e-9:
+                drop.add(i)
+        if drop:
+            out[video] = drop
+    return out
+
+
+def _too_few(slots: list[tuple[dict[str, Any], list[str], float]], total: int) -> bool:
+    """True when a requested part is empty or has less than half of its share."""
+    return any(share > 0 and len(ids) / total < share / 2 for _, ids, share in slots)
+
+
+@dataclass
+class _Attempt:
+    """One way of splitting (videos whole, or some of them cut into segments)."""
+
+    parts: dict[str, list[str]]
+    folds: list[list[str]] | None
+    slots: list[tuple[dict[str, Any], list[str], float]]
+    biggest: int
+    split: set[str]
+    segments: list[tuple[Group, dict[str, Any]]]
 
 
 def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> Plan:
@@ -314,43 +517,167 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     ]
     if not candidates:
         raise ValueError("There are no images to split: choose tasks with annotated images.")
+    total = len(candidates)
     position = {i: n for n, i in enumerate(candidates)}
     classes_of = {i: {lb.label for lb in labels.get(i, [])} for i in candidates}
-    groups = build_groups(
-        candidates, {i: manifest[i].video for i in candidates}, load_duplicate_of(project_dir), classes_of
-    )
-    biggest = max(len(g.images) for g in groups)
-    rng = random.Random(options.seed)
-    test_share = options.split["test"] / 100
+    video_of = {i: manifest[i].video for i in manifest}
+    duplicate_of = load_duplicate_of(project_dir)
+    names, fps = _video_meta(project_dir, tasks)
+    inf = float("inf")
+    frames_of: dict[str, list[str]] = {}
+    for i in candidates:
+        if manifest[i].video:
+            frames_of.setdefault(manifest[i].video, []).append(i)
+    for ids in frames_of.values():  # frame order = time order
+        ids.sort(
+            key=lambda i: (
+                inf if manifest[i].frame is None else manifest[i].frame,
+                inf if manifest[i].time is None else manifest[i].time,
+                position[i],
+            )
+        )
 
-    parts: dict[str, list[str]]
-    folds: list[list[str]] | None = None
-    slots: list[tuple[dict[str, Any], list[str], float]]
+    def seconds(image_id: str) -> float | None:
+        record = manifest[image_id]
+        if record.time is not None:
+            return float(record.time)
+        if record.frame is not None and fps.get(record.video):
+            return record.frame / fps[record.video]
+        return None
+
+    test_share = options.split["test"] / 100
+    shares = {p: options.split[p] / 100 for p in PARTS if options.split[p] > 0}
     if options.kfold is None:
-        shares = {p: options.split[p] / 100 for p in PARTS if options.split[p] > 0}
-        placed = assign(groups, shares, rng)
-        parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
-        slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
+        targets = [total * s for p, s in shares.items() if p != "train"]
     else:
-        pool = groups
-        test_groups: list[Group] = []
-        if test_share > 0:
-            placed = assign(groups, {"pool": 1 - test_share, "test": test_share}, rng)
-            pool, test_groups = placed["pool"], placed["test"]
-        if len(pool) < options.kfold:
-            raise ValueError(f"There are only {len(pool)} groups of images for {options.kfold} folds.")
-        k_share = (1 - test_share) / options.kfold
-        by_fold = assign(pool, {str(n): 1 / options.kfold for n in range(options.kfold)}, rng)
-        folds = [_flatten(by_fold[str(n)], position) for n in range(options.kfold)]
-        parts = {"test": _flatten(test_groups, position)}
-        slots = [({"part": "test"}, parts["test"], test_share)]
-        slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
+        targets = ([total * test_share] if test_share > 0 else []) + [
+            total * (1 - test_share) / options.kfold
+        ]
+
+    def attempt(split_ids: set[str]) -> _Attempt:
+        segment_of: dict[str, tuple[str, int]] = {}
+        for video in sorted(split_ids):
+            for number, (a, b) in enumerate(_chunks(len(frames_of[video]))):
+                for i in frames_of[video][a:b]:
+                    segment_of[i] = (video, number)
+        groups = build_groups(candidates, video_of, duplicate_of, classes_of, segment_of)
+        rng = random.Random(options.seed)
+        segments: list[tuple[Group, dict[str, Any]]] = []
+        folds: list[list[str]] | None = None
+        slots: list[tuple[dict[str, Any], list[str], float]]
+        if options.kfold is None:
+            placed = assign(groups, shares, rng, rest="train")
+            parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
+            slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
+            segments = [(g, {"part": p}) for p, gs in placed.items() for g in gs if g.video]
+        else:
+            pool = groups
+            test_groups: list[Group] = []
+            if test_share > 0:
+                placed = assign(groups, {"pool": 1 - test_share, "test": test_share}, rng, rest="pool")
+                pool, test_groups = placed["pool"], placed["test"]
+            if len(pool) < options.kfold:
+                raise ValueError(f"There are only {len(pool)} groups of images for {options.kfold} folds.")
+            k_share = (1 - test_share) / options.kfold
+            by_fold = assign(pool, {str(n): 1 / options.kfold for n in range(options.kfold)}, rng)
+            folds = [_flatten(by_fold[str(n)], position) for n in range(options.kfold)]
+            parts = {"test": _flatten(test_groups, position)}
+            slots = [({"part": "test"}, parts["test"], test_share)]
+            slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
+            segments = [(g, {"part": "test"}) for g in test_groups if g.video]
+            segments += [
+                (g, {"part": "fold", "fold": n})
+                for n in range(options.kfold)
+                for g in by_fold[str(n)]
+                if g.video
+            ]
+        return _Attempt(parts, folds, slots, max(len(g.images) for g in groups), set(split_ids), segments)
+
+    big: set[str] = set()
+    if options.videos == "auto" and targets:
+        big = {v for v, ids in frames_of.items() if len(ids) >= MIN_SPLIT_FRAMES and len(ids) > min(targets)}
+    final: _Attempt | None
+    try:
+        final = attempt(set())
+    except ValueError:
+        if not big:
+            raise
+        final = None
+    if big and (final is None or _too_few(final.slots, total)):
+        try:
+            final = attempt(big)
+        except ValueError:
+            if final is None:
+                raise
+    assert final is not None
+    split = final.split
+
+    # frames of a train part (or of the folds) right next to a val/test segment are left out
+    if final.folds is None:
+        protected = set(final.parts["val"]) | set(final.parts["test"])
+        droppable = set(final.parts["train"])
+    else:
+        protected = set(final.parts["test"])
+        droppable = {i for f in final.folds for i in f}
+    gap = _gap_ids(
+        {v: frames_of[v] for v in split},
+        {i: seconds(i) for i in candidates if manifest[i].video in split},
+        protected,
+        droppable,
+        options.gap_seconds,
+    )
+    dropped = set().union(*gap.values())
+    parts = {p: [i for i in ids if i not in dropped] for p, ids in final.parts.items()}
+    folds = None if final.folds is None else [[i for i in f if i not in dropped] for f in final.folds]
+    slots = [(key, [i for i in ids if i not in dropped], share) for key, ids, share in final.slots]
 
     found = sorted({c for s in classes_of.values() for c in s})
     ordered = [c for c in project.classes if c in found] + [c for c in found if c not in project.classes]
     warnings: list[dict[str, Any]] = []
     for key, ids, share in slots:
-        warnings += _slot_warnings(key, ids, share, len(candidates), biggest, ordered, labels)
+        warnings += _slot_warnings(key, ids, share, total - len(dropped), final.biggest, ordered, labels)
+
+    videos: list[dict[str, Any]] = []
+    for video, ids in frames_of.items():
+        index = {i: n for n, i in enumerate(ids)}
+
+        def frame_no(image_id: str, index: dict[str, int] = index) -> int:
+            record = manifest[image_id]
+            return index[image_id] if record.frame is None else record.frame
+
+        segs = sorted((s for s in final.segments if s[0].video == video), key=lambda s: s[0].index)
+        cut = video in split and len(segs) >= 2
+        entry = {
+            "video": video,
+            "name": names.get(video, video),
+            "frames": len(ids),
+            "split": cut,
+            "segments": [
+                {
+                    **key,
+                    "first_frame": frame_no(min(g.images, key=index.__getitem__)),
+                    "last_frame": frame_no(max(g.images, key=index.__getitem__)),
+                }
+                for g, key in segs
+            ]
+            if cut
+            else [],
+            "gap": len(gap.get(video, ())),
+        }
+        videos.append(entry)
+        if cut:
+            spread = [p for p in ("val", "test", "fold") if any(key["part"] == p for _, key in segs)]
+            warnings.append(
+                {
+                    "code": "video_split",
+                    "video": video,
+                    "name": entry["name"],
+                    "segments": len(segs),
+                    "parts": spread,
+                    "gap": entry["gap"],
+                }
+            )
+
     analysed = read_json(curation_path(project_dir), {}).get("duplicate_of") is not None
     if not analysed:
         warnings.append({"code": "no_curation"})
@@ -358,6 +685,8 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         stats: dict[str, Any] = {p: _part_stats(parts[p], labels) for p in PARTS}
     else:
         stats = {"test": _part_stats(parts["test"], labels), "folds": [_part_stats(f, labels) for f in folds]}
+    if any(v["split"] for v in videos):
+        stats["gap"] = len(dropped)
     used = {i for ids in parts.values() for i in ids} | {i for f in folds or [] for i in f}
     return Plan(
         options=options,
@@ -369,6 +698,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         stats=stats,
         warnings=warnings,
         duplicates_analysed=analysed,
+        videos=videos,
     )
 
 
@@ -390,6 +720,7 @@ def _summary(data: dict[str, Any], manifest_ids: set[str]) -> dict[str, Any]:
         "sizes": sizes,
         "stats": data["stats"],
         "warnings": data["warnings"],
+        "videos": data.get("videos", []),
         "incomplete": bool(ids - manifest_ids),
     }
 
@@ -438,6 +769,7 @@ class DatasetStore:
                 "labels": plan.labels,
                 "stats": plan.stats,
                 "warnings": plan.warnings,
+                "videos": plan.videos,
                 "fingerprint": plan.fingerprint(),
             }
             write_json(self._file(number), data)

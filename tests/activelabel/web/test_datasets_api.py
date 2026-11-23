@@ -122,3 +122,25 @@ def test_images_filters_by_fold(tmp_path):
     for params in ({"part": "train"}, {"part": "val", "fold": 3}, {"part": "val", "fold": -1}):
         response = client.get("/api/projects/1/images", params={"dataset": 1, **params})
         assert response.status_code == 400, params
+
+
+def test_video_options_are_passed_and_reported(tmp_path):
+    client, state, ids = _setup(tmp_path, n=40)
+    changes = {i: {"video": "v1", "frame": k, "time": k / 2} for k, i in enumerate(ids[:36])}
+    state.manifest(1).update(changes)
+    body = {"seed": 1, "videos": "auto", "gap_seconds": 0.5}
+    preview = client.post(BASE + "/preview", json=body).json()
+    assert preview["options"]["videos"] == "auto" and preview["options"]["gap_seconds"] == 0.5
+    (video,) = preview["videos"]
+    assert video["video"] == "v1" and video["frames"] == 36 and video["split"] is True
+    assert preview["sizes"]["val"] > 0 and preview["sizes"]["test"] > 0
+    assert any(w["code"] == "video_split" for w in preview["warnings"])
+    whole = client.post(BASE + "/preview", json={**body, "videos": "whole"}).json()
+    assert whole["options"]["videos"] == "whole" and whole["videos"][0]["split"] is False
+    created = client.post(BASE, json={**body, "note": "x"}).json()
+    assert created["videos"] == preview["videos"] and created["options"]["gap_seconds"] == 0.5
+    assert client.get(f"{BASE}/1").json()["videos"] == preview["videos"]
+    for bad in ({"videos": "x"}, {"gap_seconds": -1}):
+        assert client.post(BASE + "/preview", json=bad).status_code == 400
+    default = client.post(BASE + "/preview", json={}).json()["options"]
+    assert default["videos"] == "auto" and default["gap_seconds"] == 0.5
