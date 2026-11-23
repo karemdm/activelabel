@@ -59,6 +59,49 @@ groups, saved with `save_view`), so the App shows each video as a sequence you c
 with the objects and their track ids (`index`). Curation (blur, darkness, near duplicates) works
 per frame; near-duplicate detection is especially useful to drop almost identical consecutive frames.
 
+## Loading annotations of a video
+
+Annotation files made for the **whole video** can be loaded into a video task. In the Annotations
+step, with video tasks in the project, choose *For task* (the only video task is preselected;
+*Project images* keeps the matching by file name used for images) and upload the files. They go
+through the same review (format, matched images, classes, problems) and the same *Import*, with
+*Merge* or *Replace*. Labels are matched by **frame number of the video**: a label at frame *f*
+goes to the task image whose `frame` is *f*. Labels on frames the task does not use (for example
+the files cover every frame but the task takes one in 10) are counted and reported as
+"annotations on frames not used by the task" with examples, never as an error. *Replace* only
+replaces the images of that task; the labels of other tasks stay. Coordinates are scaled with the
+video size.
+
+| Format | Detected as | Frame number | Notes |
+| --- | --- | --- | --- |
+| CVAT for video 1.1 XML | `cvatvideo` (has `<track>`) | `frame` of each `box`, `polygon`, `points` of a track; `id` of non-tracked `<image>` | see below |
+| MOT `gt.txt` / `det.txt` | `mot` (comma separated numbers) | column 1, **1-based** (video frame = number - 1) | `frame,id,left,top,width,height,conf,class,...` |
+| YOLO, one `.txt` per frame | `yolo` | trailing integer of the file name: `frame_000120.txt`, `000120.txt`, `video_120.txt` | `data.yaml` or `classes.txt` for names |
+| COCO / COCO-VID / TAO JSON | `coco` | `frame_id`, `frame_index` or `frame` of each image, else the trailing integer of `file_name` | one `video_id` is chosen by the video name when the file has several |
+
+- **CVAT for video**: every frame entry of a track is a label at that frame, with the track id
+  kept in `Label.track` (it goes back to CVAT as a track, docs/SYNC.md). Entries with
+  `outside="1"` are not visible and are skipped. `polyline`, `ellipse`, `mask`, `cuboid` and
+  `skeleton` tracks are skipped as unsupported shapes. **Frame numbers**: when `<meta><task>` has
+  `start_frame` or `frame_filter`, they are relative to the CVAT task (0 to size-1) and are
+  converted to video frames as `start_frame + i * step` (`frame_filter = "step=N"`); without
+  them they are taken as video frame indexes. `original_size` in the meta gives the size for the
+  coordinates. A CVAT task made from the already extracted frames (not from the video) has frames
+  0..size-1 and no start or step in the meta: they are read as video frames, so use the
+  *Project images* option (names) or export from the video task instead.
+- **MOT**: `conf` and visibility are ignored; the id is the track. Class ids are 1-based: with a
+  labels file (`labels.txt` / `classes.txt`, one name per line, line 1 = class 1; or a `data.yaml`
+  with `names`) the class column gives the name, an id without a name is skipped; **without** a
+  labels file every box gets one class: the `class_name` sent with the upload, or `object`.
+- **YOLO** and **COCO** work as for images except for the matching. COCO `track_id` or
+  `instance_id` becomes the track id. A COCO image without any frame number is matched by file
+  name. YOLO files without a number at the end of the name are reported and skipped.
+- Images between the first and the last annotated frame (CVAT: the task range in the meta) that
+  have no label count as annotated without objects; YOLO and COCO only count the frames they list.
+- The project's only video task is used by default for CVAT video and MOT files; when there are
+  several, one must be chosen (`task` in `POST /projects/{id}/annotations`). COCO and YOLO use
+  the frame matching only when a task is chosen.
+
 ## Not in this step
 
 Overlap between jobs (CVAT `overlap`), audio, and annotating directly on the video timeline in

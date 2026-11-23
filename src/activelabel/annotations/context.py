@@ -6,6 +6,7 @@ import math
 from collections.abc import Iterable, Sequence
 
 from activelabel.annotations.models import PROBLEMS, ParseResult, Problem
+from activelabel.annotations.target import VideoTarget
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label, Point
 
@@ -48,9 +49,10 @@ def _clip(value: float) -> float:
 class ParseContext:
     """Collects labels, classes and problems while a format parser runs."""
 
-    def __init__(self, fmt: str, images: list[ImageRecord]) -> None:
+    def __init__(self, fmt: str, images: list[ImageRecord], target: VideoTarget | None = None) -> None:
         self.fmt = fmt
         self.images = images
+        self.target = target
         self.labels: dict[str, list[Label]] = {}
         self.classes: list[str] = []
         self.files: list[str] = []
@@ -142,6 +144,13 @@ class ParseContext:
         if len(self.unmatched) < MAX_UNMATCHED_EXAMPLES and name not in self.unmatched:
             self.unmatched.append(name)
         self.problem("unmatched_entries", name)
+
+    def at_frame(self, frame: int, example: str | None = None, n: int = 1) -> ImageRecord | None:
+        """Image of the video task at this frame; an unused frame is counted (``n`` labels) and skipped."""
+        rec = self.target.frames.get(frame) if self.target else None
+        if rec is None:
+            self.problem("frames_not_in_task", example or f"frame {frame}", n)
+        return rec
 
     def claim(self, rec: ImageRecord, example: str | None = None) -> bool:
         """Start an entry for an image; False (and a problem) when it already has one."""

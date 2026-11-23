@@ -441,6 +441,29 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .example-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .example-counts { display: inline-flex; gap: 0.6rem; flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
 .load-files { margin-top: 0.5rem; }
+/* ---- Annotations step: sections, one under another, full width ---- */
+.annot-section { margin: 0 0 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+.annot-section:first-of-type, .annotate > .annot-section:first-child { margin-top: 0; }
+.annot-section > h3 { margin: 0 0 0.8rem; }
+.gt-box { border-top: 0; padding-top: 0; }
+.gt-summary { margin: 0 0 0.6rem; }
+.cvat-card, .cvat-cta { display: grid; gap: 0.2rem; }
+.cvat-cta { grid-template-columns: auto 1fr auto; align-items: center; gap: 0.9rem; }
+.cvat-cta p { margin: 0; }
+.cvat-cta .icon { color: var(--primary); }
+.cvat-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.cvat-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.cvat-info .link-facts { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 0.4rem; }
+.cvat-info > p { margin: 0.6rem 0 0.4rem; }
+.cvat-dir .seg { max-width: 100%; flex-wrap: wrap; }
+.cvat-dir .seg-opt { white-space: normal; }
+.dir-help { margin: 0.5rem 0 0; }
+.cvat-card .send-row { margin-top: 0.2rem; }
+.sync-section .sync-box:not(:empty) { margin-top: 1rem; }
+.sync-direction { font-weight: 600; }
+.annot-section .sessions-section { margin: 1.5rem 0 0; }
+.annot-section .sessions-section > h4 { margin: 0 0 0.6rem; }
+@media (max-width: 600px) { .cvat-cta { grid-template-columns: 1fr; } }
 .scope-row select:disabled { opacity: 0.6; }
 
 @media (max-width: 480px) {
@@ -539,7 +562,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .conflict-sides p { margin: 0; overflow-wrap: anywhere; }
 .side-tag { display: inline-block; font-weight: 700; color: var(--text); margin-right: 0.4rem; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.seg-opt { display: inline-flex; align-items: center; padding: 0.4rem 0.8rem; min-height: 40px; cursor: pointer; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+.field .seg-opt, .seg-opt { display: inline-flex; align-items: center; padding: 0.45rem 1rem; margin: 0; min-height: 40px; cursor: pointer; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
 .seg-opt + .seg-opt { border-left: 1px solid var(--border); }
 .seg-opt:hover { background: var(--primary-soft); }
 .seg-opt:has(input:checked) { background: var(--primary); color: var(--primary-text); }

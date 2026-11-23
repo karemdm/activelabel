@@ -6,7 +6,8 @@ from dataclasses import replace
 from typing import Any
 
 from activelabel.annotations.parsing import detect_format, parse
-from activelabel.annotations.staging import discard_staged, load_staged
+from activelabel.annotations.staging import discard_staged, get_target, load_staged
+from activelabel.annotations.target import build_target
 from activelabel.annotations.validation import CHANGE_TASK, CONVERT, DISCARD, IMPORT, to_detection, validate
 from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
@@ -52,7 +53,13 @@ def apply(
     fmt = detect_format(files)
     if fmt is None:
         raise ValueError("The annotation format could not be recognised.")
-    result = parse(files, fmt, manifest.active())
+    saved_target = get_target(project_dir, token)
+    target = None
+    if saved_target:
+        target = build_target(
+            project_dir, manifest, saved_target.get("task"), str(saved_target.get("class_name") or "")
+        )
+    result = parse(files, fmt, target.images() if target else manifest.active(), target)
     report = validate(result, project)
     if action not in report.options:
         raise ValueError(f"Action '{action}' is not possible for these files (options: {report.options}).")
@@ -101,6 +108,17 @@ def apply(
                 n_labels += len(items)
             else:
                 final.setdefault(key, [])
+    elif target is not None and existing is not None:
+        # the files are for one video task: only the images of that task are replaced
+        mine = {r.id for r in target.frames.values()}
+        if existing.task != task and any(v for k, v in existing.images.items() if k not in mine):
+            raise ValueError(
+                "Other images have labels of another task; change the task of the project first."
+            )
+        final = {k: v for k, v in existing.images.items() if k not in mine}
+        final.update(labels)
+        added = sum(1 for v in labels.values() if v)
+        n_labels = sum(len(v) for v in labels.values())
     else:
         final = labels
         added = sum(1 for v in labels.values() if v)

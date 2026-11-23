@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import shutil
@@ -9,7 +10,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import IO, BinaryIO
+from typing import IO, Any, BinaryIO
 
 STAGING = "staging"
 MAX_AGE_SECONDS = 24 * 3600
@@ -51,8 +52,11 @@ def _cleanup(root: Path) -> None:
         return
     limit = time.time() - MAX_AGE_SECONDS
     for child in root.iterdir():
-        if child.is_dir() and child.stat().st_mtime < limit:
-            shutil.rmtree(child, ignore_errors=True)
+        if child.stat().st_mtime < limit:
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
 
 
 def _extract_zip(handle: BinaryIO, target: Path, budget: list[int]) -> int:
@@ -121,7 +125,28 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
     return sorted(p for p in folder.rglob("*") if p.is_file())
 
 
+def _target_file(project_dir: Path, token: str) -> Path:
+    _check_token(token)
+    return project_dir / STAGING / f"{token}.target.json"
+
+
+def set_target(project_dir: Path, token: str, target: dict[str, Any]) -> None:
+    """Remember the video task (``{"task": id, "class_name": ...}``) the staged files were checked against."""
+    _target_file(project_dir, token).write_text(json.dumps(target), encoding="utf-8")
+
+
+def get_target(project_dir: Path, token: str) -> dict[str, Any] | None:
+    """The video task remembered by :func:`set_target`, or None."""
+    path = _target_file(project_dir, token)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def discard_staged(project_dir: Path, token: str) -> None:
     """Delete a staging folder (no error when it is already gone)."""
     _check_token(token)
     shutil.rmtree(project_dir / STAGING / token, ignore_errors=True)
+    _target_file(project_dir, token).unlink(missing_ok=True)

@@ -38,6 +38,8 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     "rle_bbox_only": ("warning", "Mask (RLE) objects were imported as boxes only."),
     "multiple_classes": ("warning", "Some images have more than one class; only the first one is kept."),
     "invalid_annotation": ("warning", "Some annotations are malformed and were skipped."),
+    "frames_not_in_task": ("warning", "Some annotations are on frames that the task does not use."),
+    "frame_number_missing": ("warning", "Some entries have no frame number and were skipped."),
 }
 
 
@@ -67,7 +69,7 @@ class ParseResult:
     """What was read from the annotation files.
 
     Attributes:
-        format: coco, yolo, voc, cvat, labelstudio or folders.
+        format: coco, yolo, voc, cvat, labelstudio, folders, cvatvideo or mot.
         labels: labels per image id. Images matched without objects have an empty list.
         classes: class names in file order (declared ones first, then by first use).
         files: names of the annotation files read.
