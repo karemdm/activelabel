@@ -1,9 +1,13 @@
 """Synchronisation with a CVAT-like remote that has tasks, jobs and deleted frames (docs/TASKS.md)."""
 
+from pathlib import Path
+
 import pytest
 from sync_fakes import SETTINGS, FakeRemote, box, make_project, progress
 
+from activelabel.annotate.base import ToolError
 from activelabel.images.manifest import Manifest
+from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
 from activelabel.storage import write_json
 from activelabel.sync import engine, links
@@ -330,6 +334,56 @@ def test_task_added_remotely_is_imported(synced):
     assert ("frame", new, 0) in env.remote.calls
     again = plan(env)
     assert (again["unchanged"], again["tasks_new"], again["pull"], again["push"]) == (11, [], 0, 0)
+
+
+def _remote_video_task(env, count=3, **mark):
+    new = env.remote.new_task(env.rid, "Clip", [(f"clip_frame_{i:06d}.png", CAT) for i in range(count)])
+    env.remote.mark_video(new, **mark)
+    return new
+
+
+def test_remote_video_task_is_imported_with_its_video(synced, monkeypatch):
+    import tempfile
+
+    env = synced
+    made = []
+    real = tempfile.mkdtemp
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda *a, **k: made.append(real(*a, **k)) or made[-1])
+    _remote_video_task(env, 3, start=4, step=5, fps=10.0, frames=30)
+    p = plan(env)
+    result = apply(env, p["plan_id"])
+    assert result["tasks_imported"] == 1 and result["warnings"] == []
+    task = TaskStore(env.dir).load()[-1]
+    videos = VideoStore(env.dir).list()
+    assert len(videos) == 1 and videos[0].frames == 30
+    assert task.source == {"video": videos[0].id, "start": 4, "stop": 14, "step": 5, "fps": videos[0].fps}
+    records = Manifest(env.dir).load()
+    got = [(records[i].video, records[i].frame, records[i].time) for i in task.images]
+    fps = videos[0].fps
+    assert got == [(videos[0].id, f, f / fps) for f in (4, 9, 14)]
+    assert VideoStore(env.dir).file(videos[0]).exists()
+    assert made and not any(Path(m).exists() for m in made)  # the temporary folder is gone
+
+
+@pytest.mark.parametrize("how", ["none", "raises", "too_short"])
+def test_remote_video_task_falls_back_to_images(synced, how, monkeypatch):
+    env = synced
+    new = _remote_video_task(env, 3, start=0, step=1, frames=2 if how == "too_short" else None)
+    if how == "none":
+        env.remote.videos.clear()
+    if how == "raises":
+
+        def boom(*a, **k):
+            raise ToolError("backup refused")
+
+        monkeypatch.setattr(env.remote, "video_source", boom)
+    result = apply(env, plan(env)["plan_id"])
+    assert result["tasks_imported"] == 1
+    task = TaskStore(env.dir).load()[-1]
+    assert task.source is None and len(task.images) == 3
+    assert VideoStore(env.dir).list() == []
+    assert all(r.video == "" for r in (Manifest(env.dir).load()[i] for i in task.images))
+    assert bool(result["warnings"]) == (how != "none") and new
 
 
 def delete_local_task(env, task_id):

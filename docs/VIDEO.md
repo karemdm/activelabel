@@ -40,7 +40,13 @@ keyframes (docs/SYNC.md, *Tracks*).
 
 A CVAT task made from a video and imported into ActiveLabel (or added in CVAT and brought by a
 sync) comes as its frames, downloaded as images in frame order (deleted frames kept as excluded
-images, so the jobs still match); the original video is not downloaded.
+images, so the jobs still match). The original video is also downloaded, from the task backup
+(`POST /api/tasks/{id}/backup/export`, the file is `data/<video>` in the zip), kept in the
+project's videos and set as the task's source, so the local task is a task from a video: each
+image gets its video, frame (`start_frame + i * step`) and time. The frames are not extracted
+again. If the video cannot be downloaded, read, or does not fit the task's selection, the task
+stays as images and the sync result carries a warning (`warnings`); the import never fails
+because of it.
 
 Details found against CVAT: a video task lists one entry in `/data/meta` (the video) while it has
 `size` frames, numbered 0..size-1 in the annotations and jobs; jobs of a video overlap by default,

@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 import numpy as np
+from make_video import make_video
 from PIL import Image
 from sample_images import make_image
 
@@ -41,6 +42,7 @@ class FakeRemote:
         self.supports_tasks = tasks
         self.task_meta: dict[str, dict[str, dict]] = {}
         self.frame_bytes: dict[tuple[str, int], bytes] = {}
+        self.videos: dict[str, dict] = {}
         self._png_seed = 1000
         self._task_n = 100
         self.projects: dict[str, dict] = {}
@@ -192,6 +194,24 @@ class FakeRemote:
                 items = self.projects[rid]["items"]
                 for key in [k for k in items if k.partition(":")[0] == str(task_id)]:
                     del items[key]
+
+    def mark_video(self, task_id, start=0, step=1, frames=None, fps=30.0):
+        """Test helper: the remote task counts as a video task (``video_source`` gives a small video)."""
+        self.videos[str(task_id)] = {"start": start, "step": step, "frames": frames, "fps": fps}
+
+    def video_source(self, settings, task_id, dest_dir):
+        self._check()
+        self.calls.append(("video_source", str(task_id)))
+        spec = self.videos.get(str(task_id))
+        if spec is None:
+            return None
+        rid = next(r for r, tasks in self.task_meta.items() if str(task_id) in tasks)
+        size = self.task_meta[rid][str(task_id)]["size"]
+        last = spec["start"] + (size - 1) * spec["step"]
+        total = spec["frames"] or last + 1
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        path = make_video(dest_dir / "clip.mp4", frames=total, fps=spec["fps"])
+        return path, {"start": spec["start"], "stop": last, "step": spec["step"]}
 
     def frame(self, settings, task_id, frame):
         self._check()

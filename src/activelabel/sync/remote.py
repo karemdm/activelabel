@@ -101,6 +101,16 @@ class RemoteProject(Protocol):
         """The image of one frame of a remote task (only when ``supports_tasks``)."""
         ...
 
+    def video_source(
+        self, settings: ToolSettings, task_id: str, dest_dir: Path
+    ) -> tuple[Path, dict[str, int]] | None:
+        """The original video of a remote video task, downloaded into ``dest_dir``.
+
+        Returns ``(file, {"start", "stop", "step"})`` (the frames of the task are ``start + i * step``
+        of the video), or None when the task is not a video task or the tool cannot give the video.
+        """
+        ...
+
     def tasks(self, settings: ToolSettings, remote_id: str) -> list[RemoteTask]:
         """The remote tasks of the project with their jobs, oldest first (empty when the tool has none)."""
         ...

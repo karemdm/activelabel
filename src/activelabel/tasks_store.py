@@ -246,6 +246,14 @@ class TaskStore:
             self._write(next_id, tasks)
             return task
 
+    def set_source(self, task_id: int, source: dict[str, Any]) -> ImageTask:
+        """Record the video a task was made from (``{"video", "start", "stop", "step", "fps"}``)."""
+        with self._lock:
+            next_id, tasks, task = self._change(task_id)
+            task.source = source
+            self._write(next_id, tasks)
+            return task
+
     def close(self, task_id: int) -> ImageTask:
         """Fix the images of a task (no more appends)."""
         with self._lock:
