@@ -191,7 +191,8 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .project-title-row h1 { margin: 0; overflow-wrap: anywhere; }
 .project-head-actions { display: flex; gap: 0.5rem; align-items: flex-start; }
 
-.stepper { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-bottom: 1rem; }
+.stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+@media (max-width: 1000px) { .stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .step { display: flex; align-items: center; gap: 0.7rem; text-align: left; padding: 0.7rem 0.9rem; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; min-width: 0; }
 .step:hover { border-color: var(--primary); }
 .step.current { border-color: var(--primary); background: var(--primary-soft); }
@@ -669,3 +670,63 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .video-strip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--surface-2); }
 .video-run .report-line { margin: 0 0 0.75rem; }
 .task-video-icon { display: inline-flex; vertical-align: -3px; margin-right: 0.35rem; color: var(--primary); }
+
+/* ---- step 4: dataset versions ---- */
+.ds-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.ds-head h2 { margin: 0 0 0.2rem; }
+.ds-head p { margin: 0; }
+.ds-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 1rem; }
+.ds-card { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.ds-card-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ds-card-head h3 { margin: 0; font-size: 1.3rem; }
+.ds-del { margin-left: auto; }
+.ds-note { margin: 0; overflow-wrap: anywhere; }
+.ds-meta { margin: 0; }
+.ds-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); gap: 2px; }
+.ds-seg { flex-basis: 0; min-width: 0; }
+.ds-train, .ds-fold-0 { background: var(--primary); }
+.ds-val { background: var(--warn); }
+.ds-test { background: var(--ok); }
+.ds-fold-1 { background: color-mix(in srgb, var(--primary) 55%, var(--surface)); }
+.ds-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.ds-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.35rem; }
+.ds-badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ds-badge { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.82rem; font-weight: 600; }
+.ds-badge.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.ds-badge.bad { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.ds-view { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: auto; }
+.ds-empty { display: grid; justify-items: center; gap: 0.3rem; padding: 2rem 1rem; text-align: center; border: 2px dashed var(--border); border-radius: var(--radius); }
+.ds-empty p { margin: 0; }
+
+dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
+.ds-form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
+@media (min-width: 900px) { .ds-form-grid { grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); } .ds-side { border-left: 1px solid var(--border); padding-left: 1.25rem; } }
+.ds-form h2 { margin-top: 0; }
+.ds-tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.field .ds-check, .ds-check { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-weight: 400; cursor: pointer; min-height: 32px; }
+.ds-check-name { overflow-wrap: anywhere; }
+.ds-check input { flex: none; width: 18px; height: 18px; }
+.ds-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 0.6rem; margin: 0.75rem 0 0.4rem; }
+.ds-num { margin: 0; }
+.ds-num input { width: 100%; }
+.ds-ratios .ds-bar { height: 12px; }
+.ds-sum { margin: 0.3rem 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ds-sum.ok { color: var(--ok); }
+.ds-sum.bad { color: var(--danger); }
+.ds-help { margin: 0.3rem 0 0; font-size: 0.9rem; }
+.ds-adv summary { cursor: pointer; font-weight: 600; }
+.ds-adv summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.ds-adv .field { margin-top: 0.6rem; }
+.ds-preview { display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
+.ds-preview > p { margin: 0; }
+.ds-preview .section-title { margin: 0; }
+.ds-error { color: var(--danger); font-weight: 600; }
+.ds-table-wrap { overflow-x: auto; }
+.ds-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.92rem; }
+.ds-table th, .ds-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.ds-table th[scope="row"], .ds-table thead th:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; max-width: 18ch; }
+.ds-table tr.strong th, .ds-table tr.strong td { font-weight: 700; }
+.ds-table tr.sub th { text-align: left; color: var(--muted); font-size: 0.82rem; font-weight: 600; background: var(--surface-2); }
+.ds-warns { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.ds-warn { margin: 0; color: var(--warn); }
+.ds-ok { color: var(--ok); margin: 0; }

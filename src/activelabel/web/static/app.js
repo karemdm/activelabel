@@ -115,6 +115,7 @@
   /* one image's tag (singular: "Blurry" / "Borrada") */
   const issueTag = (issue) => tr(`tag.${issue}`, issueName(issue));
   const sameTask = (a, b) => a === b;
+  const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
   // ---------------------------------------------------------------- toasts
   function toast(message, kind = 'info', ms = 7000) {
@@ -534,6 +535,10 @@
       if (q.issue) params.set('issue', q.issue);
       if (q.task != null) params.set('task', String(q.task));
       if (q.job != null) params.set('job', String(q.job));
+      if (q.dataset) {
+        params.set('dataset', String(q.dataset.n));
+        if (q.dataset.fold != null) params.set('fold', String(q.dataset.fold)); else if (q.dataset.part) params.set('part', q.dataset.part);
+      }
       try {
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         if (mine !== token) return;
@@ -564,6 +569,10 @@
         if (q.issue) params.set('issue', q.issue);
         if (q.task != null) params.set('task', String(q.task));
         if (q.job != null) params.set('job', String(q.job));
+        if (q.dataset) {
+          params.set('dataset', String(q.dataset.n));
+          if (q.dataset.fold != null) params.set('fold', String(q.dataset.fold)); else if (q.dataset.part) params.set('part', q.dataset.part);
+        }
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         const got = data.items || [];
         got.forEach((i) => ids.push(i.id));
@@ -810,7 +819,7 @@
       syncTool: {},
       syncDismissed: new Set(),
     };
-    const STEPS = ['images', 'annotations', 'curation'];
+    const STEPS = ['images', 'annotations', 'curation', 'datasets'];
 
     // ---- header, stepper, panels skeleton
     const headerBox = el('header', { class: 'project-head card' });
@@ -867,6 +876,7 @@
           ? `${tn('status.annotated', c.annotated)} · ${tn('status.classes', (ctx.project.classes || []).length)}`
           : t('status.annotations_none');
       }
+      if (step === 'datasets') return ctx.datasetCount ? tn('status.versions', ctx.datasetCount) : t('status.versions_none');
       return c.analyzed > 0 ? tn('status.issues', c.with_issues || 0) : t('status.not_analyzed');
     }
 
@@ -1515,7 +1525,7 @@
 
       // ---- tasks (cards), and the filter of the grid
       let tasks = [];
-      let filter = { task: null, job: null };
+      let filter = { task: null, job: null, dataset: null }; // dataset: {n, part|fold} set from step 4
       let renaming = null; // id of the task being renamed
       let renameDraft = null; // text typed so far (kept if the cards are redrawn)
       const expanded = new Set();
@@ -1531,7 +1541,8 @@
           status: 'active',
           task: filter.task,
           job: filter.job,
-          emptyText: filter.task != null ? t('tasks.filter_empty') : t('grid.no_images'),
+          dataset: filter.dataset,
+          emptyText: filter.task != null || filter.dataset ? t('tasks.filter_empty') : t('grid.no_images'),
         }),
         onOpen: (items, i) => openLightbox(projectId, items, i),
       });
@@ -1545,7 +1556,7 @@
           return;
         }
         const current = taskById(filter.task);
-        if (!current) filter = { task: null, job: null };
+        if (!current) filter = { task: null, job: null, dataset: filter.dataset };
         else if (filter.job != null && !current.jobs.some((j) => j.n === filter.job)) filter.job = null;
         if (!tasks.some((x) => x.id === renaming)) renaming = null;
         nameInput.placeholder = t('tasks.name_placeholder', { id: tasks.reduce((m, x) => Math.max(m, x.id), 0) + 1 });
@@ -1553,8 +1564,8 @@
         drawFilter();
       }
 
-      function setFilter(task, job, { reveal = false } = {}) {
-        filter = { task, job };
+      function setFilter(task, job, { reveal = false, dataset = null } = {}) {
+        filter = { task, job, dataset };
         drawFilter();
         grid.reload();
         if (reveal) {
@@ -1568,14 +1579,14 @@
         const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('.task-filter') ? document.activeElement.id : null;
         const taskSelect = el('select', {
           id: 'filter-task',
-          onchange: (e) => setFilter(e.target.value === '' ? null : Number(e.target.value), null),
+          onchange: (e) => setFilter(e.target.value === '' ? null : Number(e.target.value), null, { dataset: filter.dataset }),
         },
         el('option', { value: '' }, t('tasks.filter_all_tasks')),
         ...tasks.map((x) => el('option', { value: String(x.id), selected: x.id === filter.task }, x.name)));
         const jobSelect = task && task.jobs.length > 1
           ? el('select', {
             id: 'filter-job',
-            onchange: (e) => setFilter(filter.task, e.target.value === '' ? null : Number(e.target.value)),
+            onchange: (e) => setFilter(filter.task, e.target.value === '' ? null : Number(e.target.value), { dataset: filter.dataset }),
           },
           el('option', { value: '' }, t('tasks.filter_all_jobs')),
           ...task.jobs.map((j) => el('option', { value: String(j.n), selected: j.n === filter.job }, t('tasks.job_option', { n: j.n, first: num(j.first), last: num(j.last) }))))
@@ -1589,7 +1600,12 @@
             jobSelect ? el('div', { class: 'field inline' }, el('label', { for: 'filter-job', class: 'sr-only' }, t('tasks.filter_job')), jobSelect) : null,
             chipText
               ? el('span', { class: 'chip filter-chip', role: 'status' }, chipText,
-                el('button', { type: 'button', class: 'chip-x', id: 'filter-clear', 'aria-label': t('tasks.filter_clear'), title: t('tasks.filter_clear'), onclick: () => { setFilter(null, null); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
+                el('button', { type: 'button', class: 'chip-x', id: 'filter-clear', 'aria-label': t('tasks.filter_clear'), title: t('tasks.filter_clear'), onclick: () => { setFilter(null, null, { dataset: filter.dataset }); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
+              : null,
+            filter.dataset
+              ? el('span', { class: 'chip filter-chip', role: 'status', id: 'filter-dataset-chip' },
+                t('ds.filter_chip', { n: filter.dataset.n, part: filter.dataset.fold != null ? t('ds.fold', { n: filter.dataset.fold + 1 }) : partName(filter.dataset.part) }),
+                el('button', { type: 'button', class: 'chip-x', id: 'filter-dataset-clear', 'aria-label': t('ds.filter_clear'), title: t('ds.filter_clear'), onclick: () => { setFilter(filter.task, filter.job); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
               : null));
         if (focused) { const f = document.getElementById(focused); if (f) f.focus(); }
       }
@@ -2139,6 +2155,12 @@
       const reload = () => { loadTasks(); grid.reload(); };
       panel.mount = reload;
       panel.refresh = reload;
+      /** Step 4 sends the person here to see one part of a dataset version. */
+      panel.showDataset = (n, part, fold = null) => {
+        filter = { task: null, job: null, dataset: { n, part, fold } };
+        drawFilter();
+        grid.reload();
+      };
       return panel;
     }
 
@@ -3241,8 +3263,409 @@
       pollJobs();
     }
 
+    // ---- step 4: dataset versions (frozen splits, see docs/DATASETS.md)
+    function datasetsPanel() {
+      const node = el('section', { class: 'panel', id: 'panel-datasets', 'aria-labelledby': 'h-datasets' });
+      const panel = { node, mounted: false };
+      const listBox = el('div', { class: 'ds-list' });
+      let versions = [];
+      const isClassification = () => ctx.project && ctx.project.task === 'classification';
+
+      /* sizes: {train, val, test} or {test, folds: [n, ...]}; the preview may send counts or id lists */
+      const count = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
+      function normSizes(d) {
+        if (d.sizes) return d.sizes;
+        const src = d.parts || d;
+        const out = {};
+        ['train', 'val', 'test'].forEach((k) => { if (src[k] != null) out[k] = count(src[k]); });
+        if (Array.isArray(d.folds)) out.folds = d.folds.map(count);
+        return out;
+      }
+      /* one entry per part to draw: {key, label, n, cls, part, fold} */
+      /* parts to show: the ones with images, and the ones that were asked for even if they ended up empty */
+      function partItems(sizes, options) {
+        const asked = ((options || {}).split) || {};
+        const wanted = (p) => count(sizes[p]) > 0 || p === 'train' || Number(asked[p]) > 0;
+        const items = [];
+        if (Array.isArray(sizes.folds)) {
+          sizes.folds.forEach((n, i) => items.push({ key: `fold${i}`, label: t('ds.fold', { n: i + 1 }), n: count(n), cls: `fold-${i % 2}`, fold: i }));
+        } else {
+          ['train', 'val'].forEach((p) => { if (sizes[p] != null && wanted(p)) items.push({ key: p, label: partName(p), n: count(sizes[p]), cls: p, part: p }); });
+        }
+        if (sizes.test != null && wanted('test')) items.push({ key: 'test', label: partName('test'), n: count(sizes.test), cls: 'test', part: 'test' });
+        return items;
+      }
+      const totalOf = (items) => items.reduce((a, x) => a + x.n, 0);
+      const pctOf = (n, total) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+      function partsBar(items, label) {
+        return el('div', { class: 'ds-bar', role: 'img', 'aria-label': label },
+          ...items.filter((x) => x.n > 0).map((x) => el('span', { class: `ds-seg ds-${x.cls}`, style: `flex-grow:${x.n}`, title: `${x.label}: ${num(x.n)}` })));
+      }
+      const legend = (items) => el('ul', { class: 'ds-legend' }, ...items.map((x) => el('li', null,
+        el('span', { class: `ds-dot ds-${x.cls}`, 'aria-hidden': 'true' }), `${x.label} `, el('strong', null, num(x.n)),
+        el('span', { class: 'muted' }, ` · ${pctOf(x.n, totalOf(items))}%`))));
+      const barLabel = (items) => items.map((x) => `${x.label} ${num(x.n)}`).join(', ');
+
+      /* background images of a stats object {part: {images, background, objects}} */
+      const statsList = (stats) => (stats ? (Array.isArray(stats.folds) ? [...stats.folds, stats.test] : Object.values(stats)).filter((s) => s && typeof s === 'object') : []);
+      const backgroundOf = (stats) => statsList(stats).reduce((a, s) => a + (Number(s.background) || 0), 0);
+      function statFor(stats, item) {
+        if (!stats) return {};
+        if (item.fold != null) return (Array.isArray(stats.folds) ? stats.folds[item.fold] : stats[`fold${item.fold + 1}`] || stats[`fold_${item.fold + 1}`] || stats[`fold${item.fold}`]) || {};
+        return stats[item.key] || {};
+      }
+
+      /* one warning per fact: an empty part says so once (not "class missing" for every class), and the
+         proportion drift is said once */
+      function cleanWarnings(warnings, items) {
+        const empty = new Set(items.filter((x) => x.n === 0).map((x) => (x.fold != null ? `fold${x.fold}` : x.part)));
+        const seen = new Set();
+        const out = [];
+        for (const w of warnings || []) {
+          const where = w.fold != null ? `fold${w.fold}` : w.part;
+          let x = w;
+          if (empty.has(where) && /class_missing|few_images/.test(String(w.code))) x = { code: 'part_empty', part: w.part, fold: w.fold };
+          else if (/drift|group/.test(String(w.code))) x = { code: 'drift' };
+          const key = JSON.stringify([x.code, x.part, x.fold, x.class]);
+          if (!seen.has(key)) { seen.add(key); out.push(x); }
+        }
+        /* several classes missing from the same part: one warning listing them */
+        const grouped = [];
+        const byPart = new Map();
+        for (const w of out) {
+          if (w.code !== 'class_missing') { grouped.push(w); continue; }
+          const where = w.fold != null ? `fold${w.fold}` : w.part;
+          if (!byPart.has(where)) {
+            byPart.set(where, { code: 'classes_missing', part: w.part, fold: w.fold, classes: [] });
+            grouped.push(byPart.get(where));
+          }
+          byPart.get(where).classes.push(w.class);
+        }
+        return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1 ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0] } : w));
+      }
+
+      /* warnings in plain words; short = for the badges on a card */
+      function warnText(w, items, short = false) {
+        const part = w.fold != null ? t('ds.fold', { n: w.fold + 1 }) : partName(w.part);
+        const code = String(w.code || '');
+        if (code === 'class_missing') return short ? t('ds.b_class_missing', { class: w.class, part }) : t('ds.w_class_missing', { class: w.class, part });
+        if (code === 'classes_missing') {
+          const list = w.classes.slice(0, 6).join(', ') + (w.classes.length > 6 ? ` (+${w.classes.length - 6})` : '');
+          return short ? t('ds.b_classes_missing', { n: num(w.classes.length), part }) : t('ds.w_classes_missing', { n: num(w.classes.length), part, list });
+        }
+        if (code === 'part_empty') return short ? t('ds.b_part_empty', { part }) : t('ds.w_part_empty', { part });
+        if (code === 'few_images') return short ? t('ds.b_few_images', { part }) : t('ds.w_few_images', { part });
+        if (/drift|group/.test(code)) {
+          const total = totalOf(items);
+          const real = items.map((x) => pctOf(x.n, total)).join('/');
+          return short ? t('ds.b_group_drift', { real }) : t('ds.w_group_drift', { real });
+        }
+        if (/dup|curation/.test(code)) return short ? t('ds.b_duplicates') : t('ds.w_duplicates');
+        return tr(`ds.w.${code}`, code);
+      }
+
+      // ---------------------------------------------------------------- list
+      function splitText(v) {
+        const o = v.options || {};
+        if (o.kfold) return t('ds.kfold_short', { k: o.kfold });
+        const s = o.split || {};
+        return [s.train, s.val, s.test].filter((x) => x != null).join(' / ');
+      }
+
+      function versionCard(v) {
+        const sizes = normSizes(v);
+        const items = partItems(sizes, v.options);
+        const bg = backgroundOf(v.stats);
+        const warns = cleanWarnings(v.warnings, items).map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
+        const id = `ds-v${v.version}`;
+        return el('li', { class: 'ds-card card', id, 'aria-labelledby': `${id}-title` },
+          el('div', { class: 'ds-card-head' },
+            el('h3', { id: `${id}-title` }, `v${v.version}`),
+            el('span', { class: 'muted' }, fmtDateTime(v.created)),
+            v.type ? taskBadge(v.type) : null,
+            v.incomplete ? el('span', { class: 'ds-badge bad', title: t('ds.incomplete_help') }, icon('error', 14), t('ds.incomplete')) : null,
+            el('button', { type: 'button', class: 'icon-btn danger ds-del', 'aria-label': t('ds.delete_aria', { n: v.version }), title: t('ds.delete'), onclick: () => remove(v) }, icon('trash', 18))),
+          v.note ? el('p', { class: 'ds-note' }, v.note) : null,
+          el('p', { class: 'muted ds-meta' }, splitText(v), bg > 0 ? ` · ${t('ds.background_count', { n: num(bg) })}` : ''),
+          partsBar(items, barLabel(items)),
+          legend(items),
+          warns.length ? el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns) : null,
+          el('div', { class: 'ds-view' },
+            el('span', { class: 'muted' }, t('ds.see_images')),
+            ...items.map((x) => el('button', { type: 'button', class: 'btn small', disabled: x.n === 0, 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
+              onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label))));
+      }
+
+      function draw() {
+        listBox.replaceChildren(versions.length
+          ? el('ul', { class: 'ds-cards' }, ...versions.map(versionCard))
+          : el('div', { class: 'ds-empty' }, icon('images', 28), el('p', { class: 'muted' }, t('ds.empty'))));
+      }
+
+      async function load() {
+        try {
+          const d = await api('GET', `/projects/${projectId}/datasets`);
+          versions = (d.versions || []).slice().sort((a, b) => b.version - a.version);
+        } catch (err) {
+          toastError(err);
+          return;
+        }
+        ctx.datasetCount = versions.length;
+        draw();
+        renderStepper();
+      }
+
+      async function remove(v) {
+        const ok = await confirmDialog({ title: t('ds.delete_title', { n: v.version }), text: t('ds.delete_text'), confirmLabel: t('ds.delete') });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/projects/${projectId}/datasets/${v.version}`, { json: { confirm: true } });
+          toast(t('ds.deleted', { n: v.version }), 'success', 3000);
+        } catch (err) {
+          toastError(err);
+        }
+        await load();
+      }
+
+      // ---------------------------------------------------------------- new version form
+      async function openNew(trigger) {
+        let tasks;
+        try {
+          tasks = ((await api('GET', `/projects/${projectId}/tasks`)).tasks || []).filter((x) => x.active > 0);
+        } catch (err) {
+          toastError(err);
+          return;
+        }
+        const cls = isClassification();
+        const st = { tasks: new Set(tasks.map((x) => x.id)), mode: 'split', bg: false };
+        let timer = null;
+        let token = 0;
+
+        const numInput = (id, value, min, max) => el('input', { type: 'number', id, inputmode: 'numeric', min: String(min), max: String(max), step: '1', value: String(value) });
+        const train = numInput('ds-train', 70, 1, 100);
+        const val = numInput('ds-val', 20, 0, 99);
+        const test = numInput('ds-test', 10, 0, 99);
+        const kInput = numInput('ds-k', 5, 2, 10);
+        const ktestInput = numInput('ds-ktest', 10, 0, 90);
+        const seed = el('input', { type: 'number', id: 'ds-seed', inputmode: 'numeric', step: '1', value: '42' });
+        const note = el('input', { type: 'text', id: 'ds-note', maxlength: '500', autocomplete: 'off' });
+        const bgBox = el('input', { type: 'checkbox', id: 'ds-bg', role: 'switch' });
+        const create = el('button', { type: 'submit', class: 'btn primary' }, t('ds.create'));
+
+        // tasks
+        const taskBoxes = tasks.map((x) => {
+          const box = el('input', { type: 'checkbox', id: `ds-task-${x.id}`, checked: true, onchange: (e) => { if (e.target.checked) st.tasks.add(x.id); else st.tasks.delete(x.id); changed(); } });
+          return el('li', null, el('label', { for: box.id, class: 'ds-check' }, box, el('span', { class: 'ds-check-name' }, x.name), el('span', { class: 'muted' }, tn('tasks.meta_images', x.active))));
+        });
+
+        // ratios
+        const ratioBar = el('div', { class: 'ds-bar', 'aria-hidden': 'true' });
+        const sumText = el('p', { class: 'ds-sum', role: 'status' });
+        const modeBox = el('div', { class: 'ds-ratios' });
+        const int = (inp) => { const n = parseInt(inp.value, 10); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : NaN; };
+        const field = (label, input) => el('div', { class: 'field ds-num' }, el('label', { for: input.id }, label), input);
+
+        function drawRatios() {
+          const parts = st.mode === 'split'
+            ? [['train', int(train)], ['val', int(val)], ['test', int(test)]]
+            : [['fold-0', 100 - (int(ktestInput) || 0)], ['test', int(ktestInput) || 0]];
+          ratioBar.replaceChildren(...parts.map(([cl, n]) => el('span', { class: `ds-seg ds-${cl}`, style: `flex-grow:${Number.isFinite(n) ? n : 0}` })));
+          if (st.mode === 'split') {
+            const sum = [train, val, test].reduce((a, i) => a + (int(i) || 0), 0);
+            sumText.className = `ds-sum ${sum === 100 ? 'ok' : 'bad'}`;
+            sumText.textContent = t('ds.sum', { n: sum });
+          } else {
+            sumText.className = 'ds-sum ok';
+            sumText.textContent = t('ds.kfold_sum', { k: kInput.value || '?', train: 100 - (int(ktestInput) || 0), test: int(ktestInput) || 0 });
+          }
+        }
+        function drawMode() {
+          modeBox.replaceChildren(
+            st.mode === 'split'
+              ? el('div', { class: 'ds-nums' }, field(t('ds.pct_train'), train), field(t('ds.pct_val'), val), field(t('ds.pct_test'), test))
+              : el('div', { class: 'ds-nums' }, field(t('ds.k'), kInput), field(t('ds.pct_test'), ktestInput)),
+            ratioBar, sumText);
+          drawRatios();
+        }
+        /* the three percentages stay linked: changing one adjusts the next so the sum is 100 */
+        train.addEventListener('input', () => {
+          const a = int(train);
+          if (Number.isNaN(a)) return;
+          const v = Math.min(int(val) || 0, 100 - a);
+          val.value = String(v);
+          test.value = String(100 - a - v);
+        });
+        val.addEventListener('input', () => {
+          const v = int(val);
+          if (Number.isNaN(v)) return;
+          const m = Math.min(v, 100 - (int(train) || 0));
+          if (m !== v) val.value = String(m);
+          test.value = String(100 - (int(train) || 0) - m);
+        });
+        test.addEventListener('input', () => {
+          const x = int(test);
+          if (Number.isNaN(x)) return;
+          const m = Math.min(x, 100 - (int(train) || 0));
+          if (m !== x) test.value = String(m);
+          val.value = String(100 - (int(train) || 0) - m);
+        });
+
+        /* the request body, or the reason it cannot be sent */
+        function options() {
+          if (!st.tasks.size) return { error: t('ds.err_tasks') };
+          const sd = parseInt(seed.value, 10);
+          if (!Number.isFinite(sd)) return { error: t('ds.err_seed') };
+          const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd };
+          if (st.mode === 'split') {
+            const s = { train: int(train), val: int(val), test: int(test) };
+            if (Object.values(s).some(Number.isNaN) || s.train < 1 || s.train + s.val + s.test !== 100) return { error: t('ds.err_sum') };
+            body.split = s;
+            body.kfold = null;
+          } else {
+            const k = parseInt(kInput.value, 10);
+            const tp = int(ktestInput);
+            if (!(k >= 2 && k <= 10)) return { error: t('ds.err_k') };
+            if (Number.isNaN(tp) || tp > 90) return { error: t('ds.err_sum') };
+            body.split = { train: 100 - tp, val: 0, test: tp };
+            body.kfold = k;
+          }
+          return { body };
+        }
+
+        // ---- live preview
+        const previewBox = el('div', { class: 'ds-preview', 'aria-live': 'polite' });
+        const showMsg = (text, cl = 'muted') => previewBox.replaceChildren(el('p', { class: cl }, text));
+
+        function renderPreview(d) {
+          const items = partItems(normSizes(d), d.options);
+          const total = totalOf(items);
+          const stats = d.stats || {};
+          const per = items.map((x) => statFor(stats, x));
+          const bgTotal = per.reduce((a, s) => a + (Number(s.background) || 0), 0);
+          const names = [];
+          per.forEach((s) => Object.keys(s.objects || {}).forEach((c) => { if (!names.includes(c)) names.push(c); }));
+          const head = el('tr', null, el('th', { scope: 'col' }, ''), ...items.map((x) => el('th', { scope: 'col' }, x.label)));
+          const row = (label, cells, cl = '') => el('tr', { class: cl }, el('th', { scope: 'row' }, label), ...cells.map((c) => el('td', null, num(c))));
+          const classRows = names.map((c) => row(c, per.map((s) => (s.objects || {})[c] || 0)));
+          const SHOWN = 8;
+          let all = false;
+          const body = el('tbody');
+          const more = el('button', { type: 'button', class: 'btn small', 'aria-expanded': 'false', onclick: () => { all = !all; paint(); } });
+          function paint() {
+            body.replaceChildren(
+              row(t('ds.images'), items.map((x, i) => (per[i].images != null ? per[i].images : x.n)), 'strong'),
+              bgTotal > 0 ? row(t('ds.background'), per.map((s) => s.background || 0)) : null,
+              classRows.length ? el('tr', { class: 'sub' }, el('th', { scope: 'colgroup', colspan: String(items.length + 1) }, cls ? t('ds.images_per_class') : t('ds.objects_per_class'))) : null,
+              ...(all ? classRows : classRows.slice(0, SHOWN)));
+            more.hidden = classRows.length <= SHOWN;
+            more.textContent = all ? t('ds.show_less') : t('ds.show_all', { n: num(classRows.length) });
+            more.setAttribute('aria-expanded', String(all));
+          }
+          paint();
+          const warns = cleanWarnings(d.warnings, items).map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
+          previewBox.replaceChildren(
+            el('h3', { class: 'section-title' }, t('ds.preview'), el('span', { class: 'muted' }, ` · ${tn('status.images_active', total)}`)),
+            partsBar(items, barLabel(items)),
+            legend(items),
+            el('div', { class: 'ds-table-wrap' }, el('table', { class: 'ds-table' }, el('thead', null, head), body)),
+            more,
+            warns.length ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')));
+        }
+
+        async function runPreview() {
+          const opts = options();
+          if (opts.error) return;
+          const mine = ++token;
+          try {
+            const d = await api('POST', `/projects/${projectId}/datasets/preview`, { json: opts.body });
+            if (mine === token) renderPreview(d);
+          } catch (err) {
+            if (mine === token) showMsg(err.message || String(err), 'ds-error');
+          }
+        }
+        function changed() {
+          drawRatios();
+          clearTimeout(timer);
+          token += 1;
+          const opts = options();
+          create.disabled = !!opts.error;
+          if (opts.error) { showMsg(opts.error, 'ds-error'); return; }
+          showMsg(t('ds.previewing'));
+          timer = setTimeout(runPreview, 400);
+        }
+
+        const modeOpt = (mode, label) => {
+          const input = el('input', { type: 'radio', name: 'ds-mode', id: `ds-mode-${mode}`, value: mode, class: 'sr-only', checked: st.mode === mode, onchange: () => { st.mode = mode; drawMode(); changed(); } });
+          return el('label', { for: input.id, class: 'seg-opt' }, input, label);
+        };
+        const bgRow = cls ? null : el('div', { class: 'field ds-switch' },
+          el('label', { for: 'ds-bg', class: 'ds-check' }, bgBox, el('span', null, t('ds.background_switch'))),
+          el('p', { class: 'muted ds-help' }, t('ds.background_help')));
+        bgBox.addEventListener('change', () => { st.bg = bgBox.checked; changed(); });
+
+        const form = el('form', { class: 'dialog-body form ds-form', method: 'dialog', novalidate: true },
+          el('h2', null, t('ds.new_title')),
+          el('div', { class: 'ds-form-grid' },
+            el('div', { class: 'ds-opts' },
+              el('fieldset', { class: 'field' }, el('legend', null, t('ds.tasks')), el('ul', { class: 'ds-tasks' }, ...taskBoxes)),
+              el('fieldset', { class: 'field' }, el('legend', null, t('ds.split')),
+                el('div', { class: 'seg', role: 'radiogroup', 'aria-label': t('ds.split') }, modeOpt('split', t('ds.mode_split')), modeOpt('kfold', t('ds.mode_kfold'))),
+                modeBox),
+              bgRow,
+              el('details', { class: 'ds-adv field' }, el('summary', null, t('ds.advanced')),
+                field(t('ds.seed'), seed), el('p', { class: 'muted ds-help' }, t('ds.seed_help'))),
+              el('div', { class: 'field' }, el('label', { for: 'ds-note' }, `${t('ds.note')} `, el('span', { class: 'muted' }, `(${t('step.optional')})`)), note)),
+            el('aside', { class: 'ds-side', 'aria-label': t('ds.preview') }, previewBox)),
+          el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
+        const dlg = el('dialog', { class: 'dialog wide ds-dialog', 'aria-label': t('ds.new_title') }, form);
+        [seed, kInput, ktestInput, train, val, test].forEach((i) => i.addEventListener('input', changed));
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const opts = options();
+          if (opts.error) return;
+          create.disabled = true;
+          try {
+            const v = await api('POST', `/projects/${projectId}/datasets`, { json: { ...opts.body, note: note.value.trim() } });
+            dlg.close();
+            toast(t('ds.created', { n: v.version }), 'success', 4000);
+            await load();
+          } catch (err) {
+            create.disabled = false;
+            toastError(err);
+          }
+        });
+        dlg.addEventListener('close', () => { clearTimeout(timer); token += 1; dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
+        drawMode();
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        changed();
+        const first = dlg.querySelector('input');
+        if (first) first.focus();
+      }
+
+      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'ds-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('ds.new'));
+      node.append(
+        el('div', { class: 'ds-head' },
+          el('div', null, el('h2', { id: 'h-datasets' }, t('step.datasets')), el('p', { class: 'muted' }, t('ds.intro'))),
+          newBtn),
+        listBox);
+
+      panel.mount = load;
+      panel.refresh = load;
+      /** Number of versions for the step's status line, before the panel is opened. */
+      panel.count = async () => {
+        try {
+          ctx.datasetCount = ((await api('GET', `/projects/${projectId}/datasets`)).versions || []).length;
+          renderStepper();
+        } catch (err) { /* the status stays "no versions" */ }
+      };
+      return panel;
+    }
+
     // ---- assemble
-    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel() };
+    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel() };
     panelsBox.append(gateNode, ...STEPS.map((s) => ctx.panels[s].node));
     root.replaceChildren(headerBox, stepper, panelsBox, jobsBox);
     renderJobs();
@@ -3252,6 +3675,7 @@
       if (!ok) return;
       showTab(ctx.tab);
       pollJobs();
+      ctx.panels.datasets.count();
     });
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
