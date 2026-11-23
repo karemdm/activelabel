@@ -1,11 +1,12 @@
-# ActiveLabel — pre-annotation with a saved model
+# ActiveLabel — pre-annotation with a model
 
 The loop that improves a model with new data: a saved model (step 6) suggests labels for new images,
 a person reviews them in CVAT or FiftyOne, the reviewed images go into a new version of the data split
 and a new training.
 
 Everything happens in one place: **Anotações → Pré-anotar**, in the order of the work. The model must
-be one saved in the same project (step 6, docs/TRAINING.md).
+be one of the project's models (step 6, docs/TRAINING.md): a training saved as a model, or a
+[public pretrained model](#public-models) added without any local training.
 
 1. **Pré-anotar com um modelo**: model (the current one by default), task (the newest one with images
    without annotations by default), which images, minimum confidence (the screen accepts 0.05 to 0.95); one button.
@@ -49,6 +50,34 @@ error `interrupted`; it can be started again. Logs:
 
 Supported now: classification, detection and keypoints (torchvision). Semantic and instance
 segmentation need masks turned into polygons and come later; YOLO comes with the Ultralytics models.
+
+## Public models
+
+A project can pre-annotate before it has any training: **Modelos → Adicionar modelo público** adds a
+model already trained by others as the next model (`m<N>`), like a saved one. It is meant for a first
+round of labels to review, not to replace a model trained on the project's own images.
+
+- **Catalogue** (`activelabel.training.public_models`): torchvision models trained on COCO 2017.
+  Detection projects: Faster R-CNN MobileNetV3, RetinaNet ResNet-50 v2 and Faster R-CNN ResNet-50
+  v2 (80 categories); keypoint projects: Keypoint R-CNN ResNet-50 (person, 17 body points). The
+  dialog shows the COCO box mAP and the download size of each. Classification models (ImageNet,
+  1000 classes) come later.
+- **Mapping**: for each class of the project, the category of the model that stands for it
+  (suggested when the names match, ignoring case, `_` and `-`). Several categories can go to one
+  class (`truck` and `car` → `car`); categories not mapped are ignored.
+- **Weights**: nothing is stored in the project (`model.json` only, with `source: "public"`, the
+  catalogue id and the mapping). Each pre-annotation run downloads the weights from the torchvision
+  servers into the run's temporary folder, removed at the end; it needs `torch` and `torchvision`
+  in the training environment (installed first when missing) and an internet connection.
+- A public model has no training results, no downloads and no ONNX export, and is left out of the
+  comparison table. It can be the current model, renamed (note) and deleted like any other.
+- **Licence**: torchvision code is BSD-3; the weights were trained on COCO 2017. Check the terms of
+  the weights and of COCO before using the labels in a product.
+
+API: `GET /api/projects/{id}/models/public-catalog` (models for the project type, with the suggested
+mapping, and the project's classes); `POST /api/projects/{id}/models/public` with
+`{public, mapping, note}` (404 for an unknown model; 400 when it does not fit the project type, the
+mapping is empty, or names a category or class that does not exist).
 
 ## HTTP API
 

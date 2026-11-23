@@ -116,6 +116,9 @@ never reused, a run is saved at most once, and saving removes the run's `last.pt
 weights to keep: the PyTorch weights always, and also ONNX (classification and semantic
 segmentation), which is then queued right after saving.
 
+- **Public models**: *Adicionar modelo público* adds a pretrained torchvision model (COCO) without
+  local training, with a mapping from its categories to the project's classes; only to pre-annotate.
+  See docs/PREANNOTATE.md (Public models).
 - **Current model**: one model of the project is marked current (`models/current.json`); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
@@ -145,6 +148,8 @@ segmentation), which is then queued right after saving.
 | POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | |
 | DELETE | `/api/projects/{id}/runs/{n}` | after confirmation |
 | GET/POST | `/api/projects/{id}/models` | list (with results and the current model) / save a run (`{run, note}`) |
+| GET | `/api/projects/{id}/models/public-catalog` | public pretrained models for the project type, with a suggested mapping |
+| POST | `/api/projects/{id}/models/public` | add a public model (`{public, mapping, note}`) |
 | GET/PATCH/DELETE | `/api/projects/{id}/models/{n}` | card and results / note, `current` / delete (after confirmation) |
 | POST | `/api/projects/{id}/models/{n}/export` | queue an export (`{"format": "onnx"}`) |
 | GET | `/api/projects/{id}/models/{n}/download/{pytorch\|onnx}` | the weights or the export as a file |

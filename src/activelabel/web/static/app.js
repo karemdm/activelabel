@@ -4929,7 +4929,8 @@
       let sig = '';
       const metricName = (m) => tr(`tr.metric.${m}`, String(m).replace(/_/g, ' '));
       const startName = (s) => tr(`tr.start_${s}`, s);
-      const archName = (m) => labels[m.model] || m.model;
+      const archName = (m) => m.label || labels[m.model] || m.model;
+      const isPublic = (m) => m.source === 'public';
       const busy = (m) => Object.values(m.exports || {}).some((e) => e && (e.status === 'queued' || e.status === 'running'));
       const scalarsOf = (part) => Object.entries(part || {}).filter(([, v]) => typeof v === 'number');
       const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
@@ -5016,23 +5017,29 @@
             m.current
               ? el('span', { class: 'tr-badge done md-current' }, icon('star', 14), t('md.current'))
               : el('button', { type: 'button', class: 'btn small', 'data-act': 'current', onclick: () => change(m, { current: true }, t('md.made_current', { n: m.number })) }, t('md.make_current'))),
-          el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDate(m.created)].join(' · ')),
-          el('p', { class: 'tr-facts' },
-            val != null ? el('strong', null, `${metricName(m.metric)} ${nf3.format(val)}`) : null,
-            test != null ? el('span', null, ` · ${t('md.test_value', { v: nf3.format(test) })}`) : null,
-            el('span', { class: 'muted' }, ` · ${fmtBytes(m.size || 0)}`)),
+          isPublic(m)
+            ? el('p', { class: 'muted tr-meta' }, el('span', { class: 'md-public' }, t('md.public_badge')), ` ${t('md.public_meta', { date: fmtDate(m.created) })}`)
+            : el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDate(m.created)].join(' · ')),
+          isPublic(m)
+            ? el('p', { class: 'md-mapping' }, el('span', { class: 'muted' }, `${t('md.mapping')}: `),
+              Object.entries(m.mapping || {}).map(([from, to]) => (from === to ? from : `${from} → ${to}`)).join(', '))
+            : el('p', { class: 'tr-facts' },
+              val != null ? el('strong', null, `${metricName(m.metric)} ${nf3.format(val)}`) : null,
+              test != null ? el('span', null, ` · ${t('md.test_value', { v: nf3.format(test) })}`) : null,
+              el('span', { class: 'muted' }, ` · ${fmtBytes(m.size || 0)}`)),
           el('p', { class: 'md-note' },
             m.note ? el('span', null, m.note) : el('span', { class: 'muted' }, t('md.no_note')),
             el('button', { type: 'button', class: 'icon-btn', 'data-act': 'note', 'aria-label': t('md.edit_note_aria', { n: m.number }), title: t('md.edit_note'), onclick: () => editNote(m) }, icon('edit', 16))),
           el('div', { class: 'tr-actions' },
-            el('a', { class: 'btn small', href: download(m, 'pytorch'), download: '', 'data-act': 'pt' }, icon('download', 14), t('md.download_pt')),
-            onnxBlock(m),
+            isPublic(m) ? el('span', { class: 'muted md-export' }, t('md.public_weights')) : null,
+            isPublic(m) ? null : el('a', { class: 'btn small', href: download(m, 'pytorch'), download: '', 'data-act': 'pt' }, icon('download', 14), t('md.download_pt')),
+            isPublic(m) ? null : onnxBlock(m),
             busy(m) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('md.delete_aria', { n: m.number }), title: t('md.delete'), onclick: () => removeModel(m) }, icon('trash', 18))));
       }
 
       function compareBlock() {
-        if (models.length < 2) return null;
-        const cols = [...models].sort((a, b) => a.number - b.number);
+        const cols = models.filter((m) => !isPublic(m)).sort((a, b) => a.number - b.number);
+        if (cols.length < 2) return null;
         const rows = [];
         for (const part of ['val', 'test']) {
           const keys = [];
@@ -5074,19 +5081,91 @@
         if (again) again.focus();
       }
 
+      async function addPublic(trigger) {
+        let data;
+        try { data = await api('GET', `/projects/${projectId}/models/public-catalog`); } catch (err) { toastError(err); return; }
+        if (!(data.models || []).length) { toast(t('md.public_none'), 'info', 5000); return; }
+        const st = { id: data.models[0].id, map: {} };
+        const modelOf = () => data.models.find((x) => x.id === st.id);
+        const choices = el('div', { class: 'md-public-list', role: 'radiogroup', 'aria-label': t('md.public_model') });
+        const mapBox = el('div', { class: 'md-map' });
+        const note = el('textarea', { id: 'md-public-note', rows: '2', maxlength: '500' });
+        const save = el('button', { type: 'submit', class: 'btn primary' }, t('md.public_add'));
+        const err = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
+        function suggested() {
+          /* project class -> the public category suggested for it (same name) */
+          const out = {};
+          for (const [from, to] of Object.entries(modelOf().suggested || {})) if (!(to in out)) out[to] = from;
+          return out;
+        }
+        function drawChoices() {
+          choices.replaceChildren(...data.models.map((m) => {
+            const id = `md-pub-${m.id}`;
+            const input = el('input', { type: 'radio', name: 'md-pub', id, value: m.id, checked: m.id === st.id, onchange: () => { st.id = m.id; st.map = suggested(); drawMap(); } });
+            return el('label', { class: `md-public-choice${m.id === st.id ? ' selected' : ''}`, for: id }, input,
+              el('span', { class: 'md-public-text' }, el('strong', null, m.label),
+                el('span', { class: 'muted' }, `${tr(`md.pub.${m.id}`, m.note)} · ${t('md.public_stats', { map: nf3.format(m.box_map), mb: num(m.size_mb) })}`)));
+          }));
+        }
+        function drawMap() {
+          drawChoices();
+          const m = modelOf();
+          mapBox.replaceChildren(
+            el('p', { class: 'hint' }, t('md.mapping_help')),
+            el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
+              const id = `md-map-${cls}`;
+              const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; } },
+                el('option', { value: '' }, t('md.mapping_none')),
+                ...m.classes.map((c) => el('option', { value: c, selected: st.map[cls] === c }, c)));
+              return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), sel);
+            })));
+        }
+        st.map = suggested();
+        drawMap();
+        const dlg = el('dialog', { class: 'dialog wide', 'aria-labelledby': 'md-pub-t' },
+          el('form', { class: 'dialog-body form', method: 'dialog' },
+            el('h2', { id: 'md-pub-t' }, t('md.public_title')),
+            el('p', { class: 'muted' }, t('md.public_intro')),
+            el('fieldset', { class: 'field' }, el('legend', null, t('md.public_model')), choices),
+            el('fieldset', { class: 'field' }, el('legend', null, t('md.mapping')), mapBox),
+            el('div', { class: 'field' }, el('label', { for: 'md-public-note' }, t('md.note'), el('span', { class: 'optional' }, ` · ${t('step.optional')}`)), note),
+            el('p', { class: 'hint' }, t('md.public_license')),
+            err,
+            el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+        dlg.querySelector('form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const mapping = {};
+          for (const [cls, from] of Object.entries(st.map)) if (from) mapping[from] = cls;
+          if (!Object.keys(mapping).length) { err.textContent = t('md.mapping_empty'); err.hidden = false; return; }
+          save.disabled = true;
+          try {
+            const m = await api('POST', `/projects/${projectId}/models/public`, { json: { public: st.id, mapping, note: note.value } });
+            dlg.close();
+            toast(t('md.public_added', { n: m.number }), 'success', 4000);
+            await load(true);
+          } catch (e2) { save.disabled = false; err.textContent = e2.message; err.hidden = false; }
+        });
+        dlg.addEventListener('close', () => { dlg.remove(); if (trigger) trigger.focus(); });
+        document.body.appendChild(dlg);
+        dlg.showModal();
+      }
+
       function draw() {
         const s = JSON.stringify(models);
         if (s === sig) return;
         sig = s;
         if (!models.length) {
           box.replaceChildren(el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty')),
-            el('a', { class: 'btn', href: '#training' }, t('md.go_training'))));
+            el('div', { class: 'md-empty-actions' },
+              el('a', { class: 'btn', href: '#training' }, t('md.go_training')),
+              el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')))));
           return;
         }
-        refocus(() => box.replaceChildren(
+        refocus(() => box.replaceChildren(...[
           el('ul', { class: 'tr-cards' }, ...models.map(card)),
           compareBlock(),
-          el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help'))));
+          models.some((m) => !isPublic(m)) ? el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help')) : null,
+        ].filter(Boolean)));
       }
 
       async function load(quiet = false) {
@@ -5106,7 +5185,9 @@
       node.append(
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-models' }, t('step.models')), el('p', { class: 'muted' }, t('md.intro'))),
-          el('a', { class: 'btn', href: '#training' }, t('md.go_training'))),
+          el('div', { class: 'md-head-actions' },
+            el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
+            el('a', { class: 'btn', href: '#training' }, t('md.go_training')))),
         announcer,
         box);
       panel.mount = () => load();
