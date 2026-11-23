@@ -78,6 +78,7 @@ def cvat(monkeypatch):
         ("GET", "/api/projects/99"): FakeResp(404),
         ("GET", "/api/projects"): FakeResp(200, projects),
         ("GET", "/api/tasks/12"): FakeResp(200, tasks["results"][0]),
+        ("GET", "/api/tasks/11"): FakeResp(200, tasks["results"][1]),
         ("GET", "/api/tasks"): FakeResp(200, tasks),
         ("GET", "/api/labels"): FakeResp(
             200, {"results": [{"name": "tree"}, {"name": "arm", "parent_id": 3}]}
@@ -144,7 +145,8 @@ def test_list_remote_errors(monkeypatch):
 
 def test_check_remote(cvat):
     assert ci.check_remote(SETTINGS, "project", "1") == {"name": "Street", "classes": ["car"]}
-    assert ci.check_remote(SETTINGS, "task", "12")["name"] == "Loose"
+    assert ci.check_remote(SETTINGS, "task", "12") == {"name": "Loose", "classes": [], "project_id": None}
+    assert ci.check_remote(SETTINGS, "task", "11")["project_id"] == "1"
     with pytest.raises(RemoteNotFound):
         ci.check_remote(SETTINGS, "project", "99")
     with pytest.raises(RemoteNotFound):
@@ -173,7 +175,7 @@ def fake_download(files, calls=None):
 
 def run(store, tmp_path, progress=None, **kw):
     progress = progress or Progress(Job("j", 0, "import_project"), threading.Event())
-    args = {"kind": "project", "remote_id": "1", "name": "", "description": "", "task": Task.DETECTION}
+    args = {"kind": "task", "remote_id": "12", "name": "", "description": "", "task": Task.DETECTION}
     return ci.import_project(store, SETTINGS, tmp_path / "ws", progress=progress, **{**args, **kw})
 
 
@@ -190,8 +192,8 @@ def test_import_merges_fields_and_infers_task(cvat, tmp_path, monkeypatch):
     monkeypatch.setattr(ci, "_download", fake_download(files, calls))
     store = ProjectStore(tmp_path / "projects")
     result = run(store, tmp_path)
-    assert calls[0][:2] == ("project", "1")
-    assert result["task"] == "detection" and result["name"] == "Street"
+    assert calls[0][:2] == ("task", "12")
+    assert result["task"] == "detection" and result["name"] == "Loose"
     assert result["images_added"] == 4 and result["images_rejected"] == 0
     assert result["labels"] == 4  # 3 boxes + the converted polygon; the tag is left out
     assert result["classes"] == ["car", "tree", "bus"]  # declared first, then used
@@ -203,7 +205,7 @@ def test_import_merges_fields_and_infers_task(cvat, tmp_path, monkeypatch):
     assert names == {"a.png", "sub/b.png", "c.png", "d.png"}
     origin = read_origin(store.dir(result["project_id"]))
     assert origin is not None and origin["tool"] == "cvat" and origin["url"] == BASE
-    assert origin["remote_id"] == "1" and origin["kind"] == "project"
+    assert origin["remote_id"] == "12" and origin["kind"] == "task"
     assert "pw-secret" not in str(origin) and "pw-secret" not in str(result)
     assert list((tmp_path / "ws" / "tmp").glob("import-*")) == []
 
@@ -285,7 +287,7 @@ def test_real_fiftyone_dataset(cvat, tmp_path, monkeypatch):
     def fake_import(
         dataset, data_path=None, download_media=False, url=None, username=None, password=None, **kw
     ):
-        assert download_media and kw == {"project_id": 1} and password == "pw-secret"
+        assert download_media and kw == {"task_ids": [12]} and password == "pw-secret"
         sources = make_images(Path(data_path).parent / "src", 2)
         made.append(dataset.name)
         for i, source in enumerate(sources):
@@ -308,3 +310,102 @@ def test_real_fiftyone_dataset(cvat, tmp_path, monkeypatch):
     assert result["task"] == "detection" and result["images_added"] == 2
     assert result["labels"] == 3 and result["classes"] == ["car", "tree"]
     assert made and made[0] not in fo.list_datasets()  # the temporary dataset is gone
+
+
+# -- project import through the synchronisation engine ----------------------------------
+@pytest.fixture
+def tasks_remote(cvat, monkeypatch):
+    """A CVAT-like in-memory remote (id 1): task A (4 frames, job size 2, 2 boxes) and task B (1 frame)."""
+    from sync_fakes import FakeRemote, box
+
+    from activelabel.sync import registry
+
+    fake = FakeRemote("cvat", tasks=True)
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    fake.seed("Street", classes=("car",))
+    fake.new_task("1", "t1", [(f"a{i}.png", [box("car")] if i < 2 else []) for i in range(4)], 2, "10")
+    fake.new_task("1", "t2", [("b0.png", [box("bus")])], None, "11")
+    return fake
+
+
+def local_tasks(store, result):
+    from activelabel.tasks_store import TaskStore
+
+    return TaskStore(store.dir(result["project_id"])).load()
+
+
+def test_import_project_keeps_tasks_jobs_and_link(tasks_remote, tmp_path):
+    from activelabel.sync import engine, links, registry
+    from activelabel.tasks_store import jobs
+
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="project", remote_id="1")
+    assert result["linked"] is True and result["tasks"] == 2
+    assert result["task"] == "detection" and result["name"] == "Street"
+    assert result["images_added"] == 5 and result["labels"] == 3
+    assert result["classes"] == ["car", "bus"]  # declared first, then used
+    tasks = local_tasks(store, result)
+    assert [(t.name, len(t.images), t.job_size) for t in tasks] == [("t1", 4, 2), ("t2", 1, None)]
+    manifest = {r.id: r.name for r in Manifest(store.dir(result["project_id"])).all()}
+    assert [manifest[i] for i in tasks[0].images] == ["a0.png", "a1.png", "a2.png", "a3.png"]
+    assert [len(j.image_ids) for j in jobs(tasks[0])] == [2, 2]
+    origin = read_origin(store.dir(result["project_id"]))
+    assert origin is not None and origin["remote_id"] == "1" and origin["kind"] == "project"
+    link = links.get_link(store.dir(result["project_id"]), "cvat")
+    assert link is not None and link["remote_id"] == "1" and len(link["items"]) == 5
+    assert link["tasks"] == {
+        str(tasks[0].id): {"remote_task": "10", "name": "t1", "jobs": {"1": "1001", "2": "1002"}},
+        str(tasks[1].id): {"remote_task": "11", "name": "t2", "jobs": {"1": "1101"}},
+    }
+    progress = Progress(Job("j", 0, "sync"), threading.Event())
+    plan = engine.make_plan(
+        store, result["project_id"], "cvat", SETTINGS, registry.get_remote("cvat"), progress
+    )
+    assert plan["tasks_new"] == [] and plan["tasks_create"] == [] and plan["tasks_delete"] == []
+    assert (plan["pull"], plan["push"], plan["add"], plan["conflicts"]) == (0, 0, 0, [])
+    assert plan["remove_local"] == plan["remove_remote"] == 0
+    assert plan["restore_local"] == plan["restore_remote"] == 0
+    assert plan["unchanged"] == 5 and plan["remote_only"]["count"] == 0
+
+
+def test_import_one_task_of_a_project(tasks_remote, tmp_path):
+    from activelabel.sync import links
+
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="task", remote_id="11")
+    assert result["tasks"] == 1 and result["images_added"] == 1 and result["classes"] == ["bus"]
+    assert [(t.name, len(t.images)) for t in local_tasks(store, result)] == [("t2", 1)]
+    origin = read_origin(store.dir(result["project_id"]))
+    assert origin is not None and (origin["remote_id"], origin["kind"]) == ("11", "task")
+    link = links.get_link(store.dir(result["project_id"]), "cvat")
+    assert link is not None and link["remote_id"] == "1"  # the CVAT project, not the task
+    assert [m["remote_task"] for m in link["tasks"].values()] == ["11"]
+    assert all(c == ["11"] for c in tasks_remote.item_calls)  # the other task is never read
+    assert not any(c[0] == "frame" and c[1] == "10" for c in tasks_remote.calls)
+
+
+def test_import_project_infers_task_from_polygons(tasks_remote, tmp_path):
+    from activelabel.labels import Label
+
+    ring = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.6]]
+    tasks_remote.new_task(
+        "1", "t3", [("c0.png", [Label("tree", bbox=[0.1, 0.1, 0.4, 0.5], polygons=[ring])])] * 1, None, "12"
+    )
+    for key in ("1", "2", "3"):  # make polygons the most frequent kind
+        tasks_remote.put("1", f"p{key}.png", [Label("tree", bbox=[0.1, 0.1, 0.4, 0.5], polygons=[ring])])
+    for tid in ("10", "11"):
+        for it in tasks_remote.projects["1"]["items"].values():
+            if it.key.startswith(f"{tid}:"):
+                it.labels = [Label("tree", bbox=[0.1, 0.1, 0.4, 0.5], polygons=[ring])]
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="project", remote_id="1")
+    assert result["task"] == "segmentation" and "tree" in result["classes"]
+
+
+def test_import_project_failure_rolls_back(tasks_remote, tmp_path):
+    store = ProjectStore(tmp_path / "projects")
+    tasks_remote.projects["1"]["items"].clear()
+    tasks_remote.task_meta["1"].clear()
+    with pytest.raises(ToolError, match="no images"):
+        run(store, tmp_path, kind="project", remote_id="1")
+    assert store.list() == []

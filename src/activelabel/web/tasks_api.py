@@ -94,7 +94,68 @@ def list_tasks(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """Every task of the project, in creation order."""
     store = _store(state, project_id)
     active, annotated = _sets(state, project_id)
-    return {"tasks": [task_view(t, active, annotated) for t in store.load()]}
+    views = [task_view(t, active, annotated) for t in store.load()]
+    remote = remote_status(state, project_id)
+    for view in views:
+        if str(view["id"]) in remote:
+            view["remote"] = remote[str(view["id"])]
+    return {"tasks": views}
+
+
+REMOTE_TTL = 60.0  # seconds a read of the CVAT tasks/jobs is reused
+_remote_cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
+
+
+def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
+    """CVAT task and jobs (state, stage, assignee) of each linked local task: ``{task id: {...}}``.
+
+    Read from CVAT at most once a minute per project; empty when the project is not linked, CVAT is
+    not configured or cannot be reached (the task list must never fail because of CVAT).
+    """
+    import time
+
+    from activelabel.annotate import credentials
+    from activelabel.annotate.base import ToolError
+    from activelabel.sync import links
+    from activelabel.sync.registry import get_remote
+
+    link = links.get_link(state.store.dir(project_id), "cvat")
+    tmap: dict[str, Any] = (link or {}).get("tasks") or {}
+    if not link or not tmap:
+        return {}
+    key = (project_id, f"{link['remote_id']}@{link.get('last_sync', '')}")  # a new sync reads again
+    cached = _remote_cache.get(key)
+    if cached and time.monotonic() - cached[0] < REMOTE_TTL:
+        return cached[1]
+    settings = credentials.load_settings(state.settings.workspace, "cvat")
+    if not credentials.is_configured(settings):
+        return {}
+    try:
+        found = {rt.id: rt for rt in get_remote("cvat").tasks(settings, str(link["remote_id"]))}
+    except ToolError:
+        return {}
+    out: dict[str, Any] = {}
+    for local_id, entry in tmap.items():
+        rt = found.get(str((entry or {}).get("remote_task", "")))
+        if rt is None:
+            continue
+        out[str(local_id)] = {
+            "task": rt.id,
+            "url": rt.url,
+            "jobs": [
+                {
+                    "n": j.n,
+                    "id": j.id,
+                    "url": j.url,
+                    "state": j.state,
+                    "stage": j.stage,
+                    "assignee": j.assignee,
+                }
+                for j in rt.jobs
+            ],
+        }
+    _remote_cache[key] = (time.monotonic(), out)
+    return out
 
 
 @router.post("/projects/{project_id}/tasks")

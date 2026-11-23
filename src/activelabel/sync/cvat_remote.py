@@ -185,6 +185,12 @@ class CvatRemote:
         deleted = ({int(d) for d in meta.get("deleted_frames") or []} | set(delete)) - set(restore)
         api.request("PATCH", f"/api/tasks/{task_id}/data/meta", json={"deleted_frames": sorted(deleted)})
 
+    def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
+        """``(file name, deleted)`` of every frame of a task, in order."""
+        meta = self._api(settings).get(f"/api/tasks/{task_id}/data/meta") or {}
+        deleted = {int(d) for d in meta.get("deleted_frames") or []}
+        return [(str(fr.get("name", "")), i in deleted) for i, fr in enumerate(meta.get("frames") or [])]
+
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
         """Delete a CVAT task with its frames and annotations (nothing when it is already gone)."""
         api = self._api(settings)

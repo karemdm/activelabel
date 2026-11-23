@@ -249,6 +249,7 @@ def make_plan(
     scope: str = "project",
     task_id: int | None = None,
     job: int | None = None,
+    remote_tasks: list[str] | None = None,
 ) -> dict[str, Any]:
     """Compare the project (or one task / one job) with its remote project and save the plan.
 
@@ -268,6 +269,8 @@ def make_plan(
         scope: ``project``, ``task`` or ``job``.
         task_id: the task (scopes task and job).
         job: the job number in the task (scope job).
+        remote_tasks: project scope only: limit ``tasks_new`` (tasks added in the tool) to these remote
+            task ids, and read only those. Used by the import of one CVAT task of a project.
 
     Returns:
         The plan summary (docs/SYNC.md).
@@ -297,6 +300,8 @@ def make_plan(
         read = {mapping[str(t.id)] for t in scoped_tasks if str(t.id) in mapping}
         read |= {_key_task(link_items[i]["key"]) for i in scope_ids if (link_items.get(i) or {}).get("key")}
         read &= rtask_ids
+    elif supports and remote_tasks is not None:
+        read = {str(t) for t in remote_tasks} & rtask_ids
     if info is None or (read is not None and not read):
         items: list[RemoteItem] = []
     else:
@@ -435,11 +440,13 @@ def make_plan(
         tasks_new = [
             {"remote_task": rt.id, "name": rt.name, "job_size": rt.job_size, "images": rt.size}
             for rt in rtasks
-            if rt.id not in mapped_remote
+            if rt.id not in mapped_remote and (read is None or rt.id in read)
         ]
     new_remote = {t["remote_task"] for t in tasks_new}
     leftovers = [it for it in items if it.key not in {d["key"] for d in decisions.values()}]
     unmatched = [it for it in leftovers if not supports or _key_task(it.key) not in new_remote]
+    if scope == "job":  # the other jobs of the task are outside the scope, not "only in the tool"
+        unmatched = []
 
     plan_id = uuid.uuid4().hex[:10]
     remote_only = {"count": len(unmatched), "examples": [it.file_name for it in unmatched[:MAX_EXAMPLES]]}
@@ -457,18 +464,7 @@ def make_plan(
         "tasks_create": tasks_create,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
-        "new_items": {
-            rt: [
-                {
-                    "key": it.key,
-                    "name": it.file_name,
-                    "labels": [lb.as_dict() for lb in _clean(project, it.labels)],
-                }
-                for it in items
-                if _key_task(it.key) == rt
-            ]
-            for rt in new_remote
-        },
+        "new_items": {rt: _new_task_items(remote, settings, project, rt, items) for rt in new_remote},
     }
     write_json(plans_dir(project_dir) / f"{plan_id}.json", plan)
     _prune(project_dir)
@@ -708,6 +704,9 @@ def apply_plan(
         manifest.set_status(restored_here, ACTIVE)
 
     imported = 0
+    remote_jobs: dict[str, dict[str, str]] = {}
+    if plan.get("tasks_new"):
+        remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
     for spec in plan.get("tasks_new") or []:
         progress.check()
         imported += _import_remote_task(
@@ -720,6 +719,7 @@ def apply_plan(
             plan["new_items"].get(spec["remote_task"], []),
             items,
             tmap,
+            remote_jobs.get(str(spec["remote_task"]), {}),
         )
 
     final = _local_labels(project_dir)
@@ -766,6 +766,27 @@ def apply_plan(
     }
 
 
+def _new_task_items(
+    remote: RemoteProject, settings: ToolSettings, project: Project, rt: str, items: list[RemoteItem]
+) -> list[dict[str, Any]]:
+    """Frames of a task added in the tool, in order, deleted ones included (flagged ``deleted``).
+
+    Deleted frames are brought too, as excluded images, so the task keeps the tool's positions and
+    its jobs match one to one.
+    """
+    out: list[dict[str, Any]] = [
+        {"key": it.key, "name": it.file_name, "labels": [lb.as_dict() for lb in _clean(project, it.labels)]}
+        for it in items
+        if _key_task(it.key) == rt
+    ]
+    present = {x["key"] for x in out}
+    for frame, (name, deleted) in enumerate(remote.frames(settings, rt)):
+        key = f"{rt}:{frame}"
+        if deleted and key not in present:
+            out.append({"key": key, "name": name, "labels": [], "deleted": True})
+    return sorted(out, key=lambda x: _key_frame(x["key"]))
+
+
 def _import_remote_task(
     store: ProjectStore,
     project_id: int,
@@ -776,8 +797,12 @@ def _import_remote_task(
     new_items: list[dict[str, Any]],
     items: dict[str, dict[str, Any]],
     tmap: dict[str, Any],
+    remote_jobs: dict[str, str] | None = None,
 ) -> int:
-    """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0."""
+    """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0.
+
+    ``remote_jobs`` is ``{job number: remote job id}`` for the link's tasks mapping.
+    """
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
     tstore = TaskStore(project_dir)
@@ -789,6 +814,7 @@ def _import_remote_task(
         for x in ordered
     ]
     with tstore.locked():
+        tstore.ensure()  # a project without tasks.json would put the new images in a "Task 1" of its own
         report = ingest_files(manifest, files)
         ids = list(report.ids)
         if not ids:
@@ -797,15 +823,26 @@ def _import_remote_task(
     by_name = {Path(str(x["name"])).name: x for x in ordered}
     stored = manifest.load()
     pulled: dict[str, list[Label]] = {}
+    removed: list[str] = []
     for image_id in ids:
         x = by_name.get(Path(stored[image_id].name).name)
         if x is None:
             continue
+        if x.get("deleted"):
+            removed.append(image_id)
+            items[image_id] = links.base_entry(str(x["key"]), [], removed=True)
+            continue
         pulled[image_id] = [Label.from_dict(lb) for lb in x["labels"]]
         items[image_id] = links.base_entry(str(x["key"]), pulled[image_id])
+    if removed:  # deleted frames stay in the task (same positions, same jobs) as excluded images
+        manifest.set_status(removed, EXCLUDED, f"deleted in {tool}")
     if any(pulled.values()):
         diffing.apply(store, project_id, manifest, list(pulled), pulled)
-    tmap[str(task.id)] = {"remote_task": str(spec["remote_task"]), "name": task.name, "jobs": {}}
+    tmap[str(task.id)] = {
+        "remote_task": str(spec["remote_task"]),
+        "name": task.name,
+        "jobs": dict(remote_jobs or {}),
+    }
     return 1
 
 

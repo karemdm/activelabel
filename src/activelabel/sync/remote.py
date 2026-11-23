@@ -93,6 +93,10 @@ class RemoteProject(Protocol):
         """Delete a remote task (only when ``supports_tasks``)."""
         ...
 
+    def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
+        """``(file name, deleted)`` of every frame of a remote task, in order (``supports_tasks`` only)."""
+        ...
+
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
         """The image of one frame of a remote task (only when ``supports_tasks``)."""
         ...

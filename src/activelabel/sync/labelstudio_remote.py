@@ -134,6 +134,10 @@ class LabelStudioRemote:
         """Not available in Label Studio."""
         raise ToolError("Label Studio has no deleted frames.")
 
+    def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
+        """Not available in Label Studio."""
+        raise ToolError("Label Studio has no task frames.")
+
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
         """Not available in Label Studio."""
         raise ToolError("Label Studio has no tasks to delete.")
