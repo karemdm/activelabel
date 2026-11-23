@@ -894,3 +894,29 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .step-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: 6px; }
 .step-tab-count { font-size: 0.75rem; font-weight: 600; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); }
 .step-tab-pane > .annot-section { border-top: 0; margin-top: 0; padding-top: 0; }
+
+/* pre-annotation (a tab of Anotações): form, to review, history */
+.pre-section { margin: 0 0 1.75rem; }
+.pre-section > h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.pre-section > .muted { margin: 0 0 0.75rem; }
+.pre-form { display: grid; grid-template-columns: minmax(220px, 1.4fr) minmax(200px, 1fr) auto minmax(150px, 0.6fr); gap: 0.75rem 1rem; align-items: start; }
+@media (max-width: 1100px) { .pre-form { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
+.pre-note { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; }
+.pre-note.warn { color: var(--warn); }
+.pre-note.ok { color: var(--ok); }
+.pre-form .field { margin: 0; }
+.pre-form select, .pre-form input[type="number"] { width: 100%; }
+.pre-scope { border: 0; padding: 0; min-width: 0; }
+.pre-scope .seg { display: inline-flex; flex-wrap: nowrap; }
+.pre-scope .seg-opt { white-space: nowrap; }
+.pre-scope .seg-opt .count { margin-left: 0.35rem; }
+.pre-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.9rem; }
+.pre-live { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; color: var(--muted); }
+.pre-live .tr-progress { width: 160px; }
+.pre-review { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.pre-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.pre-row-text { display: flex; flex-direction: column; min-width: 0; }
+.pre-row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.pre-history > summary { cursor: pointer; font-weight: 600; margin-bottom: 0.5rem; }
+.pre-table td, .pre-table th { text-align: left; }
+.pre-fail { color: var(--danger); }
