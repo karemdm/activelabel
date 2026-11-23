@@ -1023,5 +1023,6 @@
   "status.to_review_one": "{n} to review",
   "status.to_review_other": "{n} to review",
   "ann.to_review_one": "{n} image with pre-annotations waits for review (Pre-annotate tab).",
-  "ann.to_review_other": "{n} images with pre-annotations wait for review (Pre-annotate tab)."
+  "ann.to_review_other": "{n} images with pre-annotations wait for review (Pre-annotate tab).",
+  "sync.remote_gone": "The CVAT project linked to this one no longer exists (it was deleted in CVAT). Use “Unlink” and compare again: a new CVAT project is created."
 }

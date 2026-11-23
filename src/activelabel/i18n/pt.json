@@ -1023,5 +1023,6 @@
   "status.to_review_one": "{n} a revisar",
   "status.to_review_other": "{n} a revisar",
   "ann.to_review_one": "{n} imagem com pré-anotações espera revisão (aba Pré-anotar).",
-  "ann.to_review_other": "{n} imagens com pré-anotações esperam revisão (aba Pré-anotar)."
+  "ann.to_review_other": "{n} imagens com pré-anotações esperam revisão (aba Pré-anotar).",
+  "sync.remote_gone": "O projeto vinculado no CVAT não existe mais (foi apagado lá). Use “Desvincular” e compare de novo: um novo projeto é criado no CVAT."
 }

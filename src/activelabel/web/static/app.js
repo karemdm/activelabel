@@ -3382,6 +3382,9 @@
 
     // ================================================================ jobs bar
     const isStale = (job) => job.kind === 'sync_apply' && /Synchronise again/i.test(String(job.error || ''));
+    /* the linked project was deleted in the tool: say so plainly and how to go on */
+    const isRemoteGone = (job) => /^sync_/.test(job.kind) && /RemoteNotFound/.test(String(job.error || '')) && /\/api\/projects\//.test(String(job.error || ''));
+    const jobError = (job) => (isStale(job) ? t('sync.stale') : isRemoteGone(job) ? t('sync.remote_gone') : job.error);
     const syncJobTool = (job) => {
       const r = job.result || {};
       const x = ctx.syncTool[job.id] || job.tool || r.tool || (job.params && job.params.tool) || (job.meta && job.meta.tool);
@@ -3432,7 +3435,7 @@
           el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
         active && job.message ? el('div', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null,
         !active && job.status === 'done' && resultText(job) ? el('div', { class: 'muted job-msg' }, resultText(job)) : null,
-        job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${job.error}`) : null);
+        job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${jobError(job)}`) : null);
     }
 
     /* A small card in the corner: what is running and the latest finished activity (the rest is in
@@ -3569,7 +3572,7 @@
         ctx.jobStatus.set(job.id, job.status);
         if (before && (before === 'queued' || before === 'running') && !isActive(job)) {
           finished = true;
-          if (job.status === 'failed') toastError(new Error(isStale(job) ? t('sync.stale') : job.error || statusText('failed')));
+          if (job.status === 'failed') toastError(new Error(jobError(job) || statusText('failed')));
           if (job.status === 'done' && ctx.openWhenDone.has(job.id)) {
             ctx.openWhenDone.delete(job.id);
             const url = job.result && job.result.url;
