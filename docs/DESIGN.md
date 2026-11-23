@@ -24,6 +24,7 @@ Principles (from what went wrong in the previous tool):
   images.json         one record per image (id = content hash, status, metrics, issues)
   tasks.json          tasks: packages of images, split into jobs (docs/TASKS.md)
   datasets/v<N>.json  frozen dataset versions: train/val/test split + label copy (docs/DATASETS.md)
+  runs/r<N>/          training runs: config.yaml, run.json, metrics.jsonl, results.json (docs/TRAINING.md)
   videos.json         source videos (id, name, fps, frames, duration, size) (docs/VIDEO.md)
   videos/<id>.<ext>   original videos; their selected frames become images
   images/<id>.<ext>   original files (never re-encoded)
@@ -90,6 +91,10 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | POST | `/projects/{id}/fiftyone/pull-exclusions` | | `{excluded}` |
 | GET | `/projects/{id}/jobs` | | jobs |
 | POST | `/jobs/{job_id}/cancel` | | job |
+| GET | `/training/catalog` | `type` | models with hyperparameter specs, selection metrics |
+| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs / the new run, stored as `queued` (nothing starts yet) |
+| GET / DELETE | `/projects/{id}/runs/{n}` | DELETE: `{confirm: true}` (409 while running) | config, status, metrics, results / `{deleted}` |
+| POST | `/projects/{id}/runs/{n}/reproduce` | | new run with the same configuration |
 
 ## Tasks and jobs
 
