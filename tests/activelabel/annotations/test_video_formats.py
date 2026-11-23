@@ -202,3 +202,11 @@ def test_coco_without_target_still_matches_names(tmp_path):
     path = write(tmp_path / "f", "c.json", COCO)
     res = parse([path], "coco", manifest.all())
     assert res.images_matched == 1 and res.unmatched_count == 2
+
+
+def test_cvat_export_uses_video_frame_numbers(tmp_path, target):
+    """CVAT's own export (checked on app.cvat.ai) numbers frames as in the video: 10, 20, 30..."""
+    path = cvat_file(tmp_path, f0=10, f1=20, f2=30, f9=40)
+    got = by_frame(run([path], "cvatvideo", target), target)
+    assert [lb.track for lb in got[10]] == [7, 8] and [lb.label for lb in got[20]] == ["car", "person"]
+    assert [lb.label for lb in got[40]] == ["car"]

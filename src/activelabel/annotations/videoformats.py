@@ -4,9 +4,10 @@ Frame numbers are video frame indexes (0-based) unless the format says otherwise
 A label on a frame that the task does not use is counted (``frames_not_in_task``), never an error.
 
 * CVAT for video 1.1 XML: tracks (``box``, ``polygon``, ``points``; ``outside="1"`` entries are not
-  visible and skipped) and non-tracked ``<image id=frame>`` entries. When ``<meta><task>`` has
-  ``start_frame`` or ``frame_filter``, frame numbers are relative to the CVAT task and become video
-  frames ``start + i * step``; without them they are video frames.
+  visible and skipped) and non-tracked ``<image id=frame>`` entries. CVAT's own export writes video
+  frame numbers (``0, 15, 30...`` for ``frame_filter = step=15``); a file with ``start_frame`` /
+  ``frame_filter`` whose numbers are not all on that grid (``start_frame + k * step``) is read as task
+  frames ``0..size-1`` and converted to video frames ``start + i * step``.
 * MOT ``gt.txt`` / ``det.txt``: ``frame,id,left,top,width,height,conf,class,...``; frames are 1-based.
 * YOLO txt per frame (``frame_000120.txt``): the trailing integer of the file name.
 * COCO with ``frame_id`` / ``frame_index`` / ``frame`` in ``images``, or a trailing integer in
@@ -70,6 +71,26 @@ def _filter_step(text: str) -> int:
     return max(1, int(match.group(1))) if match else 1
 
 
+def _task_numbered(root: ET.Element, start: int, step: int, last: int | None, size: int | None) -> bool:
+    """Whether the frame numbers of a CVAT video file count the task's frames (0..size-1).
+
+    CVAT's export uses video frame numbers: they all lie on ``start + k * step``. Otherwise they are
+    task frames.
+    """
+    numbers = [
+        n
+        for n in (
+            *(_int(sh.get("frame")) for tr in root.findall("track") for sh in tr),
+            *(_int(im.get("id")) for im in root.findall("image")),
+        )
+        if n is not None
+    ]
+    if not numbers:
+        return False
+    on_grid = all(n >= start and (n - start) % step == 0 and (last is None or n <= last) for n in numbers)
+    return not (on_grid and (step > 1 or start > 0))
+
+
 def parse_cvat_video(ctx: ParseContext, files: list[Path]) -> None:
     """Read CVAT for video 1.1 XML files into ``ctx``."""
     for path in files:
@@ -94,10 +115,11 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
     if task is not None:
         first_text = (task.findtext("start_frame") or "").strip()
         filter_text = (task.findtext("frame_filter") or "").strip()
-        relative = bool(first_text or filter_text)
         start = _int(first_text) or 0
         step = _filter_step(filter_text)
         last = _int((task.findtext("stop_frame") or "").strip())
+        task_size = _int((task.findtext("size") or "").strip())
+        relative = bool(first_text or filter_text) and _task_numbered(root, start, step, last, task_size)
         width, height = _f(task.findtext("original_size/width")), _f(task.findtext("original_size/height"))
     for labels in root.iter("labels"):
         for declared in labels.findall("label"):
