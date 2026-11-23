@@ -914,6 +914,57 @@
         ...steps.map(item))));
     }
 
+    /* Tabs inside a step: one subject per tab. The last tab is remembered per project and step. */
+    function tabsView(key, label, tabs, initial) {
+      const store = `al.tab.${projectId}.${key}`;
+      let saved = null;
+      try { saved = localStorage.getItem(store); } catch (err) { /* not remembered */ }
+      let current = null;
+      const parts = new Map();
+      const list = el('div', { class: 'step-tabs', role: 'tablist', 'aria-label': label });
+      function select(id, focus = false) {
+        if (!parts.has(id)) return;
+        current = id;
+        for (const [tid, part] of parts) {
+          const on = tid === id;
+          part.button.setAttribute('aria-selected', String(on));
+          part.button.tabIndex = on ? 0 : -1;
+          part.pane.hidden = !on;
+        }
+        try { localStorage.setItem(store, id); } catch (err) { /* not remembered */ }
+        if (focus) parts.get(id).button.focus();
+        const tab = tabs.find((x) => x.id === id);
+        if (tab && tab.onShow) tab.onShow();
+      }
+      function keys(e) {
+        const ids = [...parts.keys()];
+        const at = ids.indexOf(current);
+        const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: ids.length - 1 }[e.key];
+        if (next == null) return;
+        e.preventDefault();
+        select(ids[(next + ids.length) % ids.length], true);
+      }
+      const panes = tabs.map((tab) => {
+        const id = `tab-${key}-${tab.id}`;
+        const count = el('span', { class: 'step-tab-count', hidden: true });
+        const button = el('button', { type: 'button', role: 'tab', id, class: 'step-tab', 'aria-controls': `${id}-pane`, onclick: () => select(tab.id), onkeydown: keys }, tab.label, count);
+        const pane = el('div', { role: 'tabpanel', id: `${id}-pane`, class: 'step-tab-pane', 'aria-labelledby': id }, ...tab.nodes);
+        parts.set(tab.id, { button, pane, count });
+        list.append(button);
+        return pane;
+      });
+      select(parts.has(saved) ? saved : (typeof initial === 'function' ? initial() : initial) || tabs[0].id);
+      return {
+        node: el('div', { class: 'tabs-view' }, list, ...panes),
+        select,
+        current: () => current,
+        /** true when the tab came from the person's last visit */
+        remembered: parts.has(saved),
+        /** a number next to a tab's name (hidden for null) */
+        setCount: (id, n) => { const part = parts.get(id); if (!part) return; part.count.hidden = n == null; part.count.textContent = n == null ? '' : num(n); },
+      };
+    }
+
     /* steps 2 and 3 work on the project's images: without images they only say so */
     const hasImages = () => ((ctx.project && ctx.project.counts && ctx.project.counts.active) || 0) > 0;
     const gateNode = el('section', { class: 'card gate', hidden: true },
@@ -1588,6 +1639,7 @@
         nameInput.placeholder = t('tasks.name_placeholder', { id: tasks.reduce((m, x) => Math.max(m, x.id), 0) + 1 });
         drawTasks();
         drawFilter();
+        imageTabs.setCount('tasks', tasks.length);
       }
 
       function setFilter(task, job, { reveal = false, dataset = null } = {}) {
@@ -1595,6 +1647,7 @@
         drawFilter();
         grid.reload();
         if (reveal) {
+          imageTabs.select('gallery');
           gridTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
           gridTitle.focus({ preventScroll: true });
         }
@@ -1742,7 +1795,7 @@
 
       function drawTasks() {
         const head = el('div', { class: 'tasks-head' },
-          el('h3', { class: 'tasks-title' }, t('tasks.title'), tasks.length ? el('span', { class: 'count-badge' }, num(tasks.length)) : null),
+          el('h3', { class: 'tasks-title sr-only' }, t('tasks.title'), tasks.length ? el('span', { class: 'count-badge' }, num(tasks.length)) : null),   // the tab already names and counts them
           tasks.length ? el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title')) : null);
         let body;
         if (tasks.length) {
@@ -2171,19 +2224,23 @@
         nameInput.focus();
       }
 
+      const imageTabs = tabsView('images', t('step.images'), [
+        { id: 'gallery', label: t('images.tab_gallery'), nodes: [el('div', { class: 'grid-head' }, gridTitle, filterBox), grid.node] },
+        { id: 'tasks', label: t('images.tab_tasks'), nodes: [tasksBox] },
+      ], 'gallery');
       node.append(
         el('h2', { id: 'h-images' }, t('step.images')),
-        tasksBox,
-        newDlg, fileInput, folderInput,
-        el('div', { class: 'grid-head' }, gridTitle, filterBox),
-        grid.node);
+        imageTabs.node,
+        newDlg, fileInput, folderInput);
 
       const reload = () => { loadTasks(); grid.reload(); };
-      panel.mount = reload;
+      /* a project without images opens on its tasks, where images are added (unless the person chose a tab before) */
+      panel.mount = () => { if (!imageTabs.remembered && !hasImages()) imageTabs.select('tasks'); reload(); };
       panel.refresh = reload;
       /** Step 4 sends the person here to see one part of a dataset version. */
       panel.showDataset = (n, part, fold = null) => {
         filter = { task: null, job: null, dataset: { n, part, fold } };
+        imageTabs.select('gallery');
         drawFilter();
         grid.reload();
       };
@@ -2210,16 +2267,15 @@
       const sendBox = el('div', { class: 'send-row' });
       const sessionsBox = el('div', { class: 'sessions' });
       const sync = syncBlock();
-      const node = el('div', { class: 'annotate' },
-        el('section', { class: 'annot-section', id: 'annotate-cvat', 'aria-labelledby': 'h-cvat' },
-          el('h3', { id: 'h-cvat' }, toolName('cvat')),
-          cvatCtaBox, cvatCard, sync.node),
-        el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
-          el('h3', { id: 'h-fiftyone' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-          toolsBox, scopeBox, sendBox,
-          el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
-            el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
-            sessionsBox)));
+      const cvatSection = el('section', { class: 'annot-section', id: 'annotate-cvat', 'aria-labelledby': 'h-cvat' },
+        el('h3', { id: 'h-cvat', class: 'sr-only' }, toolName('cvat')),
+        cvatCtaBox, cvatCard, sync.node);
+      const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
+        el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
+        toolsBox, scopeBox, sendBox,
+        el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
+          el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
+          sessionsBox));
 
       const counts = () => (ctx.project && ctx.project.counts) || {};
       const isReady = (tool) => tool === 'fiftyone' || !!(state.tools[tool] && state.tools[tool].configured);
@@ -2626,7 +2682,8 @@
 
       drawTools();
       return {
-        node,
+        cvatSection,
+        fiftyoneSection,
         reveal,
         mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues(), loadTasks()]); await loadSessions(); },
         refresh: async () => { sync.draw(); await Promise.all([loadIssues(), loadTasks()]); await loadSessions(); },
@@ -2825,17 +2882,23 @@
             : el('span'));
       }
 
+      const annTabs = tabsView('annotations', t('step.annotations'), [
+        { id: 'summary', label: t('ann.tab_summary'), nodes: [gtBox] },
+        { id: 'cvat', label: toolName('cvat'), nodes: [annotate.cvatSection] },
+        { id: 'fiftyone', label: toolName('fiftyone'), nodes: [annotate.fiftyoneSection] },
+        { id: 'files', label: t('ann.tab_files'), nodes: [el('section', { class: 'annot-section load-files', 'aria-labelledby': 'h-load' },
+          el('h3', { id: 'h-load', class: 'sr-only' }, t('ann.load_title')),
+          el('p', { class: 'muted' }, t('ann.load_intro')),
+          taskBox, drop, fileInput, reportBox)] },
+      ], 'summary');
       node.append(
         el('h2', { id: 'h-annotations' }, t('step.annotations')),
-        gtBox,
-        annotate.node,
-        el('section', { class: 'annot-section load-files', 'aria-labelledby': 'h-load' },
-          el('h3', { id: 'h-load' }, t('ann.load_title')),
-          taskBox, drop, fileInput, reportBox));
+        annTabs.node);
       panel.mount = () => { loadGt(); loadVideoTasks(); annotate.mount(); };
       panel.refresh = () => { loadGt(); loadVideoTasks(); annotate.refresh(); };
       panel.show = annotate.show;
-      panel.reveal = annotate.reveal;
+      /* a finished activity opens the tab it belongs to, then its card */
+      panel.reveal = (sessionId) => { annTabs.select(sessionId === 'sync' ? 'cvat' : 'fiftyone'); annotate.reveal(sessionId); };
       return panel;
     }
 

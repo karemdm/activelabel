@@ -970,5 +970,10 @@
   "md.format_onnx_help": "The ONNX file is made right after saving, in the training queue; you can also make it later.",
   "md.saved_onnx": "Saved as model m{n}; the ONNX export is queued.",
   "project.group_data": "Data",
-  "project.group_model": "Model"
+  "project.group_model": "Model",
+  "images.tab_gallery": "Gallery",
+  "images.tab_tasks": "Tasks and jobs",
+  "ann.tab_summary": "Summary",
+  "ann.tab_files": "Import files",
+  "ann.load_intro": "Annotation files (COCO, YOLO, CVAT, Pascal VOC, MOT… or a .zip) are matched to the images of the chosen task before anything is imported."
 }
