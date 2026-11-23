@@ -1,13 +1,15 @@
-# ActiveLabel — stage 1 design
+# ActiveLabel — design
 
-Stage 1 covers: create a project, choose its task, upload images, load annotations (if
-any), check them against the task, and curate the images (corrupt, blurry, dark, low
-quality, near duplicates), excluding the ones that should not be used.
+A project covers: create it, choose its task, upload images, load annotations (if any), check them
+against the task, curate the images (corrupt, blurry, dark, low quality, near duplicates), split the
+data into versions, train models, keep them, and pre-annotate new images with them. This document
+describes the project page, the data on disk and the HTTP API.
 
 Principles (from what went wrong in the previous tool):
 
 - **Steps, not buttons.** A project page is a sequence of steps with a clear status each:
-  *1 Images → 2 Annotations (optional) → 3 Curation*. Names say what the person does.
+  two groups, *Data* (1 Images, 2 Annotations (optional), 3 Curation) and *Model* (4 Data split,
+  5 Training, 6 Models). Names say what the person does.
 - **Every job shows progress and can be cancelled.** When it ends, it says what changed
   and links to where the result is ("See result" scrolls to it or opens the view).
 - **Nothing is lost by mistake.** Excluding an image is reversible; deleting asks first.
@@ -24,7 +26,12 @@ Principles (from what went wrong in the previous tool):
   images.json         one record per image (id = content hash, status, metrics, issues)
   tasks.json          tasks: packages of images, split into jobs (docs/TASKS.md)
   datasets/v<N>.json  frozen dataset versions: train/val/test split + label copy (docs/DATASETS.md)
+  datasets/counter.json  last version number (numbers are never reused)
   runs/r<N>/          training runs: config.yaml, run.json, metrics.jsonl, results.json (docs/TRAINING.md)
+  runs/counter.json   last run number
+  models/m<N>/        saved models: weights, config.yaml, results.json, model.json, ONNX export
+  models/current.json the current model; models/counter.json: last model number (docs/TRAINING.md)
+  preannotations.json pre-annotation runs; preannotations/p<N>.log: their logs (docs/PREANNOTATE.md)
   videos.json         source videos (id, name, fps, frames, duration, size) (docs/VIDEO.md)
   videos/<id>.<ext>   original videos; their selected frames become images
   images/<id>.<ext>   original files (never re-encoded)
@@ -41,7 +48,11 @@ Principles (from what went wrong in the previous tool):
 2. **New project** (like Label Studio / CVAT) — name, description (the id is automatic);
    task as four cards with an icon and one line each (classification, detection,
    segmentation, keypoints); classes (optional, can come from the annotations).
-3. **Project page** — header (name, `#id`, task, edit, delete) and the three steps:
+3. **Project page** — header (name, `#id`, task, edit, delete) and the six steps (the three below,
+   then *Data split*, *Training* and *Models*, see [DATASETS.md](DATASETS.md) and
+   [TRAINING.md](TRAINING.md); the *Annotations* step also has the tabs *Pré-anotar*, *CVAT* and
+   *FiftyOne*, see [PREANNOTATE.md](PREANNOTATE.md), [SYNC.md](SYNC.md) and
+   [ANNOTATION.md](ANNOTATION.md)). The first three:
    - **Images**: drop zone for files, folders and .zip; upload in chunks with a progress
      bar and *Cancel*; result: added, duplicates, rejected with reasons; annotation files
      found in the upload lead to step 2. Paged grid of thumbnails.
@@ -57,8 +68,9 @@ Principles (from what went wrong in the previous tool):
      *Restore*, *Delete permanently* (confirmation); *Excluded* tab; thresholds (advanced,
      collapsed; changing them re-flags without measuring again); *Open in FiftyOne* (opens
      the saved view of the current filter); *Bring exclusions from FiftyOne*.
-4. **Jobs bar** — running and recent jobs of the project: progress, *Cancel*, result
-   summary and *See result*.
+4. **Activities card** — a small card in the bottom-right corner (minimisable, closable) with the running
+   and recent jobs of the project: progress, *Cancel*, result summary and *See result*; finished ones
+   stay in its history.
 
 ## HTTP API
 
@@ -92,7 +104,7 @@ All under `/api`. Errors: `{"detail": "<readable message>"}` with 400/404/409.
 | GET | `/projects/{id}/jobs` | | jobs |
 | POST | `/jobs/{job_id}/cancel` | | job |
 | GET | `/training/catalog` | `type` | models with hyperparameter specs, selection metrics |
-| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs / the new run, stored as `queued` (nothing starts yet) |
+| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs / the new run, stored as `queued`; it starts as soon as no other heavy process is running |
 | GET / DELETE | `/projects/{id}/runs/{n}` | DELETE: `{confirm: true}` (409 while running) | config, status, metrics, results / `{deleted}` |
 | POST | `/projects/{id}/runs/{n}/reproduce` | | new run with the same configuration |
 
@@ -104,3 +116,8 @@ specified in [TASKS.md](TASKS.md); the code is `activelabel.tasks_store` and `ac
 Dataset versions (`/projects/{id}/datasets`, preview/create/get/delete, and the `dataset`/`part`/`fold`
 image filters) are specified in [DATASETS.md](DATASETS.md); the code is `activelabel.datasets` and
 `activelabel.web.datasets_api`.
+
+Training runs, saved models, ONNX export and pre-annotation (`/projects/{id}/runs`, `/models`,
+`/preannotations`, `/training/*`) are specified in [TRAINING.md](TRAINING.md) and
+[PREANNOTATE.md](PREANNOTATE.md); the code is `activelabel.training`, `activelabel.preannotate` and
+`activelabel.web.training_api`, `models_api` and `preannotate_api`.

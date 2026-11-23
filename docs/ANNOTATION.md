@@ -1,4 +1,4 @@
-# ActiveLabel — annotation with external tools (stage 2)
+# ActiveLabel — annotation with external tools
 
 People draw and correct annotations in a consolidated tool of their choice. FiftyOne is the
 hub: every project already has a FiftyOne dataset (`activelabel-<id>`), and FiftyOne
@@ -12,6 +12,9 @@ reviews a summary of the changes and applies it.
 | `cvat` | CVAT (app.cvat.ai or self-hosted), through FiftyOne's CVAT backend | URL, username, password |
 | `labelstudio` | Label Studio, through FiftyOne's Label Studio backend | URL, API token |
 
+In the interface, this is the step **2 · Anotações**: the tab *CVAT* (synchronisation, docs/SYNC.md)
+and the tab *FiftyOne* (edit sessions). Label Studio is switched off in the interface for now.
+
 Same functions for every tool: add, edit, delete, change class — for classification (one
 class per image), detection (bounding boxes), segmentation (polygons) and keypoints.
 
@@ -19,7 +22,8 @@ class per image), detection (bounding boxes), segmentation (polygons) and keypoi
 
 1. **Choose the tool** (per project; a default can be remembered) and **which images**:
    all active images, only images without annotations, the images selected in the curation
-   grid, or one issue filter.
+   grid, one issue filter, or only the images whose labels are all pre-annotations
+   (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)).
 2. **Send** (a job): the FiftyOne dataset is refreshed from the project (images + current
    ground truth); then
    - `fiftyone`: the App opens on a saved view with those images, field `ground_truth`;
@@ -56,7 +60,7 @@ and never logged. *Test connection* checks them.
 | POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}` |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
-| POST | `/api/projects/{id}/annotate` | `{tool, scope: "all"\|"unlabeled"\|"selected"\|"issue", ids?, issue?}` | job; result `{session, links}` |
+| POST | `/api/projects/{id}/annotate` | `{tool, scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated", ids?, issue?}` | job; result `{session, links}` |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}` |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}` |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}` |

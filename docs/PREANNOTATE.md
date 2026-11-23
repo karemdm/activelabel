@@ -4,10 +4,11 @@ The loop that improves a model with new data: a saved model (step 6) suggests la
 a person reviews them in CVAT or FiftyOne, the reviewed images go into a new version of the data split
 and a new training.
 
-Everything happens in one place: **Anotações → Pré-anotar**, in the order of the work.
+Everything happens in one place: **Anotações → Pré-anotar**, in the order of the work. The model must
+be one saved in the same project (step 6, docs/TRAINING.md).
 
 1. **Pré-anotar com um modelo**: model (the current one by default), task (the newest one with images
-   without annotations by default), which images, minimum confidence; one button.
+   without annotations by default), which images, minimum confidence (the screen accepts 0.05 to 0.95); one button.
 2. **Para revisar**: per task, how many images have pre-annotations that nobody reviewed yet, with
    *Revisar no CVAT* (opens the CVAT tab with that task chosen), *Revisar no FiftyOne* (opens the
    FiftyOne tab with "Pré-anotadas, não revisadas" chosen) and *Aceitar como estão*.
@@ -31,17 +32,19 @@ Everything happens in one place: **Anotações → Pré-anotar**, in the order o
 ## Minimum confidence
 
 Detections below it are left out; for classification, an image whose best class is below it stays
-without a label. The default is 0.3 for detection and keypoints (a reviewer corrects a few extra boxes
-faster than drawing missing ones) and 0.5 for classification. Models trained on few images give low
+without a label. The screen limits it to 0.05–0.95 and proposes 0.5 for classification and 0.3 for detection and
+keypoints (a reviewer corrects a few extra boxes faster than drawing missing ones). Models trained on few images give low
 scores: when a run finds nothing, the screen says so and suggests a lower threshold.
 
 ## How it runs
 
 A run is queued with the training runs and exports (one heavy process at a time) and uses the training
-environment (nothing new is installed). The network is rebuilt from the model's configuration, the
+environment; model packages that are missing are installed first (a visible step of the run). The network is rebuilt from the model's configuration, the
 weights are loaded, and each image is processed as in the model's evaluation (classification: resize
 and ImageNet normalisation; detection: the image as it is, resized inside the network). Labels are
-written only when the run ends; a cancelled or failed run writes nothing. Logs:
+written only when the run ends; a cancelled or failed run writes nothing. An image that cannot be read
+is skipped and counted (`counts.unreadable`). A run interrupted by a restart ends as failed with the
+error `interrupted`; it can be started again. Logs:
 `<project>/preannotations/p<N>.log`; runs: `<project>/preannotations.json`.
 
 Supported now: classification, detection and keypoints (torchvision). Semantic and instance

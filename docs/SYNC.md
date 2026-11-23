@@ -28,11 +28,17 @@ If one exists → **409** with detail
 and nothing is sent. The interface asks: *Cancel* or *Synchronise* (opens the sync preview).
 
 A link whose remote project was deleted in the tool (the tool answers "not found") is dropped, and
-the send goes on as if there were no link; when the tool cannot be reached the link stands. Closing
+the send goes on as if there were no link; when the tool cannot be reached the link stands. When
+the person compares (*Synchronise*) with a linked project that was deleted in CVAT, nothing is
+changed: the *CVAT* tab of Anotações says the project no longer exists and suggests *Desvincular*;
+after unlinking, a new comparison creates a new project in CVAT. Closing
 an annotation session with *delete in the tool* also drops the link when its remote project went
 with the session.
 
 ## Synchronise
+
+In the interface the plan is made and reviewed in the *CVAT* tab of the Anotações step (*Sincronizar*,
+then the review, then apply).
 
 1. **Plan** (job `sync_plan`): read every remote item (labels converted to the internal
    format) and compare, per image, three versions: `base` (hash at last sync), `local` (project
@@ -101,7 +107,7 @@ crosses jobs has one track id per job.
 | --- | --- | --- | --- |
 | GET | `/api/projects/{id}/links` | | `{links: [{tool, url, remote_id, remote_name, last_sync, images}]}` |
 | DELETE | `/api/projects/{id}/links/{tool}` | | `{unlinked: true}` (remote untouched) |
-| POST | `/api/projects/{id}/sync/{tool}` | `{create?: bool, remote_id?}` | job `sync_plan` |
+| POST | `/api/projects/{id}/sync/{tool}` | `{create?, remote_id?, scope: "project"\|"task"\|"job" (default project), task?, job?, direction: "both"\|"pull"\|"push" (default both)}` | job `sync_plan` |
 | POST | `/api/projects/{id}/sync/{tool}/{plan_id}/apply` | `{resolutions, default}` | job `sync_apply` |
 
 ## Remote adapters (Python)
