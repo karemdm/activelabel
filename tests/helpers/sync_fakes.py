@@ -13,6 +13,7 @@ from sample_images import make_image
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.ingest import ingest_folder
 from activelabel.images.manifest import Manifest
+from activelabel.importing.common import RemoteNotFound
 from activelabel.jobs import Job, Progress
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.projects import Project, ProjectStore
@@ -131,7 +132,7 @@ class FakeRemote:
     def get(self, settings, remote_id):
         self._check()
         if remote_id not in self.projects:
-            raise ToolError(f"The remote project {remote_id} was not found (deleted?).")
+            raise RemoteNotFound(f"The remote project {remote_id} was not found (deleted?).")
         return self.info(remote_id)
 
     def create(self, settings, project):
