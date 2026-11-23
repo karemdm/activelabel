@@ -715,5 +715,17 @@
   "ds.w_part_empty": "{part} ended up with no images.",
   "ds.b_part_empty": "{part} empty",
   "ds.b_classes_missing": "{part}: {n} classes missing",
-  "ds.w_classes_missing": "{n} classes do not appear in {part}: {list}."
+  "ds.w_classes_missing": "{n} classes do not appear in {part}: {list}.",
+  "ds.videos": "Videos",
+  "ds.videos_auto": "Cut into distant segments when needed",
+  "ds.videos_whole": "Always keep whole",
+  "ds.videos_help": "A video stays in one part, unless that makes the proportions impossible: then it is cut into segments spread over its timeline, which adds variety between the frames.",
+  "ds.gap": "Safety gap (s)",
+  "ds.gap_help": "Train frames closer than this to a val/test segment of the same video are left out, so near-identical frames do not end up on both sides. 0 keeps them.",
+  "ds.err_gap": "The safety gap must be a number of seconds, 0 or more.",
+  "ds.and": " and ",
+  "ds.folds_word": "the folds",
+  "ds.w_video_split": "Video {name} was cut into {n} segments: {parts} use segments spread over time; {gap} frames were left out as a safety gap.",
+  "ds.w_video_split_nogap": "Video {name} was cut into {n} segments: {parts} use segments spread over time.",
+  "ds.b_video_split": "video in {n} segments"
 }

@@ -3323,6 +3323,7 @@
         const seen = new Set();
         const out = [];
         for (const w of warnings || []) {
+          if (w.code === 'video_split') continue;
           const where = w.fold != null ? `fold${w.fold}` : w.part;
           let x = w;
           if (empty.has(where) && /class_missing|few_images/.test(String(w.code))) x = { code: 'part_empty', part: w.part, fold: w.fold };
@@ -3343,6 +3344,14 @@
           byPart.get(where).classes.push(w.class);
         }
         return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1 ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0] } : w));
+      }
+
+      /* information about the videos that were cut into segments (not a warning) */
+      const videoInfos = (warnings) => (warnings || []).filter((w) => w.code === 'video_split');
+      function videoText(w) {
+        const parts = (w.parts || []).map((p) => (p === 'fold' ? t('ds.folds_word') : partName(p))).join(t('ds.and'));
+        const vars = { name: w.name || w.video, n: num(w.segments), parts, gap: num(w.gap || 0) };
+        return t(w.gap > 0 ? 'ds.w_video_split' : 'ds.w_video_split_nogap', vars);
       }
 
       /* warnings in plain words; short = for the badges on a card */
@@ -3378,6 +3387,7 @@
         const items = partItems(sizes, v.options);
         const bg = backgroundOf(v.stats);
         const warns = cleanWarnings(v.warnings, items).map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
+        const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
         const id = `ds-v${v.version}`;
         return el('li', { class: 'ds-card card', id, 'aria-labelledby': `${id}-title` },
           el('div', { class: 'ds-card-head' },
@@ -3390,7 +3400,7 @@
           el('p', { class: 'muted ds-meta' }, splitText(v), bg > 0 ? ` · ${t('ds.background_count', { n: num(bg) })}` : ''),
           partsBar(items, barLabel(items)),
           legend(items),
-          warns.length ? el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns) : null,
+          warns.length || infoBadges.length ? el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns, ...infoBadges) : null,
           el('div', { class: 'ds-view' },
             el('span', { class: 'muted' }, t('ds.see_images')),
             ...items.map((x) => el('button', { type: 'button', class: 'btn small', disabled: x.n === 0, 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
@@ -3451,6 +3461,8 @@
         const seed = el('input', { type: 'number', id: 'ds-seed', inputmode: 'numeric', step: '1', value: '42' });
         const note = el('input', { type: 'text', id: 'ds-note', maxlength: '500', autocomplete: 'off' });
         const bgBox = el('input', { type: 'checkbox', id: 'ds-bg', role: 'switch' });
+        const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
+        const gapInput = el('input', { type: 'number', id: 'ds-gap', inputmode: 'decimal', min: '0', max: '3600', step: '0.1', value: '0.5' });
         const create = el('button', { type: 'submit', class: 'btn primary' }, t('ds.create'));
 
         // tasks
@@ -3516,7 +3528,9 @@
           if (!st.tasks.size) return { error: t('ds.err_tasks') };
           const sd = parseInt(seed.value, 10);
           if (!Number.isFinite(sd)) return { error: t('ds.err_seed') };
-          const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd };
+          const gap = parseFloat(gapInput.value);
+          if (!(gap >= 0 && gap <= 3600)) return { error: t('ds.err_gap') };
+          const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd, videos: videosSel.value, gap_seconds: gap };
           if (st.mode === 'split') {
             const s = { train: int(train), val: int(val), test: int(test) };
             if (Object.values(s).some(Number.isNaN) || s.train < 1 || s.train + s.val + s.test !== 100) return { error: t('ds.err_sum') };
@@ -3564,13 +3578,15 @@
           }
           paint();
           const warns = cleanWarnings(d.warnings, items).map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
+          const infos = videoInfos(d.warnings).map((w) => el('li', { class: 'report-line ds-info' }, icon('info'), videoText(w)));
           previewBox.replaceChildren(
             el('h3', { class: 'section-title' }, t('ds.preview'), el('span', { class: 'muted' }, ` · ${tn('status.images_active', total)}`)),
             partsBar(items, barLabel(items)),
             legend(items),
             el('div', { class: 'ds-table-wrap' }, el('table', { class: 'ds-table' }, el('thead', null, head), body)),
             more,
-            warns.length ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')));
+            warns.length ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')),
+            infos.length ? el('ul', { class: 'ds-warns ds-infos' }, ...infos) : null);
         }
 
         async function runPreview() {
@@ -3614,12 +3630,15 @@
                 modeBox),
               bgRow,
               el('details', { class: 'ds-adv field' }, el('summary', null, t('ds.advanced')),
-                field(t('ds.seed'), seed), el('p', { class: 'muted ds-help' }, t('ds.seed_help'))),
+                field(t('ds.seed'), seed), el('p', { class: 'muted ds-help' }, t('ds.seed_help')),
+                field(t('ds.videos'), videosSel), el('p', { class: 'muted ds-help' }, t('ds.videos_help')),
+                field(t('ds.gap'), gapInput), el('p', { class: 'muted ds-help' }, t('ds.gap_help'))),
               el('div', { class: 'field' }, el('label', { for: 'ds-note' }, `${t('ds.note')} `, el('span', { class: 'muted' }, `(${t('step.optional')})`)), note)),
             el('aside', { class: 'ds-side', 'aria-label': t('ds.preview') }, previewBox)),
           el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
         const dlg = el('dialog', { class: 'dialog wide ds-dialog', 'aria-label': t('ds.new_title') }, form);
-        [seed, kInput, ktestInput, train, val, test].forEach((i) => i.addEventListener('input', changed));
+        [seed, kInput, ktestInput, train, val, test, gapInput].forEach((i) => i.addEventListener('input', changed));
+        videosSel.addEventListener('change', changed);
 
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
