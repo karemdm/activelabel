@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -106,7 +108,9 @@ def list_tasks(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     return {"tasks": views}
 
 
-REMOTE_TTL = 60.0  # seconds a read of the CVAT tasks/jobs is reused
+REMOTE_TTL = 60.0  # seconds a read of the CVAT tasks/jobs (or its failure) is reused
+REMOTE_TIMEOUT = 8.0  # seconds the task list waits for CVAT before showing the tasks without it
+_remote_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="activelabel-cvat-status")
 _remote_cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
 
 
@@ -114,12 +118,10 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     """CVAT task and jobs (state, stage, assignee) of each linked local task: ``{task id: {...}}``.
 
     Read from CVAT at most once a minute per project; empty when the project is not linked, CVAT is
-    not configured or cannot be reached (the task list must never fail because of CVAT).
+    not configured or cannot be reached (the task list must never fail or hang because of CVAT: any
+    failure, and a wait longer than ``REMOTE_TIMEOUT``, is remembered for ``REMOTE_TTL`` seconds).
     """
-    import time
-
     from activelabel.annotate import credentials
-    from activelabel.annotate.base import ToolError
     from activelabel.sync import links
     from activelabel.sync.registry import get_remote
 
@@ -134,9 +136,12 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     settings = credentials.load_settings(state.settings.workspace, "cvat")
     if not credentials.is_configured(settings):
         return {}
+    remote = get_remote("cvat")
     try:
-        found = {rt.id: rt for rt in get_remote("cvat").tasks(settings, str(link["remote_id"]))}
-    except ToolError:
+        future = _remote_pool.submit(remote.tasks, settings, str(link["remote_id"]))
+        found = {rt.id: rt for rt in future.result(timeout=REMOTE_TIMEOUT)}
+    except Exception:  # noqa: BLE001 - unreachable, slow, login refused...: the list shows without CVAT
+        _remote_cache[key] = (time.monotonic(), {})
         return {}
     out: dict[str, Any] = {}
     for local_id, entry in tmap.items():
@@ -162,6 +167,20 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     return out
 
 
+def _whole_number(text: str) -> int | None:
+    """``text`` as an integer (None when empty).
+
+    Raises:
+        ValueError: not a whole number (readable message).
+    """
+    if not text.strip():
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError("The job size must be a whole number.") from None
+
+
 @router.post("/projects/{project_id}/tasks")
 def create_task(
     project_id: int,
@@ -180,7 +199,7 @@ def create_task(
     manifest = state.manifest(project_id)
     store = TaskStore(state.store.dir(project_id))
     try:
-        size = check_job_size(int(job_size) if job_size.strip() else None)
+        size = check_job_size(_whole_number(job_size))
         task_name = clean_name(name) if name.strip() else None
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None

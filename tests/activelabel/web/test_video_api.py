@@ -203,3 +203,33 @@ def test_delete_unused_video(tmp_path):
     assert client.delete(f"/api/projects/1/videos/{vid}").status_code == 200
     assert not list((state.store.dir(1) / "videos").glob(f"{vid}.*"))
     assert client.delete(f"/api/projects/1/videos/{vid}").status_code == 404
+
+
+def test_early_end_stores_the_real_last_frame(tmp_path, monkeypatch):
+    from activelabel.images import video as video_module
+
+    client, state, path = _setup(tmp_path)
+    vid = _upload(client, path).json()["id"]
+    real = video_module.extract_frames
+
+    def short(video, start, stop, step, target, progress=None):
+        return real(video, start, stop, step, target, progress)[:3]  # the file ended early
+
+    monkeypatch.setattr("activelabel.web.video_api.extract_frames", short)
+    job = _make_task(client, video=vid, start=0, stop=50, step=10)
+    assert job["status"] == "done", job
+    assert (job["result"]["frames"], job["result"]["planned"], job["result"]["stopped_early"]) == (3, 6, True)
+    assert job["result"]["task"]["source"]["stop"] == 20
+
+
+def test_delete_video_refused_while_a_video_task_runs(tmp_path):
+    import threading
+
+    client, state, path = _setup(tmp_path)
+    vid = _upload(client, path).json()["id"]
+    release = threading.Event()
+    state.jobs.submit(1, "video_task", lambda progress: release.wait(5) and {})
+    try:
+        assert client.delete(f"/api/projects/1/videos/{vid}").status_code == 409
+    finally:
+        release.set()

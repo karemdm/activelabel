@@ -173,3 +173,32 @@ def test_task_decision_comes_before_classes(tmp_path):
     client, _, _ = setup(tmp_path)
     detail = client.patch("/api/projects/1", json={"task": "detection", "classes": ["cat"]}).json()["detail"]
     assert detail["code"] == "task_change_annotations"
+
+
+def test_project_update_waits_for_running_jobs_and_keeps_annotations(tmp_path):
+    client, state, _ = setup(tmp_path)
+    release = threading.Event()
+    state.jobs.submit(1, "slow", lambda progress: release.wait(5) and {})
+    try:
+        r = client.patch("/api/projects/1", json={"task": "detection", "annotations": "discard"})
+        assert r.status_code == 409
+        assert load_annotations(state.store.dir(1)) is not None
+    finally:
+        release.set()
+
+
+def test_project_update_holds_the_annotations_lock(tmp_path, monkeypatch):
+    from activelabel.labels import annotations_lock
+    from activelabel.web import api
+
+    client, state, _ = setup(tmp_path)
+    held = []
+    real = api._backup_annotations
+
+    def backup(project_dir):
+        held.append(annotations_lock(project_dir)._is_owned())  # noqa: SLF001 - held since the load
+        return real(project_dir)
+
+    monkeypatch.setattr(api, "_backup_annotations", backup)
+    r = client.patch("/api/projects/1", json={"task": "detection", "annotations": "discard"})
+    assert r.status_code == 200 and held == [True]

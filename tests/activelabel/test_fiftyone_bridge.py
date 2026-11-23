@@ -216,3 +216,21 @@ def test_refresh_after_task_deleted(tmp_path, project):
     dataset = bridge.sync_dataset(project, manifest, None)
     assert "task-1" not in dataset.list_saved_views() and "task-2" in dataset.list_saved_views()
     assert dataset.distinct("task") == [2]
+
+
+def test_open_fiftyone_session_keeps_its_ground_truth(tmp_path, project):
+    from activelabel.annotate import sessions
+
+    manifest = build(tmp_path)
+    cat = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {}, {}))
+    sessions.create(tmp_path, "fiftyone", "all", ["i0"], [], {})
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample[bridge.GROUND_TRUTH] = bridge._ground_truth(Task.DETECTION, [cat])  # edited in the App
+    sample.save()
+    annotations = AnnotationSet(Task.DETECTION, ["cat"], {"i0": [], "i1": [cat]}, {})
+    again = bridge.sync_dataset(project, manifest, annotations)
+    kept = again.match(fo.ViewField("image_id") == "i0").first()[bridge.GROUND_TRUTH]
+    assert len(kept.detections) == 1  # not overwritten by the (empty) project labels
+    other = again.match(fo.ViewField("image_id") == "i1").first()[bridge.GROUND_TRUTH]
+    assert len(other.detections) == 1  # images outside the session are refreshed

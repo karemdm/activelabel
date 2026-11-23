@@ -130,6 +130,7 @@ def _apply(
     duplicate_of: dict[str, str],
     kept: set[str],
     where: dict[str, dict[str, Any]],
+    keep_ground_truth: bool = False,
 ) -> None:
     sample.filepath = str(manifest.file_path(record).resolve())
     sample["image_id"] = record.id
@@ -152,7 +153,10 @@ def _apply(
     sample["time"] = record.time if record.video else None
     tags = [t for t in sample.tags if t != EXCLUDED_TAG]
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
-    sample[GROUND_TRUTH] = _ground_truth(task, annotations.images.get(record.id, []) if annotations else [])
+    if not keep_ground_truth:  # an open FiftyOne session may hold edits not brought back yet
+        sample[GROUND_TRUTH] = _ground_truth(
+            task, annotations.images.get(record.id, []) if annotations else []
+        )
 
 
 def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
@@ -223,6 +227,13 @@ def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
             dataset.delete_saved_view(old)
 
 
+def open_session_images(project_dir: Any) -> set[str]:
+    """Images of open FiftyOne annotation sessions: their ``ground_truth`` is left as it is."""
+    from activelabel.annotate import sessions
+
+    return sessions.protected_images(project_dir)
+
+
 def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSet | None) -> fo.Dataset:
     """Create or refresh the persistent FiftyOne dataset of a project, in place.
 
@@ -232,7 +243,8 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     one ``curation - <issue>`` per issue (spaces instead of underscores) are refreshed too, and so is
     one saved view ``task-<id>`` per task (description ``Task: <name>``); views of deleted tasks
     are removed. Every sample gets ``task``, ``task_name``, ``job``, ``position`` and, for video
-    frames, ``video``, ``video_name``, ``frame_number`` and ``time``.
+    frames, ``video``, ``video_name``, ``frame_number`` and ``time``. The ``ground_truth`` of images in
+    an open FiftyOne annotation session is not overwritten (it may hold edits not saved to the project).
 
     Args:
         project: the project (name of the dataset, task, classes).
@@ -252,6 +264,7 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     kept = set(duplicate_of.values())
     tasks = TaskStore(manifest.project_dir).load()
     where = _placement(manifest.project_dir, tasks)
+    protected = open_session_images(manifest.project_dir)
 
     known: dict[str, str] = {}
     stale: list[str] = []
@@ -281,6 +294,7 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
             duplicate_of,
             kept,
             where,
+            keep_ground_truth=sample["image_id"] in protected,
         )
 
     dataset.classes = {GROUND_TRUTH: list(project.classes)}

@@ -149,3 +149,44 @@ def test_discard_and_tool_errors(env):
     assert env.client.post(f"{base}/discard").json() == {"discarded": True}
     assert env.client.post(f"{base}/pull").status_code == 409
     assert env.client.post(f"/api/projects/{env.pid}/annotate/nope/pull").status_code == 404
+
+
+def _pulled_session(env):
+    configure(env)
+    session = wait(env, start(env, scope="all").json())["result"]["session"]
+    base = f"/api/projects/{env.pid}/annotate/{session['id']}"
+    env.tool.pulled = {env.ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])]}
+    assert wait(env, env.client.post(f"{base}/pull").json())["status"] == "done"
+    return base
+
+
+def test_apply_refused_when_local_labels_changed_since_pull(env):
+    from activelabel.labels import AnnotationSet, save_annotations
+    from activelabel.tasks import Task
+
+    base = _pulled_session(env)
+    other = {env.ids[1]: [Label("cat", bbox=[0.2, 0.2, 0.2, 0.2])]}  # e.g. a sync or an import
+    save_annotations(env.state.store.dir(env.pid), AnnotationSet(Task.DETECTION, ["cat"], other, {}))
+    r = env.client.post(f"{base}/apply")
+    assert r.status_code == 409
+    assert r.json()["detail"] == (
+        "The annotations of 1 images changed since you brought them back: bring them back again."
+    )
+    listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"][0]
+    assert listed["status"] == "pulled" and "base" not in listed
+    wait(env, env.client.post(f"{base}/pull").json())  # pulling again records the new state
+    assert env.client.post(f"{base}/apply").status_code == 200
+
+
+def test_link_after_send_failure_is_a_warning(env, monkeypatch):
+    configure(env)
+    monkeypatch.setattr(annotate_api, "SYNC_TOOLS", ("cvat",))
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("link broke")
+
+    monkeypatch.setattr(annotate_api.sync_engine, "link_after_send", boom)
+    monkeypatch.setattr(annotate_api.sync_engine, "existing_remote", lambda *a, **k: None)
+    job = wait(env, start(env, scope="all").json())
+    assert job["status"] == "done", job
+    assert "link broke" in job["result"]["warning"] and job["result"]["session"]["status"] == "open"

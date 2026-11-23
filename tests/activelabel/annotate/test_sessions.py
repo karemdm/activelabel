@@ -50,3 +50,17 @@ def test_lifecycle(proj):
         sessions.get(folder, first["id"])
     with pytest.raises(ValueError):
         sessions.create(folder, "cvat", "all", [], [], {})
+
+
+def test_protected_images_are_those_of_open_fiftyone_sessions(proj):
+    project_dir, _, ids = proj
+    fo_open = sessions.create(project_dir, "fiftyone", "all", [ids[0]], [], {})
+    applied = sessions.create(project_dir, "fiftyone", "all", [ids[2]], [], {})
+    sessions.update(project_dir, applied["id"], status=sessions.APPLIED)
+    sessions.create(project_dir, "cvat", "all", [ids[1]], [], {})
+    assert sessions.protected_images(project_dir) == {ids[0]}
+    sessions.update(project_dir, fo_open["id"], status=sessions.PULLED, base={ids[0]: "h"})
+    assert sessions.protected_images(project_dir) == {ids[0]}
+    assert "base" not in sessions.public(sessions.get(project_dir, fo_open["id"]))
+    sessions.close(project_dir, fo_open["id"])
+    assert sessions.protected_images(project_dir) == set()
