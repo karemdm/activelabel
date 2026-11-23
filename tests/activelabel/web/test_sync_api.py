@@ -6,8 +6,10 @@ from api_client import make_client, upload
 from sample_images import make_image
 from sync_fakes import box
 
+from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
 from activelabel.sync import links
+from activelabel.tasks_store import TaskStore
 
 CAT = [box("cat")]
 CAT2 = [box("cat", 0.5, 0.5)]
@@ -152,3 +154,38 @@ def test_plan_job_fails_readably_without_remote(env):
     env.remote.fail = "CVAT login failed"
     job = wait(env, env.client.post(f"/api/projects/{env.pid}/sync/cvat", json={"remote_id": "1"}).json())
     assert job["status"] == "failed" and job["error"].endswith("CVAT login failed")
+
+
+def test_scope_validation(env):
+    configure(env)
+    url = f"/api/projects/{env.pid}/sync/cvat"
+    assert env.client.post(url, json={"scope": "task"}).status_code == 400
+    assert env.client.post(url, json={"scope": "job", "task": 1}).status_code == 400
+    assert env.client.post(url, json={"scope": "images"}).status_code == 400
+    assert env.client.post(url, json={"scope": "job", "job": 1}).status_code == 400
+
+
+def test_scopes_and_delete_tasks_through_the_api(env):
+    env.remote.supports_tasks = True
+    job = plan(env, create=True)
+    assert job["status"] == "done" and len(job["result"]["tasks_create"]) == 1
+    done = apply(env, job["result"]["plan_id"])
+    assert done["result"]["tasks_created"] == 1
+    remote_id = list(env.remote.task_meta)[-1]  # the project the sync created
+    assert [t.name for t in env.remote.tasks(None, remote_id)] == ["Task 1"]
+    scoped = plan(env, scope="task", task=1)
+    assert scoped["result"]["scope"] == {"scope": "task", "task": 1, "job": None}
+    assert scoped["result"]["unchanged"] == 2
+    one_job = plan(env, scope="job", task=1, job=1)
+    assert one_job["result"]["scope"]["job"] == 1 and one_job["result"]["unchanged"] == 2
+    failed = plan(env, scope="task", task=99)
+    assert failed["status"] == "failed"
+    # delete the task here: only a confirmed apply deletes it in the tool
+    directory = env.state.store.dir(env.pid)
+    ids = TaskStore(directory).delete(1)
+    Manifest(directory).delete(ids)
+    review = plan(env)
+    assert len(review["result"]["tasks_delete"]) == 1
+    done = apply(env, review["result"]["plan_id"], delete_tasks=True)
+    assert done["result"]["tasks_deleted"] == 1
+    assert env.remote.tasks(None, remote_id) == []

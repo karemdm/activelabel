@@ -86,9 +86,20 @@ def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
     return True
 
 
-def base_entry(key: str, labels: list[Label]) -> dict[str, Any]:
-    """Link entry of one image: its remote key, and its labels at this synchronisation (and their hash)."""
-    return {"key": key, "base": label_hash(labels), "labels": [lb.as_dict() for lb in labels]}
+def base_entry(key: str, labels: list[Label], removed: bool = False) -> dict[str, Any]:
+    """Link entry of one image: its remote key, its labels at this synchronisation (and their hash).
+
+    ``removed``: the image was removed on both sides at this synchronisation (excluded or deleted here,
+    deleted frame there), so a later restore on one side is seen as a change.
+    """
+    entry: dict[str, Any] = {
+        "key": key,
+        "base": label_hash(labels),
+        "labels": [lb.as_dict() for lb in labels],
+    }
+    if removed:
+        entry["removed"] = True
+    return entry
 
 
 def base_labels(entry: dict[str, Any]) -> list[Label] | None:

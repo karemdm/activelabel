@@ -27,7 +27,7 @@ from activelabel.images.manifest import ImageRecord
 from activelabel.importing.cvat_import import _Http
 from activelabel.labels import Label
 from activelabel.projects import Project
-from activelabel.sync.remote import RemoteInfo, RemoteItem
+from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteJob, RemoteTask
 from activelabel.tasks import Task
 
 log = logging.getLogger(__name__)
@@ -173,6 +173,42 @@ class CvatRemote:
     """A CVAT project, through the REST API."""
 
     tool = "cvat"
+    supports_tasks = True  # tasks/jobs mirror the project's (docs/TASKS.md)
+
+    # -- tasks, frames --
+    def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:
+        """Mark frames of a task as deleted (or not deleted any more); annotations are kept by CVAT."""
+        if not delete and not restore:
+            return
+        api = self._api(settings)
+        meta = api.get(f"/api/tasks/{task_id}/data/meta") or {}
+        deleted = ({int(d) for d in meta.get("deleted_frames") or []} | set(delete)) - set(restore)
+        api.request("PATCH", f"/api/tasks/{task_id}/data/meta", json={"deleted_frames": sorted(deleted)})
+
+    def delete_task(self, settings: ToolSettings, task_id: str) -> None:
+        """Delete a CVAT task with its frames and annotations (nothing when it is already gone)."""
+        api = self._api(settings)
+        try:
+            api.request("DELETE", f"/api/tasks/{task_id}")
+        except ToolError as err:
+            if "not found" not in str(err).lower():
+                raise
+
+    def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
+        """The original image of one frame."""
+        api = self._api(settings)
+        try:
+            r = api._http.get(  # noqa: SLF001 - raw bytes, not JSON
+                f"{api.url}/api/tasks/{task_id}/data",
+                params={"type": "frame", "number": str(int(frame)), "quality": "original"},
+                auth=api._auth,  # noqa: SLF001
+                timeout=UPLOAD_TIMEOUT,
+            )
+        except Exception:  # noqa: BLE001 - never echo the exception text
+            raise ToolError(f"Cannot reach CVAT at {api.url}: check the address and your network.") from None
+        if r.status_code >= 400:
+            raise ToolError(f"CVAT error {r.status_code} while downloading frame {frame} of task {task_id}.")
+        return bytes(r.content)
 
     # -- helpers --
     @staticmethod
@@ -233,13 +269,62 @@ class CvatRemote:
         return ids
 
     # -- read --
-    def items(self, settings: ToolSettings, remote_id: str, task: Task) -> list[RemoteItem]:
-        """Every frame of every task of the project with its shapes/tags converted (tracks are skipped)."""
+    def tasks(self, settings: ToolSettings, remote_id: str) -> list[RemoteTask]:
+        """The tasks of the project (oldest first) with their jobs in frame order."""
+        api = self._api(settings)
+        out: list[RemoteTask] = []
+        for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
+            out.append(self._task(api, t))
+        return out
+
+    @staticmethod
+    def _task(api: _Api, t: dict[str, Any]) -> RemoteTask:
+        tid = t["id"]
+        jobs = sorted(
+            (  # annotation jobs only (not ground-truth jobs)
+                j
+                for j in api.paged("/api/jobs", {"task_id": tid}, ALL)
+                if str(j.get("type") or "annotation") == "annotation"
+            ),
+            key=lambda j: int(j.get("start_frame") or 0),
+        )
+        segment = int(t.get("segment_size") or 0)
+        size = int(t.get("size") or 0)
+        return RemoteTask(
+            str(tid),
+            str(t.get("name", "")),
+            size,
+            segment if segment and segment < size else None,
+            f"{api.url}/tasks/{tid}",
+            [
+                RemoteJob(
+                    str(j["id"]),
+                    n,
+                    int(j.get("start_frame") or 0),
+                    int(j.get("stop_frame") or 0),
+                    f"{api.url}/tasks/{tid}/jobs/{j['id']}",
+                    str(j.get("state") or ""),
+                    str(j.get("stage") or ""),
+                    str((j.get("assignee") or {}).get("username") or ""),
+                )
+                for n, j in enumerate(jobs, 1)
+            ],
+        )
+
+    def items(
+        self, settings: ToolSettings, remote_id: str, task: Task, task_ids: list[str] | None = None
+    ) -> list[RemoteItem]:
+        """Every frame of every task of the project (or of ``task_ids``) with its shapes/tags converted.
+
+        Tracks are skipped.
+        """
         api = self._api(settings)
         names = {i: n for n, i in self._labels(api, remote_id).items()}
         out: list[RemoteItem] = []
         for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
             tid = t["id"]
+            if task_ids is not None and str(tid) not in task_ids:
+                continue
             meta = api.get(f"/api/tasks/{tid}/data/meta") or {}
             frames = list(meta.get("frames") or [])
             ann = api.get(f"/api/tasks/{tid}/annotations") or {}
@@ -325,26 +410,39 @@ class CvatRemote:
         ids = self._ensure(api, remote_id, [lb.label for _, _, labels in images for lb in labels])
         keys: dict[str, str] = {}
         for n, start in enumerate(range(0, len(images), BATCH), 1):
-            keys.update(self._add_batch(api, remote_id, project, images[start : start + BATCH], ids, n))
+            name = f"ActiveLabel {project.id} added {n} ({time.strftime('%Y-%m-%d')})"
+            _, added = self._create_task(api, remote_id, name, None, images[start : start + BATCH], ids)
+            keys.update(added)
         return keys
 
-    def _add_batch(
+    def add_task(
+        self,
+        settings: ToolSettings,
+        remote_id: str,
+        project: Project,
+        name: str,
+        job_size: int | None,
+        images: list[tuple[ImageRecord, Path, list[Label]]],
+    ) -> tuple[RemoteTask, dict[str, str]]:
+        """One CVAT task with these images in this order, ``segment_size = job_size``, and their labels."""
+        api = self._api(settings)
+        ids = self._ensure(api, remote_id, [lb.label for _, _, labels in images for lb in labels])
+        tid, keys = self._create_task(api, remote_id, name, job_size, images, ids)
+        return self._task(api, api.get(f"/api/tasks/{tid}")), keys
+
+    def _create_task(
         self,
         api: _Api,
         rid: str,
-        project: Project,
+        name: str,
+        job_size: int | None,
         batch: list[tuple[ImageRecord, Path, list[Label]]],
         ids: dict[str, int],
-        number: int,
-    ) -> dict[str, str]:
-        task = api.request(
-            "POST",
-            "/api/tasks",
-            json={
-                "name": f"ActiveLabel {project.id} added {number} ({time.strftime('%Y-%m-%d')})",
-                "project_id": int(rid),
-            },
-        )
+    ) -> tuple[str, dict[str, str]]:
+        body: dict[str, Any] = {"name": name, "project_id": int(rid)}
+        if job_size:
+            body["segment_size"] = int(job_size)
+        task = api.request("POST", "/api/tasks", json=body)
         tid = task["id"]
         names: dict[str, str] = {}  # image id -> file name in CVAT (unique inside the task)
         for rec, _, _ in batch:
@@ -374,10 +472,14 @@ class CvatRemote:
         keys: dict[str, str] = {}
         shapes: list[dict[str, Any]] = []
         tags: list[dict[str, Any]] = []
-        for rec, _, labels in batch:
+        for position, (rec, _, labels) in enumerate(batch):
             frame = by_name.get(names[rec.id])
             if frame is None:
                 raise ToolError(f"CVAT did not register the image '{rec.name}': upload again.")
+            if job_size and frame != position:  # jobs only match when the order is kept
+                raise ToolError(
+                    f"CVAT changed the order of the images of task {tid}: its jobs would not match."
+                )
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
                 labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"])
@@ -390,7 +492,7 @@ class CvatRemote:
                 f"/api/tasks/{tid}/annotations",
                 json={"version": 0, "tags": tags, "shapes": shapes, "tracks": []},
             )
-        return keys
+        return str(tid), keys
 
     @staticmethod
     def _wait_ready(api: _Api, tid: Any, rq_id: str | None) -> None:

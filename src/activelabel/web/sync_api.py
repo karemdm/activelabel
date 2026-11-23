@@ -25,6 +25,9 @@ class PlanBody(BaseModel):
 
     create: bool = False
     remote_id: str | int | None = None
+    scope: str = "project"  # project, task or job (docs/TASKS.md)
+    task: int | None = None
+    job: int | None = None
 
 
 class ApplyBody(BaseModel):
@@ -32,6 +35,7 @@ class ApplyBody(BaseModel):
 
     resolutions: dict[str, str] = {}
     default: str | None = None
+    delete_tasks: bool = False  # delete in the tool the tasks deleted in ActiveLabel
 
 
 def _tool(tool: str) -> str:
@@ -81,11 +85,29 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
     settings = _settings(state, tool)
     remote = _remote(tool)
     body = body or PlanBody()
+    if body.scope not in engine.SCOPES:
+        raise HTTPException(400, "The scope must be project, task or job.")
+    if body.scope != "project" and body.task is None:
+        raise HTTPException(400, "Choose the task.")
+    if body.scope == "job" and body.job is None:
+        raise HTTPException(400, "Choose the job.")
     remote_id = str(body.remote_id) if body.remote_id not in (None, "") else None
     store = state.store
 
     def run(progress: Progress) -> dict[str, Any]:
-        return engine.make_plan(store, project_id, tool, settings, remote, progress, body.create, remote_id)
+        return engine.make_plan(
+            store,
+            project_id,
+            tool,
+            settings,
+            remote,
+            progress,
+            body.create,
+            remote_id,
+            scope=body.scope,
+            task_id=body.task,
+            job=body.job,
+        )
 
     return state.jobs.submit(project_id, "sync_plan", run).as_dict()
 
@@ -111,7 +133,16 @@ def apply(
 
     def run(progress: Progress) -> dict[str, Any]:
         return engine.apply_plan(
-            store, project_id, tool, settings, remote, plan_id, body.resolutions, body.default, progress
+            store,
+            project_id,
+            tool,
+            settings,
+            remote,
+            plan_id,
+            body.resolutions,
+            body.default,
+            progress,
+            delete_tasks=body.delete_tasks,
         )
 
     return state.jobs.submit(project_id, "sync_apply", run).as_dict()

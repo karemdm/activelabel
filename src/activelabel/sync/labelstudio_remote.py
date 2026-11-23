@@ -35,7 +35,7 @@ from activelabel.annotate.labelstudio_tool import (
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label
 from activelabel.projects import Project
-from activelabel.sync.remote import RemoteInfo, RemoteItem
+from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteTask
 from activelabel.tasks import Task
 
 PAGE = 100
@@ -110,6 +110,37 @@ class LabelStudioRemote:
     """A Label Studio project, through the REST API."""
 
     tool = "labelstudio"
+    supports_tasks = False  # Label Studio has no tasks/jobs: one flat list of items
+
+    # -- tasks (not in Label Studio) --
+    def tasks(self, settings: ToolSettings, remote_id: str) -> list[RemoteTask]:
+        """Label Studio has no tasks in the CVAT sense: always empty."""
+        return []
+
+    def add_task(
+        self,
+        settings: ToolSettings,
+        remote_id: str,
+        project: Project,
+        name: str,
+        job_size: int | None,
+        images: list[tuple[ImageRecord, Path, list[Label]]],
+    ) -> tuple[RemoteTask, dict[str, str]]:
+        """Add the images to the project (Label Studio has no tasks/jobs)."""
+        keys = self.add(settings, remote_id, project, images)
+        return RemoteTask(remote_id, name, len(keys)), keys
+
+    def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:
+        """Not available in Label Studio."""
+        raise ToolError("Label Studio has no deleted frames.")
+
+    def delete_task(self, settings: ToolSettings, task_id: str) -> None:
+        """Not available in Label Studio."""
+        raise ToolError("Label Studio has no tasks to delete.")
+
+    def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
+        """Not available in Label Studio."""
+        raise ToolError("Label Studio has no task frames.")
 
     # -- helpers --
     @staticmethod
@@ -197,7 +228,9 @@ class LabelStudioRemote:
                 return out
             page += 1
 
-    def items(self, settings: ToolSettings, remote_id: str, task: Task) -> list[RemoteItem]:
+    def items(
+        self, settings: ToolSettings, remote_id: str, task: Task, task_ids: list[str] | None = None
+    ) -> list[RemoteItem]:
         """Every task with the labels of its latest non-cancelled annotation."""
         client = _Client(settings)
         out: list[RemoteItem] = []

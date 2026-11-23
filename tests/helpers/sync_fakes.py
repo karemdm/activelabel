@@ -1,9 +1,12 @@
 """An in-memory remote project (RemoteProject) and project builders for the synchronisation tests."""
 
 import copy
+import io
 import threading
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
 from sample_images import make_image
 
 from activelabel.annotate.base import ToolError, ToolSettings
@@ -11,8 +14,8 @@ from activelabel.images.ingest import ingest_folder
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Job, Progress
 from activelabel.labels import AnnotationSet, Label, save_annotations
-from activelabel.projects import ProjectStore
-from activelabel.sync.remote import RemoteInfo, RemoteItem
+from activelabel.projects import Project, ProjectStore
+from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteJob, RemoteTask
 
 SETTINGS = ToolSettings("cvat", "http://remote", "u", "pw")
 
@@ -26,12 +29,23 @@ def box(name="cat", x=0.1, y=0.1, w=0.3, h=0.3) -> Label:
 
 
 class FakeRemote:
-    """Remote projects kept in memory: ``projects[id] = {name, items: {key: RemoteItem}, classes}``."""
+    """Remote projects kept in memory: ``projects[id] = {name, items: {key: RemoteItem}, classes}``.
 
-    def __init__(self, tool="cvat"):
+    By default a flat list of items (``supports_tasks`` False, like Label Studio). With ``tasks=True``
+    it behaves like CVAT: tasks with jobs (``task_meta[rid][task_id]``), deleted frames hidden from
+    ``items()``, ``frame()`` bytes, ``add_task`` / ``set_frames`` / ``delete_task``.
+    """
+
+    def __init__(self, tool="cvat", tasks=False):
         self.tool = tool
+        self.supports_tasks = tasks
+        self.task_meta: dict[str, dict[str, dict]] = {}
+        self.frame_bytes: dict[tuple[str, int], bytes] = {}
+        self._png_seed = 1000
+        self._task_n = 100
         self.projects: dict[str, dict] = {}
         self.calls: list[tuple] = []
+        self.item_calls: list[list[str] | None] = []
         self.fail = ""
         self._n = 1
 
@@ -40,6 +54,7 @@ class FakeRemote:
         rid = str(self._n)
         self._n += 1
         self.projects[rid] = {"name": name, "items": {}, "classes": list(classes)}
+        self.task_meta[rid] = {}
         for file_name, labels in files:
             self.put(rid, file_name, labels)
         return self.info(rid)
@@ -58,7 +73,39 @@ class FakeRemote:
 
     def info(self, rid) -> RemoteInfo:
         p = self.projects[rid]
-        return RemoteInfo(rid, p["name"], f"http://remote/projects/{rid}", len(p["items"]))
+        shown = [k for k in p["items"] if not self._hidden(rid, k)]
+        return RemoteInfo(rid, p["name"], f"http://remote/projects/{rid}", len(shown))
+
+    def _hidden(self, rid, key) -> bool:
+        task, _, frame = key.partition(":")
+        meta = self.task_meta.get(rid, {}).get(task)
+        return bool(meta) and int(frame or 0) in meta["deleted"]
+
+    def _png(self) -> bytes:
+        self._png_seed += 1
+        rng = np.random.default_rng(self._png_seed)
+        data = rng.integers(0, 255, size=(48, 64, 3), dtype=np.uint8)
+        out = io.BytesIO()
+        Image.fromarray(data).save(out, format="PNG")
+        return out.getvalue()
+
+    def new_task(self, rid, name, files, job_size=None, task_id=None) -> str:
+        """Test helper: someone adds a whole task in the tool. ``files``: ``[(file_name, labels)]``."""
+        self._task_n += 1
+        tid = task_id or str(self._task_n)
+        self.task_meta[rid][tid] = {"name": name, "job_size": job_size, "deleted": set(), "size": len(files)}
+        for frame, (file_name, labels) in enumerate(files):
+            self.put(rid, file_name, labels, key=f"{tid}:{frame}")
+            self.frame_bytes[(tid, frame)] = self._png()
+        return tid
+
+    def task_keys(self, rid, task_id) -> list[str]:
+        """Keys of the frames of a remote task (deleted ones included), in frame order."""
+        keys = [k for k in self.projects[rid]["items"] if k.partition(":")[0] == str(task_id)]
+        return sorted(keys, key=lambda k: int(k.partition(":")[2]))
+
+    def deleted_frames(self, rid, task_id) -> list[int]:
+        return sorted(self.task_meta[rid][str(task_id)]["deleted"])
 
     def _check(self):
         if self.fail:
@@ -80,9 +127,64 @@ class FakeRemote:
         self.calls.append(("create", project.name))
         return self.seed(f"ActiveLabel {project.id} - {project.name}", classes=project.classes)
 
-    def items(self, settings, remote_id, task):
+    def items(self, settings, remote_id, task, task_ids=None):
         self._check()
-        return copy.deepcopy(list(self.projects[remote_id]["items"].values()))
+        self.item_calls.append(None if task_ids is None else sorted(task_ids))
+        wanted = None if task_ids is None else {str(t) for t in task_ids}
+        found = [
+            it
+            for k, it in self.projects[remote_id]["items"].items()
+            if (wanted is None or k.partition(":")[0] in wanted) and not self._hidden(remote_id, k)
+        ]
+        return copy.deepcopy(found)
+
+    def tasks(self, settings, remote_id):
+        self._check()
+        if not self.supports_tasks:
+            return []
+        out = []
+        for tid, meta in self.task_meta[remote_id].items():
+            size = meta["size"]
+            step = meta["job_size"] or size or 1
+            jobs = [
+                RemoteJob(f"{tid}{n + 1:02d}", n + 1, start, min(start + step, size) - 1)
+                for n, start in enumerate(range(0, size, step))
+            ]
+            out.append(
+                RemoteTask(tid, meta["name"], size, meta["job_size"], f"http://remote/tasks/{tid}", jobs)
+            )
+        return out
+
+    def add_task(self, settings, remote_id, project: Project, name, job_size, images):
+        self._check()
+        self.calls.append(("add_task", name, job_size, [r.name for r, _, _ in images]))
+        files = [(r.name, labels) for r, _, labels in images]
+        tid = self.new_task(remote_id, name, files, job_size)
+        task = next(t for t in self.tasks(settings, remote_id) if t.id == tid)
+        keys = {r.id: f"{tid}:{n}" for n, (r, _, _) in enumerate(images)}
+        return task, keys
+
+    def set_frames(self, settings, task_id, delete, restore):
+        self._check()
+        self.calls.append(("set_frames", str(task_id), sorted(delete), sorted(restore)))
+        for meta in (m[str(task_id)] for m in self.task_meta.values() if str(task_id) in m):
+            meta["deleted"] |= set(delete)
+            meta["deleted"] -= set(restore)
+
+    def delete_task(self, settings, task_id):
+        self._check()
+        self.calls.append(("delete_task", str(task_id)))
+        for rid, metas in self.task_meta.items():
+            if str(task_id) in metas:
+                del metas[str(task_id)]
+                items = self.projects[rid]["items"]
+                for key in [k for k in items if k.partition(":")[0] == str(task_id)]:
+                    del items[key]
+
+    def frame(self, settings, task_id, frame):
+        self._check()
+        self.calls.append(("frame", str(task_id), frame))
+        return self.frame_bytes[(str(task_id), frame)]
 
     def add(self, settings, remote_id, project, images):
         self._check()
