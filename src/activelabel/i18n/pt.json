@@ -963,5 +963,10 @@
   "jobs.close": "Fechar (as concluídas continuam no histórico)",
   "jobs.show": "Mostrar as atividades",
   "jobs.running_n_one": "{n} em andamento",
-  "jobs.running_n_other": "{n} em andamento"
+  "jobs.running_n_other": "{n} em andamento",
+  "md.formats": "Pesos a guardar",
+  "md.format_pt": "PyTorch (.pt), a saída original do treino",
+  "md.format_onnx": "Também em ONNX (roda sem PyTorch)",
+  "md.format_onnx_help": "O ONNX é gerado logo depois de salvar, na fila de treinos; também dá para gerar depois.",
+  "md.saved_onnx": "Salvo como modelo m{n}; a exportação ONNX está na fila."
 }

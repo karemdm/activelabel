@@ -97,7 +97,9 @@ A finished run is **saved as a model** (button *Salvar como modelo* on the run):
 holds its best weights (`best.pt`), `config.yaml`, `results.json` and a card, `model.json` (run and
 best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
 the order of the network's outputs, device and package versions, size, note, exports). Numbers are
-never reused, a run is saved at most once, and saving removes the run's `last.pt`.
+never reused, a run is saved at most once, and saving removes the run's `last.pt`. The save dialog asks which
+weights to keep: the PyTorch weights always, and also ONNX (classification and semantic
+segmentation), which is then queued right after saving.
 
 - **Current model**: one model of the project is marked current (`models/current.json`); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks, which are reviewed (in

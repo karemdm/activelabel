@@ -3938,12 +3938,21 @@
         await load(true);
       }
       function saveModel(r) {
+        const spec = modelOf(r.model);
+        const canOnnx = !!spec && ['classification', 'semantic'].includes(spec.task_kind);
+        const onnx = el('input', { type: 'checkbox', id: 'md-onnx', disabled: !canOnnx });
+        const formats = el('fieldset', { class: 'field md-formats' },
+          el('legend', null, t('md.formats')),
+          el('label', { class: 'ds-check', for: 'md-pt' }, el('input', { type: 'checkbox', id: 'md-pt', checked: true, disabled: true }), el('span', null, t('md.format_pt'))),
+          el('label', { class: 'ds-check', for: 'md-onnx' }, onnx, el('span', null, t('md.format_onnx'))),
+          el('p', { class: 'hint' }, canOnnx ? t('md.format_onnx_help') : t('md.onnx_later')));
         const note = el('textarea', { id: 'md-note', rows: '2', maxlength: '500', placeholder: t('md.note_placeholder') });
         const save = el('button', { type: 'submit', class: 'btn primary' }, icon('star', 16), t('md.save'));
         const dlg = el('dialog', { class: 'dialog', 'aria-labelledby': 'md-save-t' },
           el('form', { class: 'dialog-body form', method: 'dialog' },
             el('h2', { id: 'md-save-t' }, t('md.save_title', { n: r.number })),
             el('p', { class: 'muted' }, t('md.save_help')),
+            formats,
             el('div', { class: 'field' }, el('label', { for: 'md-note' }, t('md.note'), el('span', { class: 'optional' }, ` · ${t('step.optional')}`)), note),
             el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
         dlg.querySelector('form').addEventListener('submit', async (e) => {
@@ -3951,8 +3960,12 @@
           save.disabled = true;
           try {
             const m = await api('POST', `/projects/${projectId}/models`, { json: { run: r.number, note: note.value } });
+            let exportFailed = false;
+            if (onnx.checked) {
+              try { await api('POST', `/projects/${projectId}/models/${m.number}/export`, { json: { format: 'onnx' } }); } catch (err) { exportFailed = true; toastError(err); }
+            }
             dlg.close();
-            toast(t('md.saved', { n: m.number }), 'success', 4000);
+            toast(t(onnx.checked && !exportFailed ? 'md.saved_onnx' : 'md.saved', { n: m.number }), 'success', 4000);
             await load(true);
             ctx.panels.models.count();
           } catch (err) { save.disabled = false; toastError(err); }
