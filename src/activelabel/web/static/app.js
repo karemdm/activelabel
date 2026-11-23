@@ -97,6 +97,8 @@
     labelstudio: '<path d="M5 19l-1-4L15 4l5 5L9 20z"/><path d="M13 6l5 5"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    chart: '<path d="M4 20V4M4 20h16M8 15l4-5 3 3 5-7"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
     trash: '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
@@ -819,7 +821,7 @@
       syncTool: {},
       syncDismissed: new Set(),
     };
-    const STEPS = ['images', 'annotations', 'curation', 'datasets'];
+    const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training'];
 
     // ---- header, stepper, panels skeleton
     const headerBox = el('header', { class: 'project-head card' });
@@ -876,6 +878,10 @@
           ? `${tn('status.annotated', c.annotated)} · ${tn('status.classes', (ctx.project.classes || []).length)}`
           : t('status.annotations_none');
       }
+      if (step === 'training') {
+        if (!ctx.runCount) return t('status.runs_none');
+        return `${tn('status.runs', ctx.runCount)}${ctx.runActive ? ` · ${tn('status.runs_active', ctx.runActive)}` : ''}`;
+      }
       if (step === 'datasets') return ctx.datasetCount ? tn('status.versions', ctx.datasetCount) : t('status.versions_none');
       return c.analyzed > 0 ? tn('status.issues', c.with_issues || 0) : t('status.not_analyzed');
     }
@@ -902,12 +908,20 @@
       el('p', { class: 'report-line' }, icon('info'), t('gate.need_images')),
       el('button', { type: 'button', class: 'btn primary', onclick: () => showTab('images') }, t('gate.go_images')));
 
+    /* step 5 needs a dataset version: without one it sends the person to step 4 */
+    const gateDatasetNode = el('section', { class: 'card gate', hidden: true },
+      el('p', { class: 'report-line' }, icon('info'), t('gate.need_dataset')),
+      el('button', { type: 'button', class: 'btn primary', onclick: () => showTab('datasets') }, t('gate.go_datasets')));
+
     function showTab(step, scrollToPanel = false) {
       ctx.tab = step;
       history.replaceState(null, '', `#${step}`);
-      const gated = step !== 'images' && !hasImages();
+      const noImages = step !== 'images' && !hasImages();
+      const noDataset = step === 'training' && !noImages && !ctx.datasetCount;
+      const gated = noImages || noDataset;
       for (const s of STEPS) ctx.panels[s].node.hidden = gated || s !== step;
-      gateNode.hidden = !gated;
+      gateNode.hidden = !noImages;
+      gateDatasetNode.hidden = !noDataset;
       renderStepper();
       if (gated) return;
       const panel = ctx.panels[step];
@@ -3683,9 +3697,752 @@
       return panel;
     }
 
+    // ---------------------------------------------------------------- step 5: training runs
+    function trainingPanel() {
+      const node = el('section', { class: 'panel', id: 'panel-training', 'aria-labelledby': 'h-training' });
+      const panel = { node, mounted: false };
+      const listBox = el('div', { class: 'tr-list' });
+      const announcer = el('p', { class: 'sr-only', 'aria-live': 'polite' });
+      const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
+      const MAX_GRID = 50;
+      const ACTIVE = (r) => r.status === 'queued' || r.status === 'running';
+      let runs = [];
+      let catalog = null;
+      let timer = null;
+      let loaded = false;
+      const cards = new Map();   // run number -> {sig, node}
+      const lastText = new Map();   // run number -> last announced status text
+
+      // ---- small helpers
+      async function ensureCatalog() {
+        if (!catalog) catalog = await api('GET', `/training/catalog?type=${encodeURIComponent(ctx.project.task)}`);
+        return catalog;
+      }
+      const modelOf = (id) => ((catalog && catalog.models) || []).find((m) => m.id === id);
+      const metricName = (m) => tr(`tr.metric.${m}`, tr(`tr.col.${m}`, String(m).replace(/_/g, ' ')));
+      const startName = (s) => tr(`tr.start_${s}`, s);
+      const paramName = (n) => tr(`tr.p.${n}`, String(n).replace(/_/g, ' '));
+      const choiceName = (c) => tr(`tr.opt.${c}`, String(c));
+      const fmtVal = (v) => (typeof v === 'number' ? nf3.format(v) : String(v));
+      const plain = (v) => String(v);   // hyperparameters are shown exactly (no rounding of 0.0001)
+      const foldCount = (v) => Number((v.options || {}).kfold) || (Array.isArray(v.folds) ? v.folds.length : 0) || (v.sizes && Array.isArray(v.sizes.folds) ? v.sizes.folds.length : 0);
+      const foldText = (f) => (f == null ? '' : f === 'all' ? t('tr.fold_all') : t('ds.fold', { n: Number(f) + 1 }));
+      const datasetText = (r) => [t('tr.dataset_short', { n: r.dataset }), foldText(r.fold)].filter(Boolean).join(' · ');
+
+      function fmtDuration(ms) {
+        const s = Math.max(0, Math.round(ms / 1000));
+        if (s < 60) return `${s}s`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+        return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+      }
+      function durationOf(r) {
+        if (!r.started) return '';
+        const end = r.finished ? Date.parse(r.finished) : Date.now();
+        return fmtDuration(end - Date.parse(r.started));
+      }
+      function deviceOf(r) {
+        const d = r.device || {};
+        if (d.cuda) return d.device_name || 'GPU';
+        if (d.mps) return 'Apple GPU';
+        return d.torch ? 'CPU' : '';
+      }
+      function phaseText(r) {
+        if (r.status === 'queued') return r.queue_position ? t('tr.st_queued_n', { n: r.queue_position }) : t('tr.st_queued');
+        if (r.status === 'running') {
+          if (r.phase === 'environment') return t('tr.ph_environment');
+          if (r.phase === 'preparing') return t('tr.ph_preparing');
+          if (r.phase === 'evaluating') return t('tr.ph_evaluating');
+          return r.epoch && r.epochs ? t('tr.ph_epoch', { e: r.epoch, n: r.epochs }) : t('tr.ph_training');
+        }
+        const names = { done: t('tr.st_done'), failed: t('tr.st_failed'), cancelled: t('tr.st_cancelled') };
+        return names[r.status] || String(r.status);
+      }
+      function percentOf(r) {
+        if (r.status !== 'running' || r.phase !== 'training' || !r.epochs) return null;
+        const inEpoch = r.step && r.steps ? r.step / r.steps : 0;
+        const done = r.step ? Math.max(0, (r.epoch || 1) - 1) + inEpoch : r.epoch || 0;
+        return Math.max(0, Math.min(100, Math.round((done / r.epochs) * 100)));
+      }
+      function badge(r) {
+        const glyph = r.status === 'done' ? icon('check', 14) : r.status === 'failed' ? icon('error', 14) : r.status === 'cancelled' ? icon('close', 14) : el('span', { class: 'tr-dot', 'aria-hidden': 'true' });
+        return el('span', { class: `tr-badge ${r.status}` }, glyph, phaseText(r));
+      }
+      /* keeps the keyboard focus on the same button when a card or the detail is redrawn */
+      function keepFocus(container, redraw) {
+        const a = document.activeElement;
+        const act = a && container.contains(a) && a.dataset ? a.dataset.act : null;
+        redraw();
+        if (act) {
+          const again = container.querySelector(`[data-act="${act}"]`);
+          if (again) again.focus();
+        }
+      }
+      function announce(r) {
+        const text = phaseText(r);
+        if (lastText.get(r.number) === text) return;
+        const first = !lastText.has(r.number);
+        lastText.set(r.number, text);
+        if (!first || ACTIVE(r)) announcer.textContent = `${t('tr.run_n', { n: r.number })}: ${text}`;
+      }
+
+      // ---- list
+      function runCard(r) {
+        const m = modelOf(r.model);
+        const metric = (m && m.default_metric) || '';
+        const pct = percentOf(r);
+        const id = `run-${r.number}`;
+        const best = r.best && r.best.value != null ? `${metricName(metric)} ${fmtVal(r.best.value)}` : '';
+        const meta = [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null].filter(Boolean);
+        const facts = [durationOf(r), deviceOf(r)].filter(Boolean);
+        const act = (name, label, fn, cls = '') => el('button', { type: 'button', class: `btn small ${cls}`, 'data-act': name, onclick: fn }, label);
+        return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
+          el('div', { class: 'tr-run-head' },
+            el('h3', { id: `${id}-t` }, `#${r.number}`),
+            el('span', { class: 'tr-model' }, m ? m.label : r.model),
+            badge(r)),
+          el('p', { class: 'muted tr-meta' }, meta.join(' · ')),
+          pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null,
+          r.status === 'running' && r.message ? el('p', { class: 'muted tr-msg' }, r.message) : null,
+          r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null,
+          best || facts.length
+            ? el('p', { class: 'tr-facts' }, best ? el('strong', null, best) : null, best && facts.length ? ' · ' : null, el('span', { class: 'muted' }, facts.join(' · ')))
+            : null,
+          el('div', { class: 'tr-actions' },
+            act('detail', t('tr.details'), () => openDetail(r.number)),
+            ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
+            act('again', t('tr.reproduce'), () => reproduceRun(r)),
+            ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
+      }
+
+      function draw() {
+        const ul = listBox.querySelector('ul.tr-cards');
+        if (!runs.length) {
+          cards.clear();
+          listBox.replaceChildren(el('div', { class: 'ds-empty' }, icon('chart', 28), el('p', { class: 'muted' }, t('tr.empty'))));
+          return;
+        }
+        const list = ul || el('ul', { class: 'tr-cards' });
+        const focused = document.activeElement;
+        const act = focused && list.contains(focused) && focused.dataset ? focused.dataset.act : null;
+        const owner = act ? [...list.children].findIndex((li) => li.contains(focused)) : -1;
+        const ownerNumber = owner >= 0 ? Number(list.children[owner].id.replace('run-', '')) : null;
+        const keep = new Set();
+        const nodes = runs.map((r) => {
+          keep.add(r.number);
+          const sig = JSON.stringify(r) + (catalog ? '1' : '0');
+          const old = cards.get(r.number);
+          if (old && old.sig === sig) return old.node;
+          const fresh = runCard(r);
+          cards.set(r.number, { sig, node: fresh });
+          return fresh;
+        });
+        for (const k of [...cards.keys()]) if (!keep.has(k)) cards.delete(k);
+        const same = nodes.length === list.children.length && nodes.every((n, i) => list.children[i] === n);
+        if (!same) list.replaceChildren(...nodes);
+        if (!ul) listBox.replaceChildren(list);
+        if (act && ownerNumber != null && cards.has(ownerNumber) && !list.contains(document.activeElement)) {
+          const again = cards.get(ownerNumber).node.querySelector(`[data-act="${act}"]`);
+          if (again) again.focus();
+        }
+      }
+
+      function schedule() {
+        clearTimeout(timer);
+        if (runs.some(ACTIVE)) timer = setTimeout(load, 2000);
+      }
+
+      async function load(quiet = false) {
+        try {
+          await ensureCatalog().catch(() => null);
+          const d = await api('GET', `/projects/${projectId}/runs`);
+          runs = d.runs || [];
+          loaded = true;
+        } catch (err) {
+          if (!quiet && !loaded) toastError(err);
+          schedule();
+          return;
+        }
+        ctx.runCount = runs.length;
+        ctx.runActive = runs.filter(ACTIVE).length;
+        runs.forEach(announce);
+        if (node.isConnected) draw();
+        renderStepper();
+        schedule();
+      }
+
+      async function cancelRun(r) {
+        const ok = await confirmDialog({ title: t('tr.cancel_title', { n: r.number }), text: t('tr.cancel_text'), confirmLabel: t('tr.cancel') });
+        if (!ok) return;
+        try {
+          await api('POST', `/projects/${projectId}/runs/${r.number}/cancel`);
+          toast(t('tr.cancelled', { n: r.number }), 'success', 3000);
+        } catch (err) { toastError(err); }
+        await load(true);
+      }
+      async function reproduceRun(r) {
+        try {
+          const made = await api('POST', `/projects/${projectId}/runs/${r.number}/reproduce`);
+          toast(t('tr.created', { n: made.number }), 'success', 4000);
+        } catch (err) { toastError(err); }
+        await load(true);
+      }
+      async function removeRun(r) {
+        const ok = await confirmDialog({ title: t('tr.delete_title', { n: r.number }), text: t('tr.delete_text'), confirmLabel: t('tr.delete') });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/projects/${projectId}/runs/${r.number}`, { json: { confirm: true } });
+          toast(t('tr.deleted', { n: r.number }), 'success', 3000);
+        } catch (err) { toastError(err); }
+        await load(true);
+      }
+
+      // ---------------------------------------------------------------- new run dialog
+      async function openNew(trigger) {
+        let cat;
+        let versions;
+        try {
+          cat = await ensureCatalog();
+          versions = ((await api('GET', `/projects/${projectId}/datasets`)).versions || []).filter((v) => !v.incomplete).sort((a, b) => b.version - a.version);
+        } catch (err) { toastError(err); return; }
+        const models = cat.models || [];
+        if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
+
+        const st = { dataset: versions[0].version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {} };
+        const versionOf = () => versions.find((v) => v.version === st.dataset);
+        const modelNow = () => models.find((m) => m.id === st.model);
+        let active = [];       // parameter specs shown now
+        let reads = {};        // name -> list of values
+        const errEls = {};
+
+        const sel = (id, ...opts) => el('select', { id, class: 'tr-select' }, ...opts);
+        const create = el('button', { type: 'submit', class: 'btn primary' }, t('tr.start_run'));
+        const formError = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
+
+        // data
+        const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
+          [`v${v.version}`, fmtDate(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
+        const foldSel = sel('tr-fold');
+        const foldField = el('div', { class: 'field', hidden: true }, el('label', { for: 'tr-fold' }, t('tr.fold')), foldSel);
+        function drawFolds() {
+          const k = foldCount(versionOf());
+          foldField.hidden = !k;
+          foldSel.replaceChildren(el('option', { value: 'all' }, t('tr.fold_all')), ...Array.from({ length: k }, (_, i) => el('option', { value: String(i) }, t('ds.fold', { n: i + 1 }))));
+          st.fold = 'all';
+        }
+        datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); });
+        foldSel.addEventListener('change', () => { st.fold = foldSel.value; });
+
+        // model
+        const modelSel = sel('tr-model');
+        const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
+        const groups = new Map();
+        const kinds = new Set(models.map((m) => m.task_kind));
+        for (const m of models) {
+          const key = `${m.task_kind}|${m.family}`;
+          if (!groups.has(key)) groups.set(key, { label: [kinds.size > 1 ? tr(`tr.kind.${m.task_kind}`, m.task_kind) : null, tr(`tr.family.${m.family}`, m.family)].filter(Boolean).join(' · '), items: [] });
+          groups.get(key).items.push(m);
+        }
+        for (const g of groups.values()) modelSel.append(el('optgroup', { label: g.label }, ...g.items.map((m) => el('option', { value: m.id }, m.label))));
+        modelSel.setAttribute('aria-describedby', 'tr-model-note');
+
+        // start
+        const startHelp = el('p', { class: 'hint', 'aria-live': 'polite' });
+        const startInputs = {};
+        const startBox = el('div', { class: 'seg tr-seg', role: 'radiogroup', 'aria-label': t('tr.start') },
+          ...['transfer', 'finetune', 'scratch'].map((s) => {
+            const input = el('input', { type: 'radio', name: 'tr-start', id: `tr-start-${s}`, value: s, class: 'sr-only', onchange: () => { st.start = s; drawStart(); drawParams(); } });
+            startInputs[s] = input;
+            return el('label', { for: input.id, class: 'seg-opt' }, input, startName(s));
+          }));
+        function drawStart() {
+          const m = modelNow();
+          if (!m.supports_pretrained) st.start = 'scratch';
+          for (const [s, input] of Object.entries(startInputs)) {
+            input.checked = st.start === s;
+            input.disabled = s !== 'scratch' && !m.supports_pretrained;
+          }
+          startHelp.textContent = t(`tr.start_${st.start}_help`);
+        }
+
+        // mode
+        const modeBox = el('div', { class: 'seg tr-seg', role: 'radiogroup', 'aria-label': t('tr.mode') },
+          ...['single', 'grid'].map((m) => {
+            const input = el('input', { type: 'radio', name: 'tr-mode', id: `tr-mode-${m}`, value: m, class: 'sr-only', checked: st.mode === m,
+              onchange: () => { setMode(m); } });
+            return el('label', { for: input.id, class: 'seg-opt' }, input, t(`tr.mode_${m}`));
+          }));
+        const modeHelp = el('p', { class: 'hint' });
+        const summary = el('p', { class: 'tr-combos', role: 'status' });
+
+        // selection metric
+        const metricSel = sel('tr-metric');
+
+        // parameters
+        const paramsBox = el('div', { class: 'tr-params' });
+        const moreBox = el('details', { class: 'tr-more' }, el('summary', null, t('tr.more_params')));
+        const moreInner = el('div', { class: 'tr-params' });
+        moreBox.append(moreInner);
+
+        function readParam(spec) {
+          const grid = st.mode === 'grid';
+          const name = spec.name;
+          if (spec.kind === 'bool') return { list: [!!st.vals[name]] };
+          if (spec.kind === 'choice') {
+            const list = grid ? st.sel[name] : st.sel[name].slice(0, 1);
+            return list.length ? { list } : { error: t('tr.err_required') };
+          }
+          const tokens = String(st.vals[name] == null ? '' : st.vals[name]).split(grid ? ',' : '\u0000').map((s) => s.trim()).filter(Boolean);
+          if (!tokens.length) return { error: t('tr.err_required') };
+          const list = [];
+          for (const tok of tokens) {
+            const n = Number(tok);
+            if (!Number.isFinite(n)) return { error: t('tr.err_number', { v: tok }) };
+            if (spec.kind === 'int' && !Number.isInteger(n)) return { error: t('tr.err_int', { v: tok }) };
+            if ((spec.min != null && n < spec.min) || (spec.max != null && n > spec.max)) return { error: t('tr.err_range', { min: plain(spec.min), max: plain(spec.max) }) };
+            list.push(n);
+          }
+          if (new Set(list).size !== list.length) return { error: t('tr.err_dup') };
+          return { list };
+        }
+
+        function paramField(spec) {
+          const grid = st.mode === 'grid';
+          const name = spec.name;
+          const id = `tr-p-${name}`;
+          const err = el('p', { class: 'tr-err', id: `${id}-err` });
+          errEls[name] = err;
+          const hint = spec.help ? el('p', { class: 'hint', id: `${id}-hint` }, tr(`tr.ph.${name}`, spec.help)) : null;
+          const describedby = `${hint ? `${id}-hint ` : ''}${id}-err`;
+          let control;
+          if (spec.kind === 'bool') {
+            control = el('label', { for: id, class: 'ds-check tr-switch' },
+              el('input', { type: 'checkbox', id, role: 'switch', checked: !!st.vals[name], 'aria-describedby': describedby, onchange: (e) => { st.vals[name] = e.target.checked; changed(); } }),
+              el('span', null, paramName(name)));
+            return el('div', { class: 'field tr-param' }, control, hint, err);
+          }
+          if (spec.kind === 'choice') {
+            if (grid) {
+              control = el('fieldset', { class: 'field tr-param' }, el('legend', null, paramName(name)),
+                el('div', { class: 'tr-checks' }, ...spec.choices.map((c, i) => el('label', { class: 'ds-check', for: `${id}-${i}` },
+                  el('input', { type: 'checkbox', id: `${id}-${i}`, value: c, checked: st.sel[name].includes(c),
+                    onchange: (e) => { st.sel[name] = spec.choices.filter((x) => (x === c ? e.target.checked : st.sel[name].includes(x))); changed(); } }),
+                  el('span', null, choiceName(c))))), hint, err);
+              return control;
+            }
+            const select = el('select', { id, class: 'tr-select', 'aria-describedby': describedby, onchange: (e) => { st.sel[name] = [e.target.value]; changed(); } },
+              ...spec.choices.map((c) => el('option', { value: c, selected: st.sel[name][0] === c }, choiceName(c))));
+            return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), select, hint, err);
+          }
+          const input = el('input', {
+            id, type: grid ? 'text' : 'number', inputmode: spec.kind === 'int' ? 'numeric' : 'decimal', autocomplete: 'off', value: String(st.vals[name] == null ? '' : st.vals[name]),
+            min: !grid && spec.min != null ? String(spec.min) : null, max: !grid && spec.max != null ? String(spec.max) : null, step: !grid ? (spec.kind === 'int' ? '1' : 'any') : null,
+            placeholder: grid ? `${spec.default}, …` : null, 'aria-describedby': describedby,
+          });
+          input.addEventListener('input', () => { st.vals[name] = input.value; changed(); });
+          return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), input, hint, err);
+        }
+
+        function initValues() {
+          for (const spec of modelNow().params) {
+            if (spec.name === 'start') continue;
+            if (spec.kind === 'choice') st.sel[spec.name] = [spec.default];
+            else st.vals[spec.name] = spec.kind === 'bool' ? !!spec.default : String(spec.default);
+          }
+        }
+        function drawParams() {
+          const m = modelNow();
+          active = m.params.filter((p) => p.name !== 'start' && (p.name !== 'backbone_lr_factor' || st.start === 'finetune'));
+          for (const k of Object.keys(errEls)) delete errEls[k];
+          const common = active.filter((p) => p.group !== 'model');
+          const own = active.filter((p) => p.group === 'model');
+          paramsBox.replaceChildren(...common.map(paramField));
+          moreInner.replaceChildren(...own.map(paramField));
+          moreBox.hidden = !own.length;
+          changed();
+        }
+        function setMode(mode) {
+          st.mode = mode;
+          if (mode === 'single') {
+            for (const spec of active) {
+              if (spec.kind === 'int' || spec.kind === 'float') st.vals[spec.name] = String(st.vals[spec.name]).split(',')[0].trim();
+              if (spec.kind === 'choice') st.sel[spec.name] = st.sel[spec.name].slice(0, 1);
+            }
+          }
+          modeHelp.textContent = t(mode === 'grid' ? 'tr.mode_grid_help' : 'tr.mode_single_help');
+          drawParams();
+        }
+        function drawModel() {
+          const m = modelNow();
+          modelNote.textContent = [m.notes, m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
+          st.metric = m.default_metric;
+          metricSel.replaceChildren(...m.metrics.map((x) => el('option', { value: x, selected: x === st.metric }, metricName(x))));
+          initValues();
+          drawStart();
+          setMode(st.mode);
+        }
+        modelSel.addEventListener('change', () => { st.model = modelSel.value; drawModel(); });
+        metricSel.addEventListener('change', () => { st.metric = metricSel.value; });
+
+        function changed() {
+          let combos = 1;
+          let bad = 0;
+          reads = {};
+          for (const spec of active) {
+            const r = readParam(spec);
+            const box = errEls[spec.name];
+            const input = document.getElementById(`tr-p-${spec.name}`);
+            if (box) box.textContent = r.error || '';
+            if (input) { if (r.error) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); }
+            if (r.error) { bad += 1; continue; }
+            reads[spec.name] = r.list;
+            combos *= r.list.length;
+          }
+          const grid = st.mode === 'grid';
+          summary.hidden = !grid;
+          summary.classList.remove('bad', 'ok');
+          let blocked = bad > 0;
+          if (grid && !bad) {
+            if (combos < 2) { summary.textContent = t('tr.grid_need'); summary.classList.add('bad'); blocked = true; }
+            else if (combos > MAX_GRID) { summary.textContent = t('tr.grid_max', { n: MAX_GRID }); summary.classList.add('bad'); blocked = true; }
+            else { summary.textContent = tn('tr.combos', combos); summary.classList.add('ok'); }
+          } else if (grid) summary.textContent = '';
+          create.disabled = blocked;
+          formError.hidden = true;
+        }
+
+        function requestBody() {
+          const params = {};
+          const grid = {};
+          for (const spec of active) {
+            const list = reads[spec.name];
+            if (st.mode === 'grid' && list.length > 1) grid[spec.name] = list; else params[spec.name] = list[0];
+          }
+          const folds = foldCount(versionOf());
+          return { dataset: st.dataset, fold: folds ? (st.fold === 'all' ? 'all' : Number(st.fold)) : null, model: st.model, start: st.start, mode: st.mode, metric: st.metric, params, grid };
+        }
+
+        const form = el('form', { class: 'dialog-body form tr-form', method: 'dialog', novalidate: true },
+          el('h2', null, t('tr.new_title')),
+          el('div', { class: 'tr-form-grid' },
+            el('div', { class: 'tr-col' },
+              el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel),
+              foldField,
+              el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote),
+              el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp),
+              el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
+              el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help')))),
+            el('div', { class: 'tr-col' },
+              el('h3', { class: 'section-title' }, t('tr.params')),
+              paramsBox, moreBox)),
+          formError,
+          el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
+        const dlg = el('dialog', { class: 'dialog wide tr-dialog', 'aria-label': t('tr.new_title') }, form);
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (create.disabled) return;
+          create.disabled = true;
+          formError.hidden = true;
+          try {
+            const made = await api('POST', `/projects/${projectId}/runs`, { json: requestBody() });
+            dlg.close();
+            toast(t('tr.created', { n: made.number }), 'success', 4000);
+            await load(true);
+          } catch (err) {
+            formError.textContent = err.message || String(err);
+            formError.hidden = false;
+            create.disabled = false;
+            formError.scrollIntoView({ block: 'nearest' });
+          }
+        });
+        dlg.addEventListener('close', () => { dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
+        drawFolds();
+        drawModel();
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        datasetSel.focus();
+      }
+
+      // ---------------------------------------------------------------- charts and tables (no libraries)
+      const SVGNS = 'http://www.w3.org/2000/svg';
+      function svg(tag, attrs, ...kids) {
+        const n = document.createElementNS(SVGNS, tag);
+        for (const [k, v] of Object.entries(attrs || {})) if (v != null) n.setAttribute(k, String(v));
+        for (const k of kids) if (k) n.appendChild(typeof k === 'string' ? document.createTextNode(k) : k);
+        return n;
+      }
+      /* series: [{name, cls, points: [[epoch, value], ...]}]; bestEpoch draws a vertical marker */
+      function lineChart(title, series, bestEpoch) {
+        const W = 440;
+        const H = 210;
+        const m = { l: 46, r: 14, t: 12, b: 28 };
+        const all = series.flatMap((s) => s.points).filter(([, y]) => Number.isFinite(y));
+        if (!all.length) return null;
+        const xs = all.map((p) => p[0]);
+        let x0 = Math.min(...xs);
+        let x1 = Math.max(...xs);
+        if (x0 === x1) { x0 -= 1; x1 += 1; }
+        let y0 = Math.min(...all.map((p) => p[1]));
+        let y1 = Math.max(...all.map((p) => p[1]));
+        if (y0 === y1) { y0 -= 0.5; y1 += 0.5; }
+        const pad = (y1 - y0) * 0.08;
+        y0 = y0 >= 0 ? Math.max(0, y0 - pad) : y0 - pad;   // metrics and losses are never negative
+        y1 += pad;
+        const X = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
+        const Y = (y) => H - m.b - ((y - y0) / (y1 - y0)) * (H - m.t - m.b);
+        const kids = [];
+        for (let i = 0; i <= 3; i++) {
+          const v = y0 + ((y1 - y0) * i) / 3;
+          kids.push(svg('line', { class: 'tr-grid', x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v) }));
+          kids.push(svg('text', { class: 'tr-axis', x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }, nf3.format(Math.round(v * 1000) / 1000)));
+        }
+        const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+        for (let x = Math.ceil(x0); x <= x1; x += step) kids.push(svg('text', { class: 'tr-axis', x: X(x), y: H - 8, 'text-anchor': 'middle' }, String(x)));
+        if (bestEpoch != null && bestEpoch >= x0 && bestEpoch <= x1) kids.push(svg('line', { class: 'tr-best', x1: X(bestEpoch), x2: X(bestEpoch), y1: m.t, y2: H - m.b }));
+        series.forEach((s, i) => {
+          const pts = s.points.filter(([, y]) => Number.isFinite(y));
+          if (!pts.length) return;
+          kids.push(svg('polyline', { class: `tr-line s${i + 1}`, fill: 'none', points: pts.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ') }));
+          if (pts.length <= 40) pts.forEach(([x, y]) => kids.push(svg('circle', { class: `tr-pt s${i + 1}`, cx: X(x), cy: Y(y), r: x === bestEpoch ? 4.5 : 2.8 }, svg('title', null, `${t('tr.epoch_n', { n: x })}: ${s.name} ${nf3.format(y)}`))));
+        });
+        const last = series.map((s) => { const p = s.points[s.points.length - 1]; return p ? `${s.name} ${nf3.format(p[1])}` : ''; }).filter(Boolean).join(', ');
+        const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'tr-svg', role: 'img', 'aria-label': `${title}: ${last}` }, ...kids);
+        return el('figure', { class: 'tr-chart' },
+          el('figcaption', null, el('strong', null, title)),
+          chart,
+          el('ul', { class: 'tr-legend' },
+            ...series.map((s, i) => (s.points.some(([, y]) => Number.isFinite(y)) ? [s, i] : null)).filter(Boolean).map(([s, i]) => el('li', null, el('span', { class: `tr-swatch s${i + 1}`, 'aria-hidden': 'true' }), s.name)),
+            bestEpoch != null ? el('li', null, el('span', { class: 'tr-swatch best', 'aria-hidden': 'true' }), t('tr.best_epoch_n', { n: bestEpoch })) : null));
+      }
+
+      function confusionTable(matrix, classes) {
+        const n = classes.length;
+        const rowSum = matrix.map((row) => row.reduce((a, b) => a + b, 0));
+        const colSum = classes.map((_, j) => matrix.reduce((a, row) => a + (row[j] || 0), 0));
+        let keep = classes.map((_, i) => i).filter((i) => rowSum[i] > 0 || colSum[i] > 0);
+        if (!keep.length) return null;
+        const LIMIT = 40;
+        const total = keep.length;
+        if (total > LIMIT) keep = keep.sort((a, b) => rowSum[b] + colSum[b] - rowSum[a] - colSum[a]).slice(0, LIMIT).sort((a, b) => a - b);
+        const cell = (i, j) => {
+          const v = (matrix[i] || [])[j] || 0;
+          const share = rowSum[i] ? v / rowSum[i] : 0;
+          return el('td', { class: `tr-cell${i === j ? ' diag' : ''}${v === 0 ? ' zero' : ''}`, style: v ? `--share:${Math.round(share * 55)}%` : null, title: `${classes[i]} → ${classes[j]}: ${v}` }, v ? num(v) : '·');
+        };
+        return el('div', { class: 'tr-block' },
+          el('h4', null, t('tr.confusion')),
+          el('p', { class: 'muted tr-note' }, t('tr.confusion_help'), total > LIMIT ? ` ${t('tr.shown_of', { n: LIMIT, total: num(total) })}` : ''),
+          el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table tr-confusion' },
+            el('caption', { class: 'sr-only' }, t('tr.confusion')),
+            el('thead', null, el('tr', null, el('th', { scope: 'col', class: 'corner' }, t('tr.actual_vs_pred')), ...keep.map((j) => el('th', { scope: 'col', title: classes[j] }, classes[j])))),
+            el('tbody', null, ...keep.map((i) => el('tr', null, el('th', { scope: 'row', title: classes[i] }, classes[i]), ...keep.map((j) => cell(i, j))))))),
+          n > keep.length && total <= LIMIT ? el('p', { class: 'muted tr-note' }, t('tr.hidden_classes', { n: n - keep.length })) : null);
+      }
+
+      function perClassTable(per) {
+        const rows = Object.entries(per || {}).filter(([, v]) => v && typeof v === 'object');
+        if (!rows.length) return null;
+        const order = ['precision', 'recall', 'f1', 'support'];
+        const keys = [];
+        rows.forEach(([, v]) => Object.keys(v).forEach((k) => { if (!keys.includes(k) && typeof v[k] === 'number') keys.push(k); }));
+        keys.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+        const shown = rows.filter(([, v]) => !('support' in v) || v.support > 0 || keys.some((k) => k !== 'support' && v[k] > 0));
+        const fmtCell = (k, v) => (k === 'support' || (Number.isInteger(v) && v > 1) ? num(v) : nf3.format(v));
+        return el('div', { class: 'tr-block' },
+          el('h4', null, t('tr.per_class')),
+          el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table' },
+            el('thead', null, el('tr', null, el('th', { scope: 'col' }, t('tr.class')), ...keys.map((k) => el('th', { scope: 'col' }, k === 'support' ? t(keys.includes('iou') ? 'tr.support.pixels' : keys.includes('ap50') ? 'tr.support.objects' : 'tr.metric.support') : metricName(k))))),
+            el('tbody', null, ...shown.map(([name, v]) => el('tr', null, el('th', { scope: 'row', title: name }, name), ...keys.map((k) => el('td', null, v[k] == null ? '' : fmtCell(k, v[k])))))))));
+      }
+
+      function partResults(part) {
+        const scalars = Object.entries(part).filter(([, v]) => typeof v === 'number');
+        const classes = part.classes || Object.keys(part.per_class || {});
+        return el('div', { class: 'tr-part' },
+          scalars.length ? el('dl', { class: 'tr-stats' }, ...scalars.map(([k, v]) => el('div', { class: 'tr-stat' }, el('dt', null, metricName(k)), el('dd', null, k === 'images' ? num(v) : nf3.format(v))))) : null,
+          Array.isArray(part.confusion_matrix) ? confusionTable(part.confusion_matrix, classes) : null,
+          perClassTable(part.per_class));
+      }
+
+      // ---------------------------------------------------------------- YAML (built here from the config object)
+      function yamlScalar(v) {
+        if (v === null || v === undefined) return 'null';
+        if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+        const s = String(v);
+        return /^[A-Za-z][\w.-]*$/.test(s) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(s) ? s : JSON.stringify(s);
+      }
+      function toYaml(obj, pad = '') {
+        const lines = [];
+        for (const [k, v] of Object.entries(obj)) {
+          if (Array.isArray(v)) lines.push(`${pad}${k}: [${v.map(yamlScalar).join(', ')}]`);
+          else if (v && typeof v === 'object') {
+            if (Object.keys(v).length) { lines.push(`${pad}${k}:`); lines.push(toYaml(v, `${pad}  `)); } else lines.push(`${pad}${k}: {}`);
+          } else lines.push(`${pad}${k}: ${yamlScalar(v)}`);
+        }
+        return lines.join('\n');
+      }
+      async function copyText(text) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* falls back below */ }
+        const area = el('textarea', { class: 'sr-only', 'aria-hidden': 'true', tabindex: '-1' }, text);
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        area.remove();
+        return ok;
+      }
+
+      // ---------------------------------------------------------------- run detail
+      function openDetail(number) {
+        const body = el('div', { class: 'dialog-body tr-detail' });
+        const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
+        const dlg = el('dialog', { class: 'dialog wide tr-dialog', 'aria-label': t('tr.detail_title', { n: number }) }, body, live);
+        let data = null;
+        let sig = '';
+        let part = null;
+        let dtimer = null;
+        let lastLive = '';
+
+        function configBlock(r) {
+          const c = r.config || {};
+          const m = modelOf(c.model || r.model);
+          const params = Object.entries(c.params || {});
+          const grid = Object.entries(c.grid || {});
+          const row = (k, v) => (v ? el('div', { class: 'tr-kv' }, el('dt', null, k), el('dd', null, v)) : null);
+          const yaml = toYaml(c);
+          const pkgs = Object.entries(r.packages || {}).map(([k, v]) => `${k} ${v}`).join(', ');
+          return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-config' },
+            el('h3', { id: 'trd-config', class: 'section-title' }, t('tr.config')),
+            el('dl', { class: 'tr-dl' },
+              row(t('tr.model'), m ? m.label : c.model),
+              row(t('tr.dataset'), datasetText(r)),
+              row(t('tr.start'), startName(c.start || r.start)),
+              row(t('tr.mode'), c.mode === 'grid' ? t('tr.mode_grid') : t('tr.mode_single')),
+              row(t('tr.select_metric'), metricName(c.metric || (m && m.default_metric) || '')),
+              row(t('tr.device'), deviceOf(r)),
+              row(t('tr.duration'), durationOf(r)),
+              row(t('tr.started'), r.started ? fmtDateTime(r.started) : ''),
+              pkgs ? el('div', { class: 'tr-kv wide' }, el('dt', null, t('tr.packages')), el('dd', { class: 'tr-pkgs' }, pkgs)) : null),
+            params.length || grid.length
+              ? el('ul', { class: 'tr-chips', 'aria-label': t('tr.params') },
+                ...params.map(([k, v]) => el('li', null, el('span', { class: 'muted' }, `${paramName(k)} `), typeof v === 'string' ? choiceName(v) : plain(v))),
+                ...grid.map(([k, v]) => el('li', { class: 'grid' }, el('span', { class: 'muted' }, `${paramName(k)} `), `[${v.map((x) => (typeof x === 'string' ? choiceName(x) : plain(x))).join(', ')}]`)))
+              : null,
+            el('details', { class: 'tr-yaml' },
+              el('summary', null, t('tr.yaml')),
+              el('div', { class: 'tr-yaml-bar' },
+                el('button', { type: 'button', class: 'btn small', 'data-act': 'copy', onclick: async () => { toast(t((await copyText(yaml)) ? 'tr.yaml_copied' : 'tr.yaml_failed'), 'info', 2500); } }, icon('copy', 14), t('tr.copy_yaml'))),
+              el('pre', { class: 'tr-pre', tabindex: '0', 'aria-label': t('tr.yaml') }, yaml)));
+        }
+
+        function progressBlock(r) {
+          if (!ACTIVE(r)) return r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null;
+          const pct = percentOf(r);
+          return el('div', { class: 'tr-live' },
+            el('p', { class: 'tr-live-line' }, el('strong', null, phaseText(r)), r.message ? el('span', { class: 'muted' }, ` · ${r.message}`) : null),
+            pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null);
+        }
+
+        function chartsBlock(r) {
+          const rows = r.metrics || [];
+          if (!rows.length) return null;
+          const c = r.config || {};
+          const m = modelOf(c.model || r.model);
+          const metric = c.metric || (r.results && r.results.metric) || (m && m.default_metric) || '';
+          const keyOf = rows.some((x) => `val_${metric}` in x) ? `val_${metric}` : Object.keys(rows[rows.length - 1]).find((k) => k.startsWith('val_') && k !== 'val_loss');
+          const bestRow = [...rows].reverse().find((x) => x.best);
+          const best = (r.results && r.results.best_epoch) || (r.best && r.best.epoch) || (bestRow && bestRow.epoch) || null;
+          const pts = (k) => rows.filter((x) => x[k] != null).map((x) => [x.epoch, x[k]]);
+          const loss = lineChart(t('tr.chart_loss'), [{ name: t('tr.train'), points: pts('train_loss') }, { name: t('tr.val'), points: pts('val_loss') }], best);
+          const score = keyOf ? lineChart(`${metricName(metric || keyOf.slice(4))} (${t('tr.val').toLowerCase()})`, [{ name: metricName(keyOf.slice(4)), points: pts(keyOf) }], best) : null;
+          return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-curves' },
+            el('h3', { id: 'trd-curves', class: 'section-title' }, t('tr.curves')),
+            el('div', { class: 'tr-charts' }, loss, score));
+        }
+
+        function resultsBlock(r) {
+          const res = r.results;
+          if (!res) return null;
+          const parts = ['val', 'test'].filter((k) => res[k] && typeof res[k] === 'object');
+          if (!parts.length) return null;
+          if (!parts.includes(part)) part = parts[0];
+          const pick = parts.length > 1
+            ? el('div', { class: 'seg tr-seg', role: 'radiogroup', 'aria-label': t('tr.results') },
+              ...parts.map((k) => {
+                const input = el('input', { type: 'radio', name: 'trd-part', id: `trd-part-${k}`, value: k, class: 'sr-only', checked: part === k, onchange: () => { part = k; sig = ''; render(); } });
+                return el('label', { for: input.id, class: 'seg-opt' }, input, k === 'val' ? t('tr.val') : t('tr.test'));
+              }))
+            : null;
+          return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-results' },
+            el('h3', { id: 'trd-results', class: 'section-title' }, t('tr.results')),
+            res.best_epoch != null ? el('p', { class: 'muted' }, t('tr.best_summary', { best: res.best_epoch, n: res.epochs_run != null ? res.epochs_run : res.best_epoch }), res.stopped_early ? ` ${t('tr.stopped_early')}` : '') : null,
+            pick, partResults(res[part]));
+        }
+
+        function render() {
+          const r = data;
+          const s = JSON.stringify(r) + part;
+          if (s === sig) return;
+          sig = s;
+          const top = body.scrollTop;
+          keepFocus(body, () => body.replaceChildren(
+            el('div', { class: 'tr-detail-head' },
+              el('h2', null, t('tr.detail_title', { n: r.number })),
+              badge(r),
+              el('button', { type: 'button', class: 'icon-btn', 'data-act': 'close', 'aria-label': t('common.close'), onclick: () => dlg.close() }, icon('close', 18))),
+            progressBlock(r), chartsBlock(r), resultsBlock(r), configBlock(r)));
+          body.scrollTop = top;
+          const text = phaseText(r);
+          if (text !== lastLive) { lastLive = text; live.textContent = text; }
+        }
+
+        async function refresh() {
+          clearTimeout(dtimer);
+          try {
+            data = await api('GET', `/projects/${projectId}/runs/${number}`);
+          } catch (err) {
+            if (err.status === 404) { dlg.close(); toastError(err); return; }
+            if (!data) { dlg.close(); toastError(err); return; }
+          }
+          if (!dlg.isConnected) return;
+          render();
+          if (ACTIVE(data)) dtimer = setTimeout(refresh, 2000);
+        }
+
+        dlg.addEventListener('close', () => { clearTimeout(dtimer); dlg.remove(); load(true); });
+        document.body.appendChild(dlg);
+        dlg.showModal();
+        body.append(el('p', { class: 'muted' }, t('common.loading')));
+        refresh().then(() => { const close = dlg.querySelector('[data-act="close"]'); if (close) close.focus(); });
+      }
+
+      // ---------------------------------------------------------------- assemble
+      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'tr-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('tr.new'));
+      node.append(
+        el('div', { class: 'ds-head' },
+          el('div', null, el('h2', { id: 'h-training' }, t('step.training')), el('p', { class: 'muted' }, t('tr.intro'))),
+          newBtn),
+        announcer,
+        listBox);
+
+      panel.mount = () => load();
+      panel.show = () => load(true);
+      /** Run counts for the step's status line, before the panel is opened. */
+      panel.count = async () => {
+        try {
+          runs = (await api('GET', `/projects/${projectId}/runs`)).runs || [];
+          ctx.runCount = runs.length;
+          ctx.runActive = runs.filter(ACTIVE).length;
+          renderStepper();
+        } catch (err) { /* the status stays "no runs" */ }
+      };
+      return panel;
+    }
+
     // ---- assemble
-    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel() };
-    panelsBox.append(gateNode, ...STEPS.map((s) => ctx.panels[s].node));
+    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel() };
+    panelsBox.append(gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
     root.replaceChildren(headerBox, stepper, panelsBox, jobsBox);
     renderJobs();
     const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
@@ -3694,7 +4451,8 @@
       if (!ok) return;
       showTab(ctx.tab);
       pollJobs();
-      ctx.panels.datasets.count();
+      ctx.panels.datasets.count().then(() => { if (ctx.tab === 'training') showTab('training'); });
+      ctx.panels.training.count();
     });
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
