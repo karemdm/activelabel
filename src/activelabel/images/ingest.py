@@ -159,8 +159,20 @@ class _Ingester:
         else:
             self.reject(clean, "unsupported")
 
-    def _store_image(self, name: str, stream: IO[bytes], ext: str, limit: int | None = None) -> int:
-        """Stream a file to disk, validate it and register it. Returns the bytes read."""
+    def _store_image(
+        self,
+        name: str,
+        stream: IO[bytes],
+        ext: str,
+        limit: int | None = None,
+        salt: bytes = b"",
+        extra: dict[str, Any] | None = None,
+    ) -> int:
+        """Stream a file to disk, validate it and register it. Returns the bytes read.
+
+        ``salt`` is hashed after the content (video frames: video, frame and task, so identical
+        frames still get their own id); ``extra`` are more fields of the image record.
+        """
         tmp = self.images_dir / f".{uuid.uuid4().hex}.part"
         size = 0
         try:
@@ -172,6 +184,7 @@ class _Ingester:
                         raise _ZipTooLarge
                     digest.update(chunk)
                     out.write(chunk)
+            digest.update(salt)
             image_id = digest.hexdigest()[:16]
             if image_id in self.known:
                 self.report.duplicates.append(name)
@@ -184,7 +197,9 @@ class _Ingester:
             relative = f"images/{image_id}{ext}"
             os.replace(tmp, self.manifest.project_dir / relative)
             self.known.add(image_id)
-            self.pending.append(ImageRecord(image_id, name, relative, width, height, size, now()))
+            self.pending.append(
+                ImageRecord(image_id, name, relative, width, height, size, now(), **(extra or {}))
+            )
             self.report.added += 1
             self.report.ids.append(image_id)
             if len(self.pending) >= BATCH_SIZE:
@@ -277,6 +292,57 @@ def ingest_files(
     return ingester.finish()
 
 
+def ingest_frames(
+    manifest: Manifest,
+    frames: Iterable[tuple[str, Path, str, int, float]],
+    progress: Progress | None = None,
+    salt: str = "",
+) -> list[str]:
+    """Store JPEG frames taken from a video, in order, every one of them (docs/VIDEO.md).
+
+    Unlike :func:`ingest_files`, identical frames are not skipped: the id hashes the content plus
+    the video id, the frame index and ``salt`` (the task), so every selected frame is stored.
+
+    Args:
+        manifest: images of the project.
+        frames: ``(name, jpeg path, video id, frame index, seconds)`` in the order wanted.
+        progress: optional progress/cancellation handle.
+        salt: more text mixed into the ids (the id of the task being created).
+
+    Returns:
+        Ids of the images stored, in order.
+
+    Raises:
+        ValueError: a frame could not be stored (unreadable or already present).
+        Cancelled: the user cancelled; the frames stored so far are removed again.
+    """
+    ingester = _Ingester(manifest, progress)
+    items = list(frames)
+    ingester.total = len(items)
+    try:
+        for name, path, video, index, seconds in items:
+            ingester.tick(name)
+            ingester.done += 1
+            before = len(ingester.report.ids)
+            with path.open("rb") as stream:
+                ingester._store_image(
+                    name,
+                    stream,
+                    ".jpg",
+                    salt=f"{video}:{index}:{salt}".encode(),
+                    extra={"video": video, "frame": index, "time": seconds},
+                )
+            if len(ingester.report.ids) == before:
+                reason = ingester.report.rejected[-1]["reason"] if ingester.report.rejected else "duplicate"
+                raise ValueError(f"Frame {index} could not be stored ({reason}).")
+    except BaseException:
+        ingester.flush()
+        manifest.delete(ingester.report.ids)
+        raise
+    ingester.flush()
+    return ingester.report.ids
+
+
 def _walk(folder: Path) -> Iterator[Path]:
     for current, dirs, names in os.walk(folder):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__MACOSX")
@@ -358,4 +424,4 @@ def thumbnail(manifest: Manifest, record: ImageRecord, size: int = 256) -> Path:
     return target
 
 
-__all__ = ["Cancelled", "IngestReport", "ingest_files", "ingest_folder", "thumbnail"]
+__all__ = ["Cancelled", "IngestReport", "ingest_files", "ingest_folder", "ingest_frames", "thumbnail"]

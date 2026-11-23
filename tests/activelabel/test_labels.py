@@ -23,3 +23,9 @@ def test_round_trip(tmp_path):
     assert loaded.images["a"][0].bbox == [0.1, 0.2, 0.3, 0.4]
     assert loaded.source["format"] == "coco" and "saved" in loaded.source
     assert loaded.images["a"][0].as_dict() == {"label": "cat", "bbox": [0.1, 0.2, 0.3, 0.4]}
+
+
+def test_track_in_dict_round_trip():
+    label = Label("cat", bbox=[0, 0, 1, 1], track=7)
+    assert label.as_dict()["track"] == 7 and Label.from_dict(label.as_dict()) == label
+    assert "track" not in Label("cat").as_dict() and Label.from_dict({"label": "cat"}).track is None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from activelabel.annotate.base import ToolSettings
 from activelabel.images.manifest import ImageRecord
@@ -113,6 +113,7 @@ class RemoteProject(Protocol):
         name: str,
         job_size: int | None,
         images: list[tuple[ImageRecord, Path, list[Label]]],
+        video: tuple[Path, dict[str, Any]] | None = None,
     ) -> tuple[RemoteTask, dict[str, str]]:
         """Create one remote task with these images in this order (jobs of ``job_size``) and their labels.
 

@@ -312,6 +312,21 @@ def make_plan(
     local = _local_labels(project_dir)
     by_key = {it.key: it for it in items}
     known_tasks = rtask_ids if read is None else read
+    if supports and info is not None:
+        # remote tasks the link knows but the tool no longer has: deleted there, so their images
+        # count as removed (for the tasks of the scope)
+        scoped = {str(t.id) for t in scoped_tasks}
+        linked_tasks = {
+            str((m or {}).get("remote_task"))
+            for tid, m in tmap.items()
+            if scope == "project" or tid in scoped
+        }
+        linked_tasks |= {
+            _key_task(link_items[i]["key"]) for i in scope_ids if (link_items.get(i) or {}).get("key")
+        }
+        if scope == "project":
+            linked_tasks |= {_key_task(e["key"]) for e in link_items.values() if e.get("key")}
+        known_tasks = set(known_tasks) | (linked_tasks - rtask_ids - {"None", ""})
 
     def remote_known(key: str) -> bool:
         """Whether the remote side of this key was read (a missing item then means removed)."""
@@ -652,7 +667,9 @@ def apply_plan(
             continue
         ordered = [i for i in task.images if i in records]
         uploads = [(records[i], manifest.file_path(records[i]), local.get(i, [])) for i in ordered]
-        rtask, keys = remote.add_task(settings, rid, project, task.name, task.job_size, uploads)
+        rtask, keys = remote.add_task(
+            settings, rid, project, task.name, task.job_size, uploads, _video_of(project_dir, task)
+        )
         hidden = [_key_frame(keys[i]) for i in ordered if i in keys and records[i].status != ACTIVE]
         if hidden:
             remote.set_frames(settings, rtask.id, hidden, [])
@@ -691,6 +708,15 @@ def apply_plan(
             remote.delete_task(settings, str(spec["remote_task"]))
             deleted_tasks += 1
             tmap.pop(str(spec["task"]), None)
+
+    # Writing tracked objects makes the tool re-interpolate their neighbouring frames and renumber
+    # the tracks: read the touched tasks again and take their tracked frames as they are now
+    refreshed = _refresh_tracked(
+        remote, settings, rid, project, decisions, push_ids, items, local, pull_ids, final_action
+    )
+    if refreshed:
+        new_labels.update(refreshed)
+        pull_ids = [*pull_ids, *[i for i in refreshed if i not in pull_ids]]
 
     progress.update(message="Updating the project")
     counts: dict[str, Any] = {"new_classes": [], "backup": "", "skipped": 0}
@@ -736,9 +762,14 @@ def apply_plan(
             final.get(image_id, []) if rec is not None else links.base_labels(items.get(image_id, {})) or []
         )
         items[image_id] = links.base_entry(key, labels, removed)
+    for image_id in refreshed:  # tracked frames re-read after the push: their new base
+        if image_id not in final_action and (items.get(image_id) or {}).get("key"):
+            items[image_id] = links.base_entry(str(items[image_id]["key"]), final.get(image_id, []))
     for image_id, d in decisions.items():  # conflicts left as they are keep their old base
         if image_id not in final_action and d["key"]:
             items.setdefault(image_id, {"key": d["key"]})
+    if dropping:  # images of tasks deleted on both sides: nothing left to link
+        items = {i: e for i, e in items.items() if _key_task(str(e.get("key", ""))) not in dropping}
     record = links.new_link(info.url, rid, info.name, items)
     record["tasks"] = tmap
     if old and keep:
@@ -764,6 +795,66 @@ def apply_plan(
         "backup": counts["backup"],
         "skipped": counts["skipped"],
     }
+
+
+def _refresh_tracked(
+    remote: RemoteProject,
+    settings: ToolSettings,
+    rid: str,
+    project: Project,
+    decisions: dict[str, dict[str, Any]],
+    push_ids: list[str],
+    items: dict[str, dict[str, Any]],
+    local: dict[str, list[Label]],
+    pull_ids: list[str],
+    final_action: dict[str, str],
+) -> dict[str, list[Label]]:
+    """Tracked frames of the tasks a push touched, as the tool has them now: ``{image_id: labels}``.
+
+    Only frames with a tracked object (here or there) are taken, and only when they had no pending
+    change here (pushed now, or equal to their labels at the last synchronisation), so nothing made
+    here is lost. Tools without tasks have no tracks: nothing to do.
+    """
+    if not push_ids or not getattr(remote, "supports_tasks", False):
+        return {}
+    touched = sorted({_key_task(decisions[i]["key"]) for i in push_ids if decisions[i].get("key")})
+    if not touched:
+        return {}
+    fresh = {it.key: it for it in remote.items(settings, rid, project.task, touched)}
+    pushed = set(push_ids)
+    out: dict[str, list[Label]] = {}
+    for image_id, entry in items.items():
+        key = str((entry or {}).get("key", ""))
+        if _key_task(key) not in touched or image_id in pull_ids or entry.get("removed"):
+            continue
+        if final_action.get(image_id) not in (None, PUSH, SAME, RESTORE_REMOTE):
+            continue
+        item = fresh.get(key)
+        if item is None:
+            continue
+        theirs = _clean(project, item.labels)
+        mine = local.get(image_id, [])
+        if not any(lb.track is not None for lb in [*mine, *theirs]):
+            continue
+        unchanged_here = image_id in pushed or links.same_labels(mine, links.base_labels(entry) or [])
+        if unchanged_here and not links.same_labels(mine, theirs):
+            out[image_id] = theirs
+    return out
+
+
+def _video_of(project_dir: Path, task: ImageTask) -> tuple[Path, dict[str, Any]] | None:
+    """The original video and selection of a task made from a video (None for an image task)."""
+    source = task.source or {}
+    if not source.get("video"):
+        return None
+    from activelabel.images.video import VideoStore
+
+    store = VideoStore(project_dir)
+    try:
+        path = store.file(store.get(str(source["video"])))
+    except Exception:  # noqa: BLE001 - video gone: send the frames as images
+        return None
+    return (path, source) if path.exists() else None
 
 
 def _new_task_items(

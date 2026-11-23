@@ -165,9 +165,11 @@ class FakeRemote:
             )
         return out
 
-    def add_task(self, settings, remote_id, project: Project, name, job_size, images):
+    def add_task(self, settings, remote_id, project: Project, name, job_size, images, video=None):
         self._check()
         self.calls.append(("add_task", name, job_size, [r.name for r, _, _ in images]))
+        if video is not None:
+            self.calls.append(("add_task_video", name, str(video[0].name), dict(video[1])))
         files = [(r.name, labels) for r, _, labels in images]
         tid = self.new_task(remote_id, name, files, job_size)
         task = next(t for t in self.tasks(settings, remote_id) if t.id == tid)

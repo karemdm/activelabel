@@ -65,6 +65,7 @@ class ImageTask:
         job_size: images per job, or None for a single job with every image.
         images: image ids in upload order.
         open: True while a chunked upload may still append images.
+        source: for a task made from a video, ``{"video", "start", "stop", "step", "fps"}``.
     """
 
     id: int
@@ -73,6 +74,7 @@ class ImageTask:
     job_size: int | None = None
     images: list[str] = field(default_factory=list)
     open: bool = False
+    source: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form."""
@@ -199,6 +201,7 @@ class TaskStore:
         images: list[str] | None = None,
         *,
         open: bool = False,
+        source: dict[str, Any] | None = None,
     ) -> ImageTask:
         """Create a task with the next free id (default name "Task <id>"); other open tasks are closed.
 
@@ -211,7 +214,9 @@ class TaskStore:
             next_id, tasks = self._read(images or ())
             for other in tasks:
                 other.open = False
-            task = ImageTask(next_id, name or f"Task {next_id}", now(), job_size, list(images or []), open)
+            task = ImageTask(
+                next_id, name or f"Task {next_id}", now(), job_size, list(images or []), open, source
+            )
             tasks.append(task)
             self._write(next_id + 1, tasks)
             return task

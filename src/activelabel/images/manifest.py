@@ -45,6 +45,9 @@ class ImageRecord:
         issues: curation flags (dark, blurry, duplicate, ...).
         phash: perceptual hash (hex) for near duplicates, empty until measured.
         excluded_reason: why it was excluded (free text or an issue name).
+        video: id of the source video for a frame extracted from a video (docs/VIDEO.md), else empty.
+        frame: index of the frame in that video.
+        time: position of the frame in the video, in seconds.
     """
 
     id: str
@@ -59,6 +62,9 @@ class ImageRecord:
     issues: list[str] = field(default_factory=list)
     phash: str = ""
     excluded_reason: str = ""
+    video: str = ""
+    frame: int | None = None
+    time: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form."""

@@ -125,8 +125,9 @@ class LabelStudioRemote:
         name: str,
         job_size: int | None,
         images: list[tuple[ImageRecord, Path, list[Label]]],
+        video: tuple[Path, dict[str, Any]] | None = None,
     ) -> tuple[RemoteTask, dict[str, str]]:
-        """Add the images to the project (Label Studio has no tasks/jobs)."""
+        """Add the images to the project (Label Studio has no tasks/jobs; a video goes as its frames)."""
         keys = self.add(settings, remote_id, project, images)
         return RemoteTask(remote_id, name, len(keys)), keys
 

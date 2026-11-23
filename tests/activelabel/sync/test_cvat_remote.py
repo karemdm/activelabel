@@ -14,7 +14,7 @@ from activelabel.images.manifest import ImageRecord
 from activelabel.importing import cvat_import
 from activelabel.labels import Label
 from activelabel.projects import Project
-from activelabel.sync import cvat_remote
+from activelabel.sync import cvat_remote, links
 from activelabel.sync.cvat_remote import CvatRemote
 from activelabel.tasks import Task
 
@@ -95,7 +95,8 @@ class FakeCvat:
 
     def routes(self) -> list[tuple[tuple[str, str], Any]]:
         def meta(kw: dict[str, Any], t: str) -> Resp:
-            return Resp(200, {"frames": self.tasks[int(t)]["frames"]})
+            task = self.tasks[int(t)]
+            return Resp(200, {"frames": task["frames"], "deleted_frames": task.get("deleted", [])})
 
         def ann(kw: dict[str, Any], t: str) -> Resp:
             return Resp(200, copy.deepcopy(self.tasks[int(t)]["ann"]))
@@ -389,7 +390,7 @@ def test_add_times_out_and_reports_failure(
     ("status", "text"),
     [
         (401, "login failed"),
-        (403, "login failed"),
+        (403, "refused"),
         (404, "not found"),
         (429, "slow down"),
         (500, "error 500"),
@@ -425,3 +426,185 @@ def test_put_body_has_no_ids():
     clean = _without_ids(track)
     assert "id" not in clean and "id" not in clean["shapes"][0] and "id" not in clean["elements"][0]
     assert track["id"] == 7  # the original is not modified
+
+
+# -- tracks -----------------------------------------------------------------------------------------
+def kf(frame: int, pts: list[float], kind: str = "rectangle", outside: bool = False) -> dict[str, Any]:
+    return {
+        "type": kind,
+        "frame": frame,
+        "points": pts,
+        "occluded": False,
+        "outside": outside,
+        "z_order": 0,
+        "rotation": 0,
+        "attributes": [],
+    }
+
+
+def tracked(
+    cvat: FakeCvat, shapes: list[dict[str, Any]], nframes: int = 6, deleted: list[int] | None = None
+) -> tuple[int, int]:
+    p = cvat.add_project("ActiveLabel 7 - Pets", ["cat", "dog"])
+    cat = cvat.label_id(p["id"], "cat")
+    ann = {
+        "version": 1,
+        "tags": [],
+        "shapes": [],
+        "tracks": [{"id": 42, "label_id": cat, "frame": shapes[0]["frame"], "shapes": shapes}],
+    }
+    tid = cvat.add_task(p["id"], [(f"{n}.jpg", 100, 100) for n in range(nframes)], ann)
+    if deleted:
+        cvat.tasks[tid]["deleted"] = deleted
+    return p["id"], tid
+
+
+def read(pid: int, task: Task = Task.DETECTION) -> list[list[Label]]:
+    return [i.labels for i in CvatRemote().items(SETTINGS, str(pid), task)]
+
+
+def reid(cvat: FakeCvat, tid: int) -> None:
+    """CVAT hands out ids when it stores a PUT: give the track its id back."""
+    cvat.tasks[tid]["ann"]["tracks"][0]["id"] = 42
+
+
+def test_track_rectangle_is_interpolated_between_keyframes_and_continues(cvat: FakeCvat) -> None:
+    pid, _ = tracked(cvat, [kf(0, [0, 0, 10, 10]), kf(4, [40, 0, 50, 10])])
+    labels = read(pid)
+    assert all(len(x) == 1 and x[0].label == "cat" and x[0].track == 42 for x in labels)
+    assert [lb[0].bbox[0] for lb in labels] == pytest.approx([0, 0.1, 0.2, 0.3, 0.4, 0.4])
+
+
+def test_track_outside_hides_and_next_keyframe_shows_again(cvat: FakeCvat) -> None:
+    pid, _ = tracked(
+        cvat,
+        [kf(0, [0, 0, 10, 10]), kf(2, [20, 0, 30, 10], outside=True), kf(4, [40, 0, 50, 10])],
+    )
+    labels = read(pid)
+    assert [bool(x) for x in labels] == [True, True, False, False, True, True]
+    assert labels[1][0].bbox[0] == 0  # held until the outside keyframe, not interpolated
+
+
+def test_track_ending_outside_stays_hidden(cvat: FakeCvat) -> None:
+    pid, _ = tracked(cvat, [kf(1, [0, 0, 10, 10]), kf(3, [0, 0, 10, 10], outside=True)])
+    assert [bool(x) for x in read(pid)] == [False, True, True, False, False, False]
+
+
+def test_track_polygon_uses_previous_keyframe(cvat: FakeCvat) -> None:
+    a = kf(0, [0, 0, 50, 0, 50, 50], "polygon")
+    b = kf(3, [10, 10, 60, 10, 60, 60], "polygon")
+    pid, _ = tracked(cvat, [a, b], nframes=4)
+    polys = [x[0].polygons for x in read(pid, Task.SEGMENTATION)]
+    assert polys[1] == polys[2] == polys[0] != polys[3]
+
+
+def test_track_skips_deleted_frames_classification_and_skeletons(cvat: FakeCvat) -> None:
+    pid, tid = tracked(cvat, [kf(0, [0, 0, 10, 10])], nframes=3, deleted=[1])
+    items = CvatRemote().items(SETTINGS, str(pid), Task.DETECTION)
+    assert [i.key for i in items] == [f"{tid}:0", f"{tid}:2"]
+    assert read(pid, Task.CLASSIFICATION) == [[], []]
+    cvat.tasks[tid]["ann"]["tracks"][0]["elements"] = [{"label_id": 1, "shapes": []}]
+    assert read(pid) == [[], []]
+
+
+def test_write_tracked_edit_on_interpolated_frame_inserts_keyframe(cvat: FakeCvat) -> None:
+    pid, tid = tracked(cvat, [kf(0, [0, 0, 10, 10]), kf(4, [40, 0, 50, 10])], nframes=5)
+    assert read(pid)[2][0].bbox[0] == pytest.approx(0.2)
+    edited = [Label("cat", bbox=[0.2, 0.5, 0.1, 0.1], track=42)]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:2": edited})
+    (tr,) = cvat.tasks[tid]["ann"]["tracks"]
+    assert "id" not in tr and [s["frame"] for s in tr["shapes"]] == [0, 2, 4]
+    assert tr["shapes"][1]["points"] == pytest.approx([20.0, 50.0, 30.0, 60.0])
+    assert tr["shapes"][0]["points"] == [0, 0, 10, 10] and tr["shapes"][2]["points"] == [40, 0, 50, 10]
+    assert cvat.tasks[tid]["ann"]["shapes"] == []  # no plain shape was written
+    reid(cvat, tid)
+    labels = read(pid)
+    assert labels[2][0].bbox == pytest.approx([0.2, 0.5, 0.1, 0.1])
+    assert labels[1][0].bbox[1] == pytest.approx(0.25)  # CVAT interpolates towards the new keyframe
+
+
+def test_write_removing_tracked_object_adds_outside_and_restore_keyframes(cvat: FakeCvat) -> None:
+    pid, tid = tracked(cvat, [kf(0, [0, 0, 10, 10]), kf(4, [40, 0, 50, 10])], nframes=6)
+    before = read(pid)
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:2": []})
+    (tr,) = cvat.tasks[tid]["ann"]["tracks"]
+    assert [(s["frame"], s["outside"]) for s in tr["shapes"]] == [
+        (0, False),
+        (1, False),
+        (2, True),
+        (3, False),
+        (4, False),
+    ]
+    assert tr["shapes"][3]["points"] == pytest.approx([30, 0, 40, 10])
+    reid(cvat, tid)
+    after = read(pid)
+    assert after[2] == []
+    for f in (0, 1, 3, 4, 5):
+        assert links.same_labels(before[f], after[f])
+
+
+def test_write_unknown_track_becomes_plain_shape(cvat: FakeCvat) -> None:
+    pid, tid = tracked(cvat, [kf(0, [0, 0, 10, 10])], nframes=3)
+    ghost = [Label("cat", bbox=[0, 0, 0.5, 0.5], track=999)]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:1": ghost})
+    ann = cvat.tasks[tid]["ann"]
+    assert [(s["frame"], s["type"]) for s in ann["shapes"]] == [(1, "rectangle")]
+    # the real track is hidden on that frame and shows again right after
+    assert [(s["frame"], s["outside"]) for s in ann["tracks"][0]["shapes"]] == [
+        (0, False),
+        (1, True),
+        (2, False),
+    ]
+
+
+def test_write_other_class_detaches_label_from_track(cvat: FakeCvat) -> None:
+    pid, tid = tracked(cvat, [kf(0, [0, 0, 10, 10])], nframes=2)
+    moved = [Label("dog", bbox=[0, 0, 0.5, 0.5], track=42)]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:1": moved})
+    ann = cvat.tasks[tid]["ann"]
+    assert ann["shapes"][0]["label_id"] == cvat.label_id(pid, "dog")
+    assert ann["tracks"][0]["shapes"][-1]["outside"] is True
+
+
+def test_read_then_write_every_frame_is_idempotent(cvat: FakeCvat) -> None:
+    shapes = [kf(0, [0, 0, 10, 10]), kf(2, [20, 0, 30, 10], outside=True), kf(4, [40, 0, 50, 10])]
+    pid, tid = tracked(cvat, shapes)
+    before = read(pid)
+    items = CvatRemote().items(SETTINGS, str(pid), Task.DETECTION)
+    CvatRemote().write(SETTINGS, str(pid), project(), {i.key: i.labels for i in items})
+    assert [s["frame"] for s in cvat.tasks[tid]["ann"]["tracks"][0]["shapes"]] == [0, 2, 4]
+    reid(cvat, tid)
+    after = read(pid)
+    assert all(links.same_labels(a, b) for a, b in zip(before, after, strict=True))
+    assert cvat.tasks[tid]["ann"]["shapes"] == []
+
+
+def test_labels_hash_and_same_labels_use_track() -> None:
+    a, b, c = (Label("cat", bbox=[0, 0, 1, 1], track=t) for t in (1, 1, 2))
+    assert links.label_hash([a]) == links.label_hash([b]) != links.label_hash([c])
+    assert links.label_hash([Label("cat", bbox=[0, 0, 1, 1])]) != links.label_hash([a])
+    assert links.same_labels([a], [b]) and not links.same_labels([a], [c])
+    assert not links.same_labels([a], [Label("cat", bbox=[0, 0, 1, 1])])
+
+
+def test_video_task_meta_lists_every_frame():
+    from activelabel.sync.cvat_remote import _meta_frames
+
+    meta = {
+        "size": 3,
+        "start_frame": 30,
+        "frame_filter": "step=15",
+        "frames": [{"width": 640, "height": 480, "name": "clip.mp4"}],
+    }
+    frames = _meta_frames(meta)
+    assert [f["name"] for f in frames] == [
+        "clip_frame_000030.jpg",
+        "clip_frame_000045.jpg",
+        "clip_frame_000060.jpg",
+    ]
+    assert all(f["width"] == 640 for f in frames)
+    images = {
+        "size": 2,
+        "frames": [{"width": 1, "height": 1, "name": "a.jpg"}, {"width": 2, "height": 2, "name": "b.jpg"}],
+    }
+    assert _meta_frames(images) == images["frames"]

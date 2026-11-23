@@ -45,3 +45,26 @@ def test_keypoints_nan_is_not_visible():
 def test_unsupported_type():
     with pytest.raises(ValueError):
         labels_from_fo(fo.Segmentation(), Task.DETECTION)
+
+
+def test_track_is_the_fiftyone_index():
+    dets = fo.Detections(
+        detections=[
+            fo.Detection(label="a", bounding_box=[0, 0, 1, 1], index=3),
+            fo.Detection(label="b", bounding_box=[0, 0, 1, 1]),
+        ]
+    )
+    assert [x.track for x in labels_from_fo(dets, Task.DETECTION)] == [3, None]
+    poly = fo.Polyline(label="a", points=[[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]], index=4)
+    assert labels_from_fo(fo.Polylines(polylines=[poly]), Task.SEGMENTATION)[0].track == 4
+    kp = fo.Keypoint(label="p", points=[(0.2, 0.3)], index=5)
+    assert labels_from_fo(fo.Keypoints(keypoints=[kp]), Task.KEYPOINTS)[0].track == 5
+
+
+def test_track_round_trip_through_fiftyone():
+    from activelabel.fiftyone_bridge import _ground_truth
+    from activelabel.labels import Label
+
+    labels = [Label("a", bbox=[0.1, 0.1, 0.2, 0.2], track=9)]
+    back = labels_from_fo(_ground_truth(Task.DETECTION, labels), Task.DETECTION)
+    assert back[0].track == 9

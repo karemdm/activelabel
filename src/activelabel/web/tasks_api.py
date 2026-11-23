@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from activelabel.images.manifest import ACTIVE, Manifest
+from activelabel.images.video import VideoStore
 from activelabel.labels import load_annotations
 from activelabel.tasks_store import (
     ImageTask,
@@ -47,6 +48,7 @@ def task_view(task: ImageTask, active: set[str], annotated: set[str]) -> dict[st
         "created": task.created,
         "job_size": task.job_size,
         "open": task.open,
+        "source": task.source,
         "images": len(task.images),
         "active": len(ids & active),
         "annotated": len(ids & annotated),
@@ -225,11 +227,15 @@ def delete_task(project_id: int, task_id: int, body: DeleteTask, state: AppState
     """Delete a task and its images (files, thumbnails, annotations). Needs ``confirm: true``."""
     store = _store(state, project_id)
     with store.locked():
-        _find(store, task_id)
+        task = _find(store, task_id)
         if not body.confirm:
             raise HTTPException(
                 400, "Deleting a task deletes its images and cannot be undone: confirm it first."
             )
         state.busy(project_id)
         ids = store.delete(task_id)
-        return {"deleted": delete_image_files(state, project_id, ids)}
+        deleted = delete_image_files(state, project_id, ids)
+        video = (task.source or {}).get("video")
+        if video:
+            VideoStore(state.store.dir(project_id)).drop_if_unused(str(video), store.load())
+        return {"deleted": deleted}
