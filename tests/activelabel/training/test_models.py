@@ -124,7 +124,7 @@ def test_export_onnx(models):
     onnx = client.get("/api/projects/1/models/1/download/onnx")
     assert onnx.status_code == 200 and onnx.content == b"onnx" * 10
     assert 'filename="P-m1-resnet18.onnx"' in onnx.headers["content-disposition"]
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     assert client.post("/api/projects/1/models/1/export", json={"format": "tflite"}).status_code == 400
     assert client.post("/api/projects/1/models/7/export", json={"format": "onnx"}).status_code == 404
 
@@ -135,7 +135,8 @@ def test_export_failure_and_recover(models):
     client.post("/api/projects/1/models", json={"run": run})
     client.post("/api/projects/1/models/1/export", json={"format": "onnx"})
     failed = wait_for(lambda: (e := export_state(client, 1)).get("status") == "failed" and e)
-    assert failed["error"] == "no onnx" and tmp_dirs(runner) == []
+    assert failed["error"] == "no onnx"
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     store = ModelStore(state.store.dir(1))
     store.set_export(1, "onnx", status="running")
     assert client.request("DELETE", "/api/projects/1/models/1", json={"confirm": True}).status_code == 409
