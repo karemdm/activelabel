@@ -101,6 +101,7 @@
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
     trash: '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
     images: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/>',
+    video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/>',
   };
   const icon = (name, size = 18) =>
     el('span', {
@@ -1569,6 +1570,7 @@
 
       function taskCard(task) {
         const cid = `task-${task.id}`;
+        const src = task.source && task.source.video ? task.source : null;
         const isRenaming = renaming === task.id;
         const filtered = filter.task === task.id;
         const manyJobs = task.jobs.length > 1;
@@ -1602,12 +1604,22 @@
           focusAfter = `#${cid}-name`;
         } else {
           title = el('h4', { class: 'task-name' },
-            el('button', { type: 'button', class: 'task-title', title: t('tasks.see_images_task', { name: task.name }), 'aria-pressed': filtered ? 'true' : 'false', onclick: () => taskSelectSync(task.id, null) }, task.name));
+            el('button', { type: 'button', class: 'task-title', title: t('tasks.see_images_task', { name: task.name }), 'aria-pressed': filtered ? 'true' : 'false', onclick: () => taskSelectSync(task.id, null) },
+              src ? el('span', { class: 'task-video-icon', title: t('video.mode_video') }, icon('video', 16)) : null, task.name));
         }
 
         const iconButton = (name, label, extra, onclick, id) => el('button', { type: 'button', class: `icon-btn small${extra ? ` ${extra}` : ''}`, id, 'aria-label': label, title: label, onclick }, icon(name, 16));
+        let everyText = null;
+        if (src && src.step) {
+          everyText = src.fps
+            ? t('video.meta_every_seconds', { s: nf1.format(Math.round((src.step / src.fps) * 100) / 100) })
+            : tn('video.meta_every_frames', src.step);
+        } else if (src && src.every_seconds) {
+          everyText = t('video.meta_every_seconds', { s: nf1.format(src.every_seconds) });
+        }
         const meta = [
           tn('tasks.meta_images', task.active),
+          everyText,
           task.job_size ? t('tasks.meta_job_size', { n: num(task.job_size) }) : null,
           tn('tasks.meta_jobs', task.jobs.length),
         ].filter(Boolean).join(' · ');
@@ -1704,13 +1716,332 @@
       const jobSizeInput = el('input', { type: 'number', id: 'task-job-size', min: '1', step: '1', inputmode: 'numeric', 'aria-describedby': 'task-job-size-hint' });
       jobSizeInput.addEventListener('input', () => jobSizeInput.removeAttribute('aria-invalid'));
       const stagedBox = el('div', { class: 'staged', hidden: true });
-      const formBox = el('div', { class: 'nt-form' },
+      const imagesBox = el('div', { class: 'nt-images' }, drop, stagedBox);
+      const videoBox = el('div', { class: 'nt-video', hidden: true });
+      const modeBtns = {};
+      const modeTabs = el('div', { class: 'tabs nt-modes', role: 'group', 'aria-label': t('tasks.new_title') },
+        ...['images', 'video'].map((m) => (modeBtns[m] = el('button', { type: 'button', class: `tab${m === 'images' ? ' active' : ''}`, 'aria-pressed': m === 'images' ? 'true' : 'false', id: `nt-mode-${m}`, onclick: () => setMode(m) }, t(`video.mode_${m}`)))));
+      const fieldsBox = el('div', { class: 'new-task-fields' },
+        el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput),
+        el('div', { class: 'field' },
+          el('label', { for: 'task-job-size' }, t('tasks.job_size')), jobSizeInput,
+          el('p', { class: 'hint', id: 'task-job-size-hint' }, t('tasks.job_size_hint'))));
+      const formBox = el('div', { class: 'nt-form' }, modeTabs, fieldsBox, imagesBox, videoBox);
+      let mode = 'images';
+      function setMode(m) {
+        if (uploading || vid.busy) return;
+        mode = m;
+        for (const k of Object.keys(modeBtns)) {
+          modeBtns[k].classList.toggle('active', k === m);
+          modeBtns[k].setAttribute('aria-pressed', k === m ? 'true' : 'false');
+        }
+        imagesBox.hidden = m !== 'images';
+        videoBox.hidden = m !== 'video';
+      }
+
+      // ---- video tab
+      const vid = { busy: false, xhr: null, video: null, taskMade: false, plan: null, seq: 0, timer: null, unit: 'frames', polling: null, jobId: null };
+      const VIDEO_EXT = /\.(mp4|avi|mov|mkv|webm|m4v)$/i;
+      const vFile = el('input', { type: 'file', class: 'sr-only', id: 'video-input', accept: '.mp4,.avi,.mov,.mkv,.webm,.m4v,video/*', tabindex: '-1' });
+      const vDrop = el('div', { class: 'dropzone', id: 'video-dropzone' },
+        icon('video', 36),
+        el('p', { class: 'drop-title' }, t('video.drop_title')),
+        el('p', { class: 'muted' }, t('video.drop_help')),
+        el('div', { class: 'drop-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: () => vFile.click() }, t('video.choose'))));
+      const vUp = el('div', { class: 'upload-progress', hidden: true });
+      const vSel = el('div', { class: 'video-sel', hidden: true });
+      const vRun = el('div', { class: 'video-run', hidden: true, 'aria-live': 'polite' });
+      videoBox.append(vFile, vDrop, vUp, vSel, vRun);
+      wireDrop(vDrop, (entries) => pickVideo(entries.length ? entries[0].file : null));
+      vFile.addEventListener('change', () => { pickVideo(vFile.files[0] || null); vFile.value = ''; });
+
+      const pad2 = (n) => String(n).padStart(2, '0');
+      const fmtClock = (sec) => {
+        const s = Math.max(0, Math.round(Number(sec) || 0));
+        const h = Math.floor(s / 3600);
+        return h ? `${h}:${pad2(Math.floor((s % 3600) / 60))}:${pad2(s % 60)}` : `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+      };
+      /** "120" -> frame 120; "1:30" or "01:02:03" -> frame at that time. null when invalid. */
+      function parseFrame(text, fps) {
+        const s = String(text).trim();
+        if (/^\d+$/.test(s)) return Number(s);
+        const m = /^(?:(\d+):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(s);
+        if (!m) return null;
+        const sec = Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        return Math.round(sec * fps);
+      }
+      const vStart = el('input', { type: 'text', id: 'video-start', autocomplete: 'off', inputmode: 'text', 'aria-describedby': 'video-start-alt' });
+      const vStop = el('input', { type: 'text', id: 'video-stop', autocomplete: 'off', inputmode: 'text', 'aria-describedby': 'video-stop-alt' });
+      const vEvery = el('input', { type: 'number', id: 'video-every', min: '0', step: 'any', inputmode: 'decimal', value: '1' });
+      const vStartAlt = el('span', { class: 'muted alt', id: 'video-start-alt' });
+      const vStopAlt = el('span', { class: 'muted alt', id: 'video-stop-alt' });
+      const unitBtns = {};
+      const unitSwitch = el('div', { class: 'tabs', role: 'group', 'aria-label': t('video.every') },
+        ...['frames', 'seconds'].map((u) => (unitBtns[u] = el('button', { type: 'button', class: `tab${u === 'frames' ? ' active' : ''}`, 'aria-pressed': u === 'frames' ? 'true' : 'false', onclick: () => setUnit(u) }, t(`video.unit_${u}`)))));
+      const vInfo = el('p', { class: 'video-info muted' });
+      const vSummary = el('p', { class: 'video-summary', 'aria-live': 'polite' });
+      const vStrip = el('ul', { class: 'plain video-strip' });
+      const vCreate = el('button', { type: 'button', class: 'btn primary', id: 'video-create', onclick: () => createFromVideo() }, t('tasks.create'));
+      const vAnother = el('button', { type: 'button', class: 'btn', onclick: () => discardVideo() }, t('video.change'));
+      vSel.append(
+        vInfo,
         el('div', { class: 'new-task-fields' },
-          el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput),
-          el('div', { class: 'field' },
-            el('label', { for: 'task-job-size' }, t('tasks.job_size')), jobSizeInput,
-            el('p', { class: 'hint', id: 'task-job-size-hint' }, t('tasks.job_size_hint')))),
-        drop, stagedBox);
+          el('div', { class: 'field' }, el('label', { for: 'video-start' }, t('video.start')), vStart, vStartAlt),
+          el('div', { class: 'field' }, el('label', { for: 'video-stop' }, t('video.end')), vStop, vStopAlt)),
+        el('div', { class: 'field video-every' },
+          el('label', { for: 'video-every' }, t('video.every')),
+          el('div', { class: 'video-every-row' }, vEvery, unitSwitch)),
+        vSummary, vStrip,
+        el('div', { class: 'drop-actions' }, vCreate, vAnother));
+      for (const i of [vStart, vStop, vEvery]) i.addEventListener('input', () => { i.removeAttribute('aria-invalid'); schedulePlan(); });
+
+      function setUnit(u) {
+        vid.unit = u;
+        for (const k of Object.keys(unitBtns)) {
+          unitBtns[k].classList.toggle('active', k === u);
+          unitBtns[k].setAttribute('aria-pressed', k === u ? 'true' : 'false');
+        }
+        const v = vid.video;
+        if (v && v.fps) {
+          const cur = Number(vEvery.value);
+          if (cur > 0) vEvery.value = String(u === 'seconds' ? Math.round((cur / v.fps) * 100) / 100 : Math.max(1, Math.round(cur * v.fps)));
+        }
+        schedulePlan();
+      }
+
+      /** Reads the form; returns the request body for the plan/create calls, or null when invalid. */
+      function selection(mark) {
+        const v = vid.video;
+        if (!v) return null;
+        const start = parseFrame(vStart.value, v.fps);
+        const stop = parseFrame(vStop.value, v.fps);
+        const every = Number(vEvery.value);
+        const bad = [];
+        if (start == null || start >= v.frames) bad.push(vStart);
+        if (stop == null || stop >= v.frames || (start != null && stop < start)) bad.push(vStop);
+        if (!(every > 0) || (vid.unit === 'frames' && !Number.isInteger(every))) bad.push(vEvery);
+        if (mark) bad.forEach((i) => i.setAttribute('aria-invalid', 'true'));
+        if (bad.length) return null;
+        return vid.unit === 'seconds' ? { start, stop, every_seconds: every } : { start, stop, step: every };
+      }
+
+      function updateAlt() {
+        const v = vid.video;
+        const alt = (input, out) => {
+          const f = parseFrame(input.value, v.fps);
+          const isTime = /:/.test(input.value);
+          out.textContent = f == null ? '' : isTime ? t('video.as_frame', { n: num(f) }) : t('video.as_time', { time: fmtClock(f / v.fps) });
+        };
+        alt(vStart, vStartAlt);
+        alt(vStop, vStopAlt);
+      }
+
+      function schedulePlan() {
+        if (!vid.video) return;
+        updateAlt();
+        clearTimeout(vid.timer);
+        vid.plan = null;
+        vCreate.disabled = true;
+        vid.timer = setTimeout(runPlan, 300);
+      }
+
+      async function runPlan() {
+        const body = selection(true);
+        const my = ++vid.seq;
+        if (!body) { vSummary.textContent = t('video.invalid'); vStrip.replaceChildren(); return; }
+        try {
+          const p = await api('POST', `/projects/${projectId}/videos/${vid.video.id}/plan`, { json: body });
+          if (my !== vid.seq || !vid.video) return;
+          vid.plan = p;
+          vCreate.disabled = !(p.frames > 0);
+          const stepText = vid.unit === 'seconds'
+            ? t('video.every_seconds_text', { s: num(Number(vEvery.value)), n: num(p.step) })
+            : tn('video.every_frames_text', p.step);
+          vSummary.textContent = p.frames > 0 ? tn('video.summary', p.frames, { step: stepText }) : t('video.invalid');
+          drawStrip(p);
+        } catch (err) {
+          if (my !== vid.seq) return;
+          vSummary.textContent = err.message;
+          vStrip.replaceChildren();
+        }
+      }
+
+      function drawStrip(p) {
+        const v = vid.video;
+        const k = Math.min(8, p.frames);
+        const items = [];
+        for (let j = 0; j < k; j++) {
+          const idx = k === 1 ? p.first : p.first + p.step * Math.round((j * (p.frames - 1)) / (k - 1));
+          items.push(el('li', null,
+            el('img', { src: `/api/projects/${projectId}/videos/${v.id}/frame?n=${idx}&w=160`, alt: t('video.frame_alt', { n: num(idx) }), loading: 'lazy' }),
+            el('span', { class: 'muted' }, fmtClock(idx / v.fps))));
+        }
+        vStrip.replaceChildren(...items);
+      }
+
+      function showVideo(v) {
+        vid.video = v;
+        vid.taskMade = false;
+        vDrop.hidden = true;
+        vUp.hidden = true;
+        vSel.hidden = false;
+        vInfo.textContent = [fmtClock(v.duration), t('video.fps_n', { n: nf1.format(v.fps) }), `${num(v.width)}×${num(v.height)}`, tn('video.frames_n', v.frames)].join(' · ');
+        vStart.value = '0';
+        vStop.value = String(Math.max(0, v.frames - 1));
+        vEvery.value = '1';
+        vid.unit = 'frames';
+        setUnit('frames');
+        updateAlt();
+        runPlan();
+      }
+
+      function pickVideo(file) {
+        if (!file || vid.busy) return;
+        if (!VIDEO_EXT.test(file.name)) { toast(t('video.bad_type'), 'error'); return; }
+        vid.busy = true;
+        vDrop.hidden = true;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const xhr = new XMLHttpRequest();
+        vid.xhr = xhr;
+        const draw = (done, total) => {
+          vUp.hidden = false;
+          vUp.replaceChildren(
+            el('div', { class: 'upload-line' },
+              el('strong', null, t('video.uploading', { name: file.name })),
+              el('button', { type: 'button', class: 'btn small', onclick: () => xhr.abort() }, t('common.cancel'))),
+            progressBar(done, total, t('images.upload_progress')));
+        };
+        draw(0, 1);
+        const back = () => { vid.busy = false; vid.xhr = null; vUp.hidden = true; vDrop.hidden = !!vid.video; };
+        xhr.upload.addEventListener('progress', (e) => { if (e.lengthComputable) draw(e.loaded, e.total); });
+        xhr.addEventListener('abort', back);
+        xhr.addEventListener('error', () => { back(); toast(`${t('common.error')} ${t('common.network_error')}`, 'error', 10000); });
+        xhr.addEventListener('load', () => {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          back();
+          if (xhr.status >= 200 && xhr.status < 300 && data) showVideo(data);
+          else toastError(new Error(data && data.detail ? detailText(data.detail) : `HTTP ${xhr.status}`));
+        });
+        xhr.open('POST', `/api/projects/${projectId}/videos`);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.send(form);
+      }
+
+      /** Drops the uploaded video that no task uses (best effort; 409 = a task uses it). */
+      async function discardVideo(quiet) {
+        const v = vid.video;
+        clearTimeout(vid.timer);
+        vid.seq += 1;
+        vid.video = null;
+        vSel.hidden = true;
+        vSummary.textContent = '';
+        vStrip.replaceChildren();
+        if (!quiet) vDrop.hidden = false;
+        if (v && !vid.taskMade) {
+          try { await api('DELETE', `/projects/${projectId}/videos/${v.id}`); } catch (e) { /* in use or already gone */ }
+        }
+      }
+
+      function resetVideo() {
+        if (vid.xhr) vid.xhr.abort();
+        clearTimeout(vid.polling);
+        vid.polling = null;
+        vid.busy = false;
+        vid.jobId = null;
+        vRun.hidden = true;
+        vRun.replaceChildren();
+        modeTabs.hidden = false;
+        fieldsBox.hidden = false;
+        vUp.hidden = true;
+        vDrop.hidden = false;
+        vSel.hidden = true;
+      }
+
+      async function createFromVideo() {
+        if (vid.busy || !vid.video) return;
+        const sel = selection(true);
+        if (!sel) return;
+        const jobSize = jobSizeInput.value.trim();
+        if (jobSize && !/^[1-9]\d*$/.test(jobSize)) {
+          jobSizeInput.setAttribute('aria-invalid', 'true');
+          jobSizeInput.focus();
+          toast(t('tasks.job_size_invalid'), 'error');
+          return;
+        }
+        const body = { video: vid.video.id, name: nameInput.value.trim(), ...sel };
+        if (jobSize) body.job_size = Number(jobSize);
+        vid.busy = true;
+        vid.taskMade = true; // from now on the server owns the video
+        modeTabs.hidden = true;
+        fieldsBox.hidden = true;
+        vSel.hidden = true;
+        vRun.hidden = false;
+        closeBtn.hidden = true;
+        closeX.hidden = true;
+        vRun.replaceChildren(el('p', { class: 'muted' }, t('video.starting')));
+        try {
+          const job = await api('POST', `/projects/${projectId}/tasks/from-video`, { json: body });
+          vid.jobId = job.id;
+          pollJob(job.id);
+        } catch (err) {
+          vid.taskMade = false;
+          showRunEnd(false, err.message);
+        }
+      }
+
+      function drawRun(job) {
+        vRun.replaceChildren(
+          el('div', { class: 'upload-line' },
+            el('strong', null, t('video.creating')),
+            el('button', { type: 'button', class: 'btn small', onclick: async () => { try { await api('POST', `/jobs/${job.id}/cancel`); } catch (e) { toastError(e); } } }, t('common.cancel'))),
+          progressBar(job.done, job.total, t('video.creating')),
+          job.message ? el('p', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null);
+      }
+
+      async function pollJob(id) {
+        let job;
+        try {
+          job = await api('GET', `/jobs/${id}`);
+        } catch (err) {
+          vid.polling = setTimeout(() => pollJob(id), 1500);
+          return;
+        }
+        if (vid.jobId !== id) return;
+        if (job.status === 'queued' || job.status === 'running') {
+          drawRun(job);
+          vid.polling = setTimeout(() => pollJob(id), 1500);
+          return;
+        }
+        vid.polling = null;
+        const frames = (job.result && (job.result.frames || job.result.images)) || (vid.plan && vid.plan.frames) || 0;
+        if (job.status === 'done') {
+          nameInput.value = '';
+          jobSizeInput.value = '';
+          showRunEnd(true, tn('video.created', frames));
+        } else {
+          vid.taskMade = !!(job.result && job.result.task);
+          showRunEnd(false, job.status === 'cancelled' ? t('video.cancelled') : job.error || tr(`job.status.${job.status}`, job.status));
+        }
+        await afterChange();
+        await loadTasks();
+        grid.reload();
+        if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
+      }
+
+      function showRunEnd(ok, text) {
+        vid.busy = false;
+        vRun.replaceChildren(
+          el('p', { class: `report-line ${ok ? 'ok' : 'bad'}` }, icon(ok ? 'check' : 'warning'), text),
+          ok ? null : el('div', { class: 'drop-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => {
+            vRun.hidden = true; modeTabs.hidden = false; fieldsBox.hidden = false;
+            if (vid.video) { vSel.hidden = false; schedulePlan(); } else vDrop.hidden = false;
+          } }, t('video.back'))));
+        if (ok) { vid.video = null; vid.taskMade = true; }
+        closeBtn.hidden = false;
+        closeX.hidden = false;
+      }
       const closeBtn = el('button', { type: 'button', class: 'btn', id: 'new-task-close', onclick: () => newDlg.close() }, t('common.close'));
       const closeX = el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), title: t('common.close'), onclick: () => newDlg.close() }, icon('close', 18));
       const newDlg = el('dialog', { class: 'dialog wide new-task-dialog', 'aria-label': t('tasks.new_title') },
@@ -1718,7 +2049,14 @@
           el('div', { class: 'dlg-head' }, el('h2', null, t('tasks.new_title')), closeX),
           formBox, progressBox, reportBox,
           el('div', { class: 'form-actions' }, closeBtn)));
-      newDlg.addEventListener('cancel', (e) => { if (uploading) e.preventDefault(); }); // Esc must not hide a running upload
+      newDlg.addEventListener('cancel', (e) => { if (uploading || vid.jobId && vid.polling) e.preventDefault(); }); // Esc must not hide a running upload
+      newDlg.addEventListener('close', () => {
+        // a video uploaded but never used by a task is removed again
+        if (vid.jobId && vid.polling) return;
+        resetVideo();
+        if (vid.video) discardVideo(true);
+        setMode('images');
+      });
 
       function setStage(stage) {
         formBox.hidden = stage !== 'form';
@@ -1740,7 +2078,9 @@
       }
 
       function openNewTask(entries) {
-        if (!uploading) {
+        if (!uploading && !(vid.jobId && vid.polling)) {
+          resetVideo();
+          if (entries && entries.length) setMode('images');
           reportBox.replaceChildren();
           const files = entries ? usable(entries) : [];
           staged = files.length ? files : null;
