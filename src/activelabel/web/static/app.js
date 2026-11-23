@@ -87,6 +87,11 @@
     cvat: '<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
     labelstudio: '<path d="M5 19l-1-4L15 4l5 5L9 20z"/><path d="M13 6l5 5"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    chevron: '<path d="m6 9 6 6 6-6"/>',
+    edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+    trash: '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+    images: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/>',
   };
   const icon = (name, size = 18) =>
     el('span', {
@@ -1248,6 +1253,8 @@
       folderInput.setAttribute('directory', '');
       const progressBox = el('div', { class: 'upload-progress', hidden: true });
       const reportBox = el('div', { class: 'report', 'aria-live': 'polite' });
+      let staged = null; // files dropped on the empty state, waiting for "Create task"
+      const usable = (entries) => entries.filter((e) => !SKIP_FILES.has(e.name.split('/').pop().toLowerCase()));
 
       const drop = el('div', { class: 'dropzone', id: 'dropzone' },
         icon('upload', 36),
@@ -1256,12 +1263,14 @@
         el('div', { class: 'drop-actions' },
           el('button', { type: 'button', class: 'btn primary', onclick: () => fileInput.click() }, t('images.choose_files')),
           el('button', { type: 'button', class: 'btn', onclick: () => folderInput.click() }, t('images.choose_folder'))));
-      ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-      ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
-      drop.addEventListener('drop', async (e) => {
-        const entries = await filesFromDrop(e.dataTransfer);
-        startUpload(entries);
-      });
+
+      /** Makes `zone` accept dropped files and folders; calls onEntries(entries). */
+      function wireDrop(zone, onEntries) {
+        ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('over'); }));
+        ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('over'); }));
+        zone.addEventListener('drop', async (e) => onEntries(await filesFromDrop(e.dataTransfer)));
+      }
+      wireDrop(drop, (entries) => startUpload(entries));
       fileInput.addEventListener('change', () => { startUpload([...fileInput.files].map((f) => ({ file: f, name: f.webkitRelativePath || f.name }))); fileInput.value = ''; });
       folderInput.addEventListener('change', () => { startUpload([...folderInput.files].map((f) => ({ file: f, name: f.webkitRelativePath || f.name }))); folderInput.value = ''; });
 
@@ -1300,7 +1309,7 @@
       };
 
       async function startUpload(entries) {
-        const files = entries.filter((e) => !SKIP_FILES.has(e.name.split('/').pop().toLowerCase()));
+        const files = usable(entries);
         if (!files.length || uploading) return;
         const jobSize = jobSizeInput.value.trim();
         if (jobSize && !/^[1-9]\d*$/.test(jobSize)) {
@@ -1313,6 +1322,8 @@
         uploading = true;
         controller = new AbortController();
         reportBox.replaceChildren();
+        if (!newDlg.open) newDlg.showModal();
+        setStage('uploading');
         const merged = emptyReport();
         let sent = 0;
         let cancelled = false;
@@ -1356,7 +1367,9 @@
           toast(t('tasks.created', { name: created.name }), 'success', 4000);
         }
         uploading = false;
-        progressBox.hidden = true;
+        staged = null;
+        drawStaged();
+        setStage(created ? 'done' : 'form'); // nothing was created: back to the form, the report says why
         if (cancelled) toast(t('images.cancelled', { done: num(sent) }), 'info');
         renderReport(merged, sent < files.length);
         await afterChange();
@@ -1392,7 +1405,7 @@
             el('div', null,
               el('strong', null, t('images.annotations_found')),
               el('p', { class: 'muted' }, tn('images.annotations_found_n', r.other_files_count)),
-              el('button', { type: 'button', class: 'btn primary', onclick: () => showTab('annotations', true) }, t('images.go_annotations')))));
+              el('button', { type: 'button', class: 'btn primary', onclick: () => { newDlg.close(); showTab('annotations', true); } }, t('images.go_annotations')))));
         }
         reportBox.replaceChildren(el('div', { class: 'card report-card' }, el('h3', null, t('images.result')), ...rows));
       }
@@ -1462,15 +1475,15 @@
             onchange: (e) => setFilter(filter.task, e.target.value === '' ? null : Number(e.target.value)),
           },
           el('option', { value: '' }, t('tasks.filter_all_jobs')),
-          ...task.jobs.map((j) => el('option', { value: String(j.n), selected: j.n === filter.job }, t('tasks.job_line', { n: j.n, first: num(j.first), last: num(j.last), annotated: num(j.annotated), active: num(j.active) }))))
+          ...task.jobs.map((j) => el('option', { value: String(j.n), selected: j.n === filter.job }, t('tasks.job_option', { n: j.n, first: num(j.first), last: num(j.last) }))))
           : null;
         const chipText = task
           ? (filter.job != null ? t('tasks.filter_chip_job', { name: task.name, n: filter.job }) : t('tasks.filter_chip', { name: task.name }))
           : null;
         filterBox.replaceChildren(
           el('div', { class: 'task-filter-row' },
-            el('div', { class: 'field inline' }, el('label', { for: 'filter-task' }, t('tasks.filter_task')), taskSelect),
-            jobSelect ? el('div', { class: 'field inline' }, el('label', { for: 'filter-job' }, t('tasks.filter_job')), jobSelect) : null,
+            el('div', { class: 'field inline' }, el('label', { for: 'filter-task', class: 'sr-only' }, t('tasks.filter_task')), taskSelect),
+            jobSelect ? el('div', { class: 'field inline' }, el('label', { for: 'filter-job', class: 'sr-only' }, t('tasks.filter_job')), jobSelect) : null,
             chipText
               ? el('span', { class: 'chip filter-chip', role: 'status' }, chipText,
                 el('button', { type: 'button', class: 'chip-x', id: 'filter-clear', 'aria-label': t('tasks.filter_clear'), title: t('tasks.filter_clear'), onclick: () => { setFilter(null, null); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
@@ -1480,10 +1493,11 @@
 
       function taskCard(task) {
         const cid = `task-${task.id}`;
-        const open = expanded.has(task.id);
         const isRenaming = renaming === task.id;
-        const stat = (label, value) => el('div', { class: 'task-stat' }, el('dt', null, label), el('dd', null, value));
-        const hasJobs = task.jobs.length > 0;
+        const filtered = filter.task === task.id;
+        const manyJobs = task.jobs.length > 1;
+        const open = manyJobs && expanded.has(task.id);
+        const thinBar = (done, total, label) => { const b = progressBar(done, total, label); b.classList.add('thin'); return b; };
 
         let title;
         if (isRenaming) {
@@ -1511,45 +1525,71 @@
           title = form;
           focusAfter = `#${cid}-name`;
         } else {
-          title = el('h4', { class: 'task-name' }, task.name);
+          title = el('h4', { class: 'task-name' },
+            el('button', { type: 'button', class: 'task-title', title: t('tasks.see_images_task', { name: task.name }), 'aria-pressed': filtered ? 'true' : 'false', onclick: () => taskSelectSync(task.id, null) }, task.name));
         }
 
-        const jobsList = hasJobs
-          ? el('ol', { class: 'plain task-jobs', id: `${cid}-jobs`, hidden: !open },
-            ...task.jobs.map((j) => el('li', { class: 'task-job' },
-              el('span', { class: 'task-job-text' }, t('tasks.job_line', { n: j.n, first: num(j.first), last: num(j.last), annotated: num(j.annotated), active: num(j.active) })),
-              el('button', { type: 'button', class: 'btn small', 'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => { taskSelectSync(task.id, j.n); } }, t('tasks.see_images')))))
+        const iconButton = (name, label, extra, onclick, id) => el('button', { type: 'button', class: `icon-btn small${extra ? ` ${extra}` : ''}`, id, 'aria-label': label, title: label, onclick }, icon(name, 16));
+        const meta = [
+          tn('tasks.meta_images', task.active),
+          task.job_size ? t('tasks.meta_job_size', { n: num(task.job_size) }) : null,
+          tn('tasks.meta_jobs', task.jobs.length),
+        ].filter(Boolean).join(' · ');
+        const progressText = t('tasks.progress', { done: num(task.annotated), total: num(task.active) });
+
+        const jobsList = manyJobs
+          ? el('ul', { class: 'plain task-jobs', id: `${cid}-jobs`, hidden: !open },
+            ...task.jobs.map((j) => {
+              const on = filtered && filter.job === j.n;
+              return el('li', null,
+                el('button', { type: 'button', class: `job-row${on ? ' is-filtered' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+                  'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => taskSelectSync(task.id, j.n) },
+                el('span', { class: 'job-name' }, t('tasks.job_name', { n: j.n })),
+                el('span', { class: 'job-range muted' }, `${num(j.first)}–${num(j.last)}`),
+                thinBar(j.annotated, j.active, t('tasks.progress', { done: num(j.annotated), total: num(j.active) })),
+                el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`)));
+            }))
           : null;
 
-        return el('li', { class: `task-item card${filter.task === task.id ? ' is-filtered' : ''}`, id: cid, 'aria-label': task.name },
+        return el('li', { class: `task-item card${filtered ? ' is-filtered' : ''}`, id: cid, 'aria-label': task.name },
           el('div', { class: 'task-head' },
             title,
             isRenaming ? null : el('div', { class: 'task-actions' },
-              el('button', { type: 'button', class: 'btn small primary', 'aria-label': t('tasks.see_images_task', { name: task.name }), onclick: () => taskSelectSync(task.id, null) }, t('tasks.see_images')),
-              el('button', { type: 'button', class: 'btn small', id: `${cid}-rename`, 'aria-label': `${t('tasks.rename')}: ${task.name}`, onclick: () => { renaming = task.id; renameDraft = null; drawTasks(); } }, t('tasks.rename')),
-              el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': `${t('tasks.delete')}: ${task.name}`, onclick: () => deleteTask(task) }, t('tasks.delete')))),
-          el('dl', { class: 'task-stats' },
-            stat(t('tasks.stat_images'), `${num(task.active)}/${num(task.images)}`),
-            stat(t('tasks.stat_annotated'), num(task.annotated)),
-            stat(t('tasks.stat_job_size'), task.job_size ? num(task.job_size) : t('tasks.one_job')),
-            stat(t('tasks.stat_jobs'), num(task.jobs.length))),
-          hasJobs
-            ? el('button', { type: 'button', class: 'btn small task-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-controls': `${cid}-jobs`,
-              onclick: () => {
-                if (expanded.has(task.id)) expanded.delete(task.id); else expanded.add(task.id);
-                focusAfter = `#${cid} .task-toggle`;
-                drawTasks();
-              } }, open ? t('tasks.hide_jobs') : t('tasks.show_jobs', { n: num(task.jobs.length) }))
-            : null,
+              iconButton('edit', `${t('tasks.rename')}: ${task.name}`, '', () => { renaming = task.id; renameDraft = null; drawTasks(); }, `${cid}-rename`),
+              iconButton('trash', `${t('tasks.delete')}: ${task.name}`, 'danger', () => deleteTask(task)),
+              manyJobs
+                ? el('button', { type: 'button', class: 'icon-btn small task-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-controls': `${cid}-jobs`,
+                  'aria-label': `${open ? t('tasks.hide_jobs') : t('tasks.show_jobs')}: ${task.name}`, title: open ? t('tasks.hide_jobs') : t('tasks.show_jobs'),
+                  onclick: () => {
+                    if (expanded.has(task.id)) expanded.delete(task.id); else expanded.add(task.id);
+                    focusAfter = `#${cid} .task-toggle`;
+                    drawTasks();
+                  } }, icon('chevron', 16))
+                : null)),
+          el('p', { class: 'task-meta muted' }, meta),
+          el('div', { class: 'task-progress' },
+            thinBar(task.annotated, task.active, progressText),
+            el('span', { class: 'task-progress-text' }, progressText)),
           jobsList);
       }
 
       const taskSelectSync = (task, job) => setFilter(task, job, { reveal: true });
 
       function drawTasks() {
-        tasksBox.replaceChildren(tasks.length
-          ? el('ul', { class: 'plain task-list' }, ...tasks.map(taskCard))
-          : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('tasks.none'))));
+        const head = el('div', { class: 'tasks-head' },
+          el('h3', { class: 'tasks-title' }, t('tasks.title'), tasks.length ? el('span', { class: 'count-badge' }, num(tasks.length)) : null),
+          tasks.length ? el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title')) : null);
+        let body;
+        if (tasks.length) {
+          body = el('ul', { class: 'plain task-list' }, ...tasks.map(taskCard));
+        } else {
+          body = el('div', { class: 'dropzone empty-tasks' },
+            icon('images', 40),
+            el('p', { class: 'drop-title' }, t('tasks.none')),
+            el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title')));
+          wireDrop(body, (entries) => openNewTask(entries));
+        }
+        tasksBox.replaceChildren(head, body);
         if (focusAfter) {
           const f = tasksBox.querySelector(focusAfter);
           focusAfter = null;
@@ -1575,29 +1615,64 @@
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
       }
 
-      // ---- "new task" form (name, images per job, then the files)
+      // ---- "new task" dialog (name, images per job, then the files; upload progress and report)
       const nameInput = el('input', { type: 'text', id: 'task-name', autocomplete: 'off', maxlength: '200' });
       const jobSizeInput = el('input', { type: 'number', id: 'task-job-size', min: '1', step: '1', inputmode: 'numeric', 'aria-describedby': 'task-job-size-hint' });
       jobSizeInput.addEventListener('input', () => jobSizeInput.removeAttribute('aria-invalid'));
-      const newTask = el('section', { class: 'new-task card', 'aria-labelledby': 'h-new-task' },
-        el('h3', { id: 'h-new-task' }, t('tasks.new_title')),
+      const stagedBox = el('div', { class: 'staged', hidden: true });
+      const formBox = el('div', { class: 'nt-form' },
         el('div', { class: 'new-task-fields' },
           el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput),
           el('div', { class: 'field' },
             el('label', { for: 'task-job-size' }, t('tasks.job_size')), jobSizeInput,
             el('p', { class: 'hint', id: 'task-job-size-hint' }, t('tasks.job_size_hint')))),
-        drop, fileInput, folderInput, progressBox);
+        drop, stagedBox);
+      const closeBtn = el('button', { type: 'button', class: 'btn', id: 'new-task-close', onclick: () => newDlg.close() }, t('common.close'));
+      const closeX = el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), title: t('common.close'), onclick: () => newDlg.close() }, icon('close', 18));
+      const newDlg = el('dialog', { class: 'dialog wide new-task-dialog', 'aria-label': t('tasks.new_title') },
+        el('div', { class: 'dialog-body' },
+          el('div', { class: 'dlg-head' }, el('h2', null, t('tasks.new_title')), closeX),
+          formBox, progressBox, reportBox,
+          el('div', { class: 'form-actions' }, closeBtn)));
+      newDlg.addEventListener('cancel', (e) => { if (uploading) e.preventDefault(); }); // Esc must not hide a running upload
+
+      function setStage(stage) {
+        formBox.hidden = stage !== 'form';
+        progressBox.hidden = stage !== 'uploading';
+        closeBtn.hidden = stage === 'uploading';
+        closeX.hidden = stage === 'uploading';
+      }
+
+      function drawStaged() {
+        stagedBox.hidden = !staged;
+        drop.hidden = !!staged;
+        if (!staged) { stagedBox.replaceChildren(); return; }
+        stagedBox.replaceChildren(
+          icon('images', 28),
+          el('strong', null, tn('images.staged', staged.length)),
+          el('div', { class: 'drop-actions' },
+            el('button', { type: 'button', class: 'btn primary', id: 'new-task-create', onclick: () => startUpload(staged) }, t('tasks.create')),
+            el('button', { type: 'button', class: 'btn', onclick: () => { staged = null; drawStaged(); } }, t('images.change_files'))));
+      }
+
+      function openNewTask(entries) {
+        if (!uploading) {
+          reportBox.replaceChildren();
+          const files = entries ? usable(entries) : [];
+          staged = files.length ? files : null;
+          drawStaged();
+          setStage('form');
+          jobSizeInput.removeAttribute('aria-invalid');
+        }
+        if (!newDlg.open) newDlg.showModal();
+        nameInput.focus();
+      }
 
       node.append(
         el('h2', { id: 'h-images' }, t('step.images')),
-        el('p', { class: 'muted' }, t('images.intro')),
-        el('h3', { class: 'section-title' }, t('tasks.title')),
-        el('p', { class: 'muted' }, t('tasks.intro')),
         tasksBox,
-        newTask,
-        reportBox,
-        gridTitle,
-        filterBox,
+        newDlg, fileInput, folderInput,
+        el('div', { class: 'grid-head' }, gridTitle, filterBox),
         grid.node);
 
       const reload = () => { loadTasks(); grid.reload(); };
