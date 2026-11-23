@@ -41,7 +41,8 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
             {
                 "number": card["number"],
                 "model": card["model"],
-                "label": spec.label if spec else card["model"],
+                "label": card.get("label") or (spec.label if spec else card["model"]),
+                "public": card.get("source") == "public",
                 "task_kind": kind,
                 "current": card.get("current", False),
                 "metric": card.get("metric"),
