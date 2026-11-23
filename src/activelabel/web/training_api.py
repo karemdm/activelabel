@@ -43,6 +43,7 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
         "fold": config.fold,
         "start": config.start,
         "mode": config.mode,
+        "metric": config.metric,
     }
 
 
@@ -79,6 +80,35 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
         "common": [p.as_dict() for p in COMMON_PARAMS],
         "metrics": {kind: {"choices": list(v[0]), "default": v[1]} for kind, v in METRICS.items()},
     }
+
+
+@router.get("/training/environment")
+def environment(state: AppState = STATE) -> dict[str, Any]:
+    """Packages installed in the training environment and the GPU found (nothing is installed here)."""
+    from activelabel.training.environment import TrainingEnvironment
+
+    env = TrainingEnvironment(state.settings.workspace)
+    gpu = env.gpu()
+    installed: dict[str, str] = env.installed() if env.exists() else {}
+    return {
+        "exists": env.exists(),
+        "packages": installed,
+        "gpu": None if gpu is None else gpu.as_dict(),
+    }
+
+
+@router.get("/projects/{project_id}/runs/{number}/log")
+def run_log(project_id: int, number: int, lines: int = 200, state: AppState = STATE) -> dict[str, Any]:
+    """The last ``lines`` lines of a run's log (1..2000)."""
+    store = _store(state, project_id)
+    try:
+        folder = store._require(number)  # noqa: SLF001 - folder of an existing run
+    except RunNotFound:
+        raise HTTPException(404, "This training run does not exist.") from None
+    path = folder / "log.txt"
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    tail = text.splitlines()[-max(1, min(int(lines), 2000)) :]
+    return {"lines": tail}
 
 
 @router.get("/projects/{project_id}/runs")

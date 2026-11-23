@@ -91,3 +91,23 @@ def test_cancel_queued_run_and_unknown(tmp_path):
     client.post(RUNS, json={"dataset": 1, "model": "yolov8n"})
     assert client.post(f"{RUNS}/1/cancel").json()["status"] == "cancelled"
     assert client.post(f"{RUNS}/7/cancel").status_code == 404
+
+
+def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
+    from activelabel.training import environment
+
+    client, state = _setup(tmp_path)
+    run = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).json()
+    assert run["metric"] == "map50_95"  # filled with the default of the model's kind
+    folder = RunStore(state.store.dir(1)).path(1)
+    (folder / "log.txt").write_text("\n".join(f"line {k}" for k in range(300)), encoding="utf-8")
+    assert client.get(f"{RUNS}/1/log", params={"lines": 3}).json()["lines"] == [
+        "line 297",
+        "line 298",
+        "line 299",
+    ]
+    assert client.get(f"{RUNS}/9/log").status_code == 404
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu", lambda self: None)
+    monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: False)
+    body = client.get("/api/training/environment").json()
+    assert body == {"exists": False, "packages": {}, "gpu": None}
