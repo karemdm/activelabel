@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from functools import cache
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +16,27 @@ SUPPORTED = ("en", "pt")
 DEFAULT = "en"
 
 _DIR = Path(__file__).parent
+_CACHE: dict[str, tuple[tuple[int, int], dict[str, str]]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
-@cache
 def _load(lang: str) -> dict[str, str]:
-    data = json.loads((_DIR / f"{lang}.json").read_text(encoding="utf-8"))
-    return {str(k): str(v) for k, v in data.items()}
+    """Messages of one language file, read again whenever the file changes.
+
+    A running server keeps up with an update of the code (``git pull``): the page and its
+    JavaScript are read from disk on each request, so the texts must be too.
+    """
+    path = _DIR / f"{lang}.json"
+    info = path.stat()
+    stamp = (info.st_mtime_ns, info.st_size)
+    with _CACHE_LOCK:
+        cached = _CACHE.get(lang)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        data = json.loads(path.read_text(encoding="utf-8"))
+        loaded = {str(k): str(v) for k, v in data.items()}
+        _CACHE[lang] = (stamp, loaded)
+        return loaded
 
 
 def messages(lang: str) -> dict[str, str]:

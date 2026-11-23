@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 
 import pytest
@@ -56,3 +58,29 @@ def test_fallbacks():
 )
 def test_pick_language(query, cookie, accept, default, expected):
     assert i18n.pick_language(query, cookie, accept, default) == expected
+
+
+def test_messages_follow_changes_to_the_files(tmp_path, monkeypatch):
+    """A running server picks up new texts after an update (the screen code is read from disk too)."""
+    (tmp_path / "en.json").write_text(json.dumps({"a": "A"}), encoding="utf-8")
+    (tmp_path / "pt.json").write_text(json.dumps({"a": "Á"}), encoding="utf-8")
+    monkeypatch.setattr(i18n, "_DIR", tmp_path)
+    monkeypatch.setattr(i18n, "_CACHE", {})
+    assert i18n.messages("pt") == {"a": "Á"}
+    (tmp_path / "pt.json").write_text(json.dumps({"a": "Á", "b": "Bê"}), encoding="utf-8")
+    stamp = (tmp_path / "pt.json").stat().st_mtime_ns + 10**9
+    os.utime(tmp_path / "pt.json", ns=(stamp, stamp))
+    assert i18n.messages("pt") == {"a": "Á", "b": "Bê"}
+    assert i18n.messages("en") == {"a": "A"}  # English filled from its own file, unchanged
+
+
+def test_every_key_the_screen_uses_exists():
+    """Keys written literally in app.js and the templates (dynamic ones are checked by their tests)."""
+    web = Path(i18n.__file__).parents[1] / "web"
+    js = (web / "static" / "app.js").read_text(encoding="utf-8")
+    html = "".join(p.read_text(encoding="utf-8") for p in (web / "templates").glob("*.html"))
+    used = set(re.findall(r"(?<![\w.])tr?\(\s*'([A-Za-z0-9_.]+)'", js)) | set(
+        re.findall(r"(?<![\w.])t\(\s*['\"]([A-Za-z0-9_.]+)['\"]", html)
+    )
+    assert len(used) > 100
+    assert sorted(used - set(load("en"))) == []

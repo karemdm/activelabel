@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,25 @@ def compute_asset_version() -> str:
     return digest.hexdigest()[:10]
 
 
-ASSET_VERSION = compute_asset_version()
+_VERSION: dict[str, Any] = {"stamp": None, "value": ""}
+_VERSION_LOCK = threading.Lock()
+
+
+def asset_version() -> str:
+    """:func:`compute_asset_version`, computed again only when a static file changed.
+
+    The static files are served from disk, so after an update of the code (``git pull``) a running
+    server already serves the new ones; their URLs must change too, or browsers keep old copies.
+    """
+    stamp = tuple(
+        (p.as_posix(), p.stat().st_mtime_ns, p.stat().st_size)
+        for p in sorted(STATIC_DIR.rglob("*"))
+        if p.is_file()
+    )
+    with _VERSION_LOCK:
+        if _VERSION["stamp"] != stamp:
+            _VERSION.update(stamp=stamp, value=compute_asset_version())
+        return str(_VERSION["value"])
 
 
 def _bound_translate(lang: str) -> Callable[..., str]:
@@ -55,7 +74,7 @@ def render(request: Request, template: str, status_code: int = 200, **extra: Any
         "languages": SUPPORTED,
         "t": _bound_translate(lang),
         "messages": messages(lang),
-        "asset_version": ASSET_VERSION,
+        "asset_version": asset_version(),
         "vl": {"lang": lang, "locale": "pt-BR" if lang == "pt" else "en", **extra.pop("vl", {})},
         **extra,
     }

@@ -64,11 +64,23 @@ def test_non_numeric_project_is_a_friendly_404(client, path):
 
 def test_asset_version_in_urls(client):
     html = client.get("/").text
-    assert f"/static/app.css?v={pages.ASSET_VERSION}" in html
-    assert f"/static/app.js?v={pages.ASSET_VERSION}" in html
-    assert re.fullmatch(r"[0-9a-f]{10}", pages.ASSET_VERSION)
-    assert pages.compute_asset_version() == pages.ASSET_VERSION
+    version = pages.asset_version()
+    assert f"/static/app.css?v={version}" in html
+    assert f"/static/app.js?v={version}" in html
+    assert re.fullmatch(r"[0-9a-f]{10}", version)
+    assert pages.compute_asset_version() == version
     assert client.get("/static/app.js").status_code == 200
+
+
+def test_asset_version_follows_changed_files(tmp_path, monkeypatch):
+    """After an update under a running server, the URLs change so browsers fetch the new files."""
+    (tmp_path / "app.js").write_text("one", encoding="utf-8")
+    monkeypatch.setattr(pages, "STATIC_DIR", tmp_path)
+    monkeypatch.setattr(pages, "_VERSION", {"stamp": None, "value": ""})
+    first = pages.asset_version()
+    assert pages.asset_version() == first
+    (tmp_path / "app.js").write_text("two!", encoding="utf-8")
+    assert pages.asset_version() != first
 
 
 def test_language_cookie_and_default(client):
