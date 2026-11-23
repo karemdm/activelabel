@@ -28,6 +28,7 @@ dependencies = [
     "importlib-metadata<8",
     # secrets of the annotation tools (passwords, tokens) live in the system keyring, never in files
     "keyring>=24",
+    "psutil>=5.9",  # stop the process tree of a cancelled install or training
 ]
 
 [project.optional-dependencies]
