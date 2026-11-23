@@ -114,6 +114,9 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
                 index=lb.track,
                 confidence=lb.score,
                 points=[(p[0], p[1]) if p[2] > 0 else (float("nan"), float("nan")) for p in lb.keypoints],
+                # FiftyOne has no visibility nor box for keypoints: kept aside so an edit does not lose them
+                visibility=[int(p[2]) if len(p) > 2 else 2 for p in lb.keypoints],
+                box=list(lb.bbox) if lb.bbox else None,
             )
             for lb in labels
             if lb.keypoints

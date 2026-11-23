@@ -73,19 +73,35 @@ def _polylines(value: Any) -> list[Label]:
     return out
 
 
+def _inside(inner: list[float], outer: list[float]) -> bool:
+    """Whether box ``inner`` ``[x, y, w, h]`` lies within box ``outer`` (small rounding allowed)."""
+    eps = 1e-4
+    return (
+        inner[0] >= outer[0] - eps
+        and inner[1] >= outer[1] - eps
+        and inner[0] + inner[2] <= outer[0] + outer[2] + eps
+        and inner[1] + inner[3] <= outer[1] + outer[3] + eps
+    )
+
+
 def _keypoints(value: Any) -> list[Label]:
     out: list[Label] = []
     for kp in value.keypoints or []:
         if not kp.label:
             continue
         points: list[list[float]] = []
-        for x, y in kp.points or []:
+        sent = list(getattr(kp, "visibility", None) or [])  # written by fiftyone_bridge
+        for i, (x, y) in enumerate(kp.points or []):
             if _is_nan(x) or _is_nan(y):
                 points.append([0.0, 0.0, 0.0])
-            else:
-                points.append([_r(x), _r(y), 2.0])
+            else:  # an occluded point (1) stays occluded; a new or restored point is visible (2)
+                points.append([_r(x), _r(y), 1.0 if i < len(sent) and sent[i] == 1 else 2.0])
         visible = [p[:2] for p in points if p[2] > 0]
-        out.append(Label(str(kp.label), bbox=_box_of(visible), keypoints=points, track=_track(kp)))
+        box = _box_of(visible)
+        kept = getattr(kp, "box", None)  # the original box (a pose box is often larger than its points)
+        if box and kept and len(kept) == 4 and _inside(box, [float(v) for v in kept]):
+            box = [_r(float(v)) for v in kept]
+        out.append(Label(str(kp.label), bbox=box, keypoints=points, track=_track(kp)))
     return out
 
 

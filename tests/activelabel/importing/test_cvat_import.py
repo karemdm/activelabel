@@ -409,3 +409,15 @@ def test_import_project_failure_rolls_back(tasks_remote, tmp_path):
     with pytest.raises(ToolError, match="no images"):
         run(store, tmp_path, kind="project", remote_id="1")
     assert store.list() == []
+
+
+def test_an_address_that_is_not_the_cvat_api(monkeypatch):
+    class Page(FakeResp):
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1")
+
+    page = Page(200, content=b"<html>", content_type="text/html")
+    fake = FakeSession({("GET", "/api/projects"): page}, BASE)
+    monkeypatch.setattr(requests, "Session", lambda: fake)
+    with pytest.raises(ToolError, match="did not answer as the CVAT API"):
+        ci.list_remote(SETTINGS)

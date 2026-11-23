@@ -131,6 +131,10 @@ def test_full_flow(env):
     saved = load_annotations(env.state.store.dir(env.pid))
     assert len(saved.images[env.ids[0]]) == 2 and env.state.store.get(env.pid).classes == ["cat", "Bird"]
     assert env.client.post(f"{base}/pull").status_code == 409
+    assert env.client.post(f"{base}/discard").status_code == 409  # applied: nothing to discard
+    assert env.client.post(f"{base}/apply").status_code in (400, 409)  # a second click changes nothing
+    listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
+    assert listed[0]["status"] == "applied"
 
     r = env.client.request("DELETE", base, json={"delete_remote": True})
     assert r.json() == {"closed": True} and env.tool.closed[0][1] is True

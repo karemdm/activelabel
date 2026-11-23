@@ -792,3 +792,33 @@ def test_server_answers(cvat: FakeCvat) -> None:
     assert CvatRemote().server_answers(SETTINGS) is True
     cvat.fail[("GET", "/api/server/about")] = 500
     assert CvatRemote().server_answers(SETTINGS) is False
+
+
+@pytest.mark.parametrize(
+    ("task", "label", "kept_type"),
+    [
+        (
+            Task.SEGMENTATION,
+            Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], polygons=[[[0.1, 0.1], [0.3, 0.1], [0.3, 0.3]]]),
+            "rectangle",
+        ),
+        (Task.KEYPOINTS, Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], keypoints=[[0.2, 0.2, 2]]), "rectangle"),
+    ],
+)
+def test_push_keeps_shapes_the_project_cannot_see(task, label, kept_type):
+    """A shape of a known class but of a type this project does not read stays in CVAT."""
+    ids = {"cat": 7}
+    unseen = {
+        "rectangle": {"type": "rectangle", "label_id": 7, "frame": 0, "points": [10, 10, 30, 30]},
+        "points": {"type": "points", "label_id": 7, "frame": 0, "points": [5, 5]},
+    }[kept_type]
+    shapes, _ = cvat_remote._merge_frame([unseen], [], [label], ids, 0, (100, 100), task)
+    assert unseen in shapes and len(shapes) == 2
+    removed, _ = cvat_remote._merge_frame([unseen], [], [], ids, 0, (100, 100), task)
+    assert removed == [unseen]  # nothing written for this frame: the unseen shape is still not removed
+
+
+def test_push_still_removes_a_deleted_box():
+    old = {"type": "rectangle", "label_id": 7, "frame": 0, "points": [10, 10, 30, 30]}
+    shapes, _ = cvat_remote._merge_frame([old], [], [], {"cat": 7}, 0, (100, 100), Task.DETECTION)
+    assert shapes == []

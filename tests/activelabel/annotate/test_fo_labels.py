@@ -68,3 +68,24 @@ def test_track_round_trip_through_fiftyone():
     labels = [Label("a", bbox=[0.1, 0.1, 0.2, 0.2], track=9)]
     back = labels_from_fo(_ground_truth(Task.DETECTION, labels), Task.DETECTION)
     assert back[0].track == 9
+
+
+def test_keypoint_visibility_and_pose_box_survive_a_round_trip():
+    from activelabel.fiftyone_bridge import _ground_truth
+    from activelabel.labels import Label
+
+    pose = Label(
+        "person",
+        bbox=[0.1, 0.1, 0.6, 0.8],  # the pose box is larger than the points
+        keypoints=[[0.2, 0.3, 2], [0.4, 0.5, 1], [0.0, 0.0, 0], [0.5, 0.6, 2]],
+    )
+    sent = _ground_truth(Task.KEYPOINTS, [pose])
+    (back,) = labels_from_fo(sent, Task.KEYPOINTS)
+    assert [p[2] for p in back.keypoints] == [2.0, 1.0, 0.0, 2.0]  # the occluded point stays occluded
+    assert back.bbox == pose.bbox
+
+    sent.keypoints[0].points[3] = (0.95, 0.95)  # an edit moves a point outside the old box
+    (moved,) = labels_from_fo(sent, Task.KEYPOINTS)
+    assert moved.bbox == [0.2, 0.3, 0.75, 0.65]  # the box follows the points again
+    plain = fo.Keypoints(keypoints=[fo.Keypoint(label="p", points=[(0.2, 0.3)])])  # older datasets
+    assert labels_from_fo(plain, Task.KEYPOINTS)[0].keypoints == [[0.2, 0.3, 2.0]]

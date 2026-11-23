@@ -76,7 +76,10 @@ class _Http:
             raise ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
         if r.status_code >= 400:
             raise ToolError(f"CVAT error {r.status_code} on {path}.")
-        return r.json()
+        try:
+            return r.json()
+        except ValueError:  # e.g. the address of a web page that is not CVAT
+            raise ToolError(f"{self.url} did not answer as the CVAT API: check the address.") from None
 
     def paged(self, path: str, params: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         """Items of a paginated list, up to ``limit``."""

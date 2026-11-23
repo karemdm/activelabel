@@ -316,3 +316,19 @@ def test_pull_diff_matches_annotation_diff(env):
     set_remote(env, "img1.png", CAT2)
     p = plan(env)
     assert p["diff_pull"] == diffing.diff(env.dir, [env.ids[1]], {env.ids[1]: CAT2}, env.project)
+
+
+def test_a_local_edit_after_the_plan_of_an_unchanged_image_is_sent_next_time(env):
+    first = plan(env)
+    assert first["unchanged"] == 3
+    set_local(env, 0, CAT2)  # a review applied after the comparison, before the apply
+    apply(env, first["plan_id"])
+    after = plan(env)
+    assert after["push"] == 1 and after["unchanged"] == 2 and not after["conflicts"]
+
+
+def test_a_remote_edit_after_the_plan_of_an_unchanged_image_is_pulled_next_time(env):
+    first = plan(env)
+    set_remote(env, "img1.png", CAT2)
+    apply(env, first["plan_id"])
+    assert plan(env)["pull"] == 1
