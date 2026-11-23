@@ -366,3 +366,33 @@ def test_deleted_local_task_is_deleted_remotely_on_request(synced):
     assert [t.name for t in env.remote.tasks(SETTINGS, env.rid)] == ["Alpha"]
     again = plan(env)
     assert (again["tasks_delete"], again["tasks_new"], again["unchanged"]) == ([], [], 5)
+
+
+def test_deleted_frame_of_a_remote_task_keeps_its_position(synced):
+    env = synced
+    new = env.remote.new_task(
+        env.rid, "Gaps", [("g0.png", CAT), ("g1.png", CAT2), ("g2.png", []), ("g3.png", [])], job_size=2
+    )
+    env.remote.set_frames(SETTINGS, new, [1], [])  # deleted in the tool before the import
+    p = plan(env)
+    assert [t["remote_task"] for t in p["tasks_new"]] == [new]
+    apply(env, p["plan_id"])
+    task = TaskStore(env.dir).load()[-1]
+    records = Manifest(env.dir).load()
+    assert [records[i].name for i in task.images] == [
+        "g0.png",
+        "g1.png",
+        "g2.png",
+        "g3.png",
+    ]  # same positions
+    assert records[task.images[1]].status == "excluded"
+    assert records[task.images[1]].excluded_reason == "deleted in cvat"
+    assert links.get_link(env.dir, "cvat")["items"][task.images[1]].get("removed") is True
+    again = plan(env)
+    assert (
+        again["tasks_new"],
+        again["pull"],
+        again["push"],
+        again["remove_remote"],
+        again["restore_remote"],
+    ) == ([], 0, 0, 0, 0)

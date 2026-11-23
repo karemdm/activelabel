@@ -27,8 +27,12 @@ from activelabel.images.manifest import Manifest
 from activelabel.importing import common
 from activelabel.importing.common import MAX_ITEMS, Origin, RemoteNotFound
 from activelabel.jobs import Progress
-from activelabel.labels import Label
-from activelabel.projects import ProjectStore
+from activelabel.labels import Label, load_annotations
+from activelabel.projects import ProjectStore, clean_classes
+from activelabel.storage import write_json
+from activelabel.sync import engine as sync_engine
+from activelabel.sync.registry import get_remote
+from activelabel.sync.remote import RemoteProject
 from activelabel.tasks import Task
 
 TIMEOUT = 30
@@ -143,7 +147,7 @@ def list_remote(settings: ToolSettings, search: str = "") -> list[dict[str, Any]
 
 
 def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str, Any]:
-    """Name and labels of one remote project or task.
+    """Name and labels of one remote project or task (a task also says its ``project_id``, or None).
 
     Raises:
         RemoteNotFound: it does not exist.
@@ -156,10 +160,13 @@ def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str,
     http = _Http(settings)
     item = http.get(f"/api/{kind}s/{int(remote_id)}")
     param = "project_id" if kind == "project" else "task_id"
-    return {
+    found: dict[str, Any] = {
         "name": str(item.get("name") or f"CVAT {kind} {remote_id}"),
         "classes": http.label_names(item, param),
     }
+    if kind == "task":
+        found["project_id"] = str(item["project_id"]) if item.get("project_id") is not None else None
+    return found
 
 
 # -- FiftyOne side (replaced in unit tests) ---------------------------------------
@@ -231,6 +238,85 @@ def _walk_labels(
             yield image_id, _labels_of(sample.values)
 
 
+def _read_labels(
+    remote: RemoteProject, settings: ToolSettings, rid: str, only: list[str] | None
+) -> dict[str, list[Label]]:
+    """Labels per remote item key, to choose the task of the project (tags when there are no shapes)."""
+    found = remote.items(settings, rid, Task.DETECTION, only)
+    labels = {it.key: list(it.labels) for it in found}
+    if found and not any(labels.values()):
+        tags = {it.key: list(it.labels) for it in remote.items(settings, rid, Task.CLASSIFICATION, only)}
+        if any(tags.values()):
+            return tags
+    return labels
+
+
+def _import_with_tasks(
+    store: ProjectStore,
+    settings: ToolSettings,
+    origin: Origin,
+    rid: str,
+    only: list[str] | None,
+    declared: list[str],
+    name: str,
+    description: str,
+    hint: Task,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Import a CVAT project (or ``only`` some of its tasks) with the sync engine: tasks, jobs, link."""
+    remote = get_remote("cvat")
+    progress.update(message="Reading annotations")
+    labels = _read_labels(remote, settings, rid, only)
+    if not labels:
+        raise ToolError("CVAT returned no images for this " + origin.kind + ".")
+    plan = common.plan_task(labels, hint)
+    names = list(declared) if plan.task is not Task.KEYPOINTS else []
+    for items in plan.labels.values():
+        names += [lb.label for lb in items]
+    progress.check()
+    with common.new_project(store, origin, name, description, hint) as project:
+        store.update(project.id, task=plan.task, classes=clean_classes(names))
+        summary = sync_engine.make_plan(
+            store,
+            project.id,
+            "cvat",
+            settings,
+            remote,
+            common.FixedMessage(progress, "Comparing with CVAT"),
+            create=False,
+            remote_id=rid,
+            scope="project",
+            remote_tasks=only,
+        )
+        progress.update(0, len(labels), "Downloading images")
+        applied = sync_engine.apply_plan(
+            store, project.id, "cvat", settings, remote, summary["plan_id"], {}, None, progress
+        )
+        if not applied["tasks_imported"]:
+            raise ToolError("CVAT returned no images for this " + origin.kind + ".")
+        project_dir = store.dir(project.id)
+        write_json(project_dir / common.ORIGIN_FILE, origin.as_dict())
+        done = store.get(project.id)
+        saved = load_annotations(project_dir)
+        added = len(Manifest(project_dir).all())
+        problems = list(plan.problems)
+        if added < len(labels):
+            message = "Identical or unreadable images were not added."
+            problems.append(Problem("info", "images_missing", message, len(labels) - added))
+        return {
+            "project_id": project.id,
+            "name": done.name,
+            "task": done.task.value,
+            "images_added": added,
+            "images_rejected": 0,
+            "labels": sum(len(v) for v in saved.images.values()) if saved else 0,
+            "classes": list(done.classes),
+            "problems": [p.as_dict() for p in problems],
+            "tasks": applied["tasks_imported"],
+            "linked": True,
+        }
+
+
 def import_project(
     store: ProjectStore,
     settings: ToolSettings,
@@ -245,6 +331,10 @@ def import_project(
 ) -> dict[str, Any]:
     """Run the whole import (see docs/IMPORT.md); returns the job result.
 
+    A project, or a task that belongs to one, goes through the synchronisation engine (one local task
+    per CVAT task, linked, nothing left to do in the next sync); a task outside any project is
+    downloaded with FiftyOne into a single local task.
+
     Raises:
         ToolError: login, network or CVAT problems (readable message).
         Cancelled: cancelled by the user; the half-created project is removed.
@@ -252,6 +342,12 @@ def import_project(
     progress.update(message="Listing CVAT data")
     remote = check_remote(settings, kind, remote_id)
     origin = Origin("cvat", settings.url.strip().rstrip("/"), str(remote_id), kind, remote["name"])
+    parent = str(remote_id) if kind == "project" else remote.get("project_id")
+    if parent:
+        only = None if kind == "project" else [str(remote_id)]
+        return _import_with_tasks(
+            store, settings, origin, parent, only, remote["classes"], name, description, task, progress
+        )
     data_dir = _tmp_dir(workspace)
     data_dir.mkdir(parents=True, exist_ok=True)
     try:

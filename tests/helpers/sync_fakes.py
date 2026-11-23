@@ -104,6 +104,16 @@ class FakeRemote:
         keys = [k for k in self.projects[rid]["items"] if k.partition(":")[0] == str(task_id)]
         return sorted(keys, key=lambda k: int(k.partition(":")[2]))
 
+    def frames(self, settings, task_id):
+        """``(file name, deleted)`` of every frame of a task, in order."""
+        self._check()
+        rid = next(r for r, tasks in self.task_meta.items() if str(task_id) in tasks)
+        deleted = self.task_meta[rid][str(task_id)]["deleted"]
+        return [
+            (self.projects[rid]["items"][k].file_name, int(k.partition(":")[2]) in deleted)
+            for k in self.task_keys(rid, task_id)
+        ]
+
     def deleted_frames(self, rid, task_id) -> list[int]:
         return sorted(self.task_meta[rid][str(task_id)]["deleted"])
 

@@ -87,6 +87,8 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
             task=body.task,
             progress=progress,
         )
+        if "linked" in result:  # the importer linked it itself (CVAT project: tasks and jobs)
+            return result
         try:  # the link is a convenience: a failure here must not undo an import that worked
             linked = sync_engine.link_after_import(
                 store, int(result["project_id"]), body.tool, settings, get_remote(body.tool)
