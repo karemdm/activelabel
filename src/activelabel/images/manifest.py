@@ -14,6 +14,16 @@ from typing import Any
 
 from activelabel.storage import read_json, write_json
 
+_LOCKS: dict[Path, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.RLock:
+    """One lock per file, shared by every Manifest object of the same project."""
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(path.resolve(), threading.RLock())
+
+
 ACTIVE = "active"
 EXCLUDED = "excluded"
 
@@ -61,7 +71,7 @@ class Manifest:
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
         self.path = project_dir / "images.json"
-        self._lock = threading.RLock()
+        self._lock = _lock_for(self.path)
 
     def load(self) -> dict[str, ImageRecord]:
         """Every image by id, in the order they were added."""

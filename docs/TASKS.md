@@ -1,0 +1,133 @@
+# ActiveLabel — tasks and jobs (aligned with CVAT)
+
+A project is organised like a CVAT project:
+
+```
+project ── task 1 ── job 1, job 2, …
+        ├─ task 2 ── job 1, …
+        └─ …
+```
+
+- **Task**: a package of images added together (one upload = one new task). A project has any
+  number of tasks; adding images always means adding a task. Like in CVAT, the images of a task are
+  fixed once it is created (an image can still be excluded, which CVAT calls a deleted frame).
+- **Job**: a fixed-size chunk of a task, in the task's image order. The size ("images per job") is
+  chosen when the task is created and never changes, like CVAT's `segment_size`. Empty = one job
+  with every image of the task. Example: 100 images, 10 per job → jobs 1–10.
+
+Names in the interface: *Task* and *Job* in every language (as in CVAT). The project's annotation
+kind (classification, detection…) is called **Type**, and the footer of background processing is
+called **Activities**. In the code, `Project.task` (the type) and `activelabel.jobs` (background
+processing) keep their names; the new concepts live in `activelabel.tasks_store` (`ImageTask`,
+`TaskJob`) to avoid confusion.
+
+## Storage
+
+`<project>/tasks.json`:
+
+```json
+{"next_id": 3,
+ "tasks": [
+   {"id": 1, "name": "Task 1", "created": "<iso>", "job_size": 10, "images": ["<image id>", "…"]},
+   {"id": 2, "name": "Field trip", "created": "<iso>", "job_size": null, "images": ["…"]}
+ ]}
+```
+
+- Every image of the project (active or excluded) is in exactly one task; `images` keeps the order
+  of the upload (the order of the files in the upload, as in CVAT).
+- Jobs are not stored: job *k* (1-based) of a task is `images[(k-1)*job_size : k*job_size]`.
+- Ids are never reused; a deleted task's id is not given again.
+- **Migration**: a project without `tasks.json` that has images gets one task, `"Task 1"`, with
+  every image in manifest order and `job_size: null`. Done on first read, then saved.
+- Deleting a task deletes its images (files, annotations, thumbnails), after confirmation.
+- Deleting images (the existing *delete* action) removes them from their task; a task left empty
+  is removed.
+
+## HTTP API
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| GET | `/api/projects/{id}/tasks` | | `{tasks: [task view]}` |
+| POST | `/api/projects/{id}/tasks` | multipart: `name`, `job_size` (optional), `files` | `{task: task view, report: <upload report>}` |
+| POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
+| PATCH | `/api/projects/{id}/tasks/{tid}` | `{name}` | task view |
+| DELETE | `/api/projects/{id}/tasks/{tid}` | `{confirm: true}` | `{deleted: n images}` |
+
+Task view: `{id, name, created, job_size, images, active, annotated, jobs: [{n, first, last,
+images, active, annotated}], remote?: {...}}` (`first`/`last`: 1-based positions in the task;
+`remote` only when the project is linked to CVAT, see below).
+
+Chunked upload: the browser sends big uploads in chunks. The first chunk creates the task
+(`POST …/tasks` returns its id), later chunks append with `POST …/tasks/{tid}/images` while the
+task is `open` (`"open": true` in tasks.json until the browser calls `PATCH …/tasks/{tid}`
+`{open: false}`, or the next task is created). Once closed, the images of a task are fixed.
+
+`GET /api/projects/{id}/images` gains `task` and `job` query parameters (filter). The existing
+`POST /api/projects/{id}/images` (upload) creates a new task named after the upload time, for
+compatibility.
+
+## CVAT mirror
+
+A project linked to CVAT has one **mirror project** there: same name rule as today, one CVAT task
+per ActiveLabel task (same name, same images in the same order, `segment_size = job_size`), so the
+jobs match one to one. The link (`links.json`, docs/SYNC.md) records the mapping:
+
+```json
+"tasks": {"<task id>": {"remote_task": 123, "jobs": {"1": 456, "2": 457}}}
+```
+
+and items keep the key `"<remote task>:<frame>"`.
+
+**Sending to CVAT is synchronising.** The annotation sessions that created separate 50-image CVAT
+tasks are replaced, for CVAT, by the sync with the mirror project. The person chooses the scope:
+
+- **Project**: every task.
+- **Task**: one task.
+- **Job**: one job of a task.
+
+`POST /api/projects/{id}/sync/cvat` body `{scope: "project"|"task"|"job", task?, job?}` → plan
+limited to the images of the scope; apply as today. Rules:
+
+The sync covers **images and annotations**, in both directions, for what was **added, removed or
+modified** on each side since the last sync (three-way comparison with the state recorded in the
+link, as in docs/SYNC.md):
+
+| What changed | in ActiveLabel → CVAT | in CVAT → ActiveLabel |
+| --- | --- | --- |
+| Task added | created in CVAT whole (all its images, in order, `segment_size = job_size`) | new local task: its images are downloaded, `job_size = segment_size` (project scope) |
+| Task deleted | the CVAT task is deleted | the local task's images are excluded (reason "deleted in CVAT"); nothing is deleted locally |
+| Image removed (excluded or deleted) | the frame is deleted in CVAT (`deleted_frames`) | the image is excluded (reason "deleted in CVAT") |
+| Image restored | the frame is restored in CVAT | the image is restored |
+| Annotations added / modified / removed (objects of an image) | written to CVAT | written to the project |
+
+- The link records, per image, the labels **and** whether it was removed at the last sync, so each
+  side's change is known. An image changed on both sides in different ways (e.g. labels edited in
+  CVAT and the image removed in ActiveLabel, or different labels on both sides) is a **conflict**:
+  the person chooses per image (or all one side).
+- The review before applying lists, per direction: tasks added/deleted, images added/removed/
+  restored, and annotations per class (added, modified, removed), with examples.
+- A local task not yet in CVAT is created there whole (CVAT needs every image of a task when it is
+  created), even when the scope is one of its jobs; its jobs then exist on both sides.
+- Deletions in CVAT never delete local files: they exclude (reversible). Deleting a CVAT task from
+  ActiveLabel asks for confirmation in the review.
+- Backup of the project annotations before applying, as in docs/SYNC.md.
+
+The task view's `remote` part shows, per job, the CVAT job id, link, state (`new`, `in progress`,
+`completed`, `rejected`), stage (`annotation`, `validation`, `acceptance`) and assignee, read from
+`GET /api/jobs?task_id=…` when the tasks are listed (cached for a minute).
+
+## Import from CVAT
+
+Importing a CVAT project creates one local task per CVAT task (same name, same order of frames,
+`job_size = segment_size`) and links them (mapping above). Importing a single CVAT task creates a
+project with that one task, linked to the task's project in CVAT when it has one.
+
+## Interface
+
+- **Images** step: the project's tasks as cards (name, images, annotated, jobs). *New task*: name,
+  images per job (optional), files or folder. A task card lists its jobs (images 1–10, 11–20…;
+  CVAT state when linked) and opens the image grid filtered on the task or job.
+- **Annotations** step, *Annotate*: tool + scope (project / task / job). For CVAT the button is
+  *Synchronise with CVAT* (plan, review, apply); for FiftyOne the session works as today, limited
+  to the scope.
+- Wherever images can be chosen (curation, annotate), the task and job filters are available.

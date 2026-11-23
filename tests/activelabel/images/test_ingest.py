@@ -213,3 +213,18 @@ def test_annotation_files_sent_with_images_are_listed(tmp_path):
 
     report = ingest_files(Manifest(tmp_path / "p"), [("labels.json", io.BytesIO(b"{}"))])
     assert report.other_files == ["labels.json"] and report.rejected == []
+
+
+def test_report_ids_are_exactly_the_images_stored_in_order(tmp_path):
+    manifest = Manifest(tmp_path / "p")
+    first = _bytes(tmp_path, "a.png", seed=1, fmt="PNG")
+    second = _bytes(tmp_path, "b.png", seed=2, fmt="PNG")
+    report = ingest_files(
+        manifest,
+        [("b.png", io.BytesIO(second)), ("a.png", io.BytesIO(first)), ("dup.png", io.BytesIO(first))],
+    )
+    stored = list(manifest.load())
+    assert report.ids == stored and len(report.ids) == 2 and report.duplicates == ["dup.png"]
+    assert manifest.get(report.ids[0]).name == "b.png"
+    again = ingest_files(manifest, [("a.png", io.BytesIO(first))])
+    assert again.ids == []
