@@ -47,7 +47,10 @@ FAKE_WORKER = textwrap.dedent(
         print(json.dumps({"event": "error", "message": "boom"}), flush=True)
         sys.exit(1)
     (out / "times.json").write_text(json.dumps([started, time.time()]))
-    results = {"best_epoch": 2, "val": {"accuracy": 1.0}, "test": None}
+    (out / "best.pt").write_text("weights")
+    (out / "last.pt").write_text("weights")
+    score = spec["params"].get("score", 1.0) + 0.01 * (spec["fold"] or 0)
+    results = {"best_epoch": 2, "val": {"accuracy": score}, "test": None}
     print(json.dumps({"event": "done", "results": results}), flush=True)
     """
 )
@@ -157,11 +160,96 @@ def test_failure_cleans_up(setup):
 def test_not_yet_supported_fails_before_install(setup):
     _, state, runner = setup
     store = RunStore(state.store.dir(1))
-    n = store.create(RunConfig(dataset=2, model="resnet18", fold="all"))["number"]
+    n = store.create(RunConfig(dataset=1, model="yolov8n"))["number"]
     runner.enqueue(1, n)
     run = wait_for(finished(store, n))
     assert run["status"] == "failed" and "comes later" in run["error"]
     assert not hasattr(runner.environment, "ensured")
+
+
+def composite(state, **kwargs):
+    config = RunConfig(model="resnet18", metric="accuracy", **{"dataset": 1, **kwargs})
+    return RunStore(state.store.dir(1)).create(config)["number"]
+
+
+def test_grid_search_ranks_and_keeps_best_weights(setup):
+    client, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = composite(state, mode="grid", params={"epochs": 2}, grid={"score": [0.3, 0.9, 0.5]})
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "done", run
+    assert [c["id"] for c in run["children"]] == ["c1", "c2", "c3"] and run["trainings"] == 3
+    assert [c["values"] for c in run["children"]] == [{"score": 0.3}, {"score": 0.9}, {"score": 0.5}]
+    assert all(c["status"] == "done" and c["best"]["epoch"] == 2 for c in run["children"])
+    assert run["best_child"] == "c2" and run["best"] == {"epoch": 2, "value": 0.9} and run["current"] is None
+    results = store.results(n)
+    assert [r["combo"] for r in results["ranking"]] == [2, 3, 1] and results["best_combo"] == 2
+    assert results["ranking"][0]["rank"] == 1 and results["ranking"][0]["std"] == 0.0
+    assert results["val"] == {"accuracy": 0.9} and results["metric"] == "accuracy"
+    assert (store.path(n) / "best.pt").exists() and (store.path(n) / "last.pt").exists()
+    assert not list(store.path(n).glob("c*/*.pt"))
+    assert [m["epoch"] for m in store.metrics(n)] == [1, 2] == [m["epoch"] for m in store.metrics(n, "c1")]
+    assert store.child_config(n, "c3").params == {"epochs": 2, "score": 0.5}
+    assert store.child_config(n, "c3").mode == "single" and store.results(n, "c1")["val"]["accuracy"] == 0.3
+    log = (store.path(n) / "log.txt").read_text()
+    assert "== c1: score=0.3 ==" in log and "== c3: score=0.5 ==" in log
+    assert tmp_dirs(runner) == [] and len(runner.environment.ensured) == 1
+    child = client.get(f"/api/projects/1/runs/{n}/children/c3").json()
+    assert child["values"] == {"score": 0.5} and child["config"]["params"]["score"] == 0.5
+    assert [m["epoch"] for m in child["metrics"]] == [1, 2] and child["results"]["val"]["accuracy"] == 0.5
+    assert client.get(f"/api/projects/1/runs/{n}/children/c9").status_code == 404
+    assert client.get(f"/api/projects/1/runs/{n}/children/cx").status_code == 404
+    detail = client.get(f"/api/projects/1/runs/{n}").json()
+    assert detail["results"]["best_child"] == "c2" and len(detail["metrics"]) == 2
+
+
+def test_all_folds_with_grid_mean_and_std(setup):
+    _, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = composite(state, dataset=2, fold="all", mode="grid", grid={"score": [0.8, 0.4]})
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "done", run
+    assert [(c["combo"], c["fold"]) for c in run["children"]] == [(1, 0), (1, 1), (2, 0), (2, 1)]
+    results = store.results(n)
+    top = results["ranking"][0]
+    assert top["combo"] == 1 and top["children"] == ["c1", "c2"] and results["folds"] == 2
+    assert top["mean"] == pytest.approx(0.805) and top["std"] == pytest.approx(0.005)
+    assert run["best_child"] == "c2" and run["best"]["value"] == pytest.approx(0.805)
+    folded = composite(state, dataset=2, fold="all")
+    runner.enqueue(1, folded)
+    run = wait_for(finished(store, folded))
+    assert run["status"] == "done" and [c["fold"] for c in run["children"]] == [0, 1]
+    assert run["children"][1]["values"] == {} and "fold 2" in (store.path(folded) / "log.txt").read_text()
+
+
+def test_grid_child_failure(setup):
+    _, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = composite(state, mode="grid", grid={"fake": ["fail", "ok"]})
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "done" and run["best_child"] == "c2"
+    assert run["children"][0]["status"] == "failed" and run["children"][0]["error"] == "boom"
+    assert store.results(n)["ranking"][-1]["mean"] is None
+    n = composite(state, mode="grid", grid={"fake": ["fail"], "epochs": [1, 2]})
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "failed" and "Every training" in run["error"] and "boom" in run["error"]
+
+
+def test_cancel_grid(setup):
+    client, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = composite(state, mode="grid", grid={"fake": ["sleep"], "epochs": [1, 2]})
+    runner.enqueue(1, n)
+    wait_for(lambda: (store.path(n) / "c1" / "metrics.jsonl").exists() and store.metrics(n, "c1"))
+    assert store.get(n)["current"] == "c1" and store.get(n)["epoch"] == 1
+    assert client.get(f"/api/projects/1/runs/{n}").json()["metrics"][0]["epoch"] == 1  # live child
+    assert client.post(f"/api/projects/1/runs/{n}/cancel").json()["status"] == "cancelled"
+    assert [c["status"] for c in store.get(n)["children"]] == ["cancelled", "cancelled"]
+    assert tmp_dirs(runner) == []
 
 
 def test_cancel_running(setup):
@@ -223,7 +311,7 @@ def test_build_spec_parts_and_folds(setup):
     assert len(spec["parts"]["val"]) == len(folded["folds"][1]) and spec["fold"] == 1
     assert len(spec["parts"]["train"]) == len(folded["folds"][0])
     config = RunConfig(dataset=2, model="resnet18", fold="all")
-    with pytest.raises(RunnerError, match="comes later"):
+    with pytest.raises(RunnerError, match="one child at a time"):
         build_spec(project_dir, config, model, run_dir, folded)
 
 

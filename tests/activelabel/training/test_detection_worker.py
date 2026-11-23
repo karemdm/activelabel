@@ -230,6 +230,9 @@ def test_warning_event(det_project, tmp_path):
     line = json.dumps({"event": "warning", "message": "boxes only"})
     with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
         for _ in range(2):
-            runner._handle(line, store, n, None, log, "val_map50_95", state)
+            target = runner_module._Target(
+                store.path(n), tmp_path / "log.txt", lambda **f: store.update(n, **f)
+            )
+            runner._handle(line, target, None, log, "val_map50_95", state)
     assert store.get(n)["warnings"] == ["boxes only"]
     assert (tmp_path / "log.txt").read_text(encoding="utf-8").count("boxes only") == 2

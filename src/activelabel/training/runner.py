@@ -5,6 +5,11 @@ A run goes through the phases ``environment`` (packages), ``preparing`` (the tem
 by JSON lines on stdout (see ``workers/``); the runner turns them into ``run.json``,
 ``metrics.jsonl``, ``results.json`` and ``log.txt``. Every download goes to a temporary folder that
 is removed when the run ends, whatever the outcome.
+
+A grid search or a run over every fold of a K-fold version trains several *children* one after
+another (``r<N>/c1``, ``c2``...), in the same slot of the queue and the same temporary folder
+(pretrained weights are downloaded once). The run ranks the grid combinations by the mean of the
+selection metric over the folds; only the weights of the best child are kept, in the run's folder.
 """
 
 from __future__ import annotations
@@ -13,11 +18,13 @@ import json
 import os
 import queue
 import shutil
+import statistics
 import subprocess
 import tempfile
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +59,8 @@ OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
 COMES_LATER = "comes later"
+#: Status fields of a child that are also shown on the run itself (progress of the current child).
+TOP_FIELDS = ("phase", "epoch", "step", "steps", "message")
 PROGRESS_EVERY = 1.0  # seconds between run.json writes for step progress
 
 
@@ -118,8 +127,8 @@ def build_spec(
     kinds (``objects``: ``label`` class index plus the label's ``bbox``, ``polygons`` and ``keypoints``);
     an image without objects is kept as a background image.
     """
-    if config.fold == "all":
-        raise RunnerError(f"Training all folds {COMES_LATER}: choose one fold.")
+    if config.fold == "all" or config.mode != "single":
+        raise RunnerError("A grid or all-folds run is trained one child at a time.")
     folds = version.get("folds")
     parts: dict[str, list[str]] = {k: list(v) for k, v in (version.get("parts") or {}).items()}
     if folds:
@@ -187,6 +196,77 @@ def build_spec(
         "fold": config.fold if isinstance(config.fold, int) else None,
         "parts": out_parts,
         "output_dir": str(run_dir.resolve()),
+    }
+
+
+@dataclass
+class _Target:
+    """Where one training writes: its folder (metrics, results, weights), the log and its status."""
+
+    dir: Path
+    log: Path
+    update: Callable[..., Any]
+
+
+def _describe(entry: dict[str, Any]) -> str:
+    parts = [f"{k}={v}" for k, v in (entry.get("values") or {}).items()]
+    if entry.get("fold") is not None:
+        parts.append(f"fold {int(entry['fold']) + 1}")
+    return ", ".join(parts) or "training"
+
+
+def rank_children(
+    entries: list[dict[str, Any]], results: dict[str, dict[str, Any] | None], metric: str, n_folds: int
+) -> dict[str, Any]:
+    """Rank the grid combinations by the mean validation ``metric`` over their folds (higher is better).
+
+    Args:
+        entries: the ``children`` of ``run.json`` (``id``, ``combo``, ``fold``, ``values``).
+        results: ``results.json`` of each finished child by id (``None`` for a failed one).
+        metric: selection metric (a key of ``results["val"]``).
+        n_folds: folds per combination (1 without K-fold).
+
+    Returns:
+        ``{"ranking", "best_combo", "best_child", "best_value", "folds"}``. A ranking row has
+        ``rank``, ``combo``, ``values``, ``children``, ``scores`` (per finished child), ``mean``,
+        ``std`` and ``complete``; complete combinations come first. ``best_child`` is the best fold
+        of the best combination (``None`` when no child finished).
+    """
+    combos: dict[int, list[dict[str, Any]]] = {}
+    for entry in entries:
+        combos.setdefault(int(entry["combo"]), []).append(entry)
+    ranking: list[dict[str, Any]] = []
+    for combo, members in combos.items():
+        scores: dict[str, float] = {}
+        for entry in members:
+            value = ((results.get(entry["id"]) or {}).get("val") or {}).get(metric)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                scores[entry["id"]] = float(value)
+        values = list(scores.values())
+        ranking.append(
+            {
+                "combo": combo,
+                "values": members[0].get("values") or {},
+                "children": [e["id"] for e in members],
+                "scores": scores,
+                "mean": statistics.fmean(values) if values else None,
+                "std": statistics.pstdev(values) if values else None,
+                "complete": len(values) == len(members),
+            }
+        )
+    ranking.sort(
+        key=lambda r: (r["mean"] is not None, r["complete"], r["mean"] or 0.0, -r["combo"]), reverse=True
+    )
+    for position, row in enumerate(ranking, start=1):
+        row["rank"] = position
+    top = ranking[0] if ranking and ranking[0]["mean"] is not None else None
+    best_child = max(top["scores"], key=lambda c: top["scores"][c]) if top else None
+    return {
+        "ranking": ranking,
+        "best_combo": top["combo"] if top else None,
+        "best_child": best_child,
+        "best_value": top["mean"] if top else None,
+        "folds": n_folds,
     }
 
 
@@ -340,13 +420,9 @@ class TrainingRunner:
         model = get_model(config.model)
         if model is None:
             raise RunnerError(f"Unknown model '{config.model}'.")
-        if config.mode != "single":
-            raise RunnerError(f"Grid search {COMES_LATER}.")
         if model.family == "ultralytics":
             raise RunnerError(f"Training YOLO models {COMES_LATER}.")
         script = self._scripts(model.task_kind)
-        if config.fold == "all":
-            raise RunnerError(f"Training all folds {COMES_LATER}: choose one fold.")
 
         def step(message: str) -> None:
             progress.update(message=message)
@@ -361,40 +437,155 @@ class TrainingRunner:
         tmp = Path(tempfile.mkdtemp(prefix=f"r{number}-", dir=self.tmp_root))
         with self._lock:
             self._tmp[key] = tmp
-        version = DatasetStore(self._project_dir(project_id)).read(config.dataset)
-        spec = build_spec(self._project_dir(project_id), config, model, run_dir, version)
-        spec_file = tmp / "spec.json"
-        spec_file.write_text(json.dumps(spec), encoding="utf-8")
+        project_dir = self._project_dir(project_id)
+        version = DatasetStore(project_dir).read(config.dataset)
         installed = {k.lower(): v for k, v in env.installed().items()}
         store.update(
             number,
             device=env.device_info(),
             packages={k: installed[k] for k in PACKAGES_RECORDED if k in installed},
             activelabel_version=__version__,
-            epochs=spec["params"]["epochs"],
             epoch=0,
         )
+        python = str(env.python())
+        if config.is_composite():
+            self._run_children(key, store, progress, config, model, version, [python, str(script)], tmp)
+            return
+        spec = build_spec(project_dir, config, model, run_dir, version)
+        spec_file = tmp / "spec.json"
+        spec_file.write_text(json.dumps(spec), encoding="utf-8")
+        store.update(number, epochs=spec["params"]["epochs"])
         progress.check()
         store.update(number, phase="training")
-        self._train(key, store, progress, [str(env.python()), str(script), str(spec_file)], tmp, spec)
+        target = _Target(run_dir, run_dir / "log.txt", lambda **f: store.update(number, **f))
+        self._train(key, target, progress, [python, str(script), str(spec_file)], tmp, spec)
+
+    def _run_children(
+        self,
+        key: tuple[int, int],
+        store: RunStore,
+        progress: Progress,
+        config: RunConfig,
+        model: ModelSpec,
+        version: dict[str, Any],
+        cmd: list[str],
+        tmp: Path,
+    ) -> None:
+        """Train every child of a grid or all-folds run, then rank them and keep the best weights."""
+        project_id, number = key
+        run_dir = store.path(number)
+        n_folds = len(version.get("folds") or []) if config.fold == "all" else 1
+        children = config.children(len(version.get("folds") or []))
+        names = sorted(config.grid)
+        entries: list[dict[str, Any]] = []
+        for i, child in enumerate(children):
+            values = {n: (child.start if n == "start" else child.params.get(n)) for n in names}
+            entries.append(
+                {
+                    "id": f"c{i + 1}",
+                    "combo": i // n_folds + 1,
+                    "fold": child.fold,
+                    "values": values,
+                    "status": QUEUED,
+                }
+            )
+        store.update(number, children=entries, trainings=len(entries), phase="training")
+        log_file = run_dir / "log.txt"
+        for i, child in enumerate(children):
+            progress.check()
+            cid = entries[i]["id"]
+            child_dir = run_dir / cid
+            child_dir.mkdir(parents=True, exist_ok=True)
+            (child_dir / "config.yaml").write_text(child.to_yaml(), encoding="utf-8", newline="\n")
+            with log_file.open("a", encoding="utf-8") as log:
+                log.write(f"== {cid}: {_describe(entries[i])} ==\n")
+
+            def update(index: int = i, **fields: Any) -> None:
+                top = {k: v for k, v in fields.items() if k in TOP_FIELDS}
+                own = {k: v for k, v in fields.items() if k != "message"}
+                store.update_child(number, index, top=top, **own)
+
+            try:
+                spec = build_spec(self._project_dir(project_id), child, model, child_dir, version)
+                spec_dir = tmp / cid
+                spec_dir.mkdir(parents=True, exist_ok=True)
+                spec_file = spec_dir / "spec.json"
+                spec_file.write_text(json.dumps(spec), encoding="utf-8")
+                epochs = spec["params"]["epochs"]
+                store.update_child(
+                    number,
+                    i,
+                    top={
+                        "current": cid,
+                        "phase": "training",
+                        "epoch": 0,
+                        "epochs": epochs,
+                        "step": None,
+                        "steps": None,
+                    },
+                    status=RUNNING,
+                    started=now(),
+                    epochs=epochs,
+                )
+                target = _Target(child_dir, log_file, update)
+                self._train(key, target, progress, [*cmd, str(spec_file)], spec_dir, spec)
+            except Cancelled:
+                for j in range(i, len(entries)):
+                    store.update_child(number, j, status=CANCELLED, finished=now())
+                raise
+            except Exception as exc:  # noqa: BLE001 - the other children still train
+                message = str(exc) or type(exc).__name__
+                store.update_child(number, i, status=FAILED, error=message, finished=now())
+                with log_file.open("a", encoding="utf-8") as log:
+                    log.write(f"{cid} failed: {message}\n")
+            else:
+                store.update_child(number, i, status=DONE, finished=now())
+        self._finish_children(store, number, config.metric or model.default_metric(), n_folds)
+
+    def _finish_children(self, store: RunStore, number: int, metric: str, n_folds: int) -> None:
+        """Rank the combinations; copy the best child's curves, results and weights to the run."""
+        run_dir = store.path(number)
+        entries = store.get(number).get("children") or []
+        results = {
+            e["id"]: (store.results(number, e["id"]) if e["status"] == DONE else None) for e in entries
+        }
+        summary = rank_children(entries, results, metric, n_folds)
+        best_id = summary["best_child"]
+        if best_id is None:
+            errors = [e.get("error") for e in entries if e.get("error")]
+            raise RunnerError("Every training of this run failed" + (f": {errors[0]}" if errors else "."))
+        best_dir = run_dir / best_id
+        for name in ("metrics.jsonl", "best.pt", "last.pt"):
+            if (best_dir / name).exists():
+                shutil.copy2(best_dir / name, run_dir / name)
+        for entry in entries:  # only the best child keeps weights (in the run's folder)
+            for weights in (run_dir / entry["id"]).glob("*.pt"):
+                weights.unlink(missing_ok=True)
+        best_results = results[best_id] or {}
+        write_json(run_dir / "results.json", {**best_results, **summary, "metric": metric})
+        store.update(
+            number,
+            current=None,
+            best={"epoch": best_results.get("best_epoch"), "value": summary["best_value"]},
+            best_child=best_id,
+        )
 
     def _train(
         self,
         key: tuple[int, int],
-        store: RunStore,
+        target: _Target,
         progress: Progress,
         cmd: list[str],
         tmp: Path,
         spec: dict[str, Any],
     ) -> None:
-        number = key[1]
-        run_dir = store.path(number)
+        run_dir = target.dir
         metric_key = selection_key(spec["metric"])
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         env = {**os.environ, **download_env(tmp)}
         lines: queue.Queue[str | None] = queue.Queue()
         state: dict[str, Any] = {"results": None, "error": "", "last": 0.0, "warnings": []}
-        with (run_dir / "log.txt").open("a", encoding="utf-8", errors="replace") as log:
+        with target.log.open("a", encoding="utf-8", errors="replace") as log:
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -429,7 +620,7 @@ class TrainingRunner:
                     if line is None:
                         eof = True
                         continue
-                    self._handle(line.rstrip("\r\n"), store, number, progress, log, metric_key, state)
+                    self._handle(line.rstrip("\r\n"), target, progress, log, metric_key, state)
                 code = proc.wait()
                 progress.check()  # a cancelled run also ends its pipe: do not report it as a failure
             except BaseException:
@@ -447,8 +638,7 @@ class TrainingRunner:
     def _handle(
         self,
         text: str,
-        store: RunStore,
-        number: int,
+        target: _Target,
         progress: Progress,
         log: Any,
         metric_key: str,
@@ -474,14 +664,13 @@ class TrainingRunner:
             log.flush()
             if message not in state["warnings"]:
                 state["warnings"].append(message)
-                store.update(number, warnings=list(state["warnings"]))
+                target.update(warnings=list(state["warnings"]))
         elif kind == "progress":
             done, total = event.get("step"), event.get("steps")
             progress.update(done=done, total=total, message=event.get("phase"))
             if time.monotonic() - state["last"] >= PROGRESS_EVERY:
                 state["last"] = time.monotonic()
-                store.update(
-                    number,
+                target.update(
                     phase=event.get("phase") or "training",
                     epoch=event.get("epoch", 0),
                     step=done,
@@ -489,12 +678,12 @@ class TrainingRunner:
                 )
         elif kind == "epoch":
             row = {k: v for k, v in event.items() if k != "event"}
-            with (store.path(number) / "metrics.jsonl").open("a", encoding="utf-8", newline="\n") as f:
+            with (target.dir / "metrics.jsonl").open("a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(row) + "\n")
             fields: dict[str, Any] = {"epoch": row.get("epoch", 0), "step": None, "steps": None}
             if row.get("best"):
                 fields["best"] = {"epoch": row.get("epoch"), "value": row.get(metric_key)}
-            store.update(number, **fields)
+            target.update(**fields)
             progress.update(done=row.get("epoch", 0))
             log.write(text + "\n")
             log.flush()

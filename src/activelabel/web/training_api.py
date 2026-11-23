@@ -135,14 +135,39 @@ def get_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, 
     store = _store(state, project_id)
     try:
         run = store.get(number)
+        metrics = store.metrics(number)
+        current = run.get("current")
+        if not metrics and current:  # a grid or all-folds run shows the child that is training
+            try:
+                metrics = store.metrics(number, current)
+            except RunNotFound:
+                metrics = []
         return {
             **_summary(store, run),
             "config": store.config(number).to_dict(),
-            "metrics": store.metrics(number),
+            "metrics": metrics,
             "results": store.results(number),
         }
     except RunNotFound:
         raise HTTPException(404, "This run does not exist.") from None
+
+
+@router.get("/projects/{project_id}/runs/{number}/children/{child}")
+def get_child(project_id: int, number: int, child: str, state: AppState = STATE) -> dict[str, Any]:
+    """One training of a grid or all-folds run: its status, configuration, metrics and results."""
+    store = _store(state, project_id)
+    try:
+        entry = next((c for c in store.get(number).get("children") or [] if c.get("id") == child), None)
+        if entry is None:
+            raise RunNotFound(child)
+        return {
+            **entry,
+            "config": store.child_config(number, child).to_dict(),
+            "metrics": store.metrics(number, child),
+            "results": store.results(number, child),
+        }
+    except RunNotFound:
+        raise HTTPException(404, "This training does not exist.") from None
 
 
 @router.delete("/projects/{project_id}/runs/{number}")
