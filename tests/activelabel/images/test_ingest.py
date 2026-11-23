@@ -228,3 +228,26 @@ def test_report_ids_are_exactly_the_images_stored_in_order(tmp_path):
     assert manifest.get(report.ids[0]).name == "b.png"
     again = ingest_files(manifest, [("a.png", io.BytesIO(first))])
     assert again.ids == []
+
+
+class _NoSeekable:
+    """An upload as Python 3.10 hands it over (SpooledTemporaryFile has no ``seekable``)."""
+
+    def __init__(self, data: bytes) -> None:
+        self._buf = io.BytesIO(data)
+
+    def read(self, n: int = -1) -> bytes:
+        return self._buf.read(n)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self._buf.seek(offset, whence)
+
+    def tell(self) -> int:
+        return self._buf.tell()
+
+
+def test_zip_upload_without_seekable(manifest, tmp_path):
+    data = _zip({"a.png": _bytes(tmp_path, "a.png", seed=5, fmt="PNG")}).getvalue()
+    assert not hasattr(_NoSeekable(data), "seekable")
+    report = ingest_files(manifest, [("pics.zip", _NoSeekable(data))])
+    assert report.added == 1 and not report.rejected
