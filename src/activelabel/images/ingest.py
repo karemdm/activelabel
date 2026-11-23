@@ -12,6 +12,7 @@ import hashlib
 import os
 import uuid
 import zipfile
+import zlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -248,7 +249,7 @@ class _Ingester:
             try:
                 with archive.open(info) as entry:
                     return self._store_image(clean, entry, ext, limit=remaining)
-            except (zipfile.BadZipFile, RuntimeError, NotImplementedError):
+            except (zipfile.BadZipFile, RuntimeError, NotImplementedError, zlib.error, EOFError):
                 self.reject(clean, "corrupt")
                 return 0
         if ext in ANNOTATION_EXTENSIONS:

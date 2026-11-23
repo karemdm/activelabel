@@ -78,8 +78,8 @@ class FolderImport(BaseModel):
 class ImageIds(BaseModel):
     """Body of the exclude / restore / delete calls."""
 
-    ids: list[str]
-    reason: str = ""
+    ids: list[str] = Field(max_length=100_000)
+    reason: str = Field("", max_length=500)
     confirm: bool = False
 
 
@@ -471,6 +471,8 @@ def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
     tasks = TaskStore(project_dir)
     with tasks.locked():
         tasks.load()  # migrate first, then take the images out
+        known = manifest.load()
+        ids = [i for i in dict.fromkeys(ids) if i in known]  # only this project's images reach the disk
         deleted = manifest.delete(ids)
         tasks.remove_images(ids)
     for image_id in ids:
@@ -554,7 +556,11 @@ def check_annotations(
     except ValueError as exc:
         raise _bad_request(exc) from exc
     staged = ann.load_staged(project_dir, token)
-    fmt = ann.detect_format(staged)
+    try:
+        fmt = ann.detect_format(staged)
+    except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
+        ann.discard_staged(project_dir, token)
+        raise HTTPException(400, f"The annotation file could not be read: {exc}") from exc
     if fmt is None:
         ann.discard_staged(project_dir, token)
         raise HTTPException(
@@ -572,8 +578,12 @@ def check_annotations(
         )
     if target is not None:
         ann.set_target(project_dir, token, {"task": target.task, "class_name": target.class_name})
-    result = ann.parse(staged, fmt, target.images() if target else manifest.active(), target)
-    report = ann.validate(result, project)
+    try:
+        result = ann.parse(staged, fmt, target.images() if target else manifest.active(), target)
+        report = ann.validate(result, project)
+    except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
+        ann.discard_staged(project_dir, token)
+        raise HTTPException(400, f"The annotation file could not be read: {exc}") from exc
     return {
         **report.as_dict(),
         "token": token,
@@ -591,7 +601,9 @@ def apply_annotations(
     state.busy(project_id)
     try:
         return ann.apply(state.store, project_id, manifest, token, body.action, body.mode)
-    except (ValueError, FileNotFoundError) as exc:
+    except FileNotFoundError as exc:  # unknown, discarded or expired staging
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
         raise _bad_request(exc) from exc
 
 

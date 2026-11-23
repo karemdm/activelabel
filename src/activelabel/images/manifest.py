@@ -7,6 +7,7 @@ removes the file.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -153,11 +154,9 @@ class Manifest:
         """Remove images and their files for good. Returns how many were removed."""
         with self._lock:
             current = self.load()
-            removed = 0
-            for image_id in ids:
-                record = current.pop(image_id, None)
-                if record is not None:
-                    self.file_path(record).unlink(missing_ok=True)
-                    removed += 1
-            self.save(current)
-            return removed
+            gone = [r for r in (current.pop(i, None) for i in ids) if r is not None]
+            self.save(current)  # first: a file that cannot be removed now does not leave a stale manifest
+        for record in gone:
+            with contextlib.suppress(OSError):  # e.g. held open by a download on Windows
+                self.file_path(record).unlink(missing_ok=True)
+        return len(gone)

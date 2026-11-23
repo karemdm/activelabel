@@ -63,7 +63,8 @@ def apply(
     report = validate(result, project)
     if action not in report.options:
         raise ValueError(f"Action '{action}' is not possible for these files (options: {report.options}).")
-    assert report.inferred_task is not None
+    if report.inferred_task is None:
+        raise ValueError("The type of these annotations could not be recognised.")
     task = Task(report.inferred_task) if action == CHANGE_TASK else project.task
 
     labels = {k: [replace(lb) for lb in v] for k, v in result.labels.items()}
@@ -84,54 +85,58 @@ def apply(
         for lb in items:
             lb.label = canon.get(lb.label.lower(), lb.label)
     new_classes = list(project.classes)
+    seen = {c.lower() for c in new_classes}
     for items in labels.values():
         for lb in items:
-            if lb.label.lower() not in {c.lower() for c in new_classes}:
+            if lb.label.lower() not in seen:
                 new_classes.append(lb.label)
+                seen.add(lb.label.lower())
     for name in result.classes:  # classes declared in the files but not used
-        if name.lower() not in {c.lower() for c in new_classes}:
+        if name.lower() not in seen:
             new_classes.append(canon.get(name.lower(), name))
+            seen.add(name.lower())
 
-    existing = load_annotations(project_dir)
-    kept = added = n_labels = 0
-    final: dict[str, list[Label]]
-    if mode == "merge" and existing is not None:
-        if existing.task != task and any(existing.images.values()):
-            raise ValueError("Existing labels are of another task; use replace instead of merge.")
-        final = dict(existing.images)
-        for key, items in labels.items():
-            if final.get(key):
-                kept += 1
-            elif items:
-                final[key] = items
-                added += 1
-                n_labels += len(items)
-            else:
-                final.setdefault(key, [])
-    elif target is not None and existing is not None:
-        # the files are for one video task: only the images of that task are replaced
-        mine = {r.id for r in target.frames.values()}
-        if existing.task != task and any(v for k, v in existing.images.items() if k not in mine):
-            raise ValueError(
-                "Other images have labels of another task; change the task of the project first."
-            )
-        final = {k: v for k, v in existing.images.items() if k not in mine}
-        final.update(labels)
-        added = sum(1 for v in labels.values() if v)
-        n_labels = sum(len(v) for v in labels.values())
-    else:
-        final = labels
-        added = sum(1 for v in labels.values() if v)
-        n_labels = sum(len(v) for v in labels.values())
-    source = {"format": fmt, "files": result.files, "imported": now(), "mode": mode}
+    # read, merge and write under one lock: a review, sync or pre-annotation saved meanwhile is kept
     with annotations_lock(project_dir):
+        existing = load_annotations(project_dir)
+        kept = added = n_labels = 0
+        final: dict[str, list[Label]]
+        if mode == "merge" and existing is not None:
+            if existing.task != task and any(existing.images.values()):
+                raise ValueError("Existing labels are of another task; use replace instead of merge.")
+            final = dict(existing.images)
+            for key, items in labels.items():
+                if final.get(key):
+                    kept += 1
+                elif items:
+                    final[key] = items
+                    added += 1
+                    n_labels += len(items)
+                else:
+                    final.setdefault(key, [])
+        elif target is not None and existing is not None:
+            # the files are for one video task: only the images of that task are replaced
+            mine = {r.id for r in target.frames.values()}
+            if existing.task != task and any(v for k, v in existing.images.items() if k not in mine):
+                raise ValueError(
+                    "Other images have labels of another task; change the task of the project first."
+                )
+            final = {k: v for k, v in existing.images.items() if k not in mine}
+            final.update(labels)
+            added = sum(1 for v in labels.values() if v)
+            n_labels = sum(len(v) for v in labels.values())
+        else:
+            final = labels
+            added = sum(1 for v in labels.values() if v)
+            n_labels = sum(len(v) for v in labels.values())
+        source = {"format": fmt, "files": result.files, "imported": now(), "mode": mode}
         save_annotations(project_dir, AnnotationSet(task, new_classes, final, source))
-    changes: dict[str, Any] = {}
-    if task != project.task:
-        changes["task"] = task
-    if new_classes != project.classes:
-        changes["classes"] = new_classes
-    updated = store.update(project_id, **changes) if changes else project
+        changes: dict[str, Any] = {}
+        if task != project.task:
+            changes["task"] = task
+        if new_classes != project.classes:
+            changes["classes"] = new_classes
+        updated = store.update(project_id, **changes) if changes else project
     discard_staged(project_dir, token)
     return {
         "action": action,

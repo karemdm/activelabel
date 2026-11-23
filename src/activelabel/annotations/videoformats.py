@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from activelabel.annotations.coco import _annotation
-from activelabel.annotations.context import ParseContext
+from activelabel.annotations.context import ParseContext, declared_size
 from activelabel.annotations.xmlformats import UNSUPPORTED_SHAPES, _f, _shape, read_xml
 from activelabel.annotations.yolo import _line, is_label_text, is_names_file, load_names
 from activelabel.labels import Label
@@ -43,9 +43,9 @@ def trailing_frame(name: str) -> int | None:
 def _int(value: Any) -> int | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+        return int(number) if number == int(number) else None
+    except (TypeError, ValueError, OverflowError):  # not a number, NaN or infinity
         return None
-    return int(number) if number == int(number) else None
 
 
 def _cover(ctx: ParseContext, first: int | None, last: int | None) -> None:
@@ -334,9 +334,7 @@ def _read_coco_frames(ctx: ParseContext, data: dict[str, Any]) -> None:
         )
         if rec is None or not ctx.claim(rec, name):
             continue
-        width, height = float(im.get("width") or rec.width), float(im.get("height") or rec.height)
-        if (int(width), int(height)) != (rec.width, rec.height):
-            ctx.problem("size_mismatch", f"{name}: {int(width)}x{int(height)} vs {rec.width}x{rec.height}")
+        width, height = declared_size(ctx, rec, im.get("width"), im.get("height"), name)
         images[im["id"]] = (rec, width, height)
     for ann in data.get("annotations") or []:
         entry = images.get(ann.get("image_id"))

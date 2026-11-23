@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from activelabel.annotations.context import ParseContext, bbox_of_points
+from activelabel.annotations.context import ParseContext, bbox_of_points, declared_size
 from activelabel.labels import Label
 
 
@@ -45,9 +45,7 @@ def _parse_one(ctx: ParseContext, data: dict[str, Any]) -> None:
         rec = ctx.match(name)
         if rec is None or not ctx.claim(rec, name):
             continue
-        width, height = float(im.get("width") or rec.width), float(im.get("height") or rec.height)
-        if (int(width), int(height)) != (rec.width, rec.height):
-            ctx.problem("size_mismatch", f"{name}: {int(width)}x{int(height)} vs {rec.width}x{rec.height}")
+        width, height = declared_size(ctx, rec, im.get("width"), im.get("height"), name)
         images[im["id"]] = (rec, width, height)
     for ann in data.get("annotations") or []:
         entry = images.get(ann.get("image_id"))
