@@ -12,15 +12,27 @@ from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 
 
-def build(tmp_path, spec, task="detection", videos=None, tasks=None):
-    """A project whose images are ``spec``: ``{image id: [class names]}`` (empty = background)."""
+def build(tmp_path, spec, task="detection", videos=None, tasks=None, fps=None):
+    """A project whose images are ``spec``: ``{image id: [class names]}`` (empty = background).
+
+    ``videos`` maps image ids to a video id (frames are numbered in spec order; with ``fps`` they get
+    a time too).
+    """
     store = ProjectStore(tmp_path / "projects")
     project = store.create("P", "", task, ["a", "b", "c", "rare"])
     pdir = store.dir(project.id)
     videos = videos or {}
-    records = [
-        ImageRecord(i, f"{i}.png", f"images/{i}.png", 8, 8, 1, "t", video=videos.get(i, "")) for i in spec
-    ]
+    records = []
+    counters: dict[str, int] = {}
+    for i in spec:
+        video = videos.get(i, "")
+        if video:
+            counters[video] = counters.get(video, -1) + 1
+        frame = counters.get(video) if video else None
+        time = frame / fps if fps and frame is not None else None
+        records.append(
+            ImageRecord(i, f"{i}.png", f"images/{i}.png", 8, 8, 1, "t", video=video, frame=frame, time=time)
+        )
     for chunk in tasks or [list(spec)]:  # tasks first: unplaced images would become an extra task
         TaskStore(pdir).create(images=chunk)
     Manifest(pdir).add(records)
@@ -184,10 +196,10 @@ def test_warnings(tmp_path):
     spec = {f"i{k:02d}": ["a"] for k in range(12)} | {"r1": ["rare"]}
     videos = {f"i{k:02d}": "v" for k in range(10)}
     pdir, project = build(tmp_path, spec, videos=videos)
-    codes = {(w["code"], w.get("part")) for w in plan(pdir, project).warnings}
+    codes = {(w["code"], w.get("part")) for w in plan(pdir, project, videos="whole").warnings}
     assert ("few_images", "test") in codes
     assert ("class_missing", "val") in codes or ("class_missing", "test") in codes
-    assert ("group_too_big", "val") in codes and ("group_too_big", "test") in codes
+    assert ("group_too_big", "test") in codes  # only where the big group moved the proportions
     assert any(c == "ratio_drift" for c, _ in codes)
     clean_dir, clean = build(tmp_path / "z", balanced())
     assert [w["code"] for w in plan(clean_dir, clean).warnings] == ["no_curation"]
@@ -242,3 +254,144 @@ def test_image_ids_parts_and_folds(tmp_path):
         store.image_ids(kf, "train")
     with pytest.raises(ValueError):
         store.image_ids(kf, "val", 4)
+
+
+def video_case(tmp_path, frames=50, fps=2, **extra):
+    """One video of ``frames`` frames plus two single images: the case that used to give 98/2/0."""
+    spec = {f"f{k:02d}": ["a"] for k in range(frames)} | {"x1": ["a"], "x2": ["b"]}
+    videos = {f"f{k:02d}": "v1" for k in range(frames)}
+    return build(tmp_path, spec, videos=videos, fps=fps, **extra)
+
+
+def segments_of(p, part):
+    (video,) = p.videos
+    return [s for s in video["segments"] if s["part"] == part]
+
+
+def test_big_video_is_cut_into_spread_segments(tmp_path):
+    pdir, project = video_case(tmp_path)
+    whole = plan(pdir, project, videos="whole")
+    assert whole.sizes()["val"] < 3
+    p = plan(pdir, project)
+    sizes = p.sizes()
+    assert sizes["val"] >= 5 and sizes["test"] >= 2 and sizes["train"] > sizes["val"]
+    (video,) = p.videos
+    assert video["split"] and video["frames"] == 50 and len(video["segments"]) == 10
+    assert video["name"] == "v1" and {s["part"] for s in video["segments"]} == {"train", "val", "test"}
+    for part in ("val", "test"):
+        found = segments_of(p, part)
+        assert found
+        for before, after in zip(found, found[1:], strict=False):
+            assert after["first_frame"] - before["last_frame"] > 5  # far apart: whole segments between
+    info = [w for w in p.warnings if w["code"] == "video_split"]
+    assert len(info) == 1 and info[0]["segments"] == 10 and info[0]["parts"] == ["val", "test"]
+    assert info[0]["gap"] == video["gap"] > 0
+    assert p.preview()["videos"] == p.videos
+
+
+def test_gap_frames_are_left_out_and_counted(tmp_path):
+    pdir, project = video_case(tmp_path)  # 2 fps: a gap of 1 s = 2 frames
+    p = plan(pdir, project, gap_seconds=1.0)
+    (video,) = p.videos
+    where = part_of(p)
+    frames = {k: f"f{k:02d}" for k in range(50)}
+    protected = [n for n, i in frames.items() if where.get(i) in ("val", "test")]
+    expected = {
+        n
+        for n, i in frames.items()
+        if i not in where or where[i] == "train"
+        if any(abs(n - m) <= 2 for m in protected)
+    }
+    left_out = {n for n, i in frames.items() if i not in where}
+    assert left_out and left_out <= expected
+    assert len(left_out) == video["gap"] == p.stats["gap"]
+    assert not [i for i in p.labels if i not in where]
+    assert sum(p.sizes().values()) == 52 - video["gap"]
+    for n, i in frames.items():  # no train frame left within the gap of a val/test frame
+        if where.get(i) == "train":
+            assert all(abs(n - m) > 2 for m in protected)
+    none = plan(pdir, project, gap_seconds=0)
+    assert none.videos[0]["gap"] == 0 and sum(none.sizes().values()) == 52
+
+
+def test_whole_mode_keeps_the_video_together(tmp_path):
+    pdir, project = video_case(tmp_path)
+    p = plan(pdir, project, videos="whole")
+    where = part_of(p)
+    assert len({where[f"f{k:02d}"] for k in range(50)}) == 1
+    assert p.videos[0]["split"] is False and p.videos[0]["segments"] == [] and p.videos[0]["gap"] == 0
+    assert not [w for w in p.warnings if w["code"] == "video_split"] and "gap" not in p.stats
+    assert any(w["code"] == "ratio_drift" for w in p.warnings)
+
+
+def test_auto_keeps_videos_whole_when_proportions_are_reached(tmp_path):
+    videos = {f"i{k:03d}": "v1" for k in range(0, 8)} | {f"i{k:03d}": "v2" for k in range(50, 58)}
+    pdir, project = build(tmp_path, balanced(60), videos=videos, fps=5)
+    p = plan(pdir, project)
+    assert [v["split"] for v in p.videos] == [False, False]
+    assert plan(pdir, project, videos="whole").parts == p.parts
+
+
+def test_split_is_deterministic(tmp_path):
+    pdir, project = video_case(tmp_path)
+    one, two = plan(pdir, project, seed=3), plan(pdir, project, seed=3)
+    assert one.parts == two.parts and one.videos == two.videos and one.fingerprint() == two.fingerprint()
+    assert one.options.as_dict()["videos"] == "auto" and one.options.as_dict()["gap_seconds"] == 0.5
+
+
+def test_near_duplicates_inside_a_video_do_not_glue_segments(tmp_path):
+    pdir, project = video_case(tmp_path)
+    chain = {f"f{k:02d}": f"f{k - 1:02d}" for k in range(1, 50)}  # every frame looks like the previous
+    chain["x1"] = "f10"  # a link to another image still groups
+    write_json(curation_path(pdir), {"duplicate_of": chain})
+    p = plan(pdir, project)
+    assert p.videos[0]["split"] and p.sizes()["val"] >= 5 and p.sizes()["test"] >= 2
+    where = part_of(p)
+    if "f10" in where:
+        assert where["x1"] == where["f10"]
+    whole = plan(pdir, project, videos="whole")
+    assert len({v for i, v in part_of(whole).items() if i.startswith("f") or i == "x1"}) == 1
+
+
+def test_kfold_with_a_split_video(tmp_path):
+    pdir, project = video_case(tmp_path)
+    p = plan(pdir, project, kfold=3, split={"train": 0, "val": 0, "test": 10}, gap_seconds=0)
+    assert p.folds is not None and all(len(f) >= 5 for f in p.folds) and p.parts["test"]
+    (video,) = p.videos
+    assert video["split"]
+    for n in range(3):
+        found = [s for s in video["segments"] if s.get("fold") == n]
+        assert len(found) >= 2
+        for before, after in zip(found, found[1:], strict=False):
+            assert after["first_frame"] - before["last_frame"] > 1  # a neighbour belongs to another part
+    info = next(w for w in p.warnings if w["code"] == "video_split")
+    assert info["parts"] == ["test", "fold"]
+    # only one video and five folds: whole cannot even be built, auto cuts the video
+    pdir2, project2 = video_case(tmp_path / "k", frames=40)
+    options = {"kfold": 5, "split": {"train": 0, "val": 0, "test": 0}}
+    assert plan(pdir2, project2, **options).folds is not None
+    with pytest.raises(ValueError, match="folds"):
+        plan(pdir2, project2, videos="whole", **options)
+
+
+def test_video_options_validation():
+    for bad in (
+        {"videos": "x"},
+        {"gap_seconds": -1},
+        {"gap_seconds": "1"},
+        {"gap_seconds": True},
+        {"gap_seconds": 1e9},
+    ):
+        with pytest.raises(ValueError):
+            parse_options(bad, [1])
+    ok = parse_options({"videos": "whole", "gap_seconds": 0}, [1])
+    assert (ok.videos, ok.gap_seconds) == ("whole", 0.0)
+    assert parse_options({}, [1]).videos == "auto" and parse_options({}, [1]).gap_seconds == 0.5
+
+
+def test_summary_keeps_the_video_report(tmp_path):
+    pdir, project = video_case(tmp_path)
+    store = DatasetStore(pdir)
+    made = store.create(plan(pdir, project))
+    assert made["videos"][0]["split"] and store.versions()[0]["videos"] == made["videos"]
+    assert any(w["code"] == "video_split" for w in made["warnings"])

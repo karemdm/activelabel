@@ -23,6 +23,8 @@ class DatasetBody(BaseModel):
     kfold: int | None = None
     background: bool = False
     seed: int = 42
+    videos: str = "auto"
+    gap_seconds: float = 0.5
     note: str = ""
 
 

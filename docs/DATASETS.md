@@ -14,6 +14,8 @@ The person chooses:
 | Split | train 70 / val 20 / test 10 | percentages of images, summing to 100; val or test may be 0 |
 | K-fold | off | instead of one train/val split: K folds (2–10) of the non-test part; the test part stays apart |
 | Background images | off | include active images without annotations (negatives for detection / segmentation); classification never has them |
+| Videos | auto | `auto`: a video stays whole unless that makes the proportions unreachable, then it is cut into segments (see below); `whole`: a video always stays in one part |
+| Safety gap | 0.5 s | `gap_seconds` (0 or more): train frames this close (in time) to a val/test segment of the same video are left out of the version; 0 keeps them |
 | Seed | 42 | the same options and seed always give the same split |
 | Note | — | free text kept with the version |
 
@@ -26,10 +28,32 @@ warnings. Nothing is saved until the person confirms.
   that curation found to be near duplicates (`duplicate_of` in `curation.json`, linked transitively)
   form one group, and a group goes whole to one part. Without curation analysis the near-duplicate
   rule cannot apply: the preview says so.
+- **Videos stay together, unless that breaks the proportions** (`videos: "auto"`, the default). The
+  split is first tried with every video whole. If a requested part (val/test, or a fold) ends up
+  empty or with less than half of its target share, the videos bigger than the smallest such target
+  (and with at least 4 frames) are cut into **contiguous segments** in frame order (`ImageRecord.frame`,
+  then `time`): length = frames / 10 rounded up, at least 2 and at most 30 frames, so a video gives
+  about 10 segments (more when long). Each segment then behaves like a group (class stratification
+  applies). For every cut video, each part other than train gets as many segments as it still needs
+  (proportional to its missing images); those are taken **evenly spread over the timeline** (the
+  centre of each of the q equal cells of the video, so never adjacent unless q is more than half of
+  the segments) and train gets the rest. With K-fold all segments are shared among the folds (and
+  test) the same way, neighbouring segments going to different parts. Near-duplicate links between
+  frames of the *same* cut video are ignored (consecutive frames are similar by nature); links to
+  other videos or images still group. `videos: "whole"` never cuts.
+- **Safety gap**: for a cut video, train frames (with K-fold: fold frames) within `gap_seconds` of a
+  frame of a val/test (with K-fold: test) segment are left out of the version, so near-identical
+  frames are not on both sides. Time is `ImageRecord.time`, or `frame / fps` of the video; if a
+  frame of the video has neither, that video has no gap. The distance is inclusive. Between folds
+  there is no gap. Left-out frames are counted per video and in `stats.gap`. A long gap on a
+  densely sampled video can leave little for train: the preview shows it.
 - **Stratified by class**: groups are assigned one by one, rarest classes first, to the part that is
   furthest below its target for that class (iterative stratification for multi-label data), then to
   the part furthest below its image target; ties are broken with the seeded random generator.
+  Everything is deterministic for the same options and seed.
   Classification uses the image class; detection/segmentation/keypoints the classes of its objects.
+- **Information** `video_split` (not a problem): names a video that was cut, the number of
+  segments, the parts that use spread segments and the frames left out as a gap.
 - **Warnings** (never errors): a class missing from a part that should have images; a part with
   very few images (< 5); groups larger than a part's target (a big video can make the real
   percentages drift: the preview shows the real ones).
@@ -42,12 +66,17 @@ warnings. Nothing is saved until the person confirms.
 ```json
 {"version": 3, "created": "<iso>", "note": "…", "type": "detection", "classes": ["car", "person"],
  "options": {"tasks": [1, 2], "split": {"train": 70, "val": 20, "test": 10}, "kfold": null,
-             "background": false, "seed": 42},
+             "background": false, "seed": 42, "videos": "auto", "gap_seconds": 0.5},
  "parts": {"train": ["<image id>", …], "val": […], "test": […]},
  "folds": null,
  "labels": {"<image id>": [<label>, …]},
  "stats": {"train": {"images": 140, "background": 0, "objects": {"car": 300, "person": 120}}, …},
- "warnings": [{"code": "class_missing", "part": "test", "class": "bike"}],
+ "warnings": [{"code": "class_missing", "part": "test", "class": "bike"},
+              {"code": "video_split", "video": "<id>", "name": "clip.mp4", "segments": 10,
+               "parts": ["val", "test"], "gap": 6}],
+ "videos": [{"video": "<id>", "name": "clip.mp4", "frames": 50, "split": true, "gap": 6,
+             "segments": [{"part": "train", "first_frame": 0, "last_frame": 4},
+                          {"part": "val", "first_frame": 5, "last_frame": 9}, …]}],
  "fingerprint": "<sha256 of the parts and labels>"}
 ```
 
@@ -70,12 +99,15 @@ makes the version *incomplete*, shown on its card).
 | GET | `/api/projects/{id}/images?dataset=n&part=train` | | images of a part (also `fold=i`) |
 
 Summary: `{version, created, note, type, options, sizes: {train, val, test} or {test, folds: [...]},
-stats, warnings, incomplete}`.
+stats, warnings, videos, incomplete}`. The preview also returns `videos`. Options accepted:
+`tasks, split, kfold, background, seed, videos, gap_seconds` (plus `note` on create). Segments of a
+folded version carry `{"part": "fold", "fold": n}`.
 
 ## Interface
 
 Step 4 shows the versions as cards (number, date, note, sizes per part as a bar, warnings) and a
-*New version* form (tasks, split sliders/inputs or K-fold, background switch, seed, note) with the
-live preview. A version card opens its images per part in the image grid (filter) and can be
+*New version* form (tasks, split sliders/inputs or K-fold, background switch, note; under *Advanced*:
+seed, videos mode and safety gap) with the live preview, which shows the `video_split` information in
+a neutral style (a small neutral badge "video in N segments" on the version card). A version card opens its images per part in the image grid (filter) and can be
 deleted after confirmation. Label conversion to a model's format (YOLO, COCO, class folders…) is done
 by the training step from a version.
