@@ -2449,7 +2449,7 @@
       function drawCvatSend() {
         if (!state.loaded) { cvatSendBox.replaceChildren(); return; }
         cvatSendBox.replaceChildren(
-          el('button', { type: 'button', class: 'btn primary big', id: 'cvat-compare', disabled: cvatBusy(), onclick: (e) => syncCvat(e.currentTarget) },
+          el('button', { type: 'button', class: 'btn primary big', id: 'cvat-compare', disabled: cvatBusy(), title: cvatBusy() ? t('sync.compare_busy') : null, onclick: (e) => syncCvat(e.currentTarget) },
             icon('cvat', 20), t('sync.compare', { tool: toolName('cvat') })));
       }
 
@@ -2508,9 +2508,11 @@
           el('div', { class: 'scope-rows' },
             row('all', t('annotate.scope_all'), el('span', { class: 'count' }, num(counts().active || 0))),
             row('unlabeled', t('annotate.scope_unlabeled'), el('span', { class: 'count' }, num(unlabeledCount())), t('annotate.scope_unlabeled_none')),
-            row('preannotated', t('annotate.scope_preannotated'), el('span', { class: 'count' }, num(state.pre || 0)), t('annotate.scope_preannotated_none')),
-            row('selected', t('annotate.scope_selected'), el('span', { class: 'count' }, num(selectedIds().length)), t('annotate.scope_selected_none')),
-            row('issue', t('annotate.scope_issue'), issueSelect, t('annotate.scope_issue_none')))));
+            /* the other choices only appear when they apply (no greyed-out cards) */
+            scopeAvailable('preannotated') ? row('preannotated', t('annotate.scope_preannotated'), el('span', { class: 'count' }, num(state.pre || 0))) : null,
+            scopeAvailable('selected') ? row('selected', t('annotate.scope_selected'), el('span', { class: 'count' }, num(selectedIds().length))) : null,
+            scopeAvailable('issue') ? row('issue', t('annotate.scope_issue'), issueSelect) : null),
+          el('p', { class: 'hint' }, t('annotate.scope_more'))));
         if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
       }
 
@@ -3074,7 +3076,9 @@
         const waitingReview = data.images_preannotated || 0;   // pre-annotations are counted apart until reviewed
         const waitingNote = waitingReview ? el('p', { class: 'report-line' }, icon('info'), tn('ann.to_review', waitingReview)) : null;
         if (!images && !labels) {
-          gtBox.replaceChildren(el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote);
+          const way = (tab, key) => el('li', null, el('button', { type: 'button', class: 'btn small', onclick: () => annTabs.select(tab, true) }, t(`ann.way_${key}`)), el('span', { class: 'muted' }, t(`ann.way_${key}_help`)));
+          gtBox.replaceChildren(el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
+            el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
           return;
         }
         const max = Math.max(1, ...classes.map((c) => c.count || 0));
@@ -3102,7 +3106,7 @@
         { id: 'cvat', label: toolName('cvat'), nodes: [annotate.cvatSection] },
         { id: 'fiftyone', label: toolName('fiftyone'), nodes: [annotate.fiftyoneSection] },
         { id: 'files', label: t('ann.tab_files'), nodes: [el('section', { class: 'annot-section load-files', 'aria-labelledby': 'h-load' },
-          el('h3', { id: 'h-load', class: 'sr-only' }, t('ann.load_title')),
+          el('h3', { id: 'h-load' }, t('ann.load_title')),
           el('p', { class: 'muted' }, t('ann.load_intro')),
           taskBox, drop, fileInput, reportBox)] },
       ], 'summary');
@@ -3287,20 +3291,27 @@
       function drawToolbar() {
         const n = grid.selected.size;
         const buttons = [];
+        /* the actions on a selection appear once something is selected (no greyed-out buttons) */
         if (view === 'active') {
           buttons.push(
             el('button', { type: 'button', class: 'btn', onclick: selectAll }, t('cur.select_all')),
-            el('button', { type: 'button', class: 'btn', onclick: selectSuggested }, t('cur.select_suggested')),
-            el('button', { type: 'button', class: 'btn', disabled: !n, onclick: () => grid.setSelected([]) }, t('cur.clear')),
-            el('button', { type: 'button', class: 'btn primary', disabled: !n, onclick: exclude }, t('cur.exclude')));
+            el('button', { type: 'button', class: 'btn', onclick: selectSuggested }, t('cur.select_suggested')));
+          if (n) {
+            buttons.push(
+              el('button', { type: 'button', class: 'btn', onclick: () => grid.setSelected([]) }, t('cur.clear')),
+              el('button', { type: 'button', class: 'btn primary', onclick: exclude }, t('cur.exclude')));
+          }
         } else {
-          buttons.push(
-            el('button', { type: 'button', class: 'btn', onclick: selectAll }, t('cur.select_all')),
-            el('button', { type: 'button', class: 'btn', disabled: !n, onclick: () => grid.setSelected([]) }, t('cur.clear')),
-            el('button', { type: 'button', class: 'btn primary', disabled: !n, onclick: restore }, t('cur.restore')),
-            el('button', { type: 'button', class: 'btn danger-outline', disabled: !n, onclick: remove }, t('cur.delete')));
+          buttons.push(el('button', { type: 'button', class: 'btn', onclick: selectAll }, t('cur.select_all')));
+          if (n) {
+            buttons.push(
+              el('button', { type: 'button', class: 'btn', onclick: () => grid.setSelected([]) }, t('cur.clear')),
+              el('button', { type: 'button', class: 'btn primary', onclick: restore }, t('cur.restore')),
+              el('button', { type: 'button', class: 'btn danger-outline', onclick: remove }, t('cur.delete')));
+          }
         }
-        toolbar.replaceChildren(...buttons, countText);
+        const hint = n ? null : el('span', { class: 'muted cur-select-hint' }, t(view === 'active' ? 'cur.select_hint' : 'cur.select_hint_excluded'));
+        toolbar.replaceChildren(...buttons, hint, countText);
       }
 
       async function selectAll() {
@@ -3560,10 +3571,12 @@
         data = await api('GET', `/projects/${projectId}/jobs`);
       } catch (err) {
         if (err.status === 404) return;
-        toastError(err);
+        if (!ctx.pollFailing) toastError(err);
+        ctx.pollFailing = true;
         ctx.pollTimer = setTimeout(pollJobs, 5000);
         return;
       }
+      if (ctx.pollFailing) { ctx.pollFailing = false; toast(t('jobs.back_online'), 'info', 3000); }
       const jobs = Array.isArray(data) ? data : (data && data.jobs) || [];
       ctx.jobs = jobs;
       let finished = false;
@@ -3710,7 +3723,7 @@
           return short ? t('ds.b_group_drift', { real }) : t('ds.w_group_drift', { real });
         }
         if (/dup|curation/.test(code)) return short ? t('ds.b_duplicates') : t('ds.w_duplicates');
-        return tr(`ds.w.${code}`, code);
+        return tr(`ds.w_${code}`, code);
       }
 
       // ---------------------------------------------------------------- list
@@ -3742,7 +3755,7 @@
           warns.length || infoBadges.length ? el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns, ...infoBadges) : null,
           el('div', { class: 'ds-view' },
             el('span', { class: 'muted' }, t('ds.see_images')),
-            ...items.map((x) => el('button', { type: 'button', class: 'btn small', disabled: x.n === 0, 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
+            ...items.filter((x) => x.n > 0).map((x) => el('button', { type: 'button', class: 'btn small', 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
               onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label))));
       }
 
@@ -4230,7 +4243,7 @@
         const onnx = el('input', { type: 'checkbox', id: 'md-onnx', disabled: !canOnnx });
         const formats = el('fieldset', { class: 'field md-formats' },
           el('legend', null, t('md.formats')),
-          el('label', { class: 'ds-check', for: 'md-pt' }, el('input', { type: 'checkbox', id: 'md-pt', checked: true, disabled: true }), el('span', null, t('md.format_pt'))),
+          el('p', { class: 'md-always' }, icon('check', 14), el('span', null, t('md.format_pt'))),
           el('label', { class: 'ds-check', for: 'md-onnx' }, onnx, el('span', null, t('md.format_onnx'))),
           el('p', { class: 'hint' }, canOnnx ? t('md.format_onnx_help') : t('md.onnx_later')));
         const note = el('textarea', { id: 'md-note', rows: '2', maxlength: '500', placeholder: t('md.note_placeholder') });
@@ -4281,7 +4294,7 @@
           cat = await ensureCatalog();
           versions = ((await api('GET', `/projects/${projectId}/datasets`)).versions || []).filter((v) => !v.incomplete).sort((a, b) => b.version - a.version);
         } catch (err) { toastError(err); return; }
-        const models = cat.models || [];
+        const models = (cat.models || []).filter((m) => m.family !== 'ultralytics');   // YOLO: not trainable yet
         if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
 
         const st = { dataset: versions[0].version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {} };
@@ -4325,20 +4338,22 @@
         // start
         const startHelp = el('p', { class: 'hint', 'aria-live': 'polite' });
         const startInputs = {};
+        const startLabels = {};
         const startBox = el('div', { class: 'seg tr-seg', role: 'radiogroup', 'aria-label': t('tr.start') },
           ...['transfer', 'finetune', 'scratch'].map((s) => {
             const input = el('input', { type: 'radio', name: 'tr-start', id: `tr-start-${s}`, value: s, class: 'sr-only', onchange: () => { st.start = s; drawStart(); drawParams(); } });
             startInputs[s] = input;
-            return el('label', { for: input.id, class: 'seg-opt' }, input, startName(s));
+            startLabels[s] = el('label', { for: input.id, class: 'seg-opt' }, input, startName(s));
+            return startLabels[s];
           }));
         function drawStart() {
           const m = modelNow();
           if (!m.supports_pretrained) st.start = 'scratch';
           for (const [s, input] of Object.entries(startInputs)) {
             input.checked = st.start === s;
-            input.disabled = s !== 'scratch' && !m.supports_pretrained;
+            startLabels[s].hidden = s !== 'scratch' && !m.supports_pretrained;   // not offered, rather than greyed out
           }
-          startHelp.textContent = t(`tr.start_${st.start}_help`);
+          startHelp.textContent = m.supports_pretrained ? t(`tr.start_${st.start}_help`) : t('tr.start_scratch_only');
         }
 
         // mode

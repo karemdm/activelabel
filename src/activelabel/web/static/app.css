@@ -920,3 +920,10 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .pre-history > summary { cursor: pointer; font-weight: 600; margin-bottom: 0.5rem; }
 .pre-table td, .pre-table th { text-align: left; }
 .pre-fail { color: var(--danger); }
+.cur-select-hint { align-self: center; font-size: 0.9rem; }
+/* a button inside a drop zone keeps its own icon colour (it was blue on blue) */
+.dropzone .btn .icon { color: inherit; }
+.md-always { display: flex; align-items: center; gap: 0.4rem; margin: 0; }
+.md-always .icon { color: var(--ok); }
+.ann-ways { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.ann-ways li { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
