@@ -730,3 +730,7 @@ dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .ds-warns { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
 .ds-warn { margin: 0; color: var(--warn); }
 .ds-ok { color: var(--ok); margin: 0; }
+.ds-info { margin: 0; color: var(--muted); }
+
+/* selects inside the dataset dialog look like the other fields */
+#ds-videos { width: 100%; min-height: 44px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.7rem; }
