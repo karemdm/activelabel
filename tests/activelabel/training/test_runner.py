@@ -33,7 +33,7 @@ def test_success(setup):
     assert store.results(n)["best_epoch"] == 2
     log = (store.path(n) / "log.txt").read_text()
     assert "hello" in log and "not json noise" in log
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     assert "torch" in runner.environment.ensured[0] and "pillow" in runner.environment.ensured[0]
     seen = json.loads((store.path(n) / "env.json").read_text())
     assert seen["cwd"].startswith(str(runner.tmp_root))
@@ -51,7 +51,7 @@ def test_failure_cleans_up(setup):
     store = RunStore(state.store.dir(1))
     run = wait_for(finished(store, n))
     assert run["status"] == "failed" and run["error"] == "boom"
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
 
 
 def test_not_yet_supported_fails_before_install(setup):
@@ -91,7 +91,8 @@ def test_grid_search_ranks_and_keeps_best_weights(setup):
     assert store.child_config(n, "c3").mode == "single" and store.results(n, "c1")["val"]["accuracy"] == 0.3
     log = (store.path(n) / "log.txt").read_text()
     assert "== c1: score=0.3 ==" in log and "== c3: score=0.5 ==" in log
-    assert tmp_dirs(runner) == [] and len(runner.environment.ensured) == 1
+    assert len(runner.environment.ensured) == 1
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     child = client.get(f"/api/projects/1/runs/{n}/children/c3").json()
     assert child["values"] == {"score": 0.5} and child["config"]["params"]["score"] == 0.5
     assert [m["epoch"] for m in child["metrics"]] == [1, 2] and child["results"]["val"]["accuracy"] == 0.5
@@ -146,7 +147,7 @@ def test_cancel_grid(setup):
     assert client.get(f"/api/projects/1/runs/{n}").json()["metrics"][0]["epoch"] == 1  # live child
     assert client.post(f"/api/projects/1/runs/{n}/cancel").json()["status"] == "cancelled"
     assert [c["status"] for c in store.get(n)["children"]] == ["cancelled", "cancelled"]
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
 
 
 def test_cancel_running(setup):
@@ -157,7 +158,7 @@ def test_cancel_running(setup):
     wait_for(lambda: store.metrics(n))
     resp = client.post(f"/api/projects/1/runs/{n}/cancel")
     assert resp.status_code == 200 and resp.json()["status"] == "cancelled"
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     assert client.post("/api/projects/1/runs/99/cancel").status_code == 404
     assert client.post(f"/api/projects/1/runs/{n}/cancel").json()["status"] == "cancelled"
 

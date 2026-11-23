@@ -152,7 +152,8 @@ def test_preannotate_end_to_end(pre):
     assert spec["model"] == "m1" and spec["classes"] == ["a", "b"] and spec["worker"] == "fake_worker"
     assert sorted(i["id"] for i in spec["items"]) == sorted(empty) and spec["threshold"] == 0.4
     assert "torch" in runner.environment.ensured[-1]
-    assert (state.store.dir(1) / "preannotations" / f"p{n}.log").exists() and tmp_dirs(runner) == []
+    assert (state.store.dir(1) / "preannotations" / f"p{n}.log").exists()
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     tasks = client.get("/api/projects/1/preannotations").json()["tasks"][0]
     assert (tasks["unlabeled"], tasks["unreviewed"]) == (1, 5)
     # nothing left to do for unlabeled images but one: the model found nothing there
