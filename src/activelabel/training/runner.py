@@ -40,7 +40,15 @@ from activelabel.training.runs import (
 )
 
 WORKERS_DIR = Path(__file__).parent / "workers"
-WORKER_SCRIPTS = {"classification": WORKERS_DIR / "classification.py"}
+#: Worker script (a file of ``workers/``) of each kind of task.
+WORKER_FILES = {
+    "classification": "classification.py",
+    "detection": "detection.py",
+    "instance": "detection.py",
+    "keypoints": "detection.py",
+    "semantic": "segmentation.py",
+}
+OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
 COMES_LATER = "comes later"
@@ -57,8 +65,9 @@ def worker_script(task_kind: str) -> Path:
     Raises:
         RunnerError: the kind of task has no worker yet.
     """
-    script = WORKER_SCRIPTS.get(task_kind)
-    if script is None:
+    name = WORKER_FILES.get(task_kind)
+    script = WORKERS_DIR / name if name else None
+    if script is None or not script.exists():
         raise RunnerError(f"Training {task_kind} models {COMES_LATER}.")
     return script
 
@@ -85,6 +94,18 @@ def selection_key(metric: str) -> str:
     return f"val_{metric}"
 
 
+def _objects(own: list[dict[str, Any]], classes: list[str]) -> list[dict[str, Any]]:
+    """Objects of an image for the spec: the class index and whichever shapes the label has."""
+    out = []
+    for label in own:
+        if label.get("label") not in classes:
+            continue
+        shapes = {k: label[k] for k in ("bbox", "polygons", "keypoints") if label.get(k)}
+        if shapes:
+            out.append({"label": classes.index(label["label"]), **shapes})
+    return out
+
+
 def build_spec(
     project_dir: Path, config: RunConfig, model: ModelSpec, run_dir: Path, version: dict[str, Any]
 ) -> dict[str, Any]:
@@ -92,6 +113,10 @@ def build_spec(
 
     Raises:
         RunnerError: a fold ``"all"`` (later), a part without images, or missing image files.
+
+    Items are ``{"path", "label"}`` for classification and ``{"path", "objects"}`` for the other
+    kinds (``objects``: ``label`` class index plus the label's ``bbox``, ``polygons`` and ``keypoints``);
+    an image without objects is kept as a background image.
     """
     if config.fold == "all":
         raise RunnerError(f"Training all folds {COMES_LATER}: choose one fold.")
@@ -108,7 +133,7 @@ def build_spec(
     out_parts: dict[str, list[dict[str, Any]]] = {}
     missing = 0
     for name in ("train", "val", "test"):
-        items = []
+        items: list[dict[str, Any]] = []
         for image_id in parts.get(name, []):
             record = records.get(image_id)
             path = manifest.file_path(record) if record else None
@@ -116,6 +141,9 @@ def build_spec(
                 missing += 1
                 continue
             own = labels.get(image_id) or []
+            if model.task_kind in OBJECT_KINDS:
+                items.append({"path": str(path.resolve()), "objects": _objects(own, classes)})
+                continue
             if not own or own[0].get("label") not in classes:
                 continue
             items.append({"path": str(path.resolve()), "label": classes.index(own[0]["label"])})
@@ -126,8 +154,27 @@ def build_spec(
         raise RunnerError("The training part has no labelled images.")
     if not out_parts["val"]:
         raise RunnerError("The validation part has no labelled images: make a version with validation.")
+    extra: dict[str, Any] = {}
+    if model.task_kind in OBJECT_KINDS:
+        for name in ("train", "val"):
+            if not any(i["objects"] for i in out_parts[name]):
+                raise RunnerError(f"The {name} part has no labelled objects.")
+        if model.task_kind == "keypoints":
+            extra["num_keypoints"] = max(
+                (
+                    len(o["keypoints"])
+                    for p in out_parts.values()
+                    for i in p
+                    for o in i["objects"]
+                    if "keypoints" in o
+                ),
+                default=0,
+            )
+            if not extra["num_keypoints"]:
+                raise RunnerError("The labels have no keypoints.")
     params = config.effective_params(model)
     return {
+        **extra,
         "task": model.task_kind,
         "model": model.id,
         "family": model.family,
@@ -295,6 +342,8 @@ class TrainingRunner:
             raise RunnerError(f"Unknown model '{config.model}'.")
         if config.mode != "single":
             raise RunnerError(f"Grid search {COMES_LATER}.")
+        if model.family == "ultralytics":
+            raise RunnerError(f"Training YOLO models {COMES_LATER}.")
         script = self._scripts(model.task_kind)
         if config.fold == "all":
             raise RunnerError(f"Training all folds {COMES_LATER}: choose one fold.")
@@ -344,7 +393,7 @@ class TrainingRunner:
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         env = {**os.environ, **download_env(tmp)}
         lines: queue.Queue[str | None] = queue.Queue()
-        state: dict[str, Any] = {"results": None, "error": "", "last": 0.0}
+        state: dict[str, Any] = {"results": None, "error": "", "last": 0.0, "warnings": []}
         with (run_dir / "log.txt").open("a", encoding="utf-8", errors="replace") as log:
             proc = subprocess.Popen(
                 cmd,
@@ -419,6 +468,13 @@ class TrainingRunner:
         if kind == "log":
             log.write(str(event.get("message", "")) + "\n")
             log.flush()
+        elif kind == "warning":
+            message = str(event.get("message", "warning"))
+            log.write("warning: " + message + "\n")
+            log.flush()
+            if message not in state["warnings"]:
+                state["warnings"].append(message)
+                store.update(number, warnings=list(state["warnings"]))
         elif kind == "progress":
             done, total = event.get("step"), event.get("steps")
             progress.update(done=done, total=total, message=event.get("phase"))
