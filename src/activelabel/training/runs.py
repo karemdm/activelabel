@@ -29,6 +29,19 @@ def _lock_for(path: Path) -> threading.RLock:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
 
+def read_jsonl(file: Path) -> list[dict[str, Any]]:
+    """Lines of a JSON-lines file (none when it is missing; a half-written last line is skipped)."""
+    if not file.exists():
+        return []
+    out = []
+    for line in file.read_text(encoding="utf-8").splitlines():
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
 class RunNotFound(KeyError):
     """No run with this number."""
 
@@ -113,22 +126,49 @@ class RunStore:
             write_json(self.path(number) / "run.json", run)
         return run
 
-    def metrics(self, number: int) -> builtins.list[dict[str, Any]]:
-        """Lines of ``metrics.jsonl`` (empty before training; a half-written last line is skipped)."""
-        file = self._require(number) / "metrics.jsonl"
-        if not file.exists():
-            return []
-        out = []
-        for line in file.read_text(encoding="utf-8").splitlines():
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                continue
-        return out
+    def update_child(
+        self, number: int, index: int, top: dict[str, Any] | None = None, **fields: Any
+    ) -> dict[str, Any]:
+        """Change fields of one child of a grid or K-fold run (and ``top`` fields of the run itself).
 
-    def results(self, number: int) -> dict[str, Any] | None:
-        """``results.json`` of a finished run, or ``None``."""
-        return read_json(self._require(number) / "results.json")
+        Raises:
+            RunNotFound: unknown number.
+            IndexError: no child at ``index``.
+        """
+        with self._lock:
+            run = self.get(number)
+            children = list(run.get("children") or [])
+            children[index] = {**children[index], **fields}
+            run["children"] = children
+            run.update({k: v for k, v in (top or {}).items() if k not in ("number", "created")})
+            write_json(self.path(number) / "run.json", run)
+        return run
+
+    def child_path(self, number: int, child: str) -> Path:
+        """Folder of a child (``c1``, ``c2``...) of a grid or K-fold run.
+
+        Raises:
+            RunNotFound: unknown run or child.
+        """
+        folder = self._require(number) / child
+        if not (child.startswith("c") and child[1:].isdigit() and (folder / "config.yaml").exists()):
+            raise RunNotFound(f"{number}/{child}")
+        return folder
+
+    def child_config(self, number: int, child: str) -> RunConfig:
+        """Configuration of one child (single mode, one fold)."""
+        text = (self.child_path(number, child) / "config.yaml").read_text(encoding="utf-8")
+        return RunConfig.from_yaml(text)
+
+    def metrics(self, number: int, child: str | None = None) -> builtins.list[dict[str, Any]]:
+        """Lines of ``metrics.jsonl`` (empty before training; a half-written last line is skipped)."""
+        folder = self.child_path(number, child) if child else self._require(number)
+        return read_jsonl(folder / "metrics.jsonl")
+
+    def results(self, number: int, child: str | None = None) -> dict[str, Any] | None:
+        """``results.json`` of a finished run (or child), or ``None``."""
+        folder = self.child_path(number, child) if child else self._require(number)
+        return read_json(folder / "results.json")
 
     def delete(self, number: int) -> None:
         """Remove a run and its files (its number is not reused).

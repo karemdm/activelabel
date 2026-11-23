@@ -106,6 +106,22 @@ def test_grid_expansion_order_and_cap():
         validate(_cfg(mode="grid", grid=big), "classification")
     fifty = {"epochs": list(range(1, 11)), "batch_size": [1, 2, 3, 4, 5]}
     assert validate(_cfg(mode="grid", grid=fifty), "classification").grid_size() == 50
+    ten = {"epochs": list(range(1, 11))}
+    folded = validate(_cfg(mode="grid", grid=ten, fold="all"), "classification", folds=5)
+    assert folded.is_composite() and len(folded.children(5)) == 50
+    with pytest.raises(ConfigError, match="grid and the folds make 60"):
+        validate(_cfg(mode="grid", grid=ten, fold="all"), "classification", folds=6)
+    kids = folded.children(5)
+    assert [(k.params["epochs"], k.fold) for k in kids[:6]] == [
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (2, 0),
+    ]
+    assert all(k.mode == "single" and not k.grid and not k.is_composite() for k in kids)
+    assert not _cfg().is_composite() and _cfg().children(0) == [_cfg()]
 
 
 def test_run_store_numbers_and_files(tmp_path):

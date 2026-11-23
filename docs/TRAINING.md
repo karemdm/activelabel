@@ -60,8 +60,15 @@ During the run: phases (preparing environment, converting, training, evaluating)
 loss and validation metric per epoch (live curves), cancel. At the end the test part (if the
 version has one) is evaluated with the best epoch.
 
-With a K-fold version, *all folds* trains one run per fold and reports mean ± standard deviation;
-grid search over K folds ranks combinations by the mean.
+A grid search or a run over *all folds* of a K-fold version trains several **children**, one after
+another in the same slot of the queue (never two at once) and the same temporary folder (pretrained
+weights are downloaded once). Children are ordered by grid combination, then fold; at most 50
+trainings per run (combinations × folds). A child that fails is recorded and the others go on; the
+run fails only if every child fails. At the end the combinations are ranked by the mean of the
+selection metric on validation over their folds (± standard deviation); the best fold of the best
+combination is the run's result: its curves, results and weights are copied to the run's folder, and
+the other children keep their curves and results but no weights. The screen shows the ranking (or,
+while running, every child with its status) and the curves of any child.
 
 ## Storage
 
@@ -73,8 +80,14 @@ grid search over K folds ranks combinations by the mean.
 | `run.json` | status, times, device used, package versions, ActiveLabel version, child runs (grid / folds) |
 | `metrics.jsonl` | one line per epoch: losses and validation metrics |
 | `results.json` | best epoch, validation and test metrics (confusion matrix, per-class metrics, PR curve points when the type has them) |
-| `best.pt`, `last.pt` | weights (only of the best child for grid search; `last.pt` removed when the run is saved as a model) |
-| `log.txt` | output of the training process |
+| `best.pt`, `last.pt` | weights (of the best child for grid / all folds; `last.pt` removed when the run is saved as a model) |
+| `log.txt` | output of the training process (every child, each after a `== c<k>: … ==` line) |
+| `c<k>/` | a child of a grid / all-folds run: `config.yaml` (single mode, one fold), `metrics.jsonl`, `results.json` |
+
+For a grid / all-folds run, `run.json` lists `children` (`id`, `combo`, `fold`, `values`, `status`,
+`best`, `error`), `trainings`, `current` (the child training now) and `best_child`; `results.json`
+adds `ranking` (`rank`, `combo`, `values`, `children`, `scores`, `mean`, `std`, `complete`),
+`best_combo`, `best_child`, `best_value`, `folds` and `metric`.
 
 *Reproduce* starts a new run with the same `config.yaml`.
 
@@ -94,7 +107,9 @@ improves the model with new data.
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
 | GET | `/api/training/environment` | installed packages, device found |
 | GET/POST | `/api/projects/{id}/runs` | list / create (queued job) |
-| GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch, results |
+| GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
+| GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
+| GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
 | POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | |
 | DELETE | `/api/projects/{id}/runs/{n}` | after confirmation |
 | GET/POST/PATCH/DELETE | `/api/projects/{id}/models[/{n}]` | save a run as model, list, mark current, delete |

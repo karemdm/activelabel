@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import yaml
@@ -129,6 +129,19 @@ class RunConfig:
         values["start"] = self.start
         return values
 
+    def is_composite(self) -> bool:
+        """True for a grid search or a run over every fold: it trains several children."""
+        return self.mode == "grid" or self.fold == "all"
+
+    def children(self, folds: int) -> list[RunConfig]:
+        """Single-mode, single-fold configurations of the trainings this run makes.
+
+        Ordered by grid combination, then fold (``folds`` children per combination when the fold is
+        ``"all"``; one otherwise).
+        """
+        fold_list: list[int | str | None] = list(range(folds)) if self.fold == "all" else [self.fold]
+        return [replace(c, fold=f, mode="single", grid={}) for c in self.expand() for f in fold_list]
+
     def expand(self) -> list[RunConfig]:
         """One single-mode configuration per grid combination, in a deterministic order.
 
@@ -210,12 +223,13 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         grid[name] = checked
     if config.mode == "single" and grid:
         raise ConfigError("A single run has no grid: use the grid mode or remove the lists.")
-    if config.mode == "grid":
-        if not grid:
-            raise ConfigError("Grid mode needs at least one list of values.")
-        size = math.prod(len(v) for v in grid.values())
-        if size > MAX_GRID:
-            raise ConfigError(f"The grid makes {size} runs; at most {MAX_GRID} are allowed.")
+    if config.mode == "grid" and not grid:
+        raise ConfigError("Grid mode needs at least one list of values.")
+    size = math.prod(len(v) for v in grid.values()) if grid else 1
+    total = size * (folds if fold == "all" else 1)
+    if total > MAX_GRID:
+        what = "The grid makes" if fold != "all" else "The grid and the folds make"
+        raise ConfigError(f"{what} {total} trainings; at most {MAX_GRID} are allowed.")
 
     return RunConfig(
         dataset=config.dataset,
