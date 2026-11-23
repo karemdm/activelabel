@@ -20,7 +20,14 @@ from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.importing.common import read_origin
 from activelabel.jobs import Job, Progress
-from activelabel.labels import AnnotationSet, annotations_path, load_annotations, save_annotations
+from activelabel.labels import (
+    AnnotationSet,
+    annotations_lock,
+    annotations_path,
+    load_annotations,
+    save_annotations,
+)
+from activelabel.preannotate import image_state
 from activelabel.projects import Project
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
@@ -88,8 +95,12 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
     active = [r for r in records if r.status == ACTIVE]
     annotations = load_annotations(project_dir)
     ids = {r.id for r in active}
-    # an image listed in the annotations without objects is annotated too (a background image)
-    labelled = [i for i in (annotations.images if annotations else {}) if i in ids]
+    # an image listed in the annotations without objects is annotated too (a background image);
+    # an image whose labels are all pre-annotations waits for review and is counted apart
+    images_map = annotations.images if annotations else {}
+    states = {i: image_state(images_map, i) for i in images_map if i in ids}
+    labelled = [i for i, st in states.items() if st == "human"]
+    preannotated = [i for i, st in states.items() if st == "pre"]
     measured = [r for r in active if r.metrics]
     with_issues = [r for r in active if r.issues]
     if not measured:
@@ -106,6 +117,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
             "active": len(active),
             "excluded": len(records) - len(active),
             "annotated": len(labelled),
+            "preannotated": len(preannotated),
             "labels": sum(len(annotations.images[i]) for i in labelled) if annotations else 0,
             "with_issues": len(with_issues),
             "analyzed": len(measured),
@@ -113,7 +125,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
         },
         "steps": {
             "images": "done" if active else "empty",
-            "annotations": "loaded" if labelled else "none",
+            "annotations": "loaded" if labelled or preannotated else "none",
             "curation": curation,
         },
     }
@@ -453,11 +465,12 @@ def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
         tasks.remove_images(ids)
     for image_id in ids:
         (project_dir / "thumbs" / f"{image_id}.jpg").unlink(missing_ok=True)
-    annotations = load_annotations(project_dir)
-    if annotations and any(i in annotations.images for i in ids):
-        for image_id in ids:
-            annotations.images.pop(image_id, None)
-        save_annotations(project_dir, annotations)
+    with annotations_lock(project_dir):
+        annotations = load_annotations(project_dir)
+        if annotations and any(i in annotations.images for i in ids):
+            for image_id in ids:
+                annotations.images.pop(image_id, None)
+            save_annotations(project_dir, annotations)
     return deleted
 
 
@@ -593,8 +606,12 @@ def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, A
     active = {r.id for r in state.manifest(project_id).active()}
     per_class: dict[str, int] = {}
     images = 0
+    waiting = 0
     for image_id, labels in ground_truth.images.items():
         if image_id not in active:
+            continue
+        if image_state(ground_truth.images, image_id) == "pre":
+            waiting += 1  # pre-annotations: not counted until reviewed
             continue
         images += 1
         for label in labels:
@@ -605,6 +622,7 @@ def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, A
         "task_matches": ground_truth.task is project.task,
         "class_names": ground_truth.classes,
         "images_annotated": images,
+        "images_preannotated": waiting,
         "labels_total": sum(per_class.values()),
         "labels_per_class": dict(sorted(per_class.items(), key=lambda kv: -kv[1])),
         "source": {k: v for k, v in ground_truth.source.items() if k in ("format", "saved", "files")},

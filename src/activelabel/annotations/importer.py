@@ -10,7 +10,7 @@ from activelabel.annotations.staging import discard_staged, get_target, load_sta
 from activelabel.annotations.target import build_target
 from activelabel.annotations.validation import CHANGE_TASK, CONVERT, DISCARD, IMPORT, to_detection, validate
 from activelabel.images.manifest import Manifest
-from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
 from activelabel.projects import ProjectStore
 from activelabel.storage import now
 from activelabel.tasks import Task
@@ -124,7 +124,8 @@ def apply(
         added = sum(1 for v in labels.values() if v)
         n_labels = sum(len(v) for v in labels.values())
     source = {"format": fmt, "files": result.files, "imported": now(), "mode": mode}
-    save_annotations(project_dir, AnnotationSet(task, new_classes, final, source))
+    with annotations_lock(project_dir):
+        save_annotations(project_dir, AnnotationSet(task, new_classes, final, source))
     changes: dict[str, Any] = {}
     if task != project.task:
         changes["task"] = task

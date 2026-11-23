@@ -21,7 +21,10 @@ class AppState:
         self.store = ProjectStore(settings.projects_dir)
         self.jobs = jobs or JobManager()
         self.runner = TrainingRunner(
-            settings.workspace, self.store.dir, lambda: [p.id for p in self.store.list()]
+            settings.workspace,
+            self.store.dir,
+            lambda: [p.id for p in self.store.list()],
+            project=self.store.get,
         )
 
     def project(self, project_id: int) -> Project:

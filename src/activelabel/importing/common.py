@@ -21,7 +21,7 @@ from activelabel.annotations.models import Problem
 from activelabel.annotations.validation import to_detection
 from activelabel.images.ingest import IngestReport
 from activelabel.jobs import Progress
-from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.labels import AnnotationSet, Label, annotations_lock, save_annotations
 from activelabel.projects import MAX_DESCRIPTION, MAX_NAME, Project, ProjectStore, clean_classes
 from activelabel.storage import now, read_json, write_json
 from activelabel.tasks import Task
@@ -256,7 +256,8 @@ def finish(
     project_dir = store.dir(project.id)
     if plan.labels:
         source = {"format": origin.tool, "imported": now(), "remote_id": origin.remote_id}
-        save_annotations(project_dir, AnnotationSet(plan.task, classes, plan.labels, source))
+        with annotations_lock(project_dir):
+            save_annotations(project_dir, AnnotationSet(plan.task, classes, plan.labels, source))
     updated = store.update(project.id, task=plan.task, classes=classes)
     write_json(project_dir / ORIGIN_FILE, origin.as_dict())
     all_problems = [*problems, *plan.problems, *ingest_problems(report)]

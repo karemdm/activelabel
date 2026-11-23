@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import load_annotations
+from activelabel.preannotate import image_state
 from activelabel.tasks_store import (
     ImageTask,
     TaskNotFound,
@@ -67,11 +68,12 @@ def task_view(task: ImageTask, active: set[str], annotated: set[str]) -> dict[st
 
 
 def _sets(state: AppState, project_id: int) -> tuple[set[str], set[str]]:
-    """Ids of active images and of images with at least one label."""
+    """Ids of active images and of images with at least one reviewed label (pre-annotations wait)."""
     project_dir = state.store.dir(project_id)
     active = {r.id for r in Manifest(project_dir).all() if r.status == ACTIVE}
     annotations = load_annotations(project_dir)
-    labelled = {i for i, labels in (annotations.images if annotations else {}).items() if labels}
+    images = annotations.images if annotations else {}
+    labelled = {i for i, labels in images.items() if labels and image_state(images, i) == "human"}
     return active, labelled
 
 

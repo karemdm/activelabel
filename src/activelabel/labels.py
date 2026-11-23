@@ -9,6 +9,7 @@ A project keeps its ground truth in ``<project>/annotations.json``::
 
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ class Label:
         score: confidence, for predictions; None for ground truth.
         track: identity of the object across frames (the CVAT track id; FiftyOne ``index``); None for
             objects that are not tracked.
+        model: the saved model that made a pre-annotation (``m1``…); None for labels made by people.
     """
 
     label: str
@@ -40,6 +42,7 @@ class Label:
     keypoints: list[Keypoint] | None = None
     score: float | None = None
     track: int | None = None
+    model: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form without empty fields."""
@@ -55,6 +58,7 @@ class Label:
             keypoints=data.get("keypoints"),
             score=data.get("score"),
             track=data.get("track"),
+            model=data.get("model"),
         )
 
 
@@ -105,6 +109,20 @@ def load_annotations(project_dir: Path) -> AnnotationSet | None:
     """Ground truth of a project, or None when there is none."""
     data = read_json(annotations_path(project_dir))
     return AnnotationSet.from_dict(data) if data else None
+
+
+_ANN_LOCKS: dict[Path, threading.RLock] = {}
+_ANN_GUARD = threading.Lock()
+
+
+def annotations_lock(project_dir: Path) -> threading.RLock:
+    """Lock to hold around a read-modify-write of a project's ``annotations.json``.
+
+    Every writer (review apply, sync, pre-annotation, accept, image deletion, imports) takes it, so a
+    change made by one is never lost by another that read the file before it.
+    """
+    with _ANN_GUARD:
+        return _ANN_LOCKS.setdefault(Path(project_dir).resolve(), threading.RLock())
 
 
 def save_annotations(project_dir: Path, annotations: AnnotationSet) -> None:
