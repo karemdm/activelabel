@@ -12,7 +12,7 @@ from activelabel.images.manifest import Manifest
 from activelabel.labels import load_annotations
 from activelabel.storage import now, read_json, write_json
 
-SCOPES = ("all", "unlabeled", "selected", "issue")
+SCOPES = ("all", "unlabeled", "selected", "issue", "preannotated")
 OPEN, PULLED, APPLIED, DISCARDED = "open", "pulled", "applied", "discarded"
 _lock = threading.RLock()
 
@@ -51,6 +51,11 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
     elif scope == "selected":
         wanted = set(ids or [])
         chosen = [r.id for r in active if r.id in wanted]
+    elif scope == "preannotated":  # labelled by a model, not reviewed yet
+        from activelabel.preannotate import unreviewed_images
+
+        pending = set(unreviewed_images(manifest.project_dir))
+        chosen = [r.id for r in active if r.id in pending]
     elif scope == "issue":
         if not issue:
             raise ValueError("Choose an issue.")

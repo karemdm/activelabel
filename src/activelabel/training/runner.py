@@ -28,15 +28,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from activelabel import __version__
+from activelabel import __version__, preannotate
 from activelabel.datasets import DatasetStore
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, JobManager, Progress
+from activelabel.labels import Label
 from activelabel.storage import now, write_json
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree
-from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelStore
+from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.runs import (
     CANCELLED,
     DONE,
@@ -59,6 +60,7 @@ WORKER_FILES = {
 OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
 EXPORT_SCRIPT = WORKERS_DIR / "export_onnx.py"
+PREDICT_SCRIPT = WORKERS_DIR / "predict.py"
 EXPORT_PACKAGES = {"onnx": ("onnx",)}  # installed only when a model is exported
 #: Kinds of task whose ONNX graph is checked to give the same results as PyTorch. Detection models
 #: (torchvision) trace into graphs that break on images without candidate boxes: they come later.
@@ -292,6 +294,7 @@ class TrainingRunner:
         workspace: Path,
         project_dir: Callable[[int], Path],
         project_ids: Callable[[], list[int]] | None = None,
+        project: Callable[[int], Any] | None = None,
         environment: TrainingEnvironment | None = None,
         scripts: Callable[[str], Path] = worker_script,
         poll: float = 0.2,
@@ -299,6 +302,7 @@ class TrainingRunner:
         self.workspace = Path(workspace)
         self._project_dir = project_dir
         self._project_ids = project_ids or (lambda: [])
+        self._project_lookup = project
         self.environment = environment or TrainingEnvironment(self.workspace)
         self._scripts = scripts
         self._poll = poll
@@ -310,6 +314,15 @@ class TrainingRunner:
         self._procs: dict[tuple[int, int], subprocess.Popen[str]] = {}
         self._tmp: dict[tuple[int, int], Path] = {}
         self._export_procs: dict[tuple[int, int, str], subprocess.Popen[str]] = {}
+        self._pre_jobs: dict[tuple[int, int], str] = {}
+
+    def _project(self, project_id: int) -> Any:
+        """The project (type and classes), read from its folder when no lookup was given."""
+        if self._project_lookup is not None:
+            return self._project_lookup(project_id)
+        from activelabel.projects import ProjectStore
+
+        return ProjectStore(self._project_dir(project_id).parent).get(project_id)
 
     # -- public ------------------------------------------------------------
 
@@ -376,12 +389,50 @@ class TrainingRunner:
         self._jobs.submit(project_id, "export", lambda p: self._export(project_id, number, fmt, p))
         return card
 
+    def enqueue_preannotation(self, project_id: int, number: int) -> None:
+        """Queue a stored pre-annotation run (in the same queue as the training runs)."""
+        job = self._jobs.submit(project_id, "preannotate", lambda p: self._preannotate(project_id, number, p))
+        with self._lock:
+            self._pre_jobs[(project_id, number)] = job.id
+
+    def cancel_preannotation(self, project_id: int, number: int) -> None:
+        """Cancel a queued or running pre-annotation (nothing is written for a cancelled run).
+
+        Raises:
+            preannotate.RunNotFound: unknown run.
+        """
+        runs = preannotate.PreannotationStore(self._project_dir(project_id))
+        run = runs.get(number)
+        if run["status"] not in (QUEUED, RUNNING):
+            return
+        with self._lock:
+            job_id = self._pre_jobs.get((project_id, number))
+            proc = self._export_procs.get((project_id, number, "predict"))
+        if job_id:
+            self._jobs.cancel(job_id)
+        if proc is not None:
+            kill_tree(proc)
+        if run["status"] == QUEUED:
+            runs.update(number, status=CANCELLED, finished=now())
+        else:
+            deadline = time.monotonic() + 10
+            while runs.get(number)["status"] == RUNNING and time.monotonic() < deadline:
+                time.sleep(0.05)
+
     def recover(self) -> None:
         """At startup: runs left ``running`` were interrupted (failed); queued ones go back in line.
 
-        Exports left queued or running were interrupted too (they can be asked again).
+        Exports and pre-annotations left queued or running were interrupted too (they can be asked again),
+        and temporary folders left by a process that was killed are removed.
         """
+        if self.tmp_root.exists():
+            for leftover in self.tmp_root.iterdir():
+                _remove_tree(leftover)
         for project_id in self._project_ids():
+            pre = preannotate.PreannotationStore(self._project_dir(project_id))
+            for run in pre.list():
+                if run["status"] in (QUEUED, RUNNING):
+                    pre.update(run["number"], status=FAILED, error="interrupted", finished=now())
             models = ModelStore(self._project_dir(project_id))
             for card in models.list():
                 for fmt, export in (card.get("exports") or {}).items():
@@ -467,6 +518,109 @@ class TrainingRunner:
             if tmp is not None:
                 _remove_tree(tmp)
 
+    def _preannotate(self, project_id: int, number: int, progress: Progress) -> None:
+        project_dir = self._project_dir(project_id)
+        runs = preannotate.PreannotationStore(project_dir)
+        try:
+            run = runs.get(number)
+        except preannotate.RunNotFound:
+            return
+        if run["status"] != QUEUED:
+            return  # cancelled while waiting
+        runs.update(number, status=RUNNING, started=now(), phase="environment")
+        tmp: Path | None = None
+        try:
+            models = ModelStore(project_dir)
+            card = models.get(int(run["model"]))
+            folder = models.path(int(run["model"]))
+            config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
+            model = get_model(card["model"])
+            if model is None:
+                raise RunnerError(f"Unknown model '{card['model']}'.")
+            if model.family == "ultralytics" or model.task_kind not in preannotate.KINDS:
+                raise RunnerError(f"Pre-annotation with {model.task_kind} models {COMES_LATER}.")
+            project = self._project(project_id)
+            if not preannotate.fits(model.task_kind, project.task):
+                raise RunnerError(
+                    f"This model makes {model.task_kind} labels, but the project is now {project.task.value}."
+                )
+            image_ids = preannotate.targets(project_dir, int(run["task"]), str(run["scope"]))
+            if not image_ids:
+                raise RunnerError("No image of this task needs pre-annotation now.")
+            manifest = Manifest(project_dir)
+            records = manifest.load()
+            items = []
+            for image_id in image_ids:
+                path = manifest.file_path(records[image_id])
+                if path is not None and path.exists():
+                    items.append({"id": image_id, "path": str(path.resolve())})
+
+            def step(message: str) -> None:
+                runs.update(number, message=message)
+
+            self.environment.ensure([*model.packages, *EXTRA_PACKAGES], progress.check, step)
+            progress.check()
+            runs.update(number, phase="predicting", message="", total=len(items), done=0)
+            self.tmp_root.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(prefix=f"p{number}-", dir=self.tmp_root))
+            spec = {
+                "checkpoint": str((folder / "best.pt").resolve()),
+                "worker": self._scripts(model.task_kind).stem,
+                "task": model.task_kind,
+                "build": {
+                    "model": model.id,
+                    "family": model.family,
+                    "classes": list(card.get("classes") or []),
+                    "params": config.effective_params(model),
+                    "start": config.start,
+                },
+                "classes": list(card.get("classes") or []),
+                "threshold": float(run["threshold"]),
+                "model": f"m{card['number']}",
+                "items": items,
+            }
+            spec_file = tmp / "spec.json"
+            spec_file.write_text(json.dumps(spec), encoding="utf-8")
+            predictions: dict[str, list[Label]] = {}
+            unreadable: list[str] = []
+            last = {"t": 0.0}
+
+            def on_event(event: dict[str, Any]) -> None:
+                kind = event.get("event")
+                if kind == "prediction":
+                    predictions[str(event["id"])] = [Label.from_dict(x) for x in event.get("labels") or []]
+                elif kind == "skipped":
+                    unreadable.append(str(event.get("id")))
+                elif kind == "progress" and time.monotonic() - last["t"] >= PROGRESS_EVERY:
+                    last["t"] = time.monotonic()
+                    runs.update(number, done=event.get("step", 0), total=event.get("steps", len(items)))
+                    progress.update(done=event.get("step"), total=event.get("steps"))
+
+            script = self._scripts(model.task_kind).parent / PREDICT_SCRIPT.name
+            cmd = [str(self.environment.python()), str(script), str(spec_file)]
+            log_file = project_dir / "preannotations" / f"p{number}.log"
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            self._run_export(
+                project_id, number, "predict", cmd, tmp, log_file, progress, on_event, "pre-annotation"
+            )
+            counts = preannotate.apply_predictions(project_dir, project, predictions, str(run["scope"]))
+            counts["unreadable"] = len(unreadable)
+            runs.update(number, status=DONE, finished=now(), phase="", done=len(items), counts=counts)
+        except Cancelled:
+            runs.update(number, status=CANCELLED, finished=now(), phase="")
+        except ModelNotFound:
+            runs.update(number, status=FAILED, error="This model was deleted.", finished=now(), phase="")
+        except FileNotFoundError:
+            message = "A file of this model is missing (best.pt): save the training run as a model again."
+            runs.update(number, status=FAILED, error=message, finished=now(), phase="")
+        except Exception as exc:  # noqa: BLE001 - shown to the person
+            runs.update(number, status=FAILED, error=str(exc) or type(exc).__name__, finished=now(), phase="")
+        finally:
+            with self._lock:
+                self._pre_jobs.pop((project_id, number), None)
+            if tmp is not None:
+                _remove_tree(tmp)
+
     def _run_export(
         self,
         project_id: int,
@@ -476,11 +630,16 @@ class TrainingRunner:
         tmp: Path,
         log_file: Path,
         progress: Progress,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+        what: str = "export",
     ) -> dict[str, Any]:
-        """Run the export process; returns the ``done`` event's results."""
+        """Run a tool process (export, pre-annotation); returns the ``done`` event's results.
+
+        ``on_event`` receives every JSON event; ``prediction`` lines are not written to the log.
+        """
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         key = (project_id, number, fmt)
-        state: dict[str, Any] = {"results": None, "error": ""}
+        state: dict[str, Any] = {"results": None, "error": "", "tail": []}
         with log_file.open("a", encoding="utf-8", errors="replace") as log:
             proc = subprocess.Popen(
                 cmd,
@@ -516,15 +675,22 @@ class TrainingRunner:
                     if line is None:
                         break
                     text = line.rstrip("\r\n")
-                    log.write(text + "\n")
-                    log.flush()
                     try:
                         event = json.loads(text)
                     except ValueError:
+                        event = None
+                    if not (isinstance(event, dict) and event.get("event") == "prediction"):
+                        log.write(text + "\n")
+                        log.flush()
+                    if not isinstance(event, dict):
+                        if text.strip():
+                            state["tail"] = [*state["tail"], text.strip()][-3:]  # for the error message
                         continue
-                    if isinstance(event, dict) and event.get("event") == "done":
+                    if on_event is not None:
+                        on_event(event)
+                    if event.get("event") == "done":
                         state["results"] = event.get("results") or {}
-                    elif isinstance(event, dict) and event.get("event") == "error":
+                    elif event.get("event") == "error":
                         state["error"] = str(event.get("message", "error"))
                 code = proc.wait()
                 progress.check()
@@ -536,7 +702,8 @@ class TrainingRunner:
                 with self._lock:
                     self._export_procs.pop(key, None)
         if code != 0 or state["error"] or state["results"] is None:
-            raise RunnerError(state["error"] or f"The export process stopped with code {code}.")
+            detail = f" Last output: {' | '.join(state['tail'])}" if state["tail"] else ""
+            raise RunnerError(state["error"] or f"The {what} process stopped with code {code}.{detail}")
         return dict(state["results"])
 
     # -- one run -----------------------------------------------------------

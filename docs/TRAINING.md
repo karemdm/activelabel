@@ -102,7 +102,7 @@ weights to keep: the PyTorch weights always, and also ONNX (classification and s
 segmentation), which is then queued right after saving.
 
 - **Current model**: one model of the project is marked current (`models/current.json`); the first
-  saved model becomes current. Later steps use it to pre-annotate new tasks, which are reviewed (in
+  saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
 - **Comparison**: the screen lists the models and compares them in a table (every validation and
   test metric, the main per-class metric, size), highlighting the best value of each row.

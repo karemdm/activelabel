@@ -86,11 +86,13 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
     if not labels:
         return None
     if task is Task.CLASSIFICATION:
-        return fo.Classification(label=labels[0].label)
+        return fo.Classification(label=labels[0].label, confidence=labels[0].score)
     if task is Task.DETECTION:
         return fo.Detections(
             detections=[
-                fo.Detection(label=lb.label, bounding_box=lb.bbox, index=lb.track) for lb in labels if lb.bbox
+                fo.Detection(label=lb.label, bounding_box=lb.bbox, index=lb.track, confidence=lb.score)
+                for lb in labels
+                if lb.bbox
             ]
         )
     if task is Task.SEGMENTATION:
@@ -110,6 +112,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
             fo.Keypoint(
                 label=lb.label,
                 index=lb.track,
+                confidence=lb.score,
                 points=[(p[0], p[1]) if p[2] > 0 else (float("nan"), float("nan")) for p in lb.keypoints],
             )
             for lb in labels

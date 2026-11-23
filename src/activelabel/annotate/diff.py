@@ -13,6 +13,7 @@ from activelabel.images.manifest import Manifest
 from activelabel.labels import (
     AnnotationSet,
     Label,
+    annotations_lock,
     annotations_path,
     load_annotations,
     save_annotations,
@@ -283,6 +284,18 @@ def apply(
     project_dir = store.dir(project_id)
     existing = {r.id for r in manifest.all()}
     ids = [i for i in image_ids if i in existing]
+    with annotations_lock(project_dir):
+        return _apply_locked(store, project_id, project, project_dir, ids, new_labels)
+
+
+def _apply_locked(
+    store: ProjectStore,
+    project_id: int,
+    project: Project,
+    project_dir: Path,
+    ids: list[str],
+    new_labels: dict[str, list[Label]],
+) -> dict[str, Any]:
     summary, cleaned = _compare_all(project_dir, ids, new_labels, project)
     annotations = load_annotations(project_dir)
     backup = ""
