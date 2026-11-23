@@ -903,10 +903,11 @@ def _video_of(project_dir: Path, task: ImageTask) -> tuple[Path, dict[str, Any]]
 
     store = VideoStore(project_dir)
     try:
-        path = store.file(store.get(str(source["video"])))
+        info = store.get(str(source["video"]))
+        path = store.file(info)
     except Exception:  # noqa: BLE001 - video gone: send the frames as images
         return None
-    return (path, source) if path.exists() else None
+    return (path, {**source, "name": info.name}) if path.exists() else None
 
 
 def _new_task_items(
