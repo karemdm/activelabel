@@ -115,19 +115,32 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
 
 
 @router.get("/training/environment")
-def environment(state: AppState = STATE) -> dict[str, Any]:
-    """Packages installed in the training environment and the GPU found (nothing is installed here)."""
+def environment(model: str | None = None, state: AppState = STATE) -> dict[str, Any]:
+    """Packages installed in the training environment and the GPU found (nothing is installed here).
+
+    With ``model`` (a catalogue id) the answer also has ``missing`` (packages that model needs and the
+    environment lacks) and ``install_needed``: true when the first run with it will install packages.
+    """
     from activelabel.training.environment import TrainingEnvironment
+    from activelabel.training.runner import EXTRA_PACKAGES
 
     env = TrainingEnvironment(state.settings.workspace)
     gpu = env.gpu()
     exists = env.exists()
     installed: dict[str, str] = env.installed() if exists else {}
-    return {
+    answer: dict[str, Any] = {
         "exists": exists,
         "packages": installed,
         "gpu": None if gpu is None else gpu.as_dict(),
     }
+    if model is not None:
+        spec = get_model(model)
+        if spec is None:
+            raise HTTPException(404, "This model does not exist.")
+        needed = [*spec.packages, *EXTRA_PACKAGES]
+        answer["missing"] = env.missing(needed) if exists else needed
+        answer["install_needed"] = bool(answer["missing"])
+    return answer
 
 
 @router.get("/projects/{project_id}/runs/{number}/log")
