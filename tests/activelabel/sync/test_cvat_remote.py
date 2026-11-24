@@ -834,6 +834,26 @@ def test_a_task_with_project_is_created(cvat: FakeCvat) -> None:
     assert cvat.tasks[answer["id"]]["project_id"] == pid
 
 
+def test_failed_upload_of_a_later_batch_deletes_only_that_task(
+    cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid, _ = seeded(cvat)
+    monkeypatch.setattr(cvat_remote, "BATCH", 1)
+    real = FakeCvat.post_data
+    uploads: list[str] = []
+
+    def second_upload_fails(self: FakeCvat, kw: dict[str, Any], t: str) -> Resp:
+        uploads.append(t)
+        return real(self, kw, t) if len(uploads) == 1 else Resp(500, {})
+
+    monkeypatch.setattr(FakeCvat, "post_data", second_upload_fails)
+    before = set(cvat.tasks)
+    with pytest.raises(ToolError, match="error 500"):
+        CvatRemote().add(SETTINGS, str(pid), project(), make_images(tmp_path, ["a.jpg", "b.jpg"]))
+    (first,) = set(cvat.tasks) - before  # the first batch stays, the half-made second one is gone
+    assert str(first) == uploads[0]
+
+
 def test_failed_cleanup_keeps_the_original_error(
     cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
