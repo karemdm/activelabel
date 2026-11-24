@@ -146,3 +146,55 @@ def test_corrupt_file_is_skipped(tmp_path):
     (tmp_path / "images" / "tiny.png").write_bytes(b"not an image")
     assert measure_images(manifest) == 6
     assert manifest.get("tiny").metrics == {}
+
+
+def test_group_duplicates_matches_a_brute_force_search():
+    import random
+
+    from activelabel.curation.issues import _group_duplicates
+
+    rng = random.Random(7)
+    hashes = [rng.getrandbits(64) for _ in range(150)]
+    for k in range(0, 150, 5):  # near copies at distances 0..8 of an earlier hash
+        flips = rng.sample(range(64), k % 9)
+        hashes[k + 1] = hashes[k] ^ sum(1 << b for b in flips)
+    texts = [f"{h:016x}" for h in hashes]
+    ids = [f"i{n}" for n in range(len(texts))]
+    for limit in (0, 3, 6, 10):
+        parent = list(range(len(ids)))
+
+        def find(x, parent=parent):
+            while parent[x] != x:
+                x = parent[x]
+            return x
+
+        for a in range(len(ids)):
+            for b in range(a + 1, len(ids)):
+                if hamming(texts[a], texts[b]) <= limit:
+                    parent[find(a)] = find(b)
+        expected: dict[int, set[str]] = {}
+        for n, i in enumerate(ids):
+            expected.setdefault(find(n), set()).add(i)
+        want = sorted(sorted(g) for g in expected.values() if len(g) > 1)
+        got = sorted(sorted(g) for g in _group_duplicates(ids, texts, limit))
+        assert got == want
+
+
+def test_oversized_image_is_skipped_not_fatal(tmp_path, monkeypatch):
+    manifest = build(tmp_path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)  # "tiny" (32x24) passes, the others are bombs
+    assert measure_images(manifest) == 1
+    assert manifest.get("tiny").metrics and not manifest.get("ok1").metrics
+
+
+def test_manifest_is_written_once_per_save_interval(tmp_path, monkeypatch):
+    import activelabel.curation.quality as quality
+
+    manifest = build(tmp_path)
+    saves = []
+    original = manifest.update
+    monkeypatch.setattr(manifest, "update", lambda changes: (saves.append(len(changes)), original(changes)))
+    monkeypatch.setattr(quality, "BATCH", 2)
+    monkeypatch.setattr(quality, "SAVE_EVERY", 4)
+    assert measure_images(manifest) == 7
+    assert saves == [4, 3]
