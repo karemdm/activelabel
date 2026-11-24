@@ -23,8 +23,6 @@ def test_same_keys_in_both_languages():
 
 
 def test_placeholders_match_between_languages():
-    import re
-
     en, pt = load("en"), load("pt")
     for key in en:
         assert set(re.findall(r"\{(\w+)\}", en[key])) == set(re.findall(r"\{(\w+)\}", pt[key])), key

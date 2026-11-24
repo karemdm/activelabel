@@ -1,7 +1,8 @@
 import threading
 import time
 
-from activelabel.jobs import CANCELLED, DONE, FAILED, JobManager
+from activelabel.jobs import CANCELLED, DONE, FAILED, JobManager, readable_error
+from activelabel.textcheck import message_of
 
 
 def wait(job, timeout=5.0):
@@ -77,8 +78,6 @@ def test_clear_removes_only_finished_jobs_of_the_project():
 
 
 def test_fiftyone_database_errors_are_readable():
-    from activelabel.jobs import readable_error
-
     class ServiceListenTimeout(Exception):
         pass
 
@@ -95,9 +94,6 @@ def test_error_message_has_no_class_name_but_traceback_keeps_it():
 
 
 def test_error_text_has_no_quotes_from_a_key_error():
-    from activelabel.jobs import readable_error
-    from activelabel.textcheck import message_of
-
     assert readable_error(KeyError("The image is gone")) == "The image is gone"
     assert message_of(ValueError("A project named 'x'")) == "A project named 'x'"
     assert message_of(KeyError(7)) == "7"

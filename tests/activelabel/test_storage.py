@@ -1,8 +1,11 @@
+import os as _os
+
+import pytest
+
+from activelabel import storage
+
+
 def test_replace_retried_while_windows_reports_file_in_use(tmp_path, monkeypatch):
-    import os as _os
-
-    from activelabel import storage
-
     real, calls = _os.replace, []
 
     def flaky(src, dst):
@@ -18,10 +21,6 @@ def test_replace_retried_while_windows_reports_file_in_use(tmp_path, monkeypatch
 
 
 def test_damaged_json_names_the_file(tmp_path):
-    import pytest
-
-    from activelabel import storage
-
     bad = tmp_path / "annotations.json"
     bad.write_text('{"images": ', encoding="utf-8")
     with pytest.raises(ValueError, match="annotations.json is damaged"):

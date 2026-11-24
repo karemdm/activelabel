@@ -7,6 +7,10 @@ import sys
 import webbrowser
 from collections.abc import Sequence
 
+import uvicorn
+
+from activelabel.web.app import create_app
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point."""
@@ -20,10 +24,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve.add_argument("--open", action="store_true", help="Open the browser")
     args = parser.parse_args(argv)
     if args.command == "serve":
-        import uvicorn
-
-        from activelabel.web.app import create_app
-
         url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
         print(f"activelabel: {url}", file=sys.stderr)
         if args.open:
