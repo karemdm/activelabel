@@ -27,7 +27,14 @@ _LOCKS_GUARD = threading.Lock()
 
 
 def _lock_for(path: Path) -> threading.RLock:
-    """One lock per file, shared by every store object of the same project."""
+    """One lock per file, shared by every store object of the same project.
+
+    Args:
+        path: the ``tasks.json`` of the project.
+
+    Returns:
+        The same lock for the same file every time.
+    """
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
@@ -80,12 +87,22 @@ class ImageTask:
     source: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The task as the dict stored in ``tasks.json``.
+        """
         return asdict(self)
 
 
 def check_job_size(job_size: Any) -> int | None:
     """Validate "images per job".
+
+    Args:
+        job_size: the value as received (a number, or None for a single job).
+
+    Returns:
+        ``job_size`` unchanged when valid.
 
     Raises:
         CodedError: ``job_size_invalid``: not a whole number from 1 to ``MAX_JOB_SIZE`` (and not None).
@@ -102,7 +119,14 @@ def check_job_size(job_size: Any) -> int | None:
 
 
 def jobs(task: ImageTask) -> list[TaskJob]:
-    """Jobs of a task: chunks of ``job_size`` images (one job with everything when it is None)."""
+    """Jobs of a task: chunks of ``job_size`` images (one job with everything when it is None).
+
+    Args:
+        task: the task.
+
+    Returns:
+        Its jobs in order; none when the task has no images.
+    """
     total = len(task.images)
     if not total:
         return []
@@ -115,6 +139,12 @@ def jobs(task: ImageTask) -> list[TaskJob]:
 
 def clean_name(name: str) -> str:
     """Strip a task name.
+
+    Args:
+        name: the name as typed.
+
+    Returns:
+        The name without spaces around.
 
     Raises:
         CodedError: ``task_name_empty``, ``task_name_too_long`` or ``control_characters``.
@@ -135,6 +165,11 @@ class TaskStore:
     """Tasks of one project, saved in ``<project>/tasks.json``."""
 
     def __init__(self, project_dir: Path) -> None:
+        """Open the tasks of a project.
+
+        Args:
+            project_dir: the project's folder.
+        """
         self.project_dir = project_dir
         self.path = project_dir / "tasks.json"
         self._lock = _lock_for(self.path)
@@ -151,6 +186,12 @@ class TaskStore:
 
         Images in no task are put in a new closed task, except ``registering`` (ids the caller is
         about to place itself).
+
+        Args:
+            registering: image ids the caller is about to place in a task itself.
+
+        Returns:
+            The id the next task gets, and the tasks.
         """
         data = read_json(self.path)
         if data is None:
@@ -170,6 +211,12 @@ class TaskStore:
         return next_id, tasks
 
     def _write(self, next_id: int, tasks: list[ImageTask]) -> None:
+        """Save the tasks.
+
+        Args:
+            next_id: the id the next task gets.
+            tasks: every task of the project.
+        """
         write_json(self.path, {"next_id": next_id, "tasks": [t.as_dict() for t in tasks]})
 
     def load(self) -> list[ImageTask]:
@@ -178,6 +225,9 @@ class TaskStore:
         A reader never waits for a long upload: while another thread holds the lock (ingest holds it for
         a whole upload) the tasks are read as last saved (the file is replaced atomically). Images not
         registered yet are then not shown, and the migration of orphans waits for a quiet moment.
+
+        Returns:
+            The tasks.
         """
         if not self._lock.acquire(blocking=False):
             data = read_json(self.path)
@@ -195,12 +245,22 @@ class TaskStore:
                 self._write(1, [])
 
     def next_id(self) -> int:
-        """The id the next task will get (never reused)."""
+        """The id the next task will get (never reused).
+
+        Returns:
+            The id.
+        """
         with self._lock:
             return self._read()[0]
 
     def get(self, task_id: int) -> ImageTask:
         """One task.
+
+        Args:
+            task_id: the task.
+
+        Returns:
+            The task.
 
         Raises:
             TaskNotFound: unknown id.
@@ -211,11 +271,22 @@ class TaskStore:
         raise TaskNotFound(task_id)
 
     def task_of(self, image_id: str) -> ImageTask | None:
-        """The task that holds an image, or None."""
+        """The task that holds an image, or None.
+
+        Args:
+            image_id: the image.
+
+        Returns:
+            The task, or None when no task holds it.
+        """
         return next((t for t in self.load() if image_id in t.images), None)
 
     def check_name_free(self, name: str, own_id: int | None = None) -> None:
         """Refuse a name another task of the project already has (case does not matter).
+
+        Args:
+            name: the name wanted.
+            own_id: the task being renamed, which may keep its own name; None for a new task.
 
         Raises:
             CodedError: ``task_name_taken``.
@@ -228,7 +299,15 @@ class TaskStore:
                 )
 
     def _unique(self, name: str, tasks: list[ImageTask]) -> str:
-        """``name``, or ``name (2)``, ``name (3)``... when another task has it (tasks made by imports)."""
+        """``name``, or ``name (2)``, ``name (3)``... when another task has it (tasks made by imports).
+
+        Args:
+            name: the name wanted.
+            tasks: the tasks that already exist.
+
+        Returns:
+            A name no task in ``tasks`` has.
+        """
         taken = {t.name.lower() for t in tasks}
         candidate, n = name, 1
         while candidate.lower() in taken:
@@ -251,6 +330,16 @@ class TaskStore:
         A name another task already has gets a number added (``Name (2)``): callers that must refuse
         a repeated name call :meth:`check_name_free` first (the API does, before storing images).
 
+        Args:
+            name: the name; None for "Task <id>".
+            job_size: images per job, or None for a single job.
+            images: ids of the images in the task, in order.
+            open: True while a chunked upload may still append images.
+            source: for a task made from a video, where it came from.
+
+        Returns:
+            The new task.
+
         Raises:
             CodedError: empty or too long name; invalid ``job_size``.
         """
@@ -269,6 +358,18 @@ class TaskStore:
     def _change(
         self, task_id: int, registering: Iterable[str] = ()
     ) -> tuple[int, list[ImageTask], ImageTask]:
+        """Read the tasks and pick one, for a change that is then written back.
+
+        Args:
+            task_id: the task to change.
+            registering: image ids the caller is about to place itself (see :meth:`_read`).
+
+        Returns:
+            The next id, every task, and the task to change.
+
+        Raises:
+            TaskNotFound: unknown id.
+        """
         next_id, tasks = self._read(registering)
         for task in tasks:
             if task.id == task_id:
@@ -277,6 +378,13 @@ class TaskStore:
 
     def append(self, task_id: int, image_ids: list[str]) -> ImageTask:
         """Add images at the end of an open task.
+
+        Args:
+            task_id: the task.
+            image_ids: the images to add (ones already in it are skipped).
+
+        Returns:
+            The task after the change.
 
         Raises:
             TaskNotFound: unknown id.
@@ -292,7 +400,18 @@ class TaskStore:
             return task
 
     def set_source(self, task_id: int, source: dict[str, Any]) -> ImageTask:
-        """Record the video a task was made from (``{"video", "start", "stop", "step", "fps"}``)."""
+        """Record the video a task was made from.
+
+        Args:
+            task_id: the task.
+            source: ``{"video", "start", "stop", "step", "fps"}``.
+
+        Returns:
+            The task after the change.
+
+        Raises:
+            TaskNotFound: unknown id.
+        """
         with self._lock:
             next_id, tasks, task = self._change(task_id)
             task.source = source
@@ -300,7 +419,17 @@ class TaskStore:
             return task
 
     def close(self, task_id: int) -> ImageTask:
-        """Fix the images of a task (no more appends)."""
+        """Fix the images of a task (no more appends).
+
+        Args:
+            task_id: the task.
+
+        Returns:
+            The task after the change.
+
+        Raises:
+            TaskNotFound: unknown id.
+        """
         with self._lock:
             next_id, tasks, task = self._change(task_id)
             task.open = False
@@ -309,6 +438,13 @@ class TaskStore:
 
     def rename(self, task_id: int, name: str) -> ImageTask:
         """Change the name of a task.
+
+        Args:
+            task_id: the task.
+            name: the new name.
+
+        Returns:
+            The task after the change.
 
         Raises:
             TaskNotFound: unknown id.
@@ -323,7 +459,13 @@ class TaskStore:
             return task
 
     def delete(self, task_id: int) -> list[str]:
-        """Remove a task. Returns its image ids (the caller deletes the images).
+        """Remove a task.
+
+        Args:
+            task_id: the task.
+
+        Returns:
+            Its image ids (the caller deletes the images).
 
         Raises:
             TaskNotFound: unknown id.
@@ -334,7 +476,14 @@ class TaskStore:
             return list(task.images)
 
     def remove_images(self, image_ids: list[str]) -> int:
-        """Take images out of their tasks; a task left empty is removed. Returns how many were removed."""
+        """Take images out of their tasks; a task left empty is removed.
+
+        Args:
+            image_ids: the images to take out.
+
+        Returns:
+            How many images were removed.
+        """
         gone = set(image_ids)
         with self._lock:
             next_id, tasks = self._read()

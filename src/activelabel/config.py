@@ -25,7 +25,14 @@ class Settings:
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
-        """Build settings from the environment (``environ`` is injectable for tests)."""
+        """Build settings from the environment.
+
+        Args:
+            environ: the variables to read; None reads ``os.environ`` (injectable for tests).
+
+        Returns:
+            The settings, with defaults for what is unset or empty.
+        """
         env = os.environ if environ is None else environ
         default = cls()
         root = env.get("ACTIVELABEL_IMPORT_ROOT", "").strip()
@@ -38,5 +45,9 @@ class Settings:
 
     @property
     def projects_dir(self) -> Path:
-        """Folder with one sub-folder per project."""
+        """Folder with one sub-folder per project.
+
+        Returns:
+            ``<workspace>/projects``.
+        """
         return self.workspace / "projects"

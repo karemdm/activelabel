@@ -24,7 +24,14 @@ MISSING_CORNER = (0.0, 0.0)  # where tools that cannot leave a point empty (CVAT
 
 
 def clamp01(value: float) -> float:
-    """``value`` limited to the range 0..1 (relative coordinates)."""
+    """``value`` limited to the range 0..1 (relative coordinates).
+
+    Args:
+        value: a coordinate.
+
+    Returns:
+        ``value``, or 0 or 1 when it lies outside the range.
+    """
     return min(1.0, max(0.0, value))
 
 
@@ -52,12 +59,23 @@ class Label:
     model: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form without empty fields."""
+        """JSON-ready form without empty fields.
+
+        Returns:
+            The fields of the label that are not None.
+        """
         return {k: v for k, v in asdict(self).items() if v is not None}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Label:
-        """Inverse of :meth:`as_dict`."""
+        """Inverse of :meth:`as_dict`.
+
+        Args:
+            data: a dict made by :meth:`as_dict`.
+
+        Returns:
+            The label.
+        """
         return cls(
             label=str(data["label"]),
             bbox=data.get("bbox"),
@@ -70,7 +88,14 @@ class Label:
 
 
 def task_of(labels: list[Label]) -> Task | None:
-    """Task these labels fit best (None when there are no labels)."""
+    """Task these labels fit best (None when there are no labels).
+
+    Args:
+        labels: the labels of one image or of a project.
+
+    Returns:
+        The task, from the richest shape found: keypoints, then polygons, then boxes, else classification.
+    """
     if not labels:
         return None
     if any(lb.keypoints for lb in labels):
@@ -100,7 +125,15 @@ MAX_PROBLEM_EXAMPLES = 5
 
 
 def has_geometry(task: Task, label: Label) -> bool:
-    """Whether a label has the shape its task needs (classification needs none)."""
+    """Whether a label has the shape its task needs (classification needs none).
+
+    Args:
+        task: the task the label must fit.
+        label: the label.
+
+    Returns:
+        True when the shape the task needs is present.
+    """
     if task is Task.CLASSIFICATION:
         return True
     if task is Task.DETECTION:
@@ -137,7 +170,14 @@ def geometry_problem(task: Task, label: Label, keypoints: int | None = None) -> 
 
 
 def common_keypoint_count(labels_by_image: dict[str, list[Label]]) -> int | None:
-    """The most common number of points among the pose labels (None when there are none)."""
+    """The most common number of points among the pose labels (None when there are none).
+
+    Args:
+        labels_by_image: labels per image id.
+
+    Returns:
+        The most common count of keypoints, or None when no label has keypoints.
+    """
     sizes = Counter(len(lb.keypoints) for items in labels_by_image.values() for lb in items if lb.keypoints)
     return sizes.most_common(1)[0][0] if sizes else None
 
@@ -158,7 +198,12 @@ class LabelCheck:
     labels: int = 0
 
     def add(self, problem: str, image_id: str) -> None:
-        """Count one occurrence of ``problem`` on an image."""
+        """Count one occurrence of ``problem`` on an image.
+
+        Args:
+            problem: a category of ``LABEL_PROBLEMS``.
+            image_id: the image that has it (kept as an example while fewer than 5 are kept).
+        """
         self.counts[problem] += 1
         found = self.examples.setdefault(problem, [])
         if image_id not in found and len(found) < MAX_PROBLEM_EXAMPLES:
@@ -166,11 +211,19 @@ class LabelCheck:
 
     @property
     def ok(self) -> bool:
-        """True when nothing was found."""
+        """True when nothing was found.
+
+        Returns:
+            Whether every count is zero.
+        """
         return not any(self.counts.values())
 
     def problems(self) -> dict[str, int]:
-        """Only the categories that have something, with their counts."""
+        """Only the categories that have something, with their counts.
+
+        Returns:
+            Category to count, without the categories at zero.
+        """
         return {k: v for k, v in self.counts.items() if v}
 
 
@@ -229,7 +282,11 @@ class AnnotationSet:
     source: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The set as the dict stored in ``annotations.json``.
+        """
         return {
             "task": self.task.value,
             "classes": self.classes,
@@ -239,18 +296,39 @@ class AnnotationSet:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnnotationSet:
-        """Inverse of :meth:`as_dict`."""
+        """Inverse of :meth:`as_dict`.
+
+        Args:
+            data: the content of ``annotations.json``.
+
+        Returns:
+            The annotation set.
+        """
         images = {k: [Label.from_dict(x) for x in v] for k, v in data.get("images", {}).items()}
         return cls(Task(data["task"]), list(data.get("classes", [])), images, dict(data.get("source", {})))
 
 
 def annotations_path(project_dir: Path) -> Path:
-    """File with the ground truth of a project."""
+    """File with the ground truth of a project.
+
+    Args:
+        project_dir: the project's folder.
+
+    Returns:
+        Path of ``annotations.json`` in it.
+    """
     return project_dir / "annotations.json"
 
 
 def load_annotations(project_dir: Path) -> AnnotationSet | None:
-    """Ground truth of a project, or None when there is none."""
+    """Ground truth of a project, or None when there is none.
+
+    Args:
+        project_dir: the project's folder.
+
+    Returns:
+        The annotation set, or None when the file does not exist or is empty.
+    """
     data = read_json(annotations_path(project_dir))
     return AnnotationSet.from_dict(data) if data else None
 
@@ -264,12 +342,23 @@ def annotations_lock(project_dir: Path) -> threading.RLock:
 
     Every writer (review apply, sync, pre-annotation, accept, image deletion, imports) takes it, so a
     change made by one is never lost by another that read the file before it.
+
+    Args:
+        project_dir: the project's folder.
+
+    Returns:
+        The same lock for the same folder every time.
     """
     with _ANN_GUARD:
         return _ANN_LOCKS.setdefault(Path(project_dir).resolve(), threading.RLock())
 
 
 def save_annotations(project_dir: Path, annotations: AnnotationSet) -> None:
-    """Save the ground truth of a project (stamps ``source.saved``)."""
+    """Save the ground truth of a project (stamps ``source.saved``).
+
+    Args:
+        project_dir: the project's folder.
+        annotations: the set to write; its ``source`` gets the time of the save.
+    """
     annotations.source = {**annotations.source, "saved": now()}
     write_json(annotations_path(project_dir), annotations.as_dict())

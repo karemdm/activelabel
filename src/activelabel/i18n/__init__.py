@@ -25,6 +25,12 @@ def _load(lang: str) -> dict[str, str]:
 
     A running server keeps up with an update of the code (``git pull``): the page and its
     JavaScript are read from disk on each request, so the texts must be too.
+
+    Args:
+        lang: language code, the name of the file without ``.json``.
+
+    Returns:
+        The messages (key to text) of that language only.
     """
     path = _DIR / f"{lang}.json"
     info = path.stat()
@@ -58,13 +64,28 @@ def translate(key: str, lang: str, **values: Any) -> str:
     """Text of ``key`` in ``lang`` with ``{name}`` placeholders replaced.
 
     Falls back to English, then to the key itself. Unknown placeholders are left as they are.
+
+    Args:
+        key: message key.
+        lang: ``en`` or ``pt``.
+        **values: what replaces each ``{name}`` placeholder.
+
+    Returns:
+        The text.
     """
     text = messages(lang).get(key, key)
     return re.sub(r"\{(\w+)\}", lambda m: str(values.get(m.group(1), m.group(0))), text)
 
 
 def _from_accept_language(header: str | None) -> str | None:
-    """First supported language of an Accept-Language header, by quality."""
+    """First supported language of an Accept-Language header, by quality.
+
+    Args:
+        header: the header value, e.g. ``pt-BR,pt;q=0.9,en;q=0.8``; None or empty when absent.
+
+    Returns:
+        ``en`` or ``pt``, or None when the header names no supported language.
+    """
     if not header:
         return None
     ranked: list[tuple[float, int, str]] = []
@@ -94,6 +115,15 @@ def pick_language(
 
     Order: ``?lang=`` in the URL, the remembered cookie, the browser's Accept-Language,
     the configured default, English.
+
+    Args:
+        query: the ``lang`` parameter of the URL.
+        cookie: the language remembered in the cookie.
+        accept_language: the Accept-Language header of the browser.
+        default: the configured language, used when nothing above names a supported one.
+
+    Returns:
+        ``en`` or ``pt``.
     """
     for candidate in (query, cookie):
         if candidate and candidate.lower() in SUPPORTED:

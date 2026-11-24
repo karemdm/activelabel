@@ -51,19 +51,33 @@ class Project:
     updated: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The project as the dict stored in ``project.json`` (the task as its value).
+        """
         data = asdict(self)
         data["task"] = self.task.value
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Project:
-        """Inverse of :meth:`as_dict`."""
+        """Inverse of :meth:`as_dict`.
+
+        Args:
+            data: the content of ``project.json``.
+
+        Returns:
+            The project.
+        """
         return cls(**{**data, "task": Task(data["task"])})
 
 
 def check_classes(classes: list[str] | tuple[str, ...]) -> None:
     """Refuse class lists that are too long or have a name that is too long (or has control characters).
+
+    Args:
+        classes: the class names as typed (they are cleaned before the check).
 
     Raises:
         CodedError: ``class_name_too_long``, ``class_name_invalid`` or ``too_many_classes``.
@@ -88,7 +102,14 @@ def check_classes(classes: list[str] | tuple[str, ...]) -> None:
 
 
 def clean_classes(classes: list[str] | tuple[str, ...]) -> list[str]:
-    """Strip names, drop empty ones and repeated ones (keeps the first order)."""
+    """Strip names, drop empty ones and repeated ones (keeps the first order).
+
+    Args:
+        classes: the class names as typed.
+
+    Returns:
+        The names without spaces around, empty ones, or repeats (ignoring case); the first spelling stays.
+    """
     seen: dict[str, str] = {}  # lower case -> first spelling
     for name in classes:
         name = name.strip()
@@ -101,24 +122,52 @@ class ProjectStore:
     """Projects on disk."""
 
     def __init__(self, root: Path) -> None:
+        """Open the projects of a workspace.
+
+        Args:
+            root: the ``projects`` folder (created when the first project is).
+        """
         self.root = root
         self._lock = threading.RLock()
 
     def dir(self, project_id: int) -> Path:
-        """Folder of a project."""
+        """Folder of a project.
+
+        Args:
+            project_id: the project.
+
+        Returns:
+            Its folder (it may not exist).
+        """
         return self.root / str(project_id)
 
     def _file(self, project_id: int) -> Path:
+        """The ``project.json`` of a project.
+
+        Args:
+            project_id: the project.
+
+        Returns:
+            Its path.
+        """
         return self.dir(project_id) / "project.json"
 
     def _folders(self) -> dict[int, Path]:
-        """Project folders by id (a folder counts even when its project.json is damaged)."""
+        """Project folders by id (a folder counts even when its project.json is damaged).
+
+        Returns:
+            Folder per id; empty when there is no projects folder yet.
+        """
         if not self.root.exists():
             return {}
         return {int(f.name): f for f in self.root.iterdir() if f.is_dir() and f.name.isdigit()}
 
     def list(self) -> list[Project]:
-        """Every readable project, newest first (see :meth:`damaged` for the others)."""
+        """Every readable project, newest first (see :meth:`damaged` for the others).
+
+        Returns:
+            The projects, highest id first.
+        """
         projects = []
         for folder in self._folders().values():
             try:
@@ -130,7 +179,11 @@ class ProjectStore:
         return sorted(projects, key=lambda p: p.id, reverse=True)
 
     def damaged(self) -> dict[int, str]:
-        """Projects whose ``project.json`` cannot be read: ``{id: readable message}``."""
+        """Projects whose ``project.json`` cannot be read: ``{id: readable message}``.
+
+        Returns:
+            Message per project id.
+        """
         out: dict[int, str] = {}
         for project_id, folder in self._folders().items():
             try:
@@ -142,6 +195,12 @@ class ProjectStore:
     def get(self, project_id: int) -> Project:
         """One project.
 
+        Args:
+            project_id: the project.
+
+        Returns:
+            The project.
+
         Raises:
             ProjectNotFound: when it does not exist.
         """
@@ -151,6 +210,19 @@ class ProjectStore:
         return Project.from_dict(data)
 
     def _check(self, name: str, description: str, own_id: int | None = None) -> tuple[str, str]:
+        """Validate a name and a description.
+
+        Args:
+            name: the project name as typed.
+            description: the description as typed.
+            own_id: the project being changed, which may keep its own name; None for a new project.
+
+        Returns:
+            The name and the description, stripped.
+
+        Raises:
+            CodedError: empty, too long or repeated name, too long description, control characters.
+        """
         name, description = name.strip(), description.strip()
         if not name:
             raise CodedError("project_name_empty", "Give the project a name.")
@@ -184,8 +256,18 @@ class ProjectStore:
     ) -> Project:
         """Create a project with the next free id.
 
+        Args:
+            name: unique, ignoring case.
+            description: free text.
+            task: the task, or its value (``detection``...).
+            classes: the class names, in order.
+
+        Returns:
+            The new project.
+
         Raises:
-            ValueError: empty, too long or repeated name; unknown task.
+            CodedError: empty, too long or repeated name, or a bad class list.
+            ValueError: unknown task.
         """
         with self._lock:
             name, description = self._check(name, description)
@@ -201,6 +283,13 @@ class ProjectStore:
 
     def update(self, project_id: int, **changes: Any) -> Project:
         """Change name, description, task or classes.
+
+        Args:
+            project_id: the project.
+            **changes: any of ``name``, ``description``, ``task``, ``classes``.
+
+        Returns:
+            The project after the change.
 
         Raises:
             ProjectNotFound: when it does not exist.
@@ -227,6 +316,9 @@ class ProjectStore:
 
     def delete(self, project_id: int) -> None:
         """Delete a project and all its files (images, annotations).
+
+        Args:
+            project_id: the project.
 
         Raises:
             ProjectNotFound: when it does not exist.

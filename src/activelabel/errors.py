@@ -20,6 +20,13 @@ class CodedError(ValueError):
     """
 
     def __init__(self, code: str, message: str, **params: Any) -> None:
+        """Build the error.
+
+        Args:
+            code: stable identifier, e.g. ``project_name_taken``.
+            message: English text for the API and the logs.
+            **params: values the translated text needs.
+        """
         super().__init__(message)
         self.code = code
         self.params = params
