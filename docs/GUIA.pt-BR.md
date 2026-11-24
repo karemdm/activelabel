@@ -156,7 +156,7 @@ Os pesos são baixados a cada uso, numa pasta temporária apagada no fim; é pre
 
 As tarefas demoradas (análise, envio, sincronização, treinamento, exportação, pré-anotação)
 aparecem num cartão pequeno no canto inferior direito da página do projeto, com progresso,
-*Cancelar* e *Ver resultado*. Ele pode ser minimizado ou fechado; as atividades concluídas
+*Parar* e *Ver resultado*. Ele pode ser minimizado ou fechado; as atividades concluídas
 ficam no histórico. Só um processo pesado (treinamento, exportação ou pré-anotação) roda de
 cada vez; os outros esperam na fila.
 

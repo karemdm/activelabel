@@ -73,6 +73,8 @@ round of labels to review, not to replace a model trained on the project's own i
   catalogue id and the mapping). Each pre-annotation run downloads the weights from the torchvision
   servers into the run's temporary folder, removed at the end; it needs `torch` and `torchvision`
   in the training environment (installed first when missing) and an internet connection.
+- In the mapping dialog, a category of the model can go to only one class (the dialog says which classes
+  chose it twice).
 - A public model has no training results, no downloads and no ONNX export, and is left out of the
   comparison table. It can be the current model, renamed (note) and deleted like any other.
 - **Licence**: torchvision code is BSD-3; the weights were trained on COCO 2017. Check the terms of

@@ -101,7 +101,7 @@ project deletes its recorded dataset (and the plain-named one only when it holds
      contrast, small, odd aspect ratio, grayscale, near duplicate. (Corrupt files are rejected at
      upload and never become images.)
 4. **Activities card** — a small card in the bottom-right corner (minimisable, closable) with the running
-   and recent jobs of the project: progress, *Cancel*, result summary and *See result*; finished ones
+   and recent jobs of the project: progress, *Stop*, result summary and *See result*; finished ones
    stay in its history.
 
 ## HTTP API
