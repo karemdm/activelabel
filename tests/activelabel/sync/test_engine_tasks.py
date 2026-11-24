@@ -659,3 +659,30 @@ def test_link_is_dropped_only_when_the_project_is_really_gone(synced, monkeypatc
     monkeypatch.setattr(env.remote, "server_answers", lambda settings: True, raising=False)
     assert engine.existing_remote(*args) is None  # really deleted
     assert links.get_link(env.dir, "cvat") is None
+
+
+def test_remote_frames_with_the_same_base_name_or_the_same_content_are_all_linked(synced):
+    env = synced
+    new = env.remote.new_task(
+        env.rid, "Clash", [("a/1.png", CAT), ("b/1.png", CAT2), ("c/dup.png", [])], job_size=None
+    )
+    existing = Manifest(env.dir).load()[env.ids[0]]
+    env.remote.frame_bytes[(new, 2)] = (env.dir / existing.file).read_bytes()  # same image as one we have
+    result = apply(env, plan(env)["plan_id"])
+    assert result["tasks_imported"] == 1
+    task = TaskStore(env.dir).load()[-1]
+    records = Manifest(env.dir).load()
+    assert [records[i].name for i in task.images] == [
+        "a/1.png",
+        "b/1.png",
+    ]  # the duplicate is not stored twice
+    annotations = load_annotations(env.dir)
+    assert annotations.images[task.images[0]][0].bbox == CAT[0].bbox  # each frame got its own labels
+    assert annotations.images[task.images[1]][0].bbox == CAT2[0].bbox
+    items = links.get_link(env.dir, "cvat")["items"]
+    assert items[task.images[0]]["key"] == f"{new}:0" and items[task.images[1]]["key"] == f"{new}:1"
+    assert items[env.ids[0]]["key"] != f"{new}:2"  # that image was already linked to its own item
+    again = plan(env)
+    assert (
+        again["remote_only"]["count"] == 1 and again["tasks_new"] == []
+    )  # only the duplicate frame stays apart

@@ -279,3 +279,21 @@ def test_a_huge_image_is_too_large_not_corrupt(manifest, tmp_path, monkeypatch):
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
     report = ingest_files(manifest, [("big.jpg", io.BytesIO(_bytes(tmp_path, "big.jpg", seed=4)))])
     assert report.rejected == [{"name": "big.jpg", "reason": "too large"}]
+
+
+def test_report_tells_which_image_each_file_became(manifest, tmp_path):
+    a, b = _bytes(tmp_path, "a.jpg", seed=1), _bytes(tmp_path, "b.jpg", seed=2)
+    report = ingest_files(
+        manifest,
+        [
+            ("a.jpg", io.BytesIO(a)),
+            ("copy.jpg", io.BytesIO(a)),
+            ("bad.jpg", io.BytesIO(b"nope")),
+            ("b.jpg", io.BytesIO(b)),
+        ],
+    )
+    first, _, third, fourth = report.per_file[0], report.per_file[1], report.per_file[2], report.per_file[3]
+    assert (
+        report.per_file[1] == first and third is None and fourth == report.ids[1]
+    )  # a duplicate points to the first
+    assert len(report.per_file) == 4 and report.ids == [first, fourth]

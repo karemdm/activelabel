@@ -61,6 +61,9 @@ class IngestReport:
             (``corrupt``, ``too small``, ``too large``, ``unsupported``, ``unsafe path``, ...).
         other_files: names of annotation files (json, txt, xml, yaml) sent with the images or inside archives.
         ids: ids of the images stored by this import, in order (not part of :meth:`as_dict`).
+        per_file: for every file handled at the top level (not the entries of a zip), in order: the id of
+            its image (the existing image for a duplicate), or None when no image came of it (not part of
+            :meth:`as_dict`).
     """
 
     added: int = 0
@@ -68,6 +71,7 @@ class IngestReport:
     rejected: list[dict[str, str]] = field(default_factory=list)
     other_files: list[str] = field(default_factory=list)
     ids: list[str] = field(default_factory=list)
+    per_file: list[str | None] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form: counts plus at most 200 examples of each list."""
@@ -144,6 +148,7 @@ class _Ingester:
         self.report = IngestReport()
         self.known: set[str] = set(manifest.load())
         self.pending: list[ImageRecord] = []
+        self.last_id: str | None = None  # image of the file just stored (also when it was a duplicate)
         self.done = 0
         self.total = 0
         self.images_dir = manifest.project_dir / "images"
@@ -165,7 +170,14 @@ class _Ingester:
         self.report.rejected.append({"name": name, "reason": reason})
 
     def handle(self, name: str, stream: BinaryIO) -> None:
-        """Process one uploaded or on-disk file."""
+        """Process one uploaded or on-disk file (and note which image it became in ``report.per_file``)."""
+        self.last_id = None
+        try:
+            self._handle(name, stream)
+        finally:
+            self.report.per_file.append(self.last_id)
+
+    def _handle(self, name: str, stream: BinaryIO) -> None:
         self.tick(name)
         self.done += 1
         clean = _clean_name(name)
@@ -177,6 +189,7 @@ class _Ingester:
         ext = PurePosixPath(clean).suffix.lower()
         if ext == ".zip":
             self._expand_zip(clean, stream)
+            self.last_id = None  # an archive holds many images
         elif ext in IMAGE_EXTENSIONS:
             self._store_image(clean, stream)
         elif ext in ANNOTATION_EXTENSIONS:
@@ -212,12 +225,14 @@ class _Ingester:
                     out.write(chunk)
             digest.update(salt)
             image_id = digest.hexdigest()[:16]
+            self.last_id = image_id
             if image_id in self.known:
                 self.report.duplicates.append(name)
                 return size
             try:
                 width, height, ext = _read_image(tmp)
             except ValueError as exc:
+                self.last_id = None
                 self.reject(name, str(exc))
                 return size
             relative = f"images/{image_id}{ext}"
