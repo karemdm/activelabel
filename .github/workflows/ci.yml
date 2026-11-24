@@ -127,3 +127,34 @@ jobs:
         # from another folder, so the source tree cannot be imported by mistake
         working-directory: ${{ runner.temp }}
         run: clean/bin/python "$GITHUB_WORKSPACE/tests/package/smoke_server.py" 8765
+
+  training-workers:
+    # The workers and the metrics run in the separate training environment, so the jobs above (no PyTorch)
+    # skip their tests. Here PyTorch is installed (CPU) and a skipped torch test fails the job.
+    # The managed training environment (training/environment.py) does not pin versions: it installs the
+    # latest torch/torchvision from the PyTorch index and timm from PyPI; this job does the same.
+    name: training workers (torch CPU)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the app, CPU-only PyTorch and timm, and scikit-learn (reference for the metric tests only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install timm scikit-learn
+          python -c "import torch, torchvision, timm, sklearn; print(torch.__version__, torchvision.__version__, timm.__version__, sklearn.__version__)"
+      - name: Worker and metric tests (none may be skipped for a missing package)
+        run: |
+          python -m pytest -q -rs -m "not integration" tests/activelabel/training | tee "$RUNNER_TEMP/pytest.log"
+          if grep -E "SKIPPED.*(could not import|torch|timm|sklearn|scikit)" "$RUNNER_TEMP/pytest.log"; then
+            echo "a training test was skipped for a missing package" >&2
+            exit 1
+          fi
