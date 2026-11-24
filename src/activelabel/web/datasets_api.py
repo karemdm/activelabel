@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore, Plan, parse_options, plan_split
 from activelabel.tasks_store import TaskStore
+from activelabel.training.runs import QUEUED, RUNNING, RunStore
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
@@ -34,6 +35,7 @@ class DeleteDataset(BaseModel):
     """Body of DELETE /projects/{id}/datasets/{n}."""
 
     confirm: bool = False
+    confirm_runs: bool = False
 
 
 def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
@@ -45,6 +47,25 @@ def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
         return plan_split(project_dir, project, options)
     except ValueError as error:
         raise bad_request(error) from None
+
+
+def _numbers(runs: list[int]) -> str:
+    return ", ".join(f"r{n}" for n in runs)
+
+
+def _runs_using(state: AppState, project_id: int, version: int) -> tuple[list[int], list[int]]:
+    """Numbers of the unfinished and of the finished training runs that use a dataset version."""
+    runs = RunStore(state.store.dir(project_id))
+    active: list[int] = []
+    finished: list[int] = []
+    for run in reversed(runs.list()):
+        try:
+            if runs.config(run["number"]).dataset != version:
+                continue
+        except (OSError, ValueError):
+            continue  # a run whose configuration is unreadable cannot name its version
+        (active if run["status"] in (QUEUED, RUNNING) else finished).append(run["number"])
+    return active, finished
 
 
 def _store(state: AppState, project_id: int) -> DatasetStore:
@@ -75,10 +96,12 @@ def create_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) 
     blocked = [p for p in plan.empty_parts() if p in ("train", "val")]
     if blocked and not body.allow_empty:
         names = " and ".join("training" if p == "train" else "validation" for p in blocked)
-        raise HTTPException(
+        raise ApiError(
             409,
+            "dataset_part_empty",
             f"The {names} part would have no images (too few images or groups of images for these "
             "proportions): a model cannot be trained on this version.",
+            parts=blocked,
         )
     try:
         return _store(state, project_id).create(plan, body.note)
@@ -99,10 +122,31 @@ def get_dataset(project_id: int, number: int, state: AppState = STATE) -> dict[s
 def delete_dataset(
     project_id: int, number: int, body: DeleteDataset | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Delete a version (needs ``{"confirm": true}``); its number is not reused."""
+    """Delete a version (needs ``{"confirm": true}``); its number is not reused.
+
+    Refused with 409 while a queued or running training run uses the version. Finished runs that use
+    it cannot be repeated afterwards (saved models keep working): they must be acknowledged with
+    ``{"confirm_runs": true}``, otherwise the answer is 409 naming them.
+    """
     store = _store(state, project_id)
     if not (body and body.confirm):
         raise ApiError(400, "confirm_required", "Confirm the deletion of this dataset version.")
+    active, finished = _runs_using(state, project_id, number)
+    if active:
+        raise ApiError(
+            409,
+            "dataset_in_use",
+            f"Training run(s) {_numbers(active)} use this version and have not finished: cancel them first.",
+            runs=active,
+        )
+    if finished and not body.confirm_runs:
+        raise ApiError(
+            409,
+            "dataset_used_by_runs",
+            f"Training run(s) {_numbers(finished)} used this version and could not be repeated after "
+            "it is deleted (saved models keep working): confirm to delete it anyway.",
+            runs=finished,
+        )
     try:
         store.delete(number)
     except DatasetNotFound:
