@@ -13,10 +13,10 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from activelabel.jobs import CANCELLED, DONE, FAILED, QUEUED, RUNNING
 from activelabel.storage import now, read_json, write_json
 from activelabel.training.config import RunConfig
 
-QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
 STATUSES = (QUEUED, RUNNING, DONE, FAILED, CANCELLED)
 
 _LOCKS: dict[Path, threading.RLock] = {}

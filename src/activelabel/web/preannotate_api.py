@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel import preannotate
+from activelabel.errors import CodedError
 from activelabel.training.catalog import get_model
 from activelabel.training.models import ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -81,30 +83,44 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
     try:
         card = ModelStore(project_dir).get(body.model)
     except ModelNotFound:
-        raise HTTPException(404, "This model does not exist.") from None
+        raise ApiError(404, "model_not_found", "This model does not exist.") from None
     info = next((m for m in _models(state, project_id) if m["number"] == body.model), None)
     if info and info["missing"]:
-        raise HTTPException(400, "This model is not in the catalogue of this version of ActiveLabel.")
+        raise ApiError(
+            400,
+            "model_not_in_catalogue",
+            "This model is not in the catalogue of this version of ActiveLabel.",
+        )
     if not info or not info["supported"]:
         kind = card.get("task_kind") or "these"
         if kind in preannotate.KINDS and not preannotate.fits(kind, state.project(project_id).task):
-            raise HTTPException(400, f"This model makes {kind} labels, which this project does not use.")
-        raise HTTPException(400, f"Pre-annotation with {kind} models comes later.")
+            raise ApiError(
+                400,
+                "model_kind_mismatch",
+                f"This model makes {kind} labels, which this project does not use.",
+                kind=kind,
+            )
+        raise ApiError(
+            400,
+            "preannotation_kind_unsupported",
+            f"Pre-annotation with {kind} models comes later.",
+            kind=kind,
+        )
     threshold = round(body.threshold, 3)  # the value that is stored and used
     if not 0.0 < threshold < 1.0:  # also refuses NaN
-        raise HTTPException(400, "The minimum confidence must be between 0.001 and 0.999.")
+        raise ApiError(400, "threshold_range", "The minimum confidence must be between 0.001 and 0.999.")
     try:
         images = preannotate.targets(project_dir, body.task, body.scope)
     except ValueError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
     if not images:
-        raise HTTPException(400, "No image of this task matches this choice.")
+        raise ApiError(400, "no_images_for_choice", "No image of this task matches this choice.")
     runs = preannotate.PreannotationStore(project_dir)
     if any(
         r["status"] in ("queued", "running") and r["task"] == body.task and r["scope"] == body.scope
         for r in runs.list()
     ):
-        raise HTTPException(409, "These images are already being pre-annotated.")
+        raise ApiError(409, "preannotation_running", "These images are already being pre-annotated.")
     task_name = next((t["name"] for t in preannotate.task_counts(project_dir) if t["id"] == body.task), "")
     run = runs.create(
         model=body.model,
@@ -128,7 +144,7 @@ def cancel(project_id: int, number: int, state: AppState = STATE) -> dict[str, A
         state.runner.cancel_preannotation(project_id, number)
         return store.get(number)
     except preannotate.RunNotFound:
-        raise HTTPException(404, "This pre-annotation does not exist.") from None
+        raise ApiError(404, "preannotation_not_found", "This pre-annotation does not exist.") from None
 
 
 @router.post("/projects/{project_id}/preannotations/accept")
@@ -138,6 +154,6 @@ def accept(project_id: int, body: AcceptBody, state: AppState = STATE) -> dict[s
     project_dir = state.store.dir(project_id)
     try:
         images = preannotate.unreviewed_images(project_dir, body.task)
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from None
+    except CodedError as error:
+        raise ApiError(404, error.code, str(error), **error.params) from None
     return {"accepted": preannotate.accept(project_dir, images)}
