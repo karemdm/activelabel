@@ -579,6 +579,7 @@
       const q = query();
       const params = new URLSearchParams({ status: q.status || 'active', offset: String(page * size), limit: String(size) });
       if (q.issue) params.set('issue', q.issue);
+      if (q.ids) params.set('ids', q.ids.join(','));
       if (q.task != null) params.set('task', String(q.task));
       if (q.job != null) params.set('job', String(q.job));
       if (q.dataset) {
@@ -612,6 +613,7 @@
       for (;;) {
         const params = new URLSearchParams({ status: q.status || 'active', offset: String(offset), limit: '200' });
         if (q.issue) params.set('issue', q.issue);
+        if (q.ids) params.set('ids', q.ids.join(','));
         if (q.task != null) params.set('task', String(q.task));
         if (q.job != null) params.set('job', String(q.job));
         if (q.dataset) {
@@ -3236,10 +3238,15 @@
       let summary = null;
       let issue = '';
       let view = 'active';
+      let limitsOpen = false;
+      let firstLoad = true;
+      const ANY = '*';  // the quick filter "only with issues": the images are asked for by id (see flaggedIds)
+      const MAX_FLAGGED = 1500;  // the ids go in the query string
       const noticeBox = el('div', { class: 'cur-notice' });
       const chipsBox = el('div', { class: 'issue-chips', role: 'group', 'aria-label': t('cur.filter') });
       const histBox = el('div', { class: 'hists' });
-      const advBox = el('details', { class: 'advanced' });
+      const advBox = el('div', { class: 'advanced', id: 'cur-limits', hidden: true });
+      const actionsBar = el('div', { class: 'cur-actions' });
       const toolbar = el('div', { class: 'toolbar' });
       const tabs = el('div', { class: 'tabs', role: 'group', 'aria-label': t('cur.view') });
       const countText = el('span', { class: 'muted', 'aria-live': 'polite' });
@@ -3247,7 +3254,7 @@
       const grid = imageGrid({
         projectId,
         selectable: true,
-        query: () => ({ status: view, issue: view === 'active' ? issue : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
+        query: () => ({ status: view, issue: view === 'active' && issue !== ANY ? issue : '', ids: view === 'active' && issue === ANY ? flaggedIds() : null, emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
         onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
         onOpen: (items, i) => openLightbox(projectId, items, i),
       });
@@ -3296,14 +3303,23 @@
                     ctx.project.counts = { ...(ctx.project.counts || {}), analyzed: (summary.totals || {}).measured || 0, with_issues: ids.size };
           renderStepper();
         }
+        if (firstLoad && analyzed()) { firstLoad = false; if (flaggedIds()) issue = ANY; }  // problems first
+        else if (issue === ANY && !flaggedIds()) issue = '';
         draw();
         grid.reload();
       }
 
       const analyzed = () => summary && ((summary.totals || {}).measured || 0) > 0;
+      /* ids of every image with an issue (the union of the per-issue lists), or null when there are too many for the URL */
+      function flaggedIds() {
+        const ids = new Set();
+        Object.values((summary && summary.issue_ids) || {}).forEach((l) => l.forEach((x) => ids.add(x)));
+        return ids.size && ids.size <= MAX_FLAGGED ? [...ids] : null;
+      }
 
       function draw() {
         drawNotice();
+        drawActions();
         drawChips();
         drawHists();
         drawAdvanced();
@@ -3311,20 +3327,28 @@
         drawToolbar();
         histBox.hidden = !analyzed();
         chipsBox.hidden = !analyzed() || view !== 'active';
-        advBox.hidden = !summary || !summary.thresholds;
+        advBox.hidden = !limitsOpen || !summary || !summary.thresholds;
       }
 
       function drawNotice() {
         if (analyzed()) {
           const totals = summary.totals || {};
-          fill(noticeBox, el('div', { class: 'row-between' },
-            el('p', { class: 'muted' }, t('cur.measured', { measured: num(totals.measured || 0), total: num(totals.active || 0) })),
-            el('div', { class: 'row-actions' }, analyzeBtn(true),
-              el('button', { type: 'button', class: 'btn danger-outline', onclick: resetAnalysis }, t('cur.reset')))));
+          fill(noticeBox, el('p', { class: 'muted' }, t('cur.measured', { measured: num(totals.measured || 0), total: num(totals.active || 0) })));
         } else {
           fill(noticeBox, el('div', { class: 'callout' }, icon('info'),
             el('div', null, el('strong', null, t('cur.not_analyzed')), el('p', { class: 'muted' }, t('cur.intro')), analyzeBtn(false))));
         }
+      }
+
+      /* the actions of the step, at the top: the safe ones together, "reset" apart and quiet */
+      function drawActions() {
+        const limitsBtn = summary && summary.thresholds ? el('button', {
+          type: 'button', class: 'btn', 'aria-expanded': String(limitsOpen), 'aria-controls': 'cur-limits',
+          onclick: () => { limitsOpen = !limitsOpen; draw(); },
+        }, t('cur.limits')) : null;
+        redraw(actionsBar,
+          analyzed() ? analyzeBtn(true) : null, openFoBtn, pullFoBtn, limitsBtn,
+          analyzed() ? el('button', { type: 'button', class: 'btn quiet-danger cur-reset', onclick: resetAnalysis }, t('cur.reset')) : null);
       }
 
       function drawChips() {
@@ -3336,14 +3360,17 @@
             title: help || null, 'data-issue': key, 'data-act': key,
             onclick: () => { issue = key; drawChips(); grid.reload(); },
           }, el('span', null, label), el('span', { class: 'count' }, num(n)));
+        const flagged = flaggedIds();
         redraw(chipsBox,
           mk('', t('cur.all'), totals.active || 0, t('cur.all.help')),
+          flagged ? mk(ANY, t('cur.only_issues'), flagged.length, t('cur.only_issues.help')) : null,
           ...ISSUES.concat(Object.keys(counts).filter((k) => !ISSUES.includes(k))).map((k) => mk(k, issueName(k), counts[k] || 0, tr(`issue.${k}.help`, ''))));
       }
 
       function drawHists() {
         const h = (summary && summary.histograms) || {};
-        fill(histBox, ...['brightness', 'contrast', 'sharpness'].filter((m) => h[m] && (h[m].counts || []).length).map((m) => histogram(m, h[m])));
+        const shown = ['brightness', 'contrast', 'sharpness'].filter((m) => h[m] && (h[m].counts || []).length);
+        fill(histBox, ...shown.map((m) => histogram(m, h[m])), shown.length ? el('p', { class: 'muted hist-legend' }, t('cur.hist_legend')) : null);
       }
 
       function histogram(metric, data) {
@@ -3357,12 +3384,15 @@
           const bh = Math.round((c / max) * (hgt - 4));
           return `<rect x="${(i * bw + 0.5).toFixed(1)}" y="${hgt - bh}" width="${(bw - 1).toFixed(1)}" height="${bh}" rx="1"></rect>`;
         }).join('');
-        const lo = edges.length ? nf1.format(edges[0]) : '';
-        const hi = edges.length ? nf1.format(edges[edges.length - 1]) : '';
-        const label = `${tr(`metric.${metric}`, metric)}: ${lo} – ${hi}`;
+        const lo = edges.length ? edges[0] : null;
+        const hi = edges.length ? edges[edges.length - 1] : null;
+        const fmt = (x) => (x == null ? '' : nf1.format(x));
+        const name = tr(`metric.${metric}`, metric);
+        const label = `${name}: ${fmt(lo)} – ${fmt(hi)}; ${t('cur.hist_count', { n: num(max) })}`;
         return el('figure', { class: 'hist' },
+          el('figcaption', null, el('strong', null, name), el('span', { class: 'muted' }, t('cur.hist_count', { n: num(max) }))),
           el('div', { html: `<svg viewBox="0 0 ${w} ${hgt}" width="100%" role="img" aria-label="${esc(label)}" preserveAspectRatio="none">${bars}</svg>` }),
-          el('figcaption', null, el('strong', null, tr(`metric.${metric}`, metric)), el('span', { class: 'muted' }, ` ${lo} – ${hi}`)));
+          el('div', { class: 'hist-axis', 'aria-hidden': 'true' }, el('span', null, fmt(lo)), el('span', null, lo != null ? fmt((lo + hi) / 2) : ''), el('span', null, fmt(hi))));
       }
 
       function drawAdvanced() {
@@ -3399,9 +3429,7 @@
             fail(err.message);  /* the server explains a refused value (out of range) next to the fields */
           }
         });
-        const open = advBox.open;
-        fill(advBox, el('summary', null, t('cur.advanced')), form);
-        advBox.open = open;
+        fill(advBox, form);
       }
 
       function drawTabs() {
@@ -3420,8 +3448,8 @@
         /* the actions on a selection appear once something is selected (no greyed-out buttons) */
         if (view === 'active') {
           buttons.push(
-            el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all')),
-            el('button', { type: 'button', class: 'btn', 'data-act': 'suggested', disabled: !analyzed(), 'aria-describedby': analyzed() ? null : 'cur-suggested-hint', onclick: selectSuggested }, t('cur.select_suggested')));
+            el('button', { type: 'button', class: 'btn', 'data-act': 'all', title: t('cur.select_all'), onclick: selectAll }, t('cur.select_all_short')),
+            el('button', { type: 'button', class: 'btn', 'data-act': 'suggested', disabled: !analyzed(), 'aria-describedby': analyzed() ? null : 'cur-suggested-hint', title: t('cur.select_suggested'), onclick: selectSuggested }, t('cur.select_suggested_short')));
           if (n) {
             buttons.push(
               el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
@@ -3502,20 +3530,16 @@
 
       const openFoBtn = el('button', { type: 'button', class: 'btn', onclick: once(openFiftyOne, () => kindActive('fiftyone')) }, t('cur.open_fo'));
       ctx.watchers.push(() => { openFoBtn.disabled = kindActive('fiftyone'); });
-      const foBox = el('div', { class: 'fo-box card' },
-        el('div', null,
-          openFoBtn,
-          el('button', { type: 'button', class: 'btn', onclick: pullExclusions }, t('cur.pull_fo'))),
-        el('p', { class: 'muted' }, t('cur.fo_hint')));
+      const pullFoBtn = el('button', { type: 'button', class: 'btn', title: t('cur.fo_hint'), onclick: pullExclusions }, t('cur.pull_fo'));
 
       add(node,
         el('h2', { id: 'h-curation' }, t('step.curation')),
         noticeBox,
+        actionsBar,
+        advBox,
         histBox,
         el('div', { class: 'cur-main' },
-          tabs, chipsBox, toolbar, grid.node),
-        advBox,
-        foBox);
+          tabs, chipsBox, toolbar, grid.node));
       panel.mount = () => load();
       panel.refresh = () => load();
       return panel;

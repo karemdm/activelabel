@@ -85,3 +85,13 @@ def test_a_project_deleted_elsewhere_is_reported():
     """The jobs poll answers 404 for a deleted project: the page says so instead of staying silent."""
     assert re.search(r"err\.status === 404\) \{ showMissing\(\)", JS)
     assert "project.gone_title" in JS
+
+
+def test_curation_actions_come_before_the_image_grid():
+    """The actions of the step (analyze, FiftyOne, limits, reset) are a bar above the grid."""
+    start = JS.index("function curationPanel()")
+    panel = JS[start : JS.index("// ====", start)]
+    mounted = panel[panel.index("add(node,") :]
+    assert mounted.index("actionsBar") < mounted.index("grid.node")
+    assert "fo-box" not in panel and "fo-box" not in CSS
+    assert "quiet-danger cur-reset" in panel  # "reset analysis" is quiet and apart from the safe actions
