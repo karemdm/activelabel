@@ -192,27 +192,28 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | 
     return None
 
 
+def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) -> dict[str, Any]:
+    return {
+        "type": kind,
+        "frame": frame,
+        "label_id": label_id,
+        "points": points,
+        "rotation": 0,
+        "occluded": False,
+        "outside": False,
+        "z_order": 0,
+        "group": 0,
+        "source": "manual",
+        "attributes": [],
+    }
+
+
 def labels_to_cvat(
     labels: list[Label], ids: dict[str, int], frame: int, w: int, h: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped)."""
     shapes: list[dict[str, Any]] = []
     tags: list[dict[str, Any]] = []
-
-    def shape(kind: str, label_id: int, points: list[float]) -> dict[str, Any]:
-        return {
-            "type": kind,
-            "frame": frame,
-            "label_id": label_id,
-            "points": points,
-            "rotation": 0,
-            "occluded": False,
-            "outside": False,
-            "z_order": 0,
-            "group": 0,
-            "source": "manual",
-            "attributes": [],
-        }
 
     for lb in labels:
         lid = ids.get(lb.label)
@@ -221,16 +222,18 @@ def labels_to_cvat(
         if lb.polygons:
             for ring in lb.polygons:
                 if len(ring) >= 3:
-                    shapes.append(shape("polygon", lid, [v for p in ring for v in (p[0] * w, p[1] * h)]))
+                    shapes.append(
+                        _shape_payload("polygon", frame, lid, [v for p in ring for v in (p[0] * w, p[1] * h)])
+                    )
         elif lb.keypoints:
             flat: list[float] = []
             for kp in lb.keypoints:
                 missing = len(kp) > 2 and kp[2] <= 0
                 flat += list(MISSING_CORNER) if missing else [kp[0] * w, kp[1] * h]
-            shapes.append(shape("points", lid, flat))
+            shapes.append(_shape_payload("points", frame, lid, flat))
         elif lb.bbox:
             x, y, bw, bh = lb.bbox
-            shapes.append(shape("rectangle", lid, [x * w, y * h, (x + bw) * w, (y + bh) * h]))
+            shapes.append(_shape_payload("rectangle", frame, lid, [x * w, y * h, (x + bw) * w, (y + bh) * h]))
         else:
             tags.append({"frame": frame, "label_id": lid, "group": 0, "source": "manual", "attributes": []})
     return shapes, tags
@@ -294,15 +297,16 @@ def _trackable(track: dict[str, Any], ids: dict[str, int]) -> str | None:
     return kind if kind in TRACKABLE else None
 
 
-def _same_geometry(a: Label, b: Label) -> bool:
-    def close(x: Any, y: Any) -> bool:
-        if isinstance(x, list) and isinstance(y, list):
-            return len(x) == len(y) and all(close(p, q) for p, q in zip(x, y, strict=True))
-        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
-            return abs(float(x) - float(y)) <= _SAME
-        return bool(x == y)
+def _close(x: Any, y: Any) -> bool:
+    if isinstance(x, list) and isinstance(y, list):
+        return len(x) == len(y) and all(_close(p, q) for p, q in zip(x, y, strict=True))
+    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+        return abs(float(x) - float(y)) <= _SAME
+    return bool(x == y)
 
-    return all(close(getattr(a, f), getattr(b, f)) for f in ("bbox", "polygons", "keypoints"))
+
+def _same_geometry(a: Label, b: Label) -> bool:
+    return all(_close(getattr(a, f), getattr(b, f)) for f in ("bbox", "polygons", "keypoints"))
 
 
 def _write_tracks(
