@@ -29,7 +29,7 @@ Principles (from what went wrong in the previous tool):
   projects/next_id.json            next project id (ids are never reused)
   projects/<id>/...                one folder per project (below)
   training/                        training environment (docs/TRAINING.md)
-    env/ , env.json, install.log   the Python environment (env.json: only when it lives elsewhere)
+    env/ , env.json, install.log   the Python environment (env.json: only when it lives elsewhere, written when the environment is created)
     tmp/                           temporary folder of a run; removed when the run ends
 
 <workspace>/projects/<id>/
