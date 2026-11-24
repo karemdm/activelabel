@@ -23,6 +23,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from activelabel.datasets import common_count
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.labels import (
     AnnotationSet,
@@ -136,6 +137,13 @@ def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
         else:
             out += [Label(item["label"], bbox=_box_of([r]), polygons=[r], **common) for r in rings]
     return out
+
+
+def project_keypoints(project_dir: Path) -> int | None:
+    """Points per object most pose labels of the project have (None when there are none)."""
+    annotations = load_annotations(project_dir)
+    labels = (lb for items in (annotations.images if annotations else {}).values() for lb in items)
+    return common_count(len(lb.keypoints or []) for lb in labels if lb.score is None)
 
 
 def fits(kind: str, project_task: Task) -> bool:

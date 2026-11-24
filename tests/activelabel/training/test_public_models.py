@@ -178,3 +178,38 @@ def test_threshold_is_checked_as_stored_and_model_delete_waits(det):
     delete = client.request("DELETE", "/api/projects/2/models/1", json={"confirm": True})
     assert delete.status_code == 409 and "pre-annotation" in delete.json()["detail"]
     assert client.get("/api/projects/2/models").json()["models"][0]["number"] == 1
+
+
+def test_a_keypoint_model_with_another_skeleton_is_refused(det):
+    from activelabel.labels import AnnotationSet, Label, save_annotations
+    from activelabel.tasks import Task
+
+    client, state, runner = det
+    client.post("/api/projects", json={"name": "K", "task": "keypoints", "classes": ["person"]})
+    paths = [make_image(tmp_path_of(state) / f"k{k}.png", seed=90 + k, fmt="PNG") for k in range(3)]
+    assert upload(client, 3, paths).status_code == 200
+    ids = [r.id for r in state.manifest(3).all()]
+    points = [[0.2, 0.2, 2], [0.4, 0.4, 2], [0.6, 0.6, 2]]  # a 3-point skeleton, not COCO's 17
+    labeled = {ids[0]: [Label("person", bbox=[0.1, 0.1, 0.8, 0.8], keypoints=points)]}
+    save_annotations(state.store.dir(3), AnnotationSet(Task.KEYPOINTS, ["person"], labeled, {}))
+    card = client.post(
+        "/api/projects/3/models/public",
+        json={"public": "coco_keypointrcnn_resnet50", "mapping": {"person": "person"}},
+    ).json()
+    assert card["num_keypoints"] == 17
+    task = client.get("/api/projects/3/preannotations").json()["tasks"][0]["id"]
+    client.post(
+        "/api/projects/3/preannotations", json={"model": card["number"], "task": task, "threshold": 0.3}
+    )
+    run = wait_for(
+        lambda: (
+            (r := client.get("/api/projects/3/preannotations").json()["runs"][0])["status"]
+            in ("done", "failed")
+            and r
+        )
+    )
+    assert run["status"] == "failed" and "17 keypoints" in run["error"] and "have 3" in run["error"]
+
+
+def tmp_path_of(state):
+    return state.store.root.parent / "kimg"

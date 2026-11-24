@@ -674,6 +674,15 @@ class TrainingRunner:
                 raise RunnerError(
                     f"This model makes {kind} labels, but the project is now {project.task.value}."
                 )
+            expected_points, have_points = (
+                card.get("num_keypoints"),
+                preannotate.project_keypoints(project_dir),
+            )
+            if kind == "keypoints" and expected_points and have_points and expected_points != have_points:
+                raise RunnerError(
+                    f"This model finds {expected_points} keypoints per object, but the labels of the "
+                    f"project have {have_points}: use a model trained on this skeleton."
+                )
             image_ids = preannotate.targets(project_dir, int(run["task"]), str(run["scope"]))
             if not image_ids:
                 raise RunnerError("No image of this task needs pre-annotation now.")
