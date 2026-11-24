@@ -172,17 +172,50 @@
   }
 
   // ---------------------------------------------------------------- API
-  function detailText(detail) {
-    /* validation errors (HTTP 422): "field: problem", one per entry */
-    if (Array.isArray(detail)) {
-      return detail.map((d) => {
-        if (!d || !d.msg) return JSON.stringify(d);
-        const field = (Array.isArray(d.loc) ? d.loc : []).filter((x) => !['body', 'query', 'path'].includes(x) && typeof x === 'string').join(' › ');
-        return field ? `${field}: ${d.msg}` : String(d.msg);
-      }).join('; ');
+  /* how the interface names the values an error carries (the server sends raw ids, names and numbers) */
+  const lower = (text) => String(text).toLocaleLowerCase(LOCALE);
+  const ERROR_PARAMS = {
+    parts: (p) => lower(partName(p)),
+    runs: (n) => `r${n}`,
+    tool: (tool) => toolName(tool),
+    task: (task) => lower(taskName(task)),
+    type: (task) => lower(taskName(task)),
+    kind: (kind) => lower(taskName(kind)),
+    from_task: (task) => lower(taskName(task)),
+    to_task: (task) => lower(taskName(task)),
+    status: (status) => lower(statusLabel(status)),
+    field: (field) => tr(`error.field.${field}`, field),
+    file: (file) => file || t('error.this_file'),
+  };
+  /** An error's params as texts: numbers formatted, lists joined, known ids named in the interface language. */
+  function errorParams(params) {
+    const out = {};
+    for (const [key, value] of Object.entries(params || {})) {
+      const one = ERROR_PARAMS[key] || ((x) => (typeof x === 'number' ? nf.format(x) : String(x)));
+      if (Array.isArray(value)) out[key] = value.filter((x) => typeof x !== 'object').map(one).join(', ');
+      else if (value === null || typeof value !== 'object') out[key] = one(value);
     }
-    if (detail && typeof detail === 'object') return JSON.stringify(detail);
-    return String(detail);
+    return out;
+  }
+
+  /** One validation problem (HTTP 422): "field: problem", the problem written in the interface language. */
+  function validationText(entry) {
+    if (!entry || !entry.msg) return JSON.stringify(entry);
+    const field = (Array.isArray(entry.loc) ? entry.loc : []).filter((x) => !['body', 'query', 'path'].includes(x) && typeof x === 'string').join(' › ');
+    const problem = tr(`error.v.${entry.type}`, entry.msg, errorParams(entry.ctx));
+    return field ? `${field}: ${problem}` : problem;
+  }
+
+  /** The text of an error answer: translated by its code (with the params filled in), or, for a code this
+   *  interface does not know, the server's own text. */
+  function errorMessage(data, status) {
+    const detail = data && data.detail;
+    if (Array.isArray(detail)) return detail.map(validationText).join('; ');
+    const info = detail && typeof detail === 'object' ? detail : data;  // older answers keep a dict as detail
+    const code = info && typeof info.code === 'string' ? info.code : null;
+    if (code && `error.${code}` in I18N) return t(`error.${code}`, errorParams(info.params || info));
+    if (detail && typeof detail === 'object') return String(detail.message || JSON.stringify(detail));
+    return detail ? String(detail) : `HTTP ${status}`;
   }
 
   async function api(method, path, { json, body, signal } = {}) {
@@ -210,8 +243,10 @@
       }
     }
     if (!response.ok) {
-      const err = new Error(data && data.detail ? detailText(data.detail) : `HTTP ${response.status}`);
+      const err = new Error(errorMessage(data, response.status));
       err.status = response.status;
+      err.code = data && typeof data.code === 'string' ? data.code : null;
+      err.params = data && data.params ? data.params : {};
       err.detail = data ? data.detail : null;  // structured details (e.g. a decision the user must make)
       throw err;
     }
@@ -2235,7 +2270,7 @@
           try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
           back();
           if (xhr.status >= 200 && xhr.status < 300 && data) showVideo(data);
-          else toastError(new Error(data && data.detail ? detailText(data.detail) : `HTTP ${xhr.status}`));
+          else toastError(new Error(errorMessage(data, xhr.status)));
         });
         xhr.open('POST', `/api/projects/${projectId}/videos`);
         xhr.setRequestHeader('Accept', 'application/json');

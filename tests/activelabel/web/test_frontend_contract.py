@@ -173,3 +173,26 @@ def test_split_warnings_of_the_label_checks_have_texts():
             for form in ("one", "other"):
                 assert f"ds.w_{code}_{form}" in texts and f"ds.b_{code}_{form}" in texts, (lang, code, form)
         assert "ds.w_group_drift_duplicates" in texts and "ds.warn_g_labels" in texts
+
+
+def test_api_errors_are_translated_by_code_and_never_by_the_server_text_alone():
+    """``api()`` keeps the code and params; the text comes from ``error.<code>`` (server text: fallback)."""
+    body = JS[JS.index("function errorMessage") :]
+    body = body[: body.index("\n  }\n")]
+    assert "`error.${code}` in I18N" in body
+    assert body.index("`error.${code}` in I18N") < body.index("String(detail)")
+    api = JS[JS.index("async function api(") :]
+    api = api[: api.index("\n  }\n")]
+    assert "errorMessage(data, response.status)" in api
+    assert "err.code" in api and "err.params" in api
+    assert "detailText" not in JS
+
+
+def test_every_error_param_the_page_names_is_a_param_the_server_sends():
+    """The ``ERROR_PARAMS`` table of app.js only names params that some error really carries."""
+    table = JS[JS.index("const ERROR_PARAMS") :]
+    named = set(re.findall(r"^    (\w+):", table[: table.index("\n  };")], re.M))
+    sent: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        sent |= set(re.findall(r"\b(\w+)=", path.read_text(encoding="utf-8")))
+    assert named <= sent, named - sent
