@@ -34,6 +34,7 @@ from __future__ import annotations
 import copy
 import logging
 import mimetypes
+import re
 import shutil
 import time
 import zipfile
@@ -85,6 +86,11 @@ def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
     start, _, step = _meta_selection(meta)
     stem = Path(str(frames[0].get("name") or "video")).stem
     return [{**frames[0], "name": f"{stem}_frame_{start + i * step:06d}.jpg"} for i in range(size)]
+
+
+def task_pattern(name: str) -> str:
+    """The name of a task with every run of digits replaced by ``#`` (``ds_round_3`` -> ``ds_round_#``)."""
+    return re.sub(r"\d+", "#", name.strip()) or "(no name)"
 
 
 def _sleep(seconds: float) -> None:
@@ -482,6 +488,48 @@ class CvatRemote:
         api = self._api(settings)
         who = api.get("/api/users/self") or {}
         return f"Connected to {api.url} as {who.get('username') or settings.username}"
+
+    def audit(self, settings: ToolSettings) -> dict[str, Any]:
+        """Read-only inventory of the tasks of the server, per project (nothing is changed or deleted).
+
+        Returns:
+            ``{"projects": [{id, name, url, tasks: [...]}], "loose": [{pattern, tasks: [...]}]}``; a task is
+            ``{id, name, size, url}``. ``loose`` holds the tasks that are in no project, grouped by
+            :func:`task_pattern` of their name (the biggest group first).
+        """
+        api = self._api(settings)
+
+        def entry(t: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "id": str(t["id"]),
+                "name": str(t.get("name", "")),
+                "size": int(t.get("size") or 0),
+                "url": f"{api.url}/tasks/{t['id']}",
+            }
+
+        projects: dict[str, dict[str, Any]] = {
+            str(p["id"]): {
+                "id": str(p["id"]),
+                "name": str(p.get("name", "")),
+                "url": f"{api.url}/projects/{p['id']}",
+                "tasks": [],
+            }
+            for p in api.paged("/api/projects", {"sort": "id"}, ALL)
+        }
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for t in api.paged("/api/tasks", {"sort": "id"}, ALL):
+            if t.get("project_id"):
+                # a project the account cannot list still owns the task: show it by its number
+                pid = str(t["project_id"])
+                projects.setdefault(
+                    pid, {"id": pid, "name": "", "url": f"{api.url}/projects/{pid}", "tasks": []}
+                )
+                projects[pid]["tasks"].append(entry(t))
+            else:
+                groups.setdefault(task_pattern(str(t.get("name", ""))), []).append(entry(t))
+        loose = [{"pattern": pattern, "tasks": found} for pattern, found in groups.items()]
+        loose.sort(key=lambda g: (-len(g["tasks"]), g["pattern"]))
+        return {"projects": list(projects.values()), "loose": loose}
 
     def server_answers(self, settings: ToolSettings) -> bool:
         """Whether the CVAT server answers (``/api/server/about``): tells "deleted" from "wrong server"."""

@@ -208,3 +208,29 @@ def test_unlinking_is_refused_while_a_job_runs(env):
             break
         time.sleep(0.05)
     assert env.client.delete(f"/api/projects/{env.pid}/links/cvat").status_code == 200
+
+
+def test_audit_lists_the_server_read_only_and_says_which_project_is_linked(env):
+    r = env.client.get("/api/cvat/audit")
+    assert r.status_code == 400 and r.json()["code"] == "tool_not_configured"
+    configure(env)
+    other = env.remote.seed("Somebody else's", [])
+    r = env.client.get("/api/cvat/audit")
+    assert r.status_code == 200 and r.json()["url"] == "http://remote"
+    assert [(p["name"], p["linked_to"]) for p in r.json()["projects"]] == [
+        ("Pets remote", None),
+        ("Somebody else's", None),
+    ]
+    links.save_link(
+        env.state.store.dir(env.pid), "cvat", links.new_link("http://remote", env.rid, "Pets remote")
+    )
+    found = {p["id"]: p["linked_to"] for p in env.client.get("/api/cvat/audit").json()["projects"]}
+    assert found == {env.rid: {"id": env.pid, "name": "Pets"}, other.id: None}
+    assert not [c for c in env.remote.calls if c[0] != "audit"]  # nothing was changed in the server
+
+
+def test_audit_reports_a_server_problem(env):
+    configure(env)
+    env.remote.fail = "Cannot reach CVAT."
+    r = env.client.get("/api/cvat/audit")
+    assert r.status_code == 400 and r.json()["detail"] == "Cannot reach CVAT."

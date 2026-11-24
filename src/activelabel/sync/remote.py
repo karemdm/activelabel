@@ -65,6 +65,14 @@ class RemoteProject(Protocol):
 
     tool: str
 
+    def check(self, settings: ToolSettings) -> str:
+        """Log in to the server; return ``Connected to <url> as <user>`` (ToolError when it fails)."""
+        ...
+
+    def audit(self, settings: ToolSettings) -> dict[str, Any]:
+        """Read-only inventory of the tasks per project, the loose ones grouped by name pattern (CVAT)."""
+        ...
+
     def find(self, settings: ToolSettings, name: str) -> RemoteInfo | None:
         """The remote project with exactly this name, or None."""
         ...

@@ -62,6 +62,27 @@ def _remote(tool: str) -> RemoteProject:
         raise HTTPException(400, str(exc)) from exc
 
 
+@router.get("/cvat/audit")
+def cvat_audit(state: AppState = STATE) -> dict[str, Any]:
+    """Read-only list of the CVAT tasks per project of the configured server (nothing is changed).
+
+    The tasks in no project come grouped by name pattern; a project linked to one of ours says which.
+    """
+    settings = _settings(state, "cvat")
+    try:
+        found = _remote("cvat").audit(settings)
+    except ToolError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    linked: dict[str, dict[str, Any]] = {}
+    for project in state.store.list():
+        link = links.get_link(state.store.dir(project.id), "cvat")
+        if link and str(link.get("url", "")).rstrip("/") == settings.url.rstrip("/"):
+            linked[str(link["remote_id"])] = {"id": project.id, "name": project.name}
+    for entry in found["projects"]:
+        entry["linked_to"] = linked.get(entry["id"])
+    return {"url": settings.url.rstrip("/"), **found}
+
+
 @router.get("/projects/{project_id}/links")
 def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """Links of a project with remote projects."""

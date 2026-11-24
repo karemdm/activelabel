@@ -777,6 +777,45 @@
   const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
   const imagesOf = (s) => (Array.isArray(s.images) ? s.images.length : Number(s.images) || 0);
 
+  /** Read-only dialog with the tasks of the CVAT server, per project and the loose ones grouped by name. */
+  function openCvatAudit() {
+    const body = el('div', { class: 'audit-body', 'aria-live': 'polite' }, el('p', { class: 'muted' }, t('audit.loading')));
+    const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('audit.title') },
+      el('div', { class: 'dialog-body' },
+        el('h2', null, t('audit.title')),
+        el('p', { class: 'muted' }, t('audit.intro')),
+        body,
+        el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.close')))));
+    const taskList = (tasks) => el('ul', { class: 'plain audit-tasks' }, ...tasks.map((x) => el('li', null,
+      isHttp(x.url) ? el('a', { href: x.url, target: '_blank', rel: 'noopener' }, x.name || `#${x.id}`) : el('span', null, x.name),
+      el('span', { class: 'muted small' }, tn('annotate.images_n', x.size)))));
+    const group = (summary, tasks) => el('details', { class: 'audit-group' },
+      el('summary', null, ...summary, el('span', { class: 'count' }, tn('audit.tasks_n', tasks.length))),
+      tasks.length ? taskList(tasks) : el('p', { class: 'muted small' }, t('audit.no_tasks')));
+    function show(data) {
+      const inProjects = data.projects.reduce((a, p) => a + p.tasks.length, 0);
+      const loose = data.loose.reduce((a, g) => a + g.tasks.length, 0);
+      fill(body,
+        el('p', { class: 'audit-summary' }, t('audit.summary', { projects: num(data.projects.length), inprojects: num(inProjects), loose: num(loose) })),
+        el('h3', null, t('audit.projects')),
+        data.projects.length
+          ? el('div', { class: 'audit-groups' }, ...data.projects.map((p) => group([
+              el('span', { class: 'audit-name' }, p.name || `#${p.id}`),
+              p.linked_to ? el('span', { class: 'badge' }, icon('check', 14), t('audit.linked', { name: p.linked_to.name })) : null,
+            ], p.tasks)))
+          : el('p', { class: 'muted' }, t('audit.no_projects')),
+        el('h3', null, t('audit.loose')),
+        el('p', { class: 'muted small' }, t('audit.loose_help')),
+        data.loose.length
+          ? el('div', { class: 'audit-groups' }, ...data.loose.map((g) => group([el('code', null, g.pattern)], g.tasks)))
+          : el('p', { class: 'report-line ok' }, icon('check'), t('audit.no_loose')));
+    }
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    openModal(dlg);
+    api('GET', '/cvat/audit').then(show, (err) => fill(body, el('p', { class: 'test-result bad' }, icon('error'), err.message)));
+  }
+
   /** Dialog to set up, test or forget a tool login. `entry` is the tool entry (or {}); `onChange` runs after a save or forget. */
   function openToolSetup(tool, entry, onChange) {
     entry = entry || {};
@@ -2585,6 +2624,7 @@
         const head = el('div', { class: 'cvat-head' },
           el('span', { class: 'session-tool' }, icon('cvat', 22), el('strong', null, name)),
           el('div', { class: 'cvat-head-actions' },
+            ready ? el('button', { type: 'button', class: 'btn small', id: 'cvat-audit', onclick: openCvatAudit }, t('audit.button')) : null,
             link ? unlink : null,
             el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: name }), onclick: () => openSetup('cvat') }, t('annotate.settings'))));
         const facts = link

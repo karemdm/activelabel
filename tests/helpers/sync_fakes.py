@@ -52,6 +52,16 @@ class FakeRemote:
         self.fail = ""
         self._n = 1
 
+    def audit(self, settings):
+        self._check()
+        return {
+            "projects": [
+                {"id": rid, "name": p["name"], "url": f"http://remote/projects/{rid}", "tasks": []}
+                for rid, p in self.projects.items()
+            ],
+            "loose": [],
+        }
+
     def check(self, settings):
         self._check()
         return f"connected to {settings.url}"
