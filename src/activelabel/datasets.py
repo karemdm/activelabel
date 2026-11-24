@@ -104,7 +104,7 @@ class DatasetOptions:
 
 def _whole(value: Any, what: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{what} must be a whole number.")
+        raise CodedError("not_whole_number", f"{what} must be a whole number.", what=what)
     return value
 
 
@@ -112,48 +112,52 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
     """Validate the options given by a person (missing ones take the defaults).
 
     Raises:
-        ValueError: percentages not whole numbers or not summing to 100, train empty, K-fold outside
+        CodedError: percentages not whole numbers or not summing to 100, train empty, K-fold outside
             2..10, seed not a whole number, unknown task id, unknown ``videos`` mode, bad gap.
     """
     data = data or {}
     split = {**DEFAULT_SPLIT, **(data.get("split") or {})}
     unknown = set(split) - set(PARTS)
     if unknown:
-        raise ValueError(f"Unknown part in the split: {sorted(unknown)[0]}.")
+        raise CodedError(
+            "split_unknown_part", f"Unknown part in the split: {sorted(unknown)[0]}.", part=sorted(unknown)[0]
+        )
     split = {k: _whole(split[k], f"The {k} percentage") for k in PARTS}
     if any(v < 0 or v > 100 for v in split.values()):
-        raise ValueError("Percentages must be between 0 and 100.")
+        raise CodedError("split_percentage_range", "Percentages must be between 0 and 100.")
     kfold = data.get("kfold")
     if kfold is not None:
         kfold = _whole(kfold, "K")
         if not 2 <= kfold <= 10:
-            raise ValueError("K-fold needs between 2 and 10 folds.")
+            raise CodedError("kfold_range", "K-fold needs between 2 and 10 folds.")
         if split["test"] >= 100:
-            raise ValueError("The test percentage must leave images for the folds.")
+            raise CodedError("kfold_test_too_big", "The test percentage must leave images for the folds.")
     else:
         if sum(split.values()) != 100:
-            raise ValueError("The percentages must add up to 100.")
+            raise CodedError("split_sum", "The percentages must add up to 100.")
         if split["train"] <= 0:
-            raise ValueError("The training part needs more than 0%.")
+            raise CodedError("split_train_empty", "The training part needs more than 0%.")
     seed = _whole(data.get("seed", 42), "The seed")
     background = data.get("background", False)
     if not isinstance(background, bool):
-        raise ValueError("Background must be true or false.")
+        raise CodedError("background_not_bool", "Background must be true or false.")
     videos = data.get("videos", "auto")
     if videos not in VIDEO_MODES:
-        raise ValueError('Videos must be "auto" or "whole".')
+        raise CodedError("videos_mode", 'Videos must be "auto" or "whole".')
     gap = data.get("gap_seconds", 0.5)
     if isinstance(gap, bool) or not isinstance(gap, (int, float)) or not math.isfinite(gap):
-        raise ValueError("The safety gap must be a number of seconds.")
+        raise CodedError("gap_not_number", "The safety gap must be a number of seconds.")
     if not 0 <= gap <= MAX_GAP:
-        raise ValueError(f"The safety gap must be between 0 and {MAX_GAP:g} seconds.")
+        raise CodedError(
+            "gap_range", f"The safety gap must be between 0 and {MAX_GAP:g} seconds.", max=MAX_GAP
+        )
     tasks = data.get("tasks") or []
     if not isinstance(tasks, list):
-        raise ValueError("Tasks must be a list of task ids.")
+        raise CodedError("tasks_not_list", "Tasks must be a list of task ids.")
     tasks = [_whole(t, "A task id") for t in tasks]
     missing = [t for t in tasks if t not in existing_tasks]
     if missing:
-        raise ValueError(f"Task {missing[0]} does not exist.")
+        raise CodedError("task_not_found", f"Task {missing[0]} does not exist.", task=missing[0])
     return DatasetOptions(list(dict.fromkeys(tasks)), split, kfold, background, seed, videos, float(gap))
 
 
@@ -605,7 +609,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     """Compute a split (nothing is saved).
 
     Raises:
-        ValueError: no image to split, or fewer image groups than K-fold needs.
+        CodedError: no image to split, or fewer image groups than K-fold needs.
     """
     tasks = TaskStore(project_dir).load()
     wanted = set(options.tasks) if options.tasks else {t.id for t in tasks}
@@ -708,7 +712,12 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
                 pool, test_groups = placed["pool"], placed["test"]
             foldable = len(pool)
             if len(pool) < options.kfold:
-                raise ValueError(f"There are only {len(pool)} groups of images for {options.kfold} folds.")
+                raise CodedError(
+                    "kfold_too_few_groups",
+                    f"There are only {len(pool)} groups of images for {options.kfold} folds.",
+                    groups=len(pool),
+                    folds=options.kfold,
+                )
             k_share = (1 - test_share) / options.kfold
             by_fold = assign(pool, {str(n): 1 / options.kfold for n in range(options.kfold)}, rng)
             folds = [_flatten(by_fold[str(n)], position) for n in range(options.kfold)]
@@ -887,11 +896,13 @@ class DatasetStore:
         """Save a plan as the next version (a number is never reused). Returns its summary.
 
         Raises:
-            ValueError: note too long.
+            CodedError: note too long.
         """
         note = note.strip()
         if len(note) > MAX_NOTE:
-            raise ValueError(f"The note is too long (max {MAX_NOTE} characters).")
+            raise CodedError(
+                "note_too_long", f"The note is too long (max {MAX_NOTE} characters).", max=MAX_NOTE
+            )
         with self._lock:
             counter_file = self.dir / "counter.json"
             counter = int((read_json(counter_file, {}) or {}).get("next", 1))
@@ -965,15 +976,15 @@ class DatasetStore:
 
         Raises:
             DatasetNotFound: unknown number.
-            ValueError: a part or fold that does not fit the version.
+            CodedError: a part or fold that does not fit the version.
         """
         data = self.read(number)
         parts, folds = data["parts"], data.get("folds")
         if part is not None and part not in PARTS:
-            raise ValueError("The part must be train, val or test.")
+            raise CodedError("part_unknown", "The part must be train, val or test.")
         if folds is None:
             if fold is not None:
-                raise ValueError("This version has no folds.")
+                raise CodedError("version_has_no_folds", "This version has no folds.")
             if part is None:
                 return [i for p in PARTS for i in parts.get(p, [])]
             return list(parts.get(part, []))
@@ -982,9 +993,9 @@ class DatasetStore:
         if part is None and fold is None:
             return [i for f in folds for i in f] + list(parts.get("test", []))
         if fold is None:
-            raise ValueError("Give the fold (this version uses K-fold).")
+            raise CodedError("fold_required", "Give the fold (this version uses K-fold).")
         if not 0 <= fold < len(folds):
-            raise ValueError("This fold does not exist.")
+            raise CodedError("fold_not_found", "This fold does not exist.")
         if part == "train":
             return [i for n, f in enumerate(folds) if n != fold for i in f]
         return list(folds[fold])
