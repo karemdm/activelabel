@@ -159,3 +159,9 @@ def test_js_has_no_external_resources():
         assert not re.search(r"(?:src|href|url\()\s*=?\s*[\"']?https?://", text)
     for template in (WEB / "templates").glob("*.html"):
         assert "http://" not in template.read_text(encoding="utf-8").replace("http://www.w3.org", "")
+
+
+def test_the_package_ships_the_subfolders_of_the_static_files():
+    """``web/static/*`` skips subfolders; the interface may keep scripts and styles in some."""
+    root = Path(pages.STATIC_DIR).parents[3]
+    assert '"web/static/**/*"' in (root / "pyproject.toml").read_text(encoding="utf-8")

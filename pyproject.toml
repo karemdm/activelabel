@@ -70,7 +70,7 @@ activelabel = "activelabel.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/*"]
+activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/**/*"]
 
 # ---------------------------------------------------------------------------
 [tool.ruff]
