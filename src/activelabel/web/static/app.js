@@ -3044,7 +3044,9 @@
         if (focused) { const f = document.getElementById(focused); if (f) f.focus(); }
       }
 
-      return { node, load };
+      /** Opens the form on this model (the step 6 button "pre-annotate with this one"). */
+      const choose = (number) => { form.model = number; form.threshold = null; };
+      return { node, load, choose };
     }
 
     // ================================================================ step 2: annotations
@@ -3288,6 +3290,7 @@
       panel.refresh = () => { loadGt(); loadVideoTasks(); annotate.refresh(); };
       panel.show = annotate.show;
       /* a finished activity opens the tab it belongs to, then its card */
+      panel.preannotateWith = (number) => { pre.choose(number); annTabs.select('preannotate'); };
       panel.reveal = (sessionId) => { annTabs.select(sessionId === 'sync' ? 'cvat' : 'fiftyone'); annotate.reveal(sessionId); };
       return panel;
     }
@@ -5299,8 +5302,9 @@
             ? el('p', { class: 'muted tr-meta' }, el('span', { class: 'md-public' }, t('md.public_badge')), ` ${t('md.public_meta', { date: fmtDate(m.created) })}`)
             : el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDate(m.created)].join(' · ')),
           isPublic(m)
-            ? el('p', { class: 'md-mapping' }, el('span', { class: 'muted' }, `${t('md.mapping')}: `),
-              Object.entries(m.mapping || {}).map(([from, to]) => (from === to ? from : `${from} → ${to}`)).join(', '))
+            ? el('details', { class: 'md-mapping' }, el('summary', null, tn('md.classes_n', Object.keys(m.mapping || {}).length)),
+              el('p', null, el('span', { class: 'muted' }, `${t('md.mapping')}: `),
+                Object.entries(m.mapping || {}).map(([from, to]) => (from === to ? from : `${from} → ${to}`)).join(', ')))
             : el('p', { class: 'tr-facts' },
               val != null ? el('strong', null, `${metricName(m.metric)} ${nf3.format(val)}`) : null,
               test != null ? el('span', null, ` · ${t('md.test_value', { v: nf3.format(test) })}`) : null,
@@ -5309,6 +5313,7 @@
             m.note ? el('span', null, m.note) : el('span', { class: 'muted' }, t('md.no_note')),
             el('button', { type: 'button', class: 'icon-btn', 'data-act': 'note', 'aria-label': t('md.edit_note_aria', { n: m.number }), title: t('md.edit_note'), onclick: () => editNote(m) }, icon('edit', 16))),
           el('div', { class: 'tr-actions' },
+            busy(m) ? null : el('button', { type: 'button', class: 'btn small', 'data-act': 'preannotate', onclick: () => { showTab('annotations'); ctx.panels.annotations.preannotateWith(m.number); } }, icon('star', 14), t('md.preannotate')),
             isPublic(m) ? el('span', { class: 'muted md-export' }, t('md.public_weights')) : null,
             isPublic(m) ? null : el('a', { class: 'btn small', href: download(m, 'pytorch'), download: '', 'data-act': 'pt' }, icon('download', 14), t('md.download_pt')),
             isPublic(m) ? null : onnxBlock(m),
@@ -5398,18 +5403,24 @@
                 el('span', { class: 'muted' }, `${tr(`md.pub.${m.id}`, m.note)} · ${t('md.public_stats', { map: nf3.format(m.box_map), mb: num(m.size_mb) })}`)));
           }));
         }
+        let mapOpen = false;
+        const linked = () => data.project_classes.filter((cls) => st.map[cls]).length;
+        const mapLine = () => t('md.mapping_summary', { n: num(linked()), total: num(data.project_classes.length) });
         function drawMap() {
           drawChoices();
           const m = modelOf();
-          fill(mapBox,
-            el('p', { class: 'hint' }, t('md.mapping_help')),
-            el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
+          const line = el('span', null, mapLine());
+          const rows = el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
               const id = `md-map-${cls}`;
-              const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; showClash(); } },
+              const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; line.textContent = mapLine(); showClash(); } },
                 el('option', { value: '' }, t('md.mapping_none')),
                 ...m.classes.map((c) => el('option', { value: c, selected: st.map[cls] === c }, c)));
               return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), sel);
-            })));
+            }));
+          const box = el('details', { class: 'md-map', open: mapOpen || !linked() },
+            el('summary', null, line, el('span', { class: 'md-map-review' }, t('md.mapping_review'))), rows);
+          box.addEventListener('toggle', () => { mapOpen = box.open; });
+          fill(mapBox, el('p', { class: 'hint' }, t('md.mapping_help')), box);
         }
         st.map = suggested();
         drawMap();

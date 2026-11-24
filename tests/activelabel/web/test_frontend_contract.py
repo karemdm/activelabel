@@ -134,3 +134,9 @@ def test_empty_lists_carry_their_action_and_models_do_not_need_images():
     """Empty data splits, runs and models put the action in the empty state; step 6 is not gated by images."""
     assert JS.count("emptyState(") >= 4  # the helper and its three users
     assert "step !== 'models' && !hasImages()" in JS
+
+
+def test_model_cards_and_the_public_mapping_stay_short_and_lead_to_pre_annotation():
+    """The class list opens on demand, and a model card can open pre-annotation on that model."""
+    assert "md.mapping_summary" in JS and "md.classes_n" in JS
+    assert "preannotateWith(m.number)" in JS and "panel.preannotateWith" in JS
