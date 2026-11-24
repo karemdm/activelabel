@@ -21,9 +21,7 @@ from activelabel.labels import Label
 NAME_FILES = {"classes.txt", "obj.names", "names.txt", "labels.txt"}
 
 
-def is_names_file(path: Path) -> bool:
-    """True for ``classes.txt`` style files that list class names."""
-    return path.name.lower() in NAME_FILES or path.suffix.lower() == ".names"
+MIN_LABEL_VALUES = 5  # a label line: class and a box (``cls cx cy w h``)
 
 
 def _numbers(line: str) -> list[float] | None:
@@ -33,12 +31,39 @@ def _numbers(line: str) -> list[float] | None:
         return None
 
 
+def _is_label_line(line: str) -> bool:
+    values = _numbers(line)
+    return values is not None and len(values) >= MIN_LABEL_VALUES
+
+
+def is_names_file(path: Path) -> bool:
+    """True for ``classes.txt`` style files that list class names.
+
+    A file called ``labels.txt`` (or ``classes.txt``, ``names.txt``) that holds label lines is the label
+    file of an image of that name, not a list of names; ``.names`` files always list names.
+    """
+    if path.suffix.lower() == ".names" or path.name.lower() == "obj.names":
+        return True
+    if path.name.lower() not in NAME_FILES:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return True
+    return not any(_is_label_line(ln) for ln in text.splitlines())
+
+
 def is_label_text(text: str) -> bool | None:
-    """True when every non-blank line is numeric, None when the file is empty, False otherwise."""
+    """Whether a txt file holds YOLO labels: True when most non-blank lines are numeric label lines.
+
+    None when the file is empty; False for files that are not labels (``train.txt`` lists paths). A label
+    file with a few malformed lines is still a label file: those lines are reported by the parser.
+    """
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return None
-    return all(_numbers(ln) is not None for ln in lines)
+    numeric = sum(1 for ln in lines if _numbers(ln) is not None)
+    return numeric * 2 >= len(lines) and any(_is_label_line(ln) for ln in lines)
 
 
 def read_names(data: Any) -> dict[int, str] | None:
@@ -109,9 +134,9 @@ def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
         if rec is None or not ctx.claim(rec, rel):
             continue
         ctx.files.append(rel)
-        for line in text.splitlines():
+        for number, line in enumerate(text.splitlines(), 1):
             if line.strip():
-                label = _line(ctx, line, names, kpt, missing, f"{rel}: {line[:40]}")
+                label = _line(ctx, line, names, kpt, missing, f"{rel}:{number}: {line[:40]}")
                 if label is not None:
                     ctx.add_label(rec, label)
     if missing:

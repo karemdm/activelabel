@@ -252,3 +252,32 @@ def test_detect_none_and_mixed(env):
     assert detect_format([coco, voc]) is None
     assert detect_format([coco, readme]) == "coco"
     assert detect_format([write(folder, "x.json", {"a": 1})]) is None
+
+
+def test_yolo_bad_lines_are_reported_with_file_and_line(env):
+    folder, images, _ = env
+    write(folder, "data.yaml", "names: [cat, dog]\n")
+    write(folder, "a.txt", "0 0.5 0.5 0.2 0.2\nabc\n5 0.5 0.5 0.2 0.2\n1 0.5 0.5 2 2\n")
+    files = sorted(folder.iterdir())
+    assert detect_format(files) == "yolo"
+    result = parse(files, "yolo", images)
+    labels = result.labels[next(r.id for r in images if r.name == "a.png")]
+    assert len(labels) == 2  # the good line and the clipped box
+    problems = {p.code: p for p in result.problems}
+    assert problems["invalid_annotation"].examples[0].startswith("a.txt:2: abc")
+    assert problems["unknown_class_id"].examples[0].startswith("a.txt:3:")
+    assert "a.txt:4:" in problems["box_clipped"].examples[0]
+
+
+def test_a_label_file_called_labels_txt_is_not_a_names_file(env):
+    folder, images, _ = env
+    write(folder, "data.yaml", "names: [cat]\n")
+    write(folder, "classes.txt", "cat\n")
+    write(folder, "a.txt", "0 0.5 0.5 0.2 0.2\n")
+    from activelabel.annotations.yolo import is_names_file
+
+    assert is_names_file(folder / "classes.txt")
+    write(folder, "labels.txt", "0 0.5 0.5 0.2 0.2\n")
+    assert not is_names_file(folder / "labels.txt")
+    write(folder, "names.txt", "cat\ndog\n")
+    assert is_names_file(folder / "names.txt")
