@@ -205,6 +205,19 @@ def test_matching_case_subfolders_and_ambiguity(tmp_path):
     assert "duplicate_image_entry" in codes
 
 
+def test_an_annotation_named_after_a_repeated_upload_matches_the_first_image(tmp_path):
+    manifest = make_manifest(tmp_path / "p", ["a.png"])
+    manifest.add_aliases({manifest.all()[0].id: ["copy.png", "a.png"]})
+    data = {
+        "images": [{"id": 1, "file_name": "copy.png"}],
+        "categories": [{"id": 1, "name": "cat"}],
+        "annotations": [{"image_id": 1, "category_id": 1, "bbox": [0, 0, 10, 10]}],
+    }
+    res = parse([write(tmp_path / "f", "c.json", data)], "coco", manifest.all())
+    assert set(res.labels) == {manifest.all()[0].id}
+    assert manifest.all()[0].aliases == ["copy.png"]  # a name the image already has is not an alias
+
+
 def test_detect_none_and_mixed(env):
     folder, _, _ = env
     readme = write(folder, "readme.txt", "hello there")

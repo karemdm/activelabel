@@ -248,3 +248,15 @@ def test_a_detection_image_item_has_no_class_list(tmp_path):
     labels = {first: [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
     save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["cat"], labels, {}))
     assert "classes" not in client.get("/api/projects/1/images").json()["items"][0]
+
+
+def test_annotations_named_after_a_repeated_upload_reach_the_image(tmp_path):
+    client, state = setup_project(tmp_path)
+    first = tmp_path / "in" / "0.png"
+    assert upload(client, 1, [first], names=["same-as-0.png"]).json()["duplicates"] == ["same-as-0.png"]
+    files = [("files", ("instances.json", coco(["same-as-0.png"]).encode()))]
+    report = client.post("/api/projects/1/annotations", files=files).json()
+    summary = client.post(f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "import"})
+    assert summary.status_code == 200, summary.text
+    assert client.get("/api/projects/1/annotations").json()["labels_per_class"] == {"cat": 1}
+    assert state.manifest(1).all()[0].aliases == ["same-as-0.png"]
