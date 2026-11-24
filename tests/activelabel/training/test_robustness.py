@@ -405,3 +405,23 @@ def test_semantic_needs_batch_of_two():
     assert validate(RunConfig(**base, params={"batch_size": 2}), "segmentation").params["batch_size"] == 2
     # other kinds keep accepting 1
     validate(RunConfig(dataset=1, model="resnet18", params={"batch_size": 1}), "classification")
+
+
+def test_partial_export_is_gone_before_the_failure_is_recorded(setup, tmp_path, monkeypatch):
+    client, state, runner = setup
+    save_model(client, state, runner)
+    store = ModelStore(state.store.dir(1))
+    folder = store.path(1)
+    (tmp_path / "export_onnx.py").write_text(FAKE_EXPORT_PARTIAL)
+    seen = []
+    original = ModelStore.set_export
+
+    def watching(self, number, fmt, **fields):
+        if fields.get("status") == "failed":
+            seen.append((folder / "model.part").exists())
+        return original(self, number, fmt, **fields)
+
+    monkeypatch.setattr(ModelStore, "set_export", watching)
+    runner.enqueue_export(1, 1, "onnx")
+    wait_for(lambda: store.get(1)["exports"]["onnx"]["status"] == "failed")
+    assert seen == [False]

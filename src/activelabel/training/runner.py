@@ -575,6 +575,7 @@ class TrainingRunner:
             info = self._run_export(project_id, number, fmt, cmd, tmp, folder / "export.log", progress)
             store.set_export(number, fmt, status=DONE, finished=now(), message="", **info)
         except Cancelled:
+            self._drop_partial_export(store, number, fmt)
             store.set_export(number, fmt, status=CANCELLED, finished=now(), message="")
         except ModelNotFound:
             self._export_failed(store, number, fmt, "This model was deleted.")
@@ -584,15 +585,21 @@ class TrainingRunner:
         except Exception as exc:  # noqa: BLE001 - shown to the person
             self._export_failed(store, number, fmt, str(exc) or type(exc).__name__)
         finally:
-            try:
-                (store.path(number) / EXPORT_FILES[fmt]).with_suffix(".part").unlink(missing_ok=True)
-            except OSError:
-                pass
+            self._drop_partial_export(store, number, fmt)
             if tmp is not None:
                 _remove_tree(tmp)
 
     @staticmethod
+    def _drop_partial_export(store: ModelStore, number: int, fmt: str) -> None:
+        """Remove the half-written export file (before a status says the export is over)."""
+        try:
+            (store.path(number) / EXPORT_FILES[fmt]).with_suffix(".part").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    @staticmethod
     def _export_failed(store: ModelStore, number: int, fmt: str, message: str) -> None:
+        TrainingRunner._drop_partial_export(store, number, fmt)
         try:
             store.set_export(number, fmt, status=FAILED, error=message, finished=now())
         except ModelNotFound:
