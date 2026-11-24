@@ -48,12 +48,6 @@ BASELINE = {
     "training/workers/export_onnx.py",
     "training/workers/predict.py",
     "training/workers/segmentation.py",
-    "web/annotate_api.py",
-    "web/app.py",
-    "web/errors.py",
-    "web/models_api.py",
-    "web/preannotate_api.py",
-    "web/state.py",
 }
 
 
