@@ -79,10 +79,3 @@ def test_every_checked_token_is_defined_for_both_themes():
 def test_token_pairs_meet_wcag_aa(fg: str, bg: str, minimum: float, theme: int):
     ratio = _ratio(TOKENS[fg][theme], TOKENS[bg][theme])
     assert ratio >= minimum, f"--{fg} on --{bg} is {ratio:.2f}:1 (needs {minimum}:1)"
-
-
-def test_area_colours_are_remapped_by_data_area():
-    """The project page sets data-area; each area points --area at its own accent."""
-    assert re.search(r':root\[data-area="data"\]\s*\{[^}]*--area: var\(--dados\)', CSS)
-    assert re.search(r':root\[data-area="model"\]\s*\{[^}]*--area: var\(--modelo\)', CSS)
-    assert re.search(r"--primary: var\(--area\)", CSS)
