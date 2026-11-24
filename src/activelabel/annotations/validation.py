@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 
 from activelabel.annotations.models import MAX_EXAMPLES, PROBLEMS, ParseResult, Problem, ValidationReport
-from activelabel.labels import Label, task_of
+from activelabel.labels import KEYPOINTS_COUNT_MISMATCH, NO_GEOMETRY, Label, task_of, validate_labels
 from activelabel.projects import Project
 from activelabel.tasks import Task
 
@@ -23,6 +23,10 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
     labels fit), ``convert_and_import`` (segmentation or keypoints to a detection project, using the box
     of each object), ``discard``. Detection to classification is never offered. When nothing can be
     imported only ``discard`` is offered.
+
+    Labels without the shape the task needs (a box in a segmentation file, a pose with another number of
+    points than most) are reported as ``no_geometry`` / ``keypoints_count_mismatch`` warnings, with the number
+    and example image ids; :func:`activelabel.annotations.importer.apply` leaves them out.
     """
     labels = result.all_labels()
     inferred = task_of(labels)
@@ -47,8 +51,17 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
                     many[:MAX_EXAMPLES],
                 )
             )
-    can_import = bool(labels) and not any(p.level == "error" for p in problems)
     matches = inferred is not None and inferred == project.task
+    converts = project.task is Task.DETECTION and inferred in CONVERTIBLE_TO_DETECTION
+    if inferred is not None and (
+        matches or not converts
+    ):  # labels the task cannot use are left out on import
+        found = validate_labels(inferred, result.labels)
+        for code in (NO_GEOMETRY, KEYPOINTS_COUNT_MISMATCH):
+            if found.counts[code]:
+                level, message = PROBLEMS[code]
+                problems.append(Problem(level, code, message, found.counts[code], found.examples[code]))
+    can_import = bool(labels) and not any(p.level == "error" for p in problems)
     options = [DISCARD]
     if can_import and inferred is not None:
         if matches:

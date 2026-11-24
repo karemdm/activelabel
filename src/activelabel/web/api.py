@@ -363,9 +363,10 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
     elif cleaned is not None:
         _backup_annotations(project_dir)
         save_annotations(project_dir, _with_classes(cleaned, project))
-    elif body.classes is not None:  # the ground truth names the same classes as the project
-        current = load_annotations(project_dir)
-        if current is not None and current.classes != project.classes:
+    elif body.classes is not None or body.task is not None:
+        current = load_annotations(project_dir)  # one without images needed no decision: it just follows
+        if current is not None and (current.classes != project.classes or current.task is not project.task):
+            current.task = project.task
             save_annotations(project_dir, _with_classes(current, project))
     overview = project_overview(state, project)
     if result is not None:

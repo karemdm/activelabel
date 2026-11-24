@@ -153,3 +153,64 @@ def test_a_cut_off_json_is_reported_as_unreadable_not_as_unknown_format(tmp_path
     assert "instances.json" in body["detail"] and staged(state) == []
     other = client.post("/api/projects/1/annotations", files=[("files", ("x.json", b'{"a": 1}'))])
     assert other.json()["code"] == "annotation_format_unknown"
+
+
+def coco_with(names, annotations):
+    images = [{"id": i + 1, "file_name": n, "width": 100, "height": 100} for i, n in enumerate(names)]
+    categories = [{"id": 1, "name": "cat"}]
+    return json.dumps({"images": images, "annotations": annotations, "categories": categories})
+
+
+def test_import_reports_and_drops_labels_without_the_shape_of_the_task(tmp_path):
+    from activelabel.labels import load_annotations
+
+    client, state = setup_project(tmp_path, task="segmentation")
+    polygon = [[0, 0, 50, 0, 50, 25, 0, 25]]
+    anns = [
+        {"id": 1, "image_id": 1, "category_id": 1, "bbox": [0, 0, 50, 25], "segmentation": polygon},
+        {"id": 2, "image_id": 2, "category_id": 1, "bbox": [0, 0, 10, 10]},  # a box, no polygon
+    ]
+    files = [("files", ("labels.json", coco_with(["0.png", "1.png"], anns).encode()))]
+    report = client.post("/api/projects/1/annotations", files=files).json()
+    found = {p["code"]: p for p in report["problems"]}
+    assert (
+        report["task_matches"]
+        and found["no_geometry"]["count"] == 1
+        and found["no_geometry"]["level"] == "warning"
+    )
+    summary = client.post(
+        f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "import"}
+    ).json()
+    assert summary["labels_dropped"] == {"no_geometry": 1} and summary["labels_imported"] == 1
+    stored = load_annotations(state.store.dir(1))
+    assert sum(len(v) for v in stored.images.values()) == 1
+    assert all(lb.polygons for v in stored.images.values() for lb in v)
+
+
+def test_import_drops_poses_with_another_number_of_points(tmp_path):
+    from activelabel.labels import load_annotations
+
+    client, state = setup_project(tmp_path, task="keypoints")
+    three = [10, 10, 2, 20, 20, 2, 30, 30, 2]
+    anns = [
+        {"id": 1, "image_id": 1, "category_id": 1, "bbox": [0, 0, 50, 25], "keypoints": three},
+        {"id": 2, "image_id": 2, "category_id": 1, "bbox": [0, 0, 10, 10], "keypoints": three[:3]},
+    ]
+    files = [("files", ("labels.json", coco_with(["0.png", "1.png"], anns).encode()))]
+    report = client.post("/api/projects/1/annotations", files=files).json()
+    assert "keypoints_count_mismatch" in {p["code"] for p in report["problems"]}
+    summary = client.post(
+        f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "import"}
+    ).json()
+    assert sum(len(v) for v in load_annotations(state.store.dir(1)).images.values()) == 1
+    assert summary["labels_dropped"] == {"keypoints_count_mismatch": 1}
+
+
+def test_changing_the_task_of_a_project_without_labels_rewrites_the_saved_task(tmp_path):
+    from activelabel.labels import AnnotationSet, load_annotations, save_annotations
+    from activelabel.tasks import Task
+
+    client, state = setup_project(tmp_path)  # detection
+    save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["cat"], {}, {}))  # no images in it
+    assert client.patch("/api/projects/1", json={"task": "classification"}).status_code == 200
+    assert load_annotations(state.store.dir(1)).task is Task.CLASSIFICATION

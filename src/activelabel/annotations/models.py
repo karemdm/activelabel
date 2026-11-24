@@ -37,6 +37,11 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     "unsupported_shape": ("warning", "Some shapes of an unsupported type were skipped."),
     "rle_bbox_only": ("warning", "Mask (RLE) objects were imported as boxes only."),
     "multiple_classes": ("warning", "Some images have more than one class; only the first one is kept."),
+    "no_geometry": ("warning", "Some labels lack the shape this task needs and were skipped."),
+    "keypoints_count_mismatch": (
+        "warning",
+        "Some objects have a different number of keypoints than the others and were skipped.",
+    ),
     "invalid_annotation": ("warning", "Some annotations are malformed and were skipped."),
     "frames_not_in_task": ("warning", "Some annotations are on frames that the task does not use."),
     "frame_number_missing": ("warning", "Some entries have no frame number and were skipped."),

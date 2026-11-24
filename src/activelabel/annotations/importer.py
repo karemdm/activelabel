@@ -10,13 +10,37 @@ from activelabel.annotations.staging import discard_staged, get_target, load_sta
 from activelabel.annotations.target import build_target
 from activelabel.annotations.validation import CHANGE_TASK, CONVERT, DISCARD, IMPORT, to_detection, validate
 from activelabel.images.manifest import Manifest
-from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
+from activelabel.labels import (
+    AnnotationSet,
+    Label,
+    annotations_lock,
+    common_keypoint_count,
+    geometry_problem,
+    load_annotations,
+    save_annotations,
+)
 from activelabel.projects import ProjectStore, check_classes
 from activelabel.storage import now
 from activelabel.tasks import Task
 
 ACTIONS = (IMPORT, CHANGE_TASK, CONVERT, DISCARD)
 MODES = ("replace", "merge")
+
+
+def _drop_unusable(task: Task, labels: dict[str, list[Label]]) -> dict[str, int]:
+    """Remove (in place) the labels the task cannot use; returns how many were left out per reason."""
+    expected = common_keypoint_count(labels) if task is Task.KEYPOINTS else None
+    dropped: dict[str, int] = {}
+    for key, items in labels.items():
+        kept = []
+        for label in items:
+            problem = geometry_problem(task, label, expected)
+            if problem:
+                dropped[problem] = dropped.get(problem, 0) + 1
+            else:
+                kept.append(label)
+        labels[key] = kept
+    return dropped
 
 
 def apply(
@@ -34,7 +58,8 @@ def apply(
             none yet and keeps the existing ones.
 
     Returns:
-        Summary: action, mode, format, task, images/labels imported, kept (merge), added classes.
+        Summary: action, mode, format, task, images/labels imported, kept (merge), added classes, and
+        ``labels_dropped`` (``{reason: count}`` of labels without the shape the task needs).
 
     Raises:
         ValueError: unknown action or mode, action not allowed for these files, nothing to import,
@@ -75,6 +100,7 @@ def apply(
             boxes = [to_detection(lb) for lb in items]
             converted += sum(1 for b in boxes if b)
             labels[key] = [b for b in boxes if b]
+    dropped = _drop_unusable(task, labels)
     reduced = 0
     if task is Task.CLASSIFICATION:  # one class per image: keep the first
         for key, items in labels.items():
@@ -153,6 +179,7 @@ def apply(
         "images_added": added,
         "converted": converted,
         "classes_reduced": reduced,
+        "labels_dropped": dropped,
         "classes_added": [c for c in updated.classes if c not in project.classes],
         "problems": [p.as_dict() for p in report.problems],
     }
