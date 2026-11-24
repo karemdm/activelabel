@@ -46,3 +46,18 @@ def test_forget(tmp_path, fake_keyring):
     assert cred.forget(tmp_path, "cvat") is True
     assert fake_keyring.store == {} and cred.load_settings(tmp_path, "cvat").url == ""
     assert cred.forget(tmp_path, "cvat") is False
+
+
+def test_tool_urls_must_be_http(tmp_path, monkeypatch):
+    import pytest
+
+    from activelabel.annotate import credentials
+    from activelabel.errors import CodedError
+
+    for bad in ("file:///etc/passwd", "ftp://host", "javascript:alert(1)", "cvat.local", "http://"):
+        with pytest.raises(CodedError) as info:
+            credentials.save_settings(tmp_path, "cvat", bad, "u", None)
+        assert info.value.code == "url_invalid"
+    assert not (tmp_path / "tools.json").exists()
+    saved = credentials.save_settings(tmp_path, "cvat", "https://cvat.local:8080/", "u", None)
+    assert saved.url == "https://cvat.local:8080"
