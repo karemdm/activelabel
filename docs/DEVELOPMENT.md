@@ -178,3 +178,26 @@ flowchart TB
   --workspace <folder>`: it gets its own database and workspace and refuses the ports of your own servers.
 - For interface changes, run your own server on a free port and a scratch workspace, and click through
   the screens in both languages and both themes at desktop and phone widths before calling it done.
+
+## Tests of the web interface (JavaScript)
+
+These need Node.js (version 22 or newer) and are only for development and CI; the app itself has no Node
+dependency. Install the tools once from the repository root:
+
+```bash
+npm install
+npx playwright install chromium     # Linux CI also needs --with-deps
+```
+
+- **Unit tests** (`npm run test:js`): the built-in `node:test` runner, files `tests/js/*.test.js`. They load the
+  real `app.js` in jsdom (`tests/js/helpers/load-app.js`), in Portuguese and in English, and check its helpers
+  (texts, plurals, number formats, error translation). `app.js` has no modules, so the loader adds one line to a
+  copy of the source in memory that exposes the helpers; a helper the tests need must be added to the list in
+  that file. That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
+- **Smoke tests** (`npm run test:e2e`): Playwright with Chromium, files `tests/e2e/*.spec.js`. The configuration
+  (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a
+  temporary workspace, so it never touches the default port or your own data. Set `ACTIVELABEL_E2E_PYTHON` to use
+  another Python than `python` on the path. They walk the main path (create a project, upload three generated
+  images, open Curation, switch language) and check that no raw text key shows and that nothing scrolls
+  sideways on a phone-width screen. The report of a failed run is in `playwright-report/`.
+- CI runs both in the job `ui (node + playwright)`.
