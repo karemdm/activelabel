@@ -66,34 +66,77 @@ class RemoteChanged(SyncError):
 
 # -- helpers --------------------------------------------------------------------
 def remote_name(project: Project) -> str:
-    """Name the annotation tools give the remote project of a project."""
+    """Name the annotation tools give the remote project of a project.
+
+    Args:
+        project: The project.
+
+    Returns:
+        ``ActiveLabel <id> - <name>``.
+    """
     return f"ActiveLabel {project.id} - {project.name}"
 
 
 def plans_dir(project_dir: Path) -> Path:
-    """Folder with the saved plans."""
+    """Folder with the saved plans.
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        ``<project_dir>/sync``.
+    """
     return project_dir / "sync"
 
 
 def plan_file(project_dir: Path, plan_id: str) -> Path | None:
-    """File of a saved plan (None when the id is malformed)."""
+    """File of a saved plan (None when the id is malformed).
+
+    Args:
+        project_dir: Folder of the project.
+        plan_id: Id of the plan (6 to 32 hex characters).
+
+    Returns:
+        The plan file, or None when the id is malformed.
+    """
     return plans_dir(project_dir) / f"{plan_id}.json" if _PLAN_ID.match(plan_id) else None
 
 
 def load_plan(project_dir: Path, plan_id: str) -> dict[str, Any] | None:
-    """A saved plan, or None."""
+    """A saved plan, or None.
+
+    Args:
+        project_dir: Folder of the project.
+        plan_id: Id of the plan.
+
+    Returns:
+        The plan, or None when it is missing, malformed or the id is invalid.
+    """
     path = plan_file(project_dir, plan_id)
     data = read_json(path) if path is not None else None
     return data if isinstance(data, dict) else None
 
 
 def _prune(project_dir: Path) -> None:
+    """Delete the oldest saved plans, keeping the last ``KEEP_PLANS``.
+
+    Args:
+        project_dir: Folder of the project.
+    """
     files = sorted(plans_dir(project_dir).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in files[KEEP_PLANS:]:
         old.unlink(missing_ok=True)
 
 
 def _side(labels: list[Label]) -> dict[str, Any]:
+    """Count the labels of one side of a comparison.
+
+    Args:
+        labels: The labels of one side.
+
+    Returns:
+        ``{labels, per_class}``: the total and the count by class.
+    """
     per_class: dict[str, int] = {}
     for lb in labels:
         per_class[lb.label] = per_class.get(lb.label, 0) + 1
@@ -101,26 +144,69 @@ def _side(labels: list[Label]) -> dict[str, Any]:
 
 
 def _clean(project: Project, labels: list[Label]) -> list[Label]:
+    """Labels cleaned like any pulled labels (classes and geometry of the project).
+
+    Args:
+        project: The project whose classes and task apply.
+        labels: The labels to clean.
+
+    Returns:
+        The labels that are valid in the project (the problems found are dropped).
+    """
     return diffing.clean_labels(project, labels)[0]
 
 
 def _local_labels(project_dir: Path) -> dict[str, list[Label]]:
+    """Labels of the project by image id.
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        ``{image_id: labels}``; empty when there are no annotations.
+    """
     annotations = load_annotations(project_dir)
     return annotations.images if annotations else {}
 
 
 def _info_dict(info: RemoteInfo | None, name: str) -> dict[str, Any]:
+    """JSON-ready form of a remote project (an empty one when it does not exist yet).
+
+    Args:
+        info: The remote project, or None when it will be created.
+        name: Name shown when there is no remote project.
+
+    Returns:
+        ``{id, name, url, images}``.
+    """
     if info is None:
         return {"id": "", "name": name, "url": "", "images": 0}
     return {"id": info.id, "name": info.name, "url": info.url, "images": info.images}
 
 
 def _info_obj(data: dict[str, Any]) -> RemoteInfo:
+    """Remote project from its JSON-ready form (see :func:`_info_dict`).
+
+    Args:
+        data: ``{id, name, url, images?}`` as stored in a plan.
+
+    Returns:
+        The remote project.
+    """
     return RemoteInfo(str(data["id"]), str(data["name"]), str(data["url"]), int(data.get("images", 0)))
 
 
 def _decide(entry: dict[str, Any] | None, local: list[Label], remote: list[Label]) -> str:
-    """Pull / push / same / conflict from the labels at the last sync, here and there (geometry tolerant)."""
+    """Pull / push / same / conflict from the labels at the last sync, here and there (geometry tolerant).
+
+    Args:
+        entry: Link entry of the image (its base labels or hash), or None when never synchronised.
+        local: The labels of the image in the project.
+        remote: The cleaned labels of the item in the tool.
+
+    Returns:
+        One of ``SAME``, ``PULL``, ``PUSH`` or ``CONFLICT``.
+    """
     same = links.same_labels
     base = links.base_labels(entry) if entry else None
     if base is None and entry and entry.get("base"):
@@ -149,7 +235,17 @@ def _decide(entry: dict[str, Any] | None, local: list[Label], remote: list[Label
 def _push_summary(
     project: Project, names: dict[str, str], changes: dict[str, tuple[list[Label], list[Label]]]
 ) -> dict[str, Any]:
-    """Diff of what a push does: ``{image_id: (remote labels now, labels after the push)}``."""
+    """Diff of what a push does: ``{image_id: (remote labels now, labels after the push)}``.
+
+    Args:
+        project: The project (its task decides how labels are compared).
+        names: File name of every image, by image id.
+        changes: ``(remote labels now, labels after the push)`` of every image the push touches.
+
+    Returns:
+        The number of images changed, the added / removed / edited labels (total and by class)
+        and a few examples.
+    """
     per_class: dict[str, dict[str, int]] = {}
     totals = {"added": 0, "removed": 0, "edited": 0}
     examples: list[dict[str, Any]] = []
@@ -193,6 +289,22 @@ def _find_remote(
     remote_id: str | None,
     create: bool,
 ) -> RemoteInfo | None:
+    """The remote project to synchronise with: the linked one, the given one, or the one found by name.
+
+    Args:
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        project: The project.
+        link: The existing link, or None.
+        remote_id: Id of the remote project to use when there is no link.
+        create: Whether a missing remote project is acceptable (it will be created).
+
+    Returns:
+        The remote project, or None when it does not exist and ``create`` is set.
+
+    Raises:
+        SyncError: there is no remote project and ``create`` is not set.
+    """
     if link:
         return remote.get(settings, str(link["remote_id"]))
     if remote_id:
@@ -204,18 +316,46 @@ def _find_remote(
 
 
 def _key_task(key: str) -> str:
-    """Remote task of an item key (``"<task>:<frame>"`` in CVAT)."""
+    """Remote task of an item key (``"<task>:<frame>"`` in CVAT).
+
+    Args:
+        key: Key of a remote item.
+
+    Returns:
+        The part of the key before the colon.
+    """
     return str(key).partition(":")[0]
 
 
 def _key_frame(key: str) -> int:
+    """Frame number of an item key (``"<task>:<frame>"`` in CVAT).
+
+    Args:
+        key: Key of a remote item.
+
+    Returns:
+        The part of the key after the colon (0 when there is none).
+    """
     return int(str(key).partition(":")[2] or 0)
 
 
 def _scope(
     tasks: list[ImageTask], scope: str, task_id: int | None, job: int | None
 ) -> tuple[list[ImageTask], list[str]]:
-    """Tasks touched by the scope and the image ids it covers (task order)."""
+    """Tasks touched by the scope and the image ids it covers (task order).
+
+    Args:
+        tasks: Every task of the project.
+        scope: ``project``, ``task`` or ``job``.
+        task_id: The task, for the ``task`` and ``job`` scopes.
+        job: Number of the job, for the ``job`` scope.
+
+    Returns:
+        The tasks in scope and the ids of their images.
+
+    Raises:
+        SyncError: the scope is unknown, or the task or job does not exist.
+    """
     if scope not in SCOPES:
         raise SyncError("The scope must be project, task or job.")
     if scope == "project":
@@ -232,7 +372,16 @@ def _scope(
 
 
 def _task_mapping(tasks: list[ImageTask], tmap: dict[str, Any], link_items: dict[str, Any]) -> dict[str, str]:
-    """Local task id -> remote task id, from the link (or inferred from the keys of an older link)."""
+    """Local task id -> remote task id, from the link (or inferred from the keys of an older link).
+
+    Args:
+        tasks: The local tasks.
+        tmap: The ``tasks`` of the link (``{local task id: {remote_task, ...}}``).
+        link_items: The ``items`` of the link (image id -> entry with the remote key).
+
+    Returns:
+        ``{local task id: remote task id}`` for the tasks whose remote task is known.
+    """
     out: dict[str, str] = {}
     for t in tasks:
         known = (tmap.get(str(t.id)) or {}).get("remote_task")
@@ -548,7 +697,15 @@ def make_plan(
 
 
 def _skip_reason(task: ImageTask, records: dict[str, ImageRecord]) -> str:
-    """Why a task is not created in the tool: ``open`` (still receiving images), ``no_images``, or ``""``."""
+    """Why a task is not created in the tool: ``open`` (still receiving images), ``no_images``, or ``""``.
+
+    Args:
+        task: The local task.
+        records: Every image of the project by id.
+
+    Returns:
+        The reason, or an empty text when the task can be created.
+    """
     if task.open:
         return "open"
     if not any(i in records for i in task.images):
@@ -557,12 +714,30 @@ def _skip_reason(task: ImageTask, records: dict[str, ImageRecord]) -> str:
 
 
 def _link_token(link: dict[str, Any] | None) -> list[Any] | None:
-    """What identifies the state of a link (None: no link), kept in the plan to notice changes."""
+    """What identifies the state of a link (None: no link), kept in the plan to notice changes.
+
+    Args:
+        link: The link with the tool, or None.
+
+    Returns:
+        ``[revision, last_sync]`` of the link, or None when there is no link.
+    """
     return None if not link else [int(link.get("revision", 0)), str(link.get("last_sync", ""))]
 
 
 def _directed(action: str, kind: str, direction: str, here_exists: bool, there: bool) -> str:
-    """What a per-image action becomes when one side wins (``pull``: the tool, ``push``: this project)."""
+    """What a per-image action becomes when one side wins (``pull``: the tool, ``push``: this project).
+
+    Args:
+        action: The action decided by the comparison.
+        kind: Kind of conflict (``labels``, ``removed_local``, ``removed_remote``), used for a conflict.
+        direction: ``pull`` (the tool wins) or ``push`` (this project wins).
+        here_exists: Whether the image is still in the project.
+        there: Whether the item exists in the tool (not used by the decision).
+
+    Returns:
+        The action to carry out.
+    """
     if action == CONFLICT:
         side = "remote" if direction == PULL_ONLY else "local"
         action = RESOLVE[kind or "labels"][side]
@@ -577,6 +752,18 @@ def _directed(action: str, kind: str, direction: str, here_exists: bool, there: 
 
 # -- apply ----------------------------------------------------------------------
 def _choice(value: Any, what: str) -> str | None:
+    """Validate a side chosen to resolve conflicts.
+
+    Args:
+        value: ``local``, ``remote``, or None / empty for no choice.
+        what: Name of the value, used in the error message.
+
+    Returns:
+        ``local`` or ``remote``, or None when there is no choice.
+
+    Raises:
+        SyncError: the value is something else.
+    """
     if value in (None, ""):
         return None
     if value not in CHOICES:
@@ -600,6 +787,19 @@ def _check_unchanged(
     records: dict[str, ImageRecord],
     ids: list[str],
 ) -> None:
+    """Check that the images to carry out still match the plan (nothing changed on either side).
+
+    Args:
+        decisions: The decisions of the plan by image id (with the hashes seen then).
+        current: The remote items as they are now, by key.
+        project: The project.
+        local: The labels of the project now, by image id.
+        records: Every image of the project by id.
+        ids: Ids of the images to check.
+
+    Raises:
+        RemoteChanged: the item or the image changed or appeared / disappeared since the plan.
+    """
     for image_id in ids:
         d = decisions[image_id]
         item = current.get(d["key"])
@@ -616,7 +816,15 @@ def _check_unchanged(
 
 
 def _ids_of(final_action: dict[str, str], *actions: str) -> list[str]:
-    """Images whose final action is one of ``actions``."""
+    """Images whose final action is one of ``actions``.
+
+    Args:
+        final_action: The action carried out, by image id.
+        *actions: The actions to look for.
+
+    Returns:
+        The ids of the images with one of those actions.
+    """
     return [i for i, a in final_action.items() if a in actions]
 
 
@@ -637,6 +845,18 @@ def apply_plan(
     Conflicts take ``resolutions[image_id]`` (``"local"`` keeps ActiveLabel's side, ``"remote"`` the
     tool's), else ``default``; a conflict with neither is left as it is. Tasks deleted in ActiveLabel
     are deleted in the tool only with ``delete_tasks``.
+
+    Args:
+        store: projects.
+        project_id: the project.
+        tool: ``cvat``.
+        settings: login of the tool.
+        remote: the tool's remote adapter.
+        plan_id: the saved plan to carry out.
+        resolutions: ``{image_id: "local" | "remote"}``, the side chosen for each conflict.
+        default: side for the conflicts not in ``resolutions`` (None leaves them as they are).
+        progress: progress handle of the job (also checked for cancellation).
+        delete_tasks: whether tasks deleted here are also deleted in the tool.
 
     Returns:
         Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
@@ -890,6 +1110,21 @@ def _safe_drops(
     A task is kept (with a warning) when any of its images ends otherwise than removed or equal on both
     sides, e.g. a conflict resolved or left as "remote". A task that has frames the plan knows nothing
     about (added in the tool after the link) is never deleted: nothing is written at all.
+
+    Args:
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        plan: The saved plan (its ``tasks_delete``).
+        decisions: The decisions of the plan by image id.
+        final_action: The action finally taken for each image id.
+        delete_tasks: Whether deleting tasks was asked for at all.
+        warnings: List that receives a note for each task that is kept.
+
+    Returns:
+        The ids of the remote tasks to delete.
+
+    Raises:
+        RemoteChanged: a task has frames added in the tool that the plan does not know.
     """
     if not delete_tasks:
         return set()
@@ -936,6 +1171,21 @@ def _refresh_tracked(
     Only frames with a tracked object (here or there) are taken, and only when they had no pending
     change here (pushed now, or equal to their labels at the last synchronisation), so nothing made
     here is lost.
+
+    Args:
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        rid: Id of the remote project.
+        project: The project.
+        decisions: The decisions of the plan by image id.
+        push_ids: Ids of the images pushed.
+        items: The ``items`` of the link (image id -> entry with the remote key).
+        local: The labels of the project, by image id.
+        pull_ids: Ids of the images being pulled.
+        final_action: The action finally taken for each image id.
+
+    Returns:
+        ``{image_id: labels}`` for the frames to take from the tool; empty when nothing was pushed.
     """
     if not push_ids:
         return {}
@@ -965,7 +1215,16 @@ def _refresh_tracked(
 
 
 def _video_of(project_dir: Path, task: ImageTask) -> tuple[Path, dict[str, Any]] | None:
-    """The original video and selection of a task made from a video (None for an image task)."""
+    """The original video and selection of a task made from a video (None for an image task).
+
+    Args:
+        project_dir: Folder of the project.
+        task: The local task.
+
+    Returns:
+        ``(video file, selection with the video name)``, or None when the task is not made from a
+        video or the video is no longer there.
+    """
     source = task.source or {}
     if not source.get("video"):
         return None
@@ -985,6 +1244,16 @@ def _new_task_items(
 
     Deleted frames are brought too, as excluded images, so the task keeps the tool's positions and
     its jobs match one to one.
+
+    Args:
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        project: The project (its task and classes clean the labels).
+        rt: Id of the remote task.
+        items: The remote items read now.
+
+    Returns:
+        ``{key, name, labels, deleted?}`` of every frame of the task, in frame order.
     """
     out: list[dict[str, Any]] = [
         {"key": it.key, "name": it.file_name, "labels": [lb.as_dict() for lb in _clean(project, it.labels)]}
@@ -1017,6 +1286,22 @@ def _import_remote_task(
     ``remote_jobs`` is ``{job number: remote job id}`` for the link's tasks mapping. A video task also
     brings its original video (``remote.video_source``): the local task is then made from the video
     (docs/VIDEO.md); when that is not possible the task stays as images and ``warnings`` gets a note.
+
+    Args:
+        store: projects.
+        project_id: the project.
+        tool: ``cvat``.
+        settings: login of the tool.
+        remote: the tool's remote adapter.
+        spec: the planned task (``remote_task``, ``name``, ``job_size``).
+        new_items: the frames of the remote task (see :func:`_new_task_items`).
+        items: the ``items`` of the link; receives the entries of the imported images.
+        tmap: the ``tasks`` of the link; receives the new local task.
+        remote_jobs: ``{job number: remote job id}`` of the task.
+        warnings: list that receives notes about problems that do not stop the import.
+
+    Returns:
+        1 when a local task was created, 0 when there was nothing to import.
     """
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
@@ -1068,6 +1353,13 @@ def _placed(ordered: list[dict[str, Any]], per_file: list[str | None]) -> dict[s
     Two frames with the same base name in different folders stay apart, and a frame identical to an
     image the project already has is paired with that image. When two items give the same image the
     first one wins.
+
+    Args:
+        ordered: The remote items of the task, in frame order.
+        per_file: The image id each item became (None when it was not stored), same order.
+
+    Returns:
+        ``{image_id: item}``.
     """
     placed: dict[str, dict[str, Any]] = {}
     for item, image_id in zip(ordered, per_file, strict=True):
@@ -1093,6 +1385,18 @@ def _attach_video(
     Never fails the import: without the video (not a video task, tool without the feature, download or
     probe problem, selection that does not fit) the task stays as images, with a warning when a video
     was expected.
+
+    Args:
+        project_dir: Folder of the project.
+        tstore: Tasks of the project.
+        manifest: Images of the project.
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        spec: The planned task (``remote_task``, ``name``).
+        task: The local task that was created.
+        ids: Ids of the images of that task.
+        placed: The remote item of every image (see :func:`_placed`).
+        warnings: List that receives notes when the video is not used; None to skip them.
     """
     name = str(spec.get("name") or spec["remote_task"])
     folder = Path(tempfile.mkdtemp(prefix="activelabel-video-"))
@@ -1189,7 +1493,19 @@ def link_from_items(
 def link_after_import(
     store: ProjectStore, project_id: int, tool: str, settings: ToolSettings, remote: RemoteProject
 ) -> bool:
-    """Link an imported project to the remote project (or task) it came from; returns whether it did."""
+    """Link an imported project to the remote project (or task) it came from; returns whether it did.
+
+    Args:
+        store: projects.
+        project_id: the imported project.
+        tool: ``cvat``.
+        settings: login of the tool.
+        remote: the tool's remote adapter.
+
+    Returns:
+        True when a link was made; False when the project has no origin in that tool or
+        no image could be matched.
+    """
     project = store.get(project_id)
     origin = read_origin(store.dir(project_id))
     if not origin or origin.get("tool") != tool:

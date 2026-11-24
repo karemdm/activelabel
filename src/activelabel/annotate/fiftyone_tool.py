@@ -14,7 +14,14 @@ from activelabel.projects import Project
 
 
 def view_name(session_id: str) -> str:
-    """Name of the saved view of a session."""
+    """Name of the saved view of a session.
+
+    Args:
+        session_id: id of the annotation session.
+
+    Returns:
+        The saved view name.
+    """
     return f"annotate - session {session_id}"
 
 
@@ -24,13 +31,34 @@ class FiftyOneTool:
     name = "fiftyone"
 
     def check(self, settings: ToolSettings) -> str:
-        """No login needed."""
+        """No login needed.
+
+        Args:
+            settings: not used.
+
+        Returns:
+            A message saying that no login is needed.
+        """
         return "FiftyOne needs no login."
 
     def send(
         self, dataset: Any, image_ids: list[str], project: Project, settings: ToolSettings, session_id: str
     ) -> Sent:
-        """Save a view with the images and open the App on it."""
+        """Save a view with the images and open the App on it.
+
+        Args:
+            dataset: the project's FiftyOne dataset.
+            image_ids: ids of the images of the session.
+            project: not used.
+            settings: not used.
+            session_id: id of the annotation session (names the saved view).
+
+        Returns:
+            The link to the App on the view and the view name as reference.
+
+        Raises:
+            ToolError: no dataset, none of the images is in it, or the App could not be started.
+        """
         need_dataset(dataset)
         name = view_name(session_id)
         view = dataset.match(F("image_id").is_in(list(image_ids)))
@@ -51,7 +79,21 @@ class FiftyOneTool:
         settings: ToolSettings,
         ref: dict[str, Any],
     ) -> dict[str, list[Label]]:
-        """Read ``ground_truth`` of the session images."""
+        """Read ``ground_truth`` of the session images.
+
+        Args:
+            dataset: the project's FiftyOne dataset.
+            image_ids: ids of the images of the session.
+            project: the project (its task tells how labels are read).
+            settings: not used.
+            ref: not used.
+
+        Returns:
+            The labels of each image, keyed by image id (an empty list when it has none).
+
+        Raises:
+            ToolError: no dataset.
+        """
         need_dataset(dataset)
         dataset.reload()
         wanted = set(image_ids)
@@ -64,7 +106,13 @@ class FiftyOneTool:
         return out
 
     def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
-        """Delete the saved view."""
+        """Delete the saved view.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            settings: not used.
+            ref: the reference returned by :meth:`send` (``view`` is the saved view to delete).
+        """
         name = ref.get("view")
         if dataset is not None and name and dataset.has_saved_view(name):
             dataset.delete_saved_view(name)

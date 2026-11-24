@@ -15,6 +15,12 @@ _LAZY = {"cvat": ("activelabel.sync.cvat_remote", "CvatRemote")}
 def get_remote(tool: str) -> RemoteProject:
     """The remote project adapter of ``tool`` (``cvat``).
 
+    Args:
+        tool: Name of the annotation tool (``cvat``), or a name registered in ``OVERRIDES``.
+
+    Returns:
+        The adapter that talks to the remote project of that tool.
+
     Raises:
         ToolError: the tool cannot be synchronised or its adapter is not available.
     """

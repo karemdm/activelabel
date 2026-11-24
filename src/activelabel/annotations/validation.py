@@ -28,6 +28,13 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
     Labels without the shape the task needs (a box in a segmentation file, a pose with another number of
     points than most) are reported as ``no_geometry`` / ``keypoints_count_mismatch`` warnings, with the number
     and example image ids; :func:`activelabel.annotations.importer.apply` leaves them out.
+
+    Args:
+        result: what the parser read.
+        project: the project the files are meant for.
+
+    Returns:
+        The report with the inferred task, counts, problems and the options the user has.
     """
     labels = result.all_labels()
     inferred = task_of(labels)
@@ -96,7 +103,14 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
 
 
 def to_detection(label: Label) -> Label | None:
-    """Box-only version of a label (its box, or the box of its polygons or visible keypoints)."""
+    """Box-only version of a label (its box, or the box of its polygons or visible keypoints).
+
+    Args:
+        label: any label.
+
+    Returns:
+        A label with only the box (and class and track), or None when the label has no box to keep.
+    """
     bbox = label.bbox
     if bbox is None and label.polygons:
         bbox = bbox_of_points(p for ring in label.polygons for p in ring)

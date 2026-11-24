@@ -63,7 +63,14 @@ ALL = 1_000_000  # "no limit" for paginated lists
 
 
 def _meta_selection(meta: dict[str, Any]) -> tuple[int, int, int]:
-    """``(start, stop, step)`` of a video task from its meta (``start_frame``, ``stop_frame``, ``step=N``)."""
+    """``(start, stop, step)`` of a video task from its meta (``start_frame``, ``stop_frame``, ``step=N``).
+
+    Args:
+        meta: The JSON of ``GET /api/tasks/{id}/data/meta``.
+
+    Returns:
+        The first video frame, the last video frame and the step between selected frames (at least 1).
+    """
     start = int(meta.get("start_frame") or 0)
     filt = str(meta.get("frame_filter") or "")
     step = int(filt.split("=", 1)[1]) if filt.startswith("step=") and filt.split("=", 1)[1].isdigit() else 1
@@ -78,6 +85,12 @@ def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
     For a task made from a video CVAT lists a single entry (the video) while the task has ``size``
     frames: every frame then gets that entry's size and a name ``<video stem>_frame_<index>.jpg``
     (index in the video, from ``start_frame`` and the ``step=N`` frame filter).
+
+    Args:
+        meta: The JSON of ``GET /api/tasks/{id}/data/meta``.
+
+    Returns:
+        One dict per frame, in order, with at least ``name``, ``width`` and ``height``.
     """
     frames = list(meta.get("frames") or [])
     size = int(meta.get("size") or len(frames))
@@ -89,11 +102,23 @@ def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def task_pattern(name: str) -> str:
-    """The name of a task with every run of digits replaced by ``#`` (``ds_round_3`` -> ``ds_round_#``)."""
+    """The name of a task with every run of digits replaced by ``#`` (``ds_round_3`` -> ``ds_round_#``).
+
+    Args:
+        name: The task name as CVAT has it.
+
+    Returns:
+        The name with each run of digits replaced by ``#``, or ``(no name)`` when nothing is left.
+    """
     return re.sub(r"\d+", "#", name.strip()) or "(no name)"
 
 
 def _sleep(seconds: float) -> None:
+    """Wait ``seconds`` (a function of its own so tests can replace it).
+
+    Args:
+        seconds: How long to wait, in seconds.
+    """
     time.sleep(seconds)
 
 
@@ -105,6 +130,20 @@ class _Api(_Http):
 
         A task is only created inside a project (review in CVAT goes through the sync with the linked
         project): ``POST /api/tasks`` without ``project_id`` is refused before anything is sent.
+
+        Args:
+            method: The HTTP method (``GET``, ``POST``, ``PUT``, ``PATCH``, ``DELETE``).
+            path: The path on the server, starting with ``/api/`` (it may carry a query string).
+            timeout: Seconds to wait for the answer.
+            **kw: Extra arguments of the HTTP call (``params``, ``json``, ``data``, ``files``).
+
+        Returns:
+            The decoded JSON of the answer, or None when it has no body or the body is not JSON.
+
+        Raises:
+            ToolError: Creating a task without a project, no connection, a 401, 403, 429 or other
+                error status of CVAT.
+            RemoteNotFound: CVAT answered 404.
         """
         if method.upper() == "POST" and path.split("?", 1)[0].rstrip("/") == "/api/tasks":
             if not (kw.get("json") or {}).get("project_id"):
@@ -138,12 +177,27 @@ class _Api(_Http):
             return None
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """GET a JSON document."""
+        """GET a JSON document.
+
+        Args:
+            path: The path on the server, starting with ``/api/``.
+            params: Query parameters, if any.
+
+        Returns:
+            The decoded JSON of the answer (None when it has no body).
+        """
         return self.request("GET", path, params=params)
 
 
 def _forbidden_reason(r: Any) -> str:
-    """What CVAT says in a 403: the ``detail`` / ``message`` of a JSON body as one sentence, else the text."""
+    """What CVAT says in a 403: the ``detail`` / ``message`` of a JSON body as one sentence, else the text.
+
+    Args:
+        r: The HTTP response (anything with ``json()`` and ``text``).
+
+    Returns:
+        At most 300 characters on one line, ending in punctuation; empty when CVAT said nothing.
+    """
     try:
         body = r.json()
     except Exception:  # noqa: BLE001 - not JSON (or a fake without a body)
@@ -164,12 +218,31 @@ def _forbidden_reason(r: Any) -> str:
 
 # -- conversions ---------------------------------------------------------------------------------
 def _box(xs: list[float], ys: list[float]) -> list[float]:
+    """The bounding box of a set of points.
+
+    Args:
+        xs: The x coordinates (relative 0..1).
+        ys: The y coordinates (relative 0..1), same length as ``xs``.
+
+    Returns:
+        ``[x, y, width, height]``, relative 0..1.
+    """
     x0, y0 = min(xs), min(ys)
     return [x0, y0, max(xs) - x0, max(ys) - y0]
 
 
 def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | None:
-    """One CVAT shape -> internal label (None for unsupported types)."""
+    """One CVAT shape -> internal label (None for unsupported types).
+
+    Args:
+        shape: A CVAT shape (``type``, ``points`` in pixels, ``occluded``).
+        name: The class name to give the label.
+        w: Width of the frame in pixels.
+        h: Height of the frame in pixels.
+
+    Returns:
+        The label with relative 0..1 geometry, or None for a type that is not converted or too few points.
+    """
     kind, pts = shape.get("type"), [float(p) for p in shape.get("points") or []]
     w, h = max(w, 1), max(h, 1)
     xs = [clamp01(x / w) for x in pts[0::2]]
@@ -193,6 +266,17 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | 
 
 
 def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) -> dict[str, Any]:
+    """A new CVAT shape with the default fields (no attributes, not occluded, manual source).
+
+    Args:
+        kind: The CVAT shape type (``rectangle``, ``polygon`` or ``points``).
+        frame: Index of the frame in the task.
+        label_id: The CVAT id of the label (class).
+        points: Flat ``[x0, y0, x1, y1, ...]`` in pixels.
+
+    Returns:
+        The shape as the annotations endpoint takes it.
+    """
     return {
         "type": kind,
         "frame": frame,
@@ -211,7 +295,18 @@ def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) ->
 def labels_to_cvat(
     labels: list[Label], ids: dict[str, int], frame: int, w: int, h: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped)."""
+    """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped).
+
+    Args:
+        labels: The labels of the frame (relative 0..1 geometry).
+        ids: CVAT label id of each class name.
+        frame: Index of the frame in the task.
+        w: Width of the frame in pixels.
+        h: Height of the frame in pixels.
+
+    Returns:
+        The CVAT shapes and the CVAT tags (labels without geometry) of the frame.
+    """
     shapes: list[dict[str, Any]] = []
     tags: list[dict[str, Any]] = []
 
@@ -251,6 +346,14 @@ def _between(a: dict[str, Any], b: dict[str, Any] | None, t: float) -> list[floa
     Rectangles and points are interpolated linearly, like CVAT; every other type (polygons) keeps the
     points of ``a`` (approximation: CVAT also interpolates polygons, but only when both keyframes
     have matching points, which is not guaranteed here).
+
+    Args:
+        a: The keyframe the interval starts at (CVAT shape, points in pixels).
+        b: The next keyframe, or None when there is none.
+        t: How far between ``a`` and ``b``, from 0 (at ``a``) to 1 (at ``b``).
+
+    Returns:
+        The flat list of points, in pixels.
     """
     pa = [float(v) for v in a.get("points") or []]
     if b is None or b.get("outside") or a.get("type") not in INTERPOLATED or b.get("type") != a.get("type"):
@@ -269,6 +372,14 @@ def track_frames(track: dict[str, Any], count: int) -> dict[int, tuple[dict[str,
     * a keyframe with ``outside`` hides the object from that frame until the next keyframe that is not
       outside, and a keyframe followed by an outside one holds its shape until then;
     * after the last keyframe the object continues with the last shape, unless it is outside.
+
+    Args:
+        track: A CVAT track (``shapes`` are its keyframes).
+        count: Number of frames of the task.
+
+    Returns:
+        For each frame where the object is visible, its shape (points in pixels) and whether the
+        frame is a keyframe.
     """
     by_frame = {int(s["frame"]): s for s in track.get("shapes") or [] if int(s.get("frame", -1)) >= 0}
     keys = [by_frame[f] for f in sorted(by_frame)]
@@ -289,7 +400,15 @@ def track_frames(track: dict[str, Any], count: int) -> dict[int, tuple[dict[str,
 
 
 def _trackable(track: dict[str, Any], ids: dict[str, int]) -> str | None:
-    """Shape type of a track this module can read and write (None: skeleton, other types, no id)."""
+    """Shape type of a track this module can read and write (None: skeleton, other types, no id).
+
+    Args:
+        track: A CVAT track.
+        ids: CVAT label id of each class name (the classes the project knows).
+
+    Returns:
+        ``rectangle``, ``polygon`` or ``points``; None when the track cannot be handled.
+    """
     if track.get("id") is None or track.get("elements") or track.get("label_id") not in ids.values():
         return None
     kinds = {s.get("type") for s in track.get("shapes") or []}
@@ -298,6 +417,15 @@ def _trackable(track: dict[str, Any], ids: dict[str, int]) -> str | None:
 
 
 def _close(x: Any, y: Any) -> bool:
+    """Whether two values (numbers or nested lists of numbers) are equal within ``_SAME``.
+
+    Args:
+        x: A number, a list or any other value.
+        y: The value to compare with.
+
+    Returns:
+        True when equal (numbers closer than ``_SAME``, lists element by element).
+    """
     if isinstance(x, list) and isinstance(y, list):
         return len(x) == len(y) and all(_close(p, q) for p, q in zip(x, y, strict=True))
     if isinstance(x, (int, float)) and isinstance(y, (int, float)):
@@ -306,6 +434,15 @@ def _close(x: Any, y: Any) -> bool:
 
 
 def _same_geometry(a: Label, b: Label) -> bool:
+    """Whether two labels have the same box, polygons and keypoints (within ``_SAME``).
+
+    Args:
+        a: The first label.
+        b: The second label.
+
+    Returns:
+        True when the geometry is the same.
+    """
     return all(_close(getattr(a, f), getattr(b, f)) for f in ("bbox", "polygons", "keypoints"))
 
 
@@ -317,8 +454,15 @@ def _write_tracks(
 ) -> dict[int, list[Label]]:
     """Write the tracked labels of the updated frames into ``tracks`` (in place).
 
-    Returns the labels of every updated frame that are left to write as plain shapes (no track, a track
-    that is gone or cannot take them: another class or geometry type).
+    Args:
+        tracks: The CVAT tracks of the task; changed in place.
+        per: The new labels of each updated frame, by frame index.
+        ids: CVAT label id of each class name.
+        frames: The frames of the task (``width`` and ``height`` in pixels), see :func:`_meta_frames`.
+
+    Returns:
+        The labels of every updated frame that are left to write as plain shapes (no track, a track
+        that is gone or cannot take them: another class or geometry type).
 
     * A tracked label that differs from what the track shows on that frame becomes a keyframe there
       (replacing the keyframe of that frame or inserted between the others). Frames between keyframes
@@ -372,6 +516,14 @@ def _apply_edits(
     edit: dict[int, dict[str, Any] | None],
     count: int,
 ) -> None:
+    """Apply keyframe edits to a track (in place) and keep the rest of the track as it was.
+
+    Args:
+        track: The CVAT track; its ``shapes`` and ``frame`` are replaced.
+        old: What the track showed before, from :func:`track_frames`.
+        edit: New keyframe shape (points in pixels) per edited frame, or None to hide the object there.
+        count: Number of frames of the task.
+    """
     keys = {int(s["frame"]): s for s in track.get("shapes") or [] if int(s.get("frame", -1)) >= 0}
     for f, shape in edit.items():
         keys[f] = shape if shape is not None else {**old[f][0], "frame": f, "outside": True}
@@ -392,7 +544,17 @@ SAME_SHAPE = links.TOLERANCE  # relative to the image side: shapes closer than t
 
 
 def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> bool:
-    """Whether a shape CVAT has and a shape built from a label are the same (type, class, geometry)."""
+    """Whether a shape CVAT has and a shape built from a label are the same (type, class, geometry).
+
+    Args:
+        old: A shape CVAT has (points in pixels).
+        new: A shape built from a label (points in pixels).
+        w: Width of the frame in pixels.
+        h: Height of the frame in pixels.
+
+    Returns:
+        True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side.
+    """
     if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
         return False
     a, b = [float(v) for v in old.get("points") or []], [float(v) for v in new.get("points") or []]
@@ -403,7 +565,15 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
 
 
 def _visible(task: Task, label: Label) -> bool:
-    """Whether a label read from CVAT is one the project keeps (the same rule as annotate.diff)."""
+    """Whether a label read from CVAT is one the project keeps (the same rule as annotate.diff).
+
+    Args:
+        task: The task type of the project.
+        label: A label converted from a CVAT shape.
+
+    Returns:
+        True when it has the geometry the task type uses (box, polygons or keypoints).
+    """
     if task is Task.DETECTION:
         return bool(label.bbox)
     if task is Task.SEGMENTATION:
@@ -427,6 +597,18 @@ def _merge_frame(
     See the module docstring for what is converted. Unchanged shapes and tags are the old objects. Only
     shapes the project can see (``task``: boxes for detection, polygons for segmentation, points for
     keypoints) are matched or removed; the others stay in CVAT as they are.
+
+    Args:
+        old_shapes: The shapes CVAT has on the frame.
+        old_tags: The tags CVAT has on the frame.
+        labels: The new labels of the frame.
+        ids: CVAT label id of each class name.
+        frame: Index of the frame in the task.
+        size: ``(width, height)`` of the frame in pixels.
+        task: The task type of the project.
+
+    Returns:
+        The shapes and the tags the frame has after the write.
     """
     classification = task is Task.CLASSIFICATION
     w, h = size
@@ -455,7 +637,15 @@ def _merge_frame(
 
 
 def _audit_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
-    """One CVAT task as the audit lists it: id, name, number of images and its address on the server."""
+    """One CVAT task as the audit lists it: id, name, number of images and its address on the server.
+
+    Args:
+        task: A task as ``GET /api/tasks`` returns it.
+        base_url: The address of the CVAT server, without a trailing slash.
+
+    Returns:
+        ``{id, name, size, url}``.
+    """
     return {
         "id": str(task["id"]),
         "name": str(task.get("name", "")),
@@ -465,6 +655,17 @@ def _audit_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
 
 
 def _split_key(key: str) -> tuple[int, int]:
+    """Split an item key ``"<task_id>:<frame>"``.
+
+    Args:
+        key: The key of an image on the remote.
+
+    Returns:
+        The task id and the frame index.
+
+    Raises:
+        ToolError: The key is not of that form.
+    """
     task, _, frame = str(key).partition(":")
     if not (task.isdigit() and frame.isdigit()):
         raise ToolError(f"'{key}' is not a CVAT item key (expected '<task>:<frame>').")
@@ -472,6 +673,14 @@ def _split_key(key: str) -> tuple[int, int]:
 
 
 def _label_payload(name: str) -> dict[str, Any]:
+    """A CVAT label of type ``any`` without attributes.
+
+    Args:
+        name: The class name.
+
+    Returns:
+        The label as CVAT takes it when creating or patching a project.
+    """
     return {"name": name, "type": "any", "attributes": []}
 
 
@@ -482,7 +691,14 @@ class CvatRemote:
 
     # -- tasks, frames --
     def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:
-        """Mark frames of a task as deleted (or not deleted any more); annotations are kept by CVAT."""
+        """Mark frames of a task as deleted (or not deleted any more); annotations are kept by CVAT.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+            delete: Frame indices to mark as deleted.
+            restore: Frame indices to mark as not deleted (wins over ``delete``).
+        """
         if not delete and not restore:
             return
         api = self._api(settings)
@@ -491,19 +707,37 @@ class CvatRemote:
         api.request("PATCH", f"/api/tasks/{task_id}/data/meta", json={"deleted_frames": sorted(deleted)})
 
     def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
-        """``(file name, deleted)`` of every frame of a task, in order."""
+        """``(file name, deleted)`` of every frame of a task, in order.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+
+        Returns:
+            The file name and whether the frame is deleted, one entry per frame.
+        """
         meta = self._api(settings).get(f"/api/tasks/{task_id}/data/meta") or {}
         deleted = {int(d) for d in meta.get("deleted_frames") or []}
         return [(str(fr.get("name", "")), i in deleted) for i, fr in enumerate(_meta_frames(meta))]
 
     def check(self, settings: ToolSettings) -> str:
-        """Log in to the server; return ``Connected to <url> as <user>`` (raises ToolError)."""
+        """Log in to the server; return ``Connected to <url> as <user>`` (raises ToolError).
+
+        Args:
+            settings: Address and login of the CVAT server.
+
+        Returns:
+            The message ``Connected to <url> as <user>``.
+        """
         api = self._api(settings)
         who = api.get("/api/users/self") or {}
         return f"Connected to {api.url} as {who.get('username') or settings.username}"
 
     def audit(self, settings: ToolSettings) -> dict[str, Any]:
         """Read-only inventory of the tasks of the server, per project (nothing is changed or deleted).
+
+        Args:
+            settings: Address and login of the CVAT server.
 
         Returns:
             ``{"projects": [{id, name, url, tasks: [...]}], "loose": [{pattern, tasks: [...]}]}``; a task is
@@ -537,7 +771,15 @@ class CvatRemote:
         return {"projects": list(projects.values()), "loose": loose}
 
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
-        """Delete a CVAT task with its frames and annotations (nothing when it is already gone)."""
+        """Delete a CVAT task with its frames and annotations (nothing when it is already gone).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+
+        Raises:
+            ToolError: CVAT refuses the request or cannot be reached (a missing task is not an error).
+        """
         api = self._api(settings)
         try:
             api.request("DELETE", f"/api/tasks/{task_id}")
@@ -546,7 +788,19 @@ class CvatRemote:
                 raise
 
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
-        """The original image of one frame."""
+        """The original image of one frame.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+            frame: Index of the frame in the task.
+
+        Returns:
+            The bytes of the image in its original quality.
+
+        Raises:
+            ToolError: CVAT cannot be reached or answers with an error.
+        """
         api = self._api(settings)
         try:
             r = api._http.get(  # noqa: SLF001 - raw bytes, not JSON
@@ -565,6 +819,15 @@ class CvatRemote:
         self, settings: ToolSettings, task_id: str, dest_dir: Path
     ) -> tuple[Path, dict[str, int]] | None:
         """The original video of a video task, taken from the task backup (None for an image task).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+            dest_dir: Folder where the video is written (created when missing).
+
+        Returns:
+            The path of the video file and its selection ``{start, stop, step}`` (frame indices of the
+            video); None when the task is not made from a video.
 
         Raises:
             ToolError: the backup could not be made, downloaded or does not contain the video.
@@ -625,10 +888,27 @@ class CvatRemote:
     # -- helpers --
     @staticmethod
     def _api(settings: ToolSettings) -> _Api:
+        """A REST client for the server in ``settings``.
+
+        Args:
+            settings: Address and login of the CVAT server.
+
+        Returns:
+            The client.
+        """
         return _Api(settings)
 
     @staticmethod
     def _info(api: _Api, item: dict[str, Any]) -> RemoteInfo:
+        """A CVAT project as a :class:`RemoteInfo`, counting the images of its tasks.
+
+        Args:
+            api: The REST client.
+            item: A project as CVAT returns it (``id``, ``name``).
+
+        Returns:
+            Id, name, address and number of images of the project.
+        """
         tasks = api.paged("/api/tasks", {"project_id": item["id"]}, ALL)
         images = sum(int(t.get("size") or 0) for t in tasks)
         return RemoteInfo(
@@ -637,6 +917,15 @@ class CvatRemote:
 
     @staticmethod
     def _labels(api: _Api, rid: str) -> dict[str, int]:
+        """The top-level labels of a project.
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+
+        Returns:
+            The CVAT label id of each class name.
+        """
         found = api.paged("/api/labels", {"project_id": rid}, ALL)
         out: dict[str, int] = {}
         for x in found:
@@ -645,7 +934,15 @@ class CvatRemote:
         return out
 
     def find(self, settings: ToolSettings, name: str) -> RemoteInfo | None:
-        """The project with exactly this name (the oldest when there are several)."""
+        """The project with exactly this name (the oldest when there are several).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            name: The exact project name.
+
+        Returns:
+            The project, or None when there is none with that name.
+        """
         api = self._api(settings)
         found = [
             p for p in api.paged("/api/projects", {"name": name, "sort": "id"}, ALL) if p.get("name") == name
@@ -653,12 +950,28 @@ class CvatRemote:
         return self._info(api, found[0]) if found else None
 
     def get(self, settings: ToolSettings, remote_id: str) -> RemoteInfo:
-        """One project (ToolError when it is gone)."""
+        """One project (ToolError when it is gone).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+
+        Returns:
+            The project.
+        """
         api = self._api(settings)
         return self._info(api, api.get(f"/api/projects/{remote_id}"))
 
     def create(self, settings: ToolSettings, project: Project) -> RemoteInfo:
-        """Create the project with the classes of the ActiveLabel project (labels of type "any")."""
+        """Create the project with the classes of the ActiveLabel project (labels of type "any").
+
+        Args:
+            settings: Address and login of the CVAT server.
+            project: The ActiveLabel project (its id, name and classes).
+
+        Returns:
+            The CVAT project that was created.
+        """
         api = self._api(settings)
         body = {
             "name": f"ActiveLabel {project.id} - {project.name}",
@@ -667,10 +980,26 @@ class CvatRemote:
         return self._info(api, api.request("POST", "/api/projects", json=body))
 
     def ensure_classes(self, settings: ToolSettings, remote_id: str, classes: list[str]) -> None:
-        """Add the labels the project does not have yet (existing ones are not touched)."""
+        """Add the labels the project does not have yet (existing ones are not touched).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+            classes: The class names the project must have.
+        """
         self._ensure(self._api(settings), remote_id, classes)
 
     def _ensure(self, api: _Api, rid: str, names: list[str]) -> dict[str, int]:
+        """Make sure the project has a label for each name.
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+            names: The class names that must exist.
+
+        Returns:
+            The CVAT label id of each class name of the project (not only of ``names``).
+        """
         ids = self._labels(api, rid)
         missing = [n for n in dict.fromkeys(names) if n not in ids]
         if missing:
@@ -682,7 +1011,15 @@ class CvatRemote:
 
     # -- read --
     def tasks(self, settings: ToolSettings, remote_id: str) -> list[RemoteTask]:
-        """The tasks of the project (oldest first) with their jobs in frame order."""
+        """The tasks of the project (oldest first) with their jobs in frame order.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+
+        Returns:
+            The tasks, each with its annotation jobs.
+        """
         api = self._api(settings)
         out: list[RemoteTask] = []
         for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
@@ -691,6 +1028,15 @@ class CvatRemote:
 
     @staticmethod
     def _task(api: _Api, t: dict[str, Any]) -> RemoteTask:
+        """A CVAT task as a :class:`RemoteTask` with its annotation jobs in frame order.
+
+        Args:
+            api: The REST client.
+            t: A task as CVAT returns it.
+
+        Returns:
+            The task; ``job_size`` is None when it has a single job.
+        """
         tid = t["id"]
         jobs = sorted(
             (  # annotation jobs only (not ground-truth jobs)
@@ -729,6 +1075,15 @@ class CvatRemote:
         """Every frame of every task of the project (or of ``task_ids``) with its shapes/tags converted.
 
         Tracks give one label per frame where the object is visible (see :func:`track_frames`).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+            task: The task type of the project (classification reads tags, the others shapes).
+            task_ids: Only these CVAT task ids; None for every task of the project.
+
+        Returns:
+            One item per frame that is not deleted, keyed ``"<task_id>:<frame>"``, relative 0..1 labels.
         """
         api = self._api(settings)
         names = {i: n for n, i in self._labels(api, remote_id).items()}
@@ -780,6 +1135,15 @@ class CvatRemote:
 
     @staticmethod
     def _frames(api: _Api, tid: Any) -> list[dict[str, Any]]:
+        """The frames of a task (see :func:`_meta_frames`).
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+
+        Returns:
+            One dict per frame with ``name``, ``width`` and ``height``.
+        """
         meta = api.get(f"/api/tasks/{tid}/data/meta") or {}
         return _meta_frames(meta)
 
@@ -792,6 +1156,15 @@ class CvatRemote:
         Only what changed is replaced: shapes that match a label keep everything CVAT has for them, and
         shapes or tags ActiveLabel does not convert are kept (module docstring). Labels with the id of
         a track of the task go into that track (see :func:`_write_tracks`); the other tracks are kept.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+            project: The ActiveLabel project (its task type decides what is converted).
+            updates: The new labels (relative 0..1) of each updated image, keyed ``"<task_id>:<frame>"``.
+
+        Raises:
+            ToolError: A key is not valid or names a frame the task does not have.
         """
         api = self._api(settings)
         by_task: dict[int, dict[int, list[Label]]] = {}
@@ -841,7 +1214,17 @@ class CvatRemote:
         project: Project,
         images: list[tuple[ImageRecord, Path, list[Label]]],
     ) -> dict[str, str]:
-        """Upload the images in tasks of ``BATCH``, then write their labels; return ``{image_id: key}``."""
+        """Upload the images in tasks of ``BATCH``, then write their labels; return ``{image_id: key}``.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+            project: The ActiveLabel project (its id is part of the task names).
+            images: For each image its record, the file to upload and its labels (relative 0..1).
+
+        Returns:
+            The key ``"<task_id>:<frame>"`` of each image id.
+        """
         api = self._api(settings)
         ids = self._ensure(api, remote_id, [lb.label for _, _, labels in images for lb in labels])
         keys: dict[str, str] = {}
@@ -865,6 +1248,18 @@ class CvatRemote:
 
         ``video``: ``(video file, {start, stop, step})`` for a task made from a video (docs/VIDEO.md):
         the original video is sent with the same selection, so frame *i* of the CVAT task is image *i*.
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+            project: The ActiveLabel project.
+            name: The name of the new task.
+            job_size: Frames per job (``segment_size``); None for a single job.
+            images: For each image its record, the file to upload and its labels (relative 0..1).
+            video: The video file and its selection, or None for a task made of images.
+
+        Returns:
+            The task as CVAT has it and the key ``"<task_id>:<frame>"`` of each image id.
         """
         api = self._api(settings)
         ids = self._ensure(api, remote_id, [lb.label for _, _, labels in images for lb in labels])
@@ -881,6 +1276,20 @@ class CvatRemote:
         ids: dict[str, int],
         video: tuple[Path, dict[str, Any]] | None = None,
     ) -> tuple[str, dict[str, str]]:
+        """Create a task in the project and fill it; delete it again when filling fails.
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+            name: The name of the new task.
+            job_size: Frames per job (``segment_size``); None for a single job.
+            batch: For each image its record, the file to upload and its labels (relative 0..1).
+            ids: CVAT label id of each class name.
+            video: The video file and its selection, or None for a task made of images.
+
+        Returns:
+            The id of the new task and the key ``"<task_id>:<frame>"`` of each image id.
+        """
         body: dict[str, Any] = {"name": name, "project_id": int(rid)}
         if job_size:
             body["segment_size"] = int(job_size)
@@ -895,7 +1304,12 @@ class CvatRemote:
 
     @staticmethod
     def _discard_task(api: _Api, tid: Any) -> None:
-        """Delete a task whose creation failed half way (best effort: the original error is what matters)."""
+        """Delete a task whose creation failed half way (best effort: the original error is what matters).
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+        """
         try:
             api.request("DELETE", f"/api/tasks/{tid}")
         except Exception:  # noqa: BLE001 - never hide the real failure
@@ -910,6 +1324,22 @@ class CvatRemote:
         ids: dict[str, int],
         video: tuple[Path, dict[str, Any]] | None,
     ) -> tuple[str, dict[str, str]]:
+        """Upload the images (or the video) to an empty task and write the labels.
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+            job_size: Frames per job; when set, CVAT must keep the order of the images.
+            batch: For each image its record, the file to upload and its labels (relative 0..1).
+            ids: CVAT label id of each class name.
+            video: The video file and its selection, or None to upload the images.
+
+        Returns:
+            The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
+
+        Raises:
+            ToolError: CVAT did not register an image or changed the order of the images.
+        """
         if video is not None:
             return self._fill_from_video(api, tid, video, job_size, batch, ids)
         names: dict[str, str] = {}  # image id -> file name in CVAT (unique inside the task)
@@ -971,7 +1401,22 @@ class CvatRemote:
         batch: list[tuple[ImageRecord, Path, list[Label]]],
         ids: dict[str, int],
     ) -> tuple[str, dict[str, str]]:
-        """Send the original video with the task's selection; map frame *i* to image *i*."""
+        """Send the original video with the task's selection; map frame *i* to image *i*.
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+            video: The video file and its selection ``{start, stop, step[, name]}`` (video frame indices).
+            job_size: Frames per job (``segment_size``); None for a single job.
+            batch: For each image its record, the file (not used here) and its labels (relative 0..1).
+            ids: CVAT label id of each class name.
+
+        Returns:
+            The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
+
+        Raises:
+            ToolError: CVAT made a different number of frames than the task has images.
+        """
         path, sel = video
         data = {
             "image_quality": 95,
@@ -1017,7 +1462,16 @@ class CvatRemote:
 
     @staticmethod
     def _wait_ready(api: _Api, tid: Any, rq_id: str | None) -> None:
-        """Poll until CVAT has processed the uploaded data (``/api/requests`` or the task status)."""
+        """Poll until CVAT has processed the uploaded data (``/api/requests`` or the task status).
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+            rq_id: The id of the CVAT request that processes the data; None to follow the task status.
+
+        Raises:
+            ToolError: CVAT reports a failure or does not finish within ``MAX_POLLS`` checks.
+        """
         for _ in range(MAX_POLLS):
             done = failed = False
             message = ""
@@ -1051,7 +1505,14 @@ class CvatRemote:
 
 
 def _without_ids(item: dict[str, Any]) -> dict[str, Any]:
-    """Copy of a CVAT annotation without ids (a PUT replaces everything and rejects existing ids)."""
+    """Copy of a CVAT annotation without ids (a PUT replaces everything and rejects existing ids).
+
+    Args:
+        item: A CVAT shape, tag or track (tracks bring their shapes and elements along).
+
+    Returns:
+        The copy without ``id``, also in the shapes and elements of a track.
+    """
     out = {k: v for k, v in item.items() if k != "id"}
     if isinstance(out.get("shapes"), list):  # the shapes of a track
         out["shapes"] = [{k: v for k, v in sh.items() if k != "id"} for sh in out["shapes"]]

@@ -11,6 +11,12 @@ OVERRIDES: dict[str, AnnotationTool] = {}  # tests register fakes here
 def get_tool(name: str) -> AnnotationTool:
     """The tool called ``name``.
 
+    Args:
+        name: name of the tool (``fiftyone``, or a fake registered in :data:`OVERRIDES`).
+
+    Returns:
+        The tool.
+
     Raises:
         ToolError: unknown or not available tool.
     """

@@ -25,6 +25,9 @@ class ToolError(RuntimeError):
 def need_dataset(dataset: Any) -> None:
     """Refuse to go on without the project's FiftyOne dataset.
 
+    Args:
+        dataset: the project's FiftyOne dataset, or None when it was never created.
+
     Raises:
         ToolError: ``dataset`` is None (the project was never opened in FiftyOne).
     """
@@ -56,7 +59,17 @@ class AnnotationTool(Protocol):
     name: str
 
     def check(self, settings: ToolSettings) -> str:
-        """Test the connection and login; return a short readable message. Raises ToolError."""
+        """Test the connection and login.
+
+        Args:
+            settings: URL, user and secret of the tool.
+
+        Returns:
+            A short readable message.
+
+        Raises:
+            ToolError: the tool cannot be reached or the login is refused.
+        """
         ...
 
     def send(
@@ -64,7 +77,20 @@ class AnnotationTool(Protocol):
     ) -> Sent:
         """Make the images (``dataset`` samples whose ``image_id`` is in ``image_ids``) editable in the tool.
 
-        The current ground truth is pre-loaded. Raises ToolError.
+        The current ground truth is pre-loaded.
+
+        Args:
+            dataset: the project's FiftyOne dataset.
+            image_ids: ids of the images of the session.
+            project: the project (task and classes).
+            settings: URL, user and secret of the tool.
+            session_id: id of the annotation session.
+
+        Returns:
+            Links to open the tool and the tool's own reference of the session.
+
+        Raises:
+            ToolError: the images cannot be sent to the tool.
         """
         ...
 
@@ -78,10 +104,29 @@ class AnnotationTool(Protocol):
     ) -> dict[str, list[Label]]:
         """Read back the annotations of those images as internal labels: ``{image_id: [Label, ...]}``.
 
-        Every image of the session must be present (an empty list = no annotations). Raises ToolError.
+        Every image of the session must be present (an empty list = no annotations).
+
+        Args:
+            dataset: the project's FiftyOne dataset.
+            image_ids: ids of the images of the session.
+            project: the project (task and classes).
+            settings: URL, user and secret of the tool.
+            ref: the tool's reference of the session (``Sent.ref``).
+
+        Returns:
+            The labels of each image, keyed by image id.
+
+        Raises:
+            ToolError: the annotations cannot be read from the tool.
         """
         ...
 
     def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
-        """Forget the session in the tool. Never raises if gone."""
+        """Forget the session in the tool. Does not raise when it is already gone.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            settings: URL, user and secret of the tool.
+            ref: the tool's reference of the session (``Sent.ref``).
+        """
         ...

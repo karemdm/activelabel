@@ -29,7 +29,15 @@ MODES = ("replace", "merge")
 
 
 def _drop_unusable(task: Task, labels: dict[str, list[Label]]) -> dict[str, int]:
-    """Remove (in place) the labels the task cannot use; returns how many were left out per reason."""
+    """Remove (in place) the labels the task cannot use; returns how many were left out per reason.
+
+    Args:
+        task: task the labels have to fit.
+        labels: labels per image id; changed in place.
+
+    Returns:
+        How many labels were removed per reason (``{reason: count}``).
+    """
     expected = common_keypoint_count(labels) if task is Task.KEYPOINTS else None
     dropped: dict[str, int] = {}
     for key, items in labels.items():
@@ -50,6 +58,14 @@ def _with_new_classes(
     """The project's classes followed by the classes of ``label_lists`` and ``declared`` it does not have.
 
     Names are compared ignoring case; a declared name that differs only in case keeps the project's spelling.
+
+    Args:
+        project_classes: classes the project has.
+        label_lists: label lists whose classes are added when the project lacks them.
+        declared: class names declared in the files, added after those.
+
+    Returns:
+        The project's classes followed by the new ones.
     """
     classes = list(project_classes)
     canon = {c.lower(): c for c in classes}

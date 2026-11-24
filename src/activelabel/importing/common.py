@@ -37,7 +37,14 @@ class RemoteNotFound(ToolError):
 
 
 def kind_of(label: Label) -> Task:
-    """What a label is: keypoints, polygons, a box or a class of the whole image."""
+    """What a label is: keypoints, polygons, a box or a class of the whole image.
+
+    Args:
+        label: The label to classify.
+
+    Returns:
+        The task kind that matches its geometry (classification when it has none).
+    """
     if label.keypoints:
         return Task.KEYPOINTS
     if label.polygons:
@@ -57,6 +64,16 @@ class TaskPlan:
 
 
 def _problem(code: str, message: str, counts: Counter[str]) -> Problem:
+    """A warning with the total of ``counts`` and one detail line per key.
+
+    Args:
+        code: Machine-readable code of the problem.
+        message: Text shown to the user.
+        counts: Number of annotations by kind (each ``kind: n`` becomes a detail line).
+
+    Returns:
+        The warning, whose count is the sum of ``counts``.
+    """
     return Problem("warning", code, message, sum(counts.values()), [f"{k}: {n}" for k, n in counts.items()])
 
 
@@ -120,7 +137,15 @@ def plan_task(labels: dict[str, list[Label]], hint: Task = Task.DETECTION) -> Ta
 
 
 def unique_name(store: ProjectStore, name: str) -> str:
-    """``name`` or ``name (2)``, ``name (3)``... so that no project has it (ignoring case)."""
+    """``name`` or ``name (2)``, ``name (3)``... so that no project has it (ignoring case).
+
+    Args:
+        store: The projects whose names are taken.
+        name: Wanted name (spaces collapsed, cut to the maximum length; blank gives a default).
+
+    Returns:
+        A name no project has yet.
+    """
     base = " ".join(name.split())[:MAX_NAME].strip() or "Imported project"
     taken = {p.name.lower() for p in store.list()}
     candidate, n = base, 1
@@ -132,7 +157,14 @@ def unique_name(store: ProjectStore, name: str) -> str:
 
 
 def file_id(path: Path) -> str:
-    """Content id of an image file, the same as the one the project stores it under."""
+    """Content id of an image file, the same as the one the project stores it under.
+
+    Args:
+        path: The image file.
+
+    Returns:
+        The first 16 hex characters of the SHA-256 of its content.
+    """
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
@@ -144,11 +176,23 @@ class FixedMessage(Progress):
     """Progress handle that keeps one message (the ingest would show each file name)."""
 
     def __init__(self, inner: Progress, message: str) -> None:
+        """Wrap a progress handle.
+
+        Args:
+            inner: The handle that receives the updates.
+            message: The message it always shows.
+        """
         self._inner = inner
         self._message = message
 
     def update(self, done: int | None = None, total: int | None = None, message: str | None = None) -> None:
-        """Forward the counts with the fixed message (also checks for cancellation)."""
+        """Forward the counts with the fixed message (also checks for cancellation).
+
+        Args:
+            done: Items done so far, or None to keep the last value.
+            total: Items to do, or None to keep the last value.
+            message: Ignored: the fixed message is sent instead.
+        """
         self._inner.update(done, total, self._message)
 
     def check(self) -> None:
@@ -167,12 +211,23 @@ class Origin:
     name: str
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form, with the import time."""
+        """JSON-ready form, with the import time.
+
+        Returns:
+            The fields of the origin plus ``imported_at``.
+        """
         return {**self.__dict__, "imported_at": now()}
 
 
 def read_origin(project_dir: Path) -> dict[str, Any] | None:
-    """Origin of an imported project (None for projects created here)."""
+    """Origin of an imported project (None for projects created here).
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        The content of its ``origin.json``, or None when it has none.
+    """
     data = read_json(project_dir / ORIGIN_FILE)
     return data if isinstance(data, dict) else None
 
@@ -181,7 +236,18 @@ def read_origin(project_dir: Path) -> dict[str, Any] | None:
 def new_project(
     store: ProjectStore, origin: Origin, name: str, description: str, hint: Task
 ) -> Iterator[Project]:
-    """Create the project; delete it again when the block fails or the job is cancelled."""
+    """Create the project; delete it again when the block fails or the job is cancelled.
+
+    Args:
+        store: Where the project is created.
+        origin: Where it comes from (its name is the fallback name).
+        name: Wanted name; made unique among the existing projects.
+        description: Description of the project (trimmed, cut to the maximum length).
+        hint: Task of the new project until the annotations decide it.
+
+    Yields:
+        The created project.
+    """
     text = (description or "").strip()  # the origin badge says where it came from
     project = store.create(unique_name(store, name or origin.name), text[:MAX_DESCRIPTION], hint)
     try:
@@ -192,7 +258,14 @@ def new_project(
 
 
 def ingest_problems(report: IngestReport) -> list[Problem]:
-    """Rejected and repeated images as problems."""
+    """Rejected and repeated images as problems.
+
+    Args:
+        report: What the image import did.
+
+    Returns:
+        A warning for the rejected files and an info for the duplicates (at most 5 details each).
+    """
     out: list[Problem] = []
     if report.rejected:
         out.append(

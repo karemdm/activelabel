@@ -33,7 +33,12 @@ def folder_classes(names: list[str]) -> dict[str, str] | None:
 
 
 def parse_folders(ctx: ParseContext, images: list[ImageRecord]) -> None:
-    """Label each image with its parent folder (nothing when the names are not in class folders)."""
+    """Label each image with its parent folder (nothing when the names are not in class folders).
+
+    Args:
+        ctx: parse context; receives the classes (sorted ignoring case) and one label per image.
+        images: image records whose names hold the class folders.
+    """
     mapping = folder_classes([r.name for r in images])
     if mapping is None:
         return

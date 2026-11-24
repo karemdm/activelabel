@@ -59,13 +59,22 @@ class Problem:
     examples: list[str] = field(default_factory=list)
 
     def add(self, example: str | None = None, n: int = 1) -> None:
-        """Count another occurrence (keeps up to 5 distinct examples)."""
+        """Count another occurrence (keeps up to 5 distinct examples).
+
+        Args:
+            example: text to keep as an example; None for none.
+            n: how many occurrences to count.
+        """
         self.count += n
         if example and example not in self.examples and len(self.examples) < MAX_EXAMPLES:
             self.examples.append(example)
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The problem as a dict.
+        """
         return asdict(self)
 
 
@@ -101,11 +110,19 @@ class ParseResult:
         return len(self.labels)
 
     def all_labels(self) -> list[Label]:
-        """Every label of every image."""
+        """Every label of every image.
+
+        Returns:
+            The labels of all images as one list.
+        """
         return [lb for labels in self.labels.values() for lb in labels]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready summary (labels are not included, they can be large)."""
+        """JSON-ready summary (labels are not included, they can be large).
+
+        Returns:
+            The summary as a dict.
+        """
         return {
             "format": self.format,
             "classes": self.classes,
@@ -152,7 +169,11 @@ class ValidationReport:
     unmatched: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The report as a dict, with the problems as dicts.
+        """
         data = asdict(self)
         data["problems"] = [p.as_dict() for p in self.problems]
         return data

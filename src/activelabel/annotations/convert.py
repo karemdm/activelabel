@@ -16,7 +16,15 @@ CONVERSIONS: frozenset[tuple[Task, Task]] = frozenset(
 
 
 def conversion_possible(from_task: Task, to_task: Task) -> bool:
-    """Whether ground truth of ``from_task`` can become ``to_task`` without inventing data."""
+    """Whether ground truth of ``from_task`` can become ``to_task`` without inventing data.
+
+    Args:
+        from_task: task of the current ground truth.
+        to_task: wanted task.
+
+    Returns:
+        True when the pair is in ``CONVERSIONS``.
+    """
     return (from_task, to_task) in CONVERSIONS
 
 

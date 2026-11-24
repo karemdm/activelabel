@@ -50,7 +50,15 @@ log = logging.getLogger(__name__)
 
 
 def _is_ours(name: str, project_dir: Path) -> bool:
-    """Whether the dataset ``name`` holds the images of this project folder (judged by sample paths)."""
+    """Whether the dataset ``name`` holds the images of this project folder (judged by sample paths).
+
+    Args:
+        name: name of an existing FiftyOne dataset.
+        project_dir: the project folder.
+
+    Returns:
+        True when its first sample lies inside the folder; False for an empty dataset.
+    """
     sample = fo.load_dataset(name).first()
     if sample is None:  # empty: cannot tell whose it is, so it is left alone
         return False
@@ -58,7 +66,15 @@ def _is_ours(name: str, project_dir: Path) -> bool:
 
 
 def _legacy_name(project_dir: Path, project_id: int) -> str | None:
-    """The old shared name ``activelabel-<id>``, when a dataset of that name holds this project's images."""
+    """The old shared name ``activelabel-<id>``, when a dataset of that name holds this project's images.
+
+    Args:
+        project_dir: the project folder.
+        project_id: id of the project.
+
+    Returns:
+        The old name, or None.
+    """
     legacy = f"{DATASET_PREFIX}-{project_id}"
     return legacy if fo.dataset_exists(legacy) and _is_ours(legacy, project_dir) else None
 
@@ -71,6 +87,13 @@ def dataset_name(project_dir: Path, project_id: int) -> str:
     A dataset created by earlier versions under the plain name is kept under that name (renaming it
     would break open FiftyOne App tabs and edit sessions) when its samples point into this project
     folder; one that holds another workspace's images is never adopted.
+
+    Args:
+        project_dir: the project folder.
+        project_id: id of the project.
+
+    Returns:
+        The dataset name.
     """
     with _names_lock:
         name = recorded_name(project_dir)
@@ -84,7 +107,15 @@ def dataset_name(project_dir: Path, project_id: int) -> str:
 
 
 def existing_dataset(project_dir: Path, project_id: int) -> fo.Dataset | None:
-    """The project's dataset, or None when it was never created."""
+    """The project's dataset, or None when it was never created.
+
+    Args:
+        project_dir: the project folder.
+        project_id: id of the project.
+
+    Returns:
+        The dataset, or None.
+    """
     name = dataset_name(project_dir, project_id)
     return fo.load_dataset(name) if fo.dataset_exists(name) else None
 
@@ -114,6 +145,14 @@ def delete_dataset(project_dir: Path, project_id: int, recorded: str | None) -> 
 
 
 def _label_type(task: Task) -> type:
+    """FiftyOne label class used for the ground truth of a task.
+
+    Args:
+        task: task of the project.
+
+    Returns:
+        ``Classification``, ``Detections``, ``Polylines`` or ``Keypoints``.
+    """
     return {
         Task.CLASSIFICATION: fo.Classification,
         Task.DETECTION: fo.Detections,
@@ -123,7 +162,12 @@ def _label_type(task: Task) -> type:
 
 
 def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
-    """Make sure every field exists with the right type (also when there are no samples)."""
+    """Make sure every field exists with the right type (also when there are no samples).
+
+    Args:
+        dataset: the project's dataset.
+        task: task of the project (decides the type of ``ground_truth``; a field of another type is dropped).
+    """
     scalars: dict[str, Any] = {
         "image_id": fo.StringField,
         "name": fo.StringField,
@@ -155,12 +199,27 @@ def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
 
 
 def _visibility(point: list[float]) -> int:
-    """Visibility of a keypoint: its third value, or 2 (visible) for a point written as ``[x, y]``."""
+    """Visibility of a keypoint: its third value, or 2 (visible) for a point written as ``[x, y]``.
+
+    Args:
+        point: the keypoint ``[x, y]`` or ``[x, y, visibility]``.
+
+    Returns:
+        The visibility (0 not labelled, 1 occluded, 2 visible).
+    """
     return int(point[2]) if len(point) > 2 else 2
 
 
 def _ground_truth(task: Task, labels: list[Label]) -> Any:
-    """FiftyOne label of one image for the task (None when it has no labels)."""
+    """FiftyOne label of one image for the task (None when it has no labels).
+
+    Args:
+        task: task of the project.
+        labels: the internal labels of the image.
+
+    Returns:
+        The FiftyOne label of the task's type, or None when ``labels`` is empty.
+    """
     if not labels:
         return None
     if task is Task.CLASSIFICATION:
@@ -215,6 +274,19 @@ def _apply(
     where: dict[str, dict[str, Any]],
     keep_ground_truth: bool = False,
 ) -> None:
+    """Copy the data of one image record into its FiftyOne sample.
+
+    Args:
+        sample: the sample to fill.
+        record: the image record.
+        manifest: the images of the project (gives the file path).
+        task: task of the project.
+        annotations: ground truth, or None when there is none yet.
+        duplicate_of: near-duplicate image id -> id of the image it duplicates.
+        kept: ids of the images that others duplicate.
+        where: placement (task, job, position, video name) by image id, see :func:`_placement`.
+        keep_ground_truth: leave ``ground_truth`` as it is (an open FiftyOne session may hold edits).
+    """
     sample.filepath = str(manifest.file_path(record).resolve())
     sample["image_id"] = record.id
     sample["name"] = record.name
@@ -243,7 +315,15 @@ def _apply(
 
 
 def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
-    """Task, job, position and video name of every image that is in a task."""
+    """Task, job, position and video name of every image that is in a task.
+
+    Args:
+        project_dir: the project folder (to read the video names).
+        tasks: the tasks of the project.
+
+    Returns:
+        ``{image_id: {task, task_name, job, position, video_name}}``.
+    """
     try:
         names = {v.id: v.name for v in VideoStore(project_dir).list()}
     except Exception:  # noqa: BLE001 - no video store: the names stay empty
@@ -263,7 +343,14 @@ def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, 
 
 
 def task_view_name(task_id: int) -> str:
-    """Saved view name of a task (based on the id, so a rename does not change the URL)."""
+    """Saved view name of a task (based on the id, so a rename does not change the URL).
+
+    Args:
+        task_id: id of the task.
+
+    Returns:
+        ``task-<id>``.
+    """
     return f"{TASK_VIEW_PREFIX}{task_id}"
 
 
@@ -275,6 +362,9 @@ def task_view(dataset: fo.Dataset, task_id: int, job: int | None = None, *, vide
         task_id: id of the task.
         job: job number to keep only that job, or None for the whole task.
         video: whether the task is made from video; by default it is detected from the samples.
+
+    Returns:
+        The view.
     """
     view = dataset.match(F("task") == task_id)
     if job is not None:
@@ -287,6 +377,12 @@ def task_view(dataset: fo.Dataset, task_id: int, job: int | None = None, *, vide
 
 
 def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
+    """Save the curation views and one view per task, and delete the views of deleted tasks.
+
+    Args:
+        dataset: the project's dataset.
+        tasks: the tasks of the project.
+    """
     views: dict[str, fo.DatasetView] = {
         VIEW_ALL_ISSUES: dataset.match(F("quality_issues").length() > 0),
         VIEW_EXCLUDED: dataset.match_tags(EXCLUDED_TAG),
@@ -311,7 +407,14 @@ def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
 
 
 def open_session_images(project_dir: Any) -> set[str]:
-    """Images of open FiftyOne annotation sessions: their ``ground_truth`` is left as it is."""
+    """Images of open FiftyOne annotation sessions: their ``ground_truth`` is left as it is.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The image ids.
+    """
     return sessions.protected_images(project_dir)
 
 
@@ -390,6 +493,13 @@ def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:
 
     Accepts a saved view name, an issue name (``blurry``, ``near_duplicate``, with or without the
     ``curation - `` prefix) or None. Unknown names fall back to the view of all issues.
+
+    Args:
+        dataset: the project's dataset.
+        requested: the name asked for, or None.
+
+    Returns:
+        The saved view name, or None when nothing was requested or no fallback view exists.
     """
     if not requested:
         return None
@@ -407,7 +517,15 @@ def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:
 
 
 def _slug(dataset: fo.Dataset, view: str) -> str:
-    """URL slug of a saved view (FiftyOne's own slug of its name when it is not listed)."""
+    """URL slug of a saved view (FiftyOne's own slug of its name when it is not listed).
+
+    Args:
+        dataset: the project's dataset.
+        view: name of the saved view.
+
+    Returns:
+        The slug.
+    """
     for info in dataset.list_saved_views(info=True):
         data = info if isinstance(info, dict) else info.to_dict()
         if data.get("name") == view and data.get("slug"):
@@ -416,7 +534,16 @@ def _slug(dataset: fo.Dataset, view: str) -> str:
 
 
 def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
-    """URL that opens the dataset (and saved view) directly, whichever server answers on the port."""
+    """URL that opens the dataset (and saved view) directly, whichever server answers on the port.
+
+    Args:
+        dataset: the project's dataset.
+        view: name of the saved view to open, or None for the whole dataset.
+        port: port of the App.
+
+    Returns:
+        The URL.
+    """
     url = f"http://localhost:{port}/datasets/{dataset.name}"
     return f"{url}?view={_slug(dataset, view)}" if view else url
 
@@ -434,6 +561,16 @@ def launch_app(
     saved view, when given). If the port is busy the next ones are tried (up to +10). The URL
     names the dataset (and view), so it opens correctly even if another FiftyOne program
     answers on that port.
+
+    Args:
+        dataset: the project's dataset.
+        view: saved view (or issue name, see :func:`resolve_view`) to open; None for the whole dataset.
+        port: first port to try.
+        task: id of a task to open (takes the place of ``view``).
+        job: with ``task``, number of the job to show.
+
+    Returns:
+        The URL of the dataset (and view) in the App.
 
     Raises:
         OSError: no port was free.

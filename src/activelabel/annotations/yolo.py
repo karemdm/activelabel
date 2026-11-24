@@ -25,6 +25,14 @@ MIN_LABEL_VALUES = 5  # a label line: class and a box (``cls cx cy w h``)
 
 
 def _numbers(line: str) -> list[float] | None:
+    """Numbers of a line.
+
+    Args:
+        line: whitespace separated text.
+
+    Returns:
+        The values, or None when one is not a number.
+    """
     try:
         return [float(t) for t in line.split()]
     except ValueError:
@@ -32,6 +40,14 @@ def _numbers(line: str) -> list[float] | None:
 
 
 def _is_label_line(line: str) -> bool:
+    """Whether a line has the values of a label.
+
+    Args:
+        line: one line of a txt file.
+
+    Returns:
+        True when all values are numbers and there are at least 5.
+    """
     values = _numbers(line)
     return values is not None and len(values) >= MIN_LABEL_VALUES
 
@@ -41,6 +57,12 @@ def is_names_file(path: Path) -> bool:
 
     A file called ``labels.txt`` (or ``classes.txt``, ``names.txt``) that holds label lines is the label
     file of an image of that name, not a list of names; ``.names`` files always list names.
+
+    Args:
+        path: the file.
+
+    Returns:
+        True when the file lists class names.
     """
     if path.suffix.lower() == ".names" or path.name.lower() == "obj.names":
         return True
@@ -58,6 +80,12 @@ def is_label_text(text: str) -> bool | None:
 
     None when the file is empty; False for files that are not labels (``train.txt`` lists paths). A label
     file with a few malformed lines is still a label file: those lines are reported by the parser.
+
+    Args:
+        text: content of a txt file.
+
+    Returns:
+        True for labels, False for another kind of file, None when the file is empty.
     """
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
@@ -67,7 +95,14 @@ def is_label_text(text: str) -> bool | None:
 
 
 def read_names(data: Any) -> dict[int, str] | None:
-    """Class names from a data.yaml ``names`` value (list or dict)."""
+    """Class names from a data.yaml ``names`` value (list or dict).
+
+    Args:
+        data: the ``names`` value: a list, or a dict from class id to name.
+
+    Returns:
+        The names by class id, or None when ``data`` is neither.
+    """
     if isinstance(data, list):
         return {i: str(n) for i, n in enumerate(data)}
     if isinstance(data, dict):
@@ -76,7 +111,16 @@ def read_names(data: Any) -> dict[int, str] | None:
 
 
 def load_names(ctx: ParseContext, files: list[Path]) -> tuple[dict[int, str] | None, tuple[int, int] | None]:
-    """Class names (and ``kpt_shape``) from data.yaml or classes.txt files; declares them in ``ctx``."""
+    """Class names (and ``kpt_shape``) from data.yaml or classes.txt files; declares them in ``ctx``.
+
+    Args:
+        ctx: parse context; receives the class names, the files read and problems.
+        files: staged files: ``data.yaml`` (preferred) or a names file.
+
+    Returns:
+        ``(names, kpt_shape)``: names by class id (None when none were found) and ``(points, values per
+        point)`` (None when not set).
+    """
     names: dict[int, str] | None = None
     kpt: tuple[int, int] | None = None
     for path in files:
@@ -110,7 +154,12 @@ def load_names(ctx: ParseContext, files: list[Path]) -> tuple[dict[int, str] | N
 
 
 def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
-    """Read YOLO label files (and data.yaml / classes.txt) into ``ctx``."""
+    """Read YOLO label files (and data.yaml / classes.txt) into ``ctx``.
+
+    Args:
+        ctx: parse context; receives the classes, labels, files read and problems.
+        files: staged files: label ``.txt`` files and the files with class names.
+    """
     names, kpt = load_names(ctx, files)
     labels = [p for p in files if p.suffix.lower() == ".txt" and not is_names_file(p)]
     try:
@@ -151,6 +200,19 @@ def _line(
     missing: set[int],
     where: str,
 ) -> Label | None:
+    """Label for one YOLO line, or None when it cannot be used.
+
+    Args:
+        ctx: parse context that records the problems found.
+        line: the line: class id and relative values.
+        names: class names by id, or None to use ``class_<id>``.
+        kpt: ``(points, values per point)`` from ``kpt_shape``, or None.
+        missing: set that receives the class ids used without a name.
+        where: text shown as the example of any problem.
+
+    Returns:
+        A box, polygon or pose label with relative geometry, or None.
+    """
     vals = _numbers(line)
     if not vals or not all(math.isfinite(v) for v in vals) or vals[0] != int(vals[0]) or vals[0] < 0:
         ctx.problem("invalid_annotation", where)
@@ -187,6 +249,19 @@ def _line(
 def _pose(
     ctx: ParseContext, name: str, vals: list[float], dim: int, expected: int | None, where: str
 ) -> Label | None:
+    """Label for a YOLO pose line.
+
+    Args:
+        ctx: parse context that records the problems found.
+        name: class name.
+        vals: all numbers of the line, the class id first.
+        dim: values per keypoint: 2 (x, y) or 3 (x, y, v).
+        expected: keypoint count from ``kpt_shape``, or None.
+        where: text shown as the example of any problem.
+
+    Returns:
+        The label with box and relative keypoints, or None when a point or the box is unusable.
+    """
     box = ctx.box(vals[1] - vals[3] / 2, vals[2] - vals[4] / 2, vals[3], vals[4], 1, 1, where)
     count = (len(vals) - 5) // dim
     if expected is not None and expected != count:

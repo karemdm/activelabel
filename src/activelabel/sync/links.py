@@ -33,12 +33,28 @@ _lock = threading.RLock()
 
 # -- hash -----------------------------------------------------------------------
 def _round(value: Any) -> Any:
+    """Round a number, or every number of a nested list, to ``DECIMALS`` decimals.
+
+    Args:
+        value: A number, or a list/tuple of numbers or of further lists.
+
+    Returns:
+        The rounded float, or a list with the same nesting.
+    """
     if isinstance(value, (list, tuple)):
         return [_round(v) for v in value]
     return round(float(value), DECIMALS)
 
 
 def _canonical(label: Label) -> str:
+    """Canonical JSON text of one label, as used by :func:`label_hash`.
+
+    Args:
+        label: The label to write.
+
+    Returns:
+        Compact, key-sorted JSON of the class, geometry (rounded) and track id.
+    """
     data: dict[str, Any] = {"label": label.label}
     if label.bbox:
         data["bbox"] = _round(label.bbox)
@@ -58,6 +74,12 @@ def label_hash(labels: list[Label]) -> str:
     one; the score is left out) with coordinates rounded to 4 decimals, and the list is sorted, so the
     order of the labels and geometry noise below 0.00005 of the image size do not change the hash. No
     labels give the hash of the empty list.
+
+    Args:
+        labels: The labels of one image, in any order.
+
+    Returns:
+        The SHA-256 digest, as 64 hex characters.
     """
     body = "\n".join(sorted(_canonical(lb) for lb in labels))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -67,6 +89,16 @@ TOLERANCE = 0.002  # 0.2 % of the image side: about one pixel, the noise of a ro
 
 
 def _close(a: Any, b: Any, tol: float) -> bool:
+    """Whether two geometry values (numbers or nested lists) match within ``tol``.
+
+    Args:
+        a: A number, a list (of numbers or lists) or any other value.
+        b: The value to compare with ``a``.
+        tol: Largest absolute difference accepted between two numbers.
+
+    Returns:
+        True when equal in structure and every pair of numbers is within ``tol``.
+    """
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
         return abs(float(a) - float(b)) <= tol
     if isinstance(a, list) and isinstance(b, list):
@@ -75,13 +107,32 @@ def _close(a: Any, b: Any, tol: float) -> bool:
 
 
 def _label_close(a: Label, b: Label, tol: float) -> bool:
+    """Whether two labels have the same class, track id and geometry within ``tol``.
+
+    Args:
+        a: First label.
+        b: Second label.
+        tol: Largest absolute difference accepted between two coordinates.
+
+    Returns:
+        True when the labels match.
+    """
     if a.label != b.label or a.track != b.track:
         return False
     return all(_close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints"))
 
 
 def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
-    """True when both lists have the same labels, geometry within ``tol`` (relative), in any order."""
+    """True when both lists have the same labels, geometry within ``tol`` (relative), in any order.
+
+    Args:
+        a: First list of labels.
+        b: Second list of labels.
+        tol: Largest relative difference accepted between two coordinates.
+
+    Returns:
+        True when every label of one list pairs with a different label of the other.
+    """
     if len(a) != len(b):
         return False
     left = list(b)
@@ -94,6 +145,16 @@ def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
 
 
 def _geometry_close(a: Label, b: Label, tol: float) -> bool:
+    """Whether two labels have the same class and geometry within ``tol`` (track id ignored).
+
+    Args:
+        a: First label.
+        b: Second label.
+        tol: Largest absolute difference accepted between two coordinates.
+
+    Returns:
+        True when the labels match.
+    """
     return a.label == b.label and all(
         _close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints")
     )
@@ -106,6 +167,14 @@ def carry_predictions(old: list[Label], new: list[Label], tol: float = TOLERANCE
     pre-annotation of ``old`` (one with a score or a model) is that same untouched label that went
     through a tool that does not keep scores, so it keeps them. A label that matches nothing was made
     or edited by a person: it stays without score (reviewed). Every old label is used at most once.
+
+    Args:
+        old: Labels before the round trip through the tool (pre-annotations carry score and model).
+        new: Labels after the round trip.
+        tol: Largest relative difference accepted between two coordinates.
+
+    Returns:
+        The labels of ``new``, with score and model restored where they match a pre-annotation.
     """
     free = [lb for lb in old if lb.score is not None or lb.model is not None]
     out: list[Label] = []
@@ -124,6 +193,14 @@ def base_entry(key: str, labels: list[Label], removed: bool = False) -> dict[str
 
     ``removed``: the image was removed on both sides at this synchronisation (excluded or deleted here,
     deleted frame there), so a later restore on one side is seen as a change.
+
+    Args:
+        key: Key of the item in the remote project.
+        labels: The labels of the image at this synchronisation.
+        removed: Whether the image was removed on both sides.
+
+    Returns:
+        The entry to store under the image id in the ``items`` of the link.
     """
     entry: dict[str, Any] = {
         "key": key,
@@ -136,7 +213,14 @@ def base_entry(key: str, labels: list[Label], removed: bool = False) -> dict[str
 
 
 def base_labels(entry: dict[str, Any]) -> list[Label] | None:
-    """Labels of an image at the last synchronisation, or None when unknown."""
+    """Labels of an image at the last synchronisation, or None when unknown.
+
+    Args:
+        entry: The link entry of the image (see :func:`base_entry`).
+
+    Returns:
+        The stored labels, or None for a legacy entry that only has ``base``.
+    """
     if "labels" not in entry:
         return None
     return [Label.from_dict(x) for x in entry["labels"]]
@@ -144,23 +228,52 @@ def base_labels(entry: dict[str, Any]) -> list[Label] | None:
 
 # -- store ----------------------------------------------------------------------
 def _file(project_dir: Path) -> Path:
+    """Path of the links file of a project.
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        ``<project_dir>/links.json``.
+    """
     return project_dir / LINKS_FILE
 
 
 def load_links(project_dir: Path) -> dict[str, dict[str, Any]]:
-    """Every link of a project by tool."""
+    """Every link of a project by tool.
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        ``{tool: link}``; empty when the file is missing or malformed.
+    """
     data = read_json(_file(project_dir), {})
     return data if isinstance(data, dict) else {}
 
 
 def get_link(project_dir: Path, tool: str) -> dict[str, Any] | None:
-    """The link of a project with one tool, or None."""
+    """The link of a project with one tool, or None.
+
+    Args:
+        project_dir: Folder of the project.
+        tool: Name of the tool (``cvat``).
+
+    Returns:
+        The link record, or None when the project is not linked with that tool.
+    """
     link = load_links(project_dir).get(tool)
     return link if isinstance(link, dict) else None
 
 
 def save_link(project_dir: Path, tool: str, link: dict[str, Any]) -> None:
-    """Create or replace the link with one tool (its ``revision`` goes up by one: plans notice it)."""
+    """Create or replace the link with one tool (its ``revision`` goes up by one: plans notice it).
+
+    Args:
+        project_dir: Folder of the project.
+        tool: Name of the tool (``cvat``).
+        link: The link record; its ``revision`` key is set in place.
+    """
     with _lock:
         data = load_links(project_dir)
         before = data.get(tool)
@@ -170,7 +283,15 @@ def save_link(project_dir: Path, tool: str, link: dict[str, Any]) -> None:
 
 
 def remove_link(project_dir: Path, tool: str) -> bool:
-    """Forget the link with one tool (the remote project is untouched). Returns whether there was one."""
+    """Forget the link with one tool (the remote project is untouched). Returns whether there was one.
+
+    Args:
+        project_dir: Folder of the project.
+        tool: Name of the tool (``cvat``).
+
+    Returns:
+        True when a link existed and was removed, False when there was none.
+    """
     with _lock:
         data = load_links(project_dir)
         if tool not in data:
@@ -183,7 +304,17 @@ def remove_link(project_dir: Path, tool: str) -> bool:
 def new_link(
     url: str, remote_id: str, remote_name: str, items: dict[str, dict[str, str]] | None = None
 ) -> dict[str, Any]:
-    """A link record, created and synchronised now."""
+    """A link record, created and synchronised now.
+
+    Args:
+        url: Web address of the remote project.
+        remote_id: Id of the remote project (stored as text).
+        remote_name: Name of the remote project.
+        items: Initial ``{image_id: entry}`` of the link; None for none.
+
+    Returns:
+        The new link record, without ``revision`` (:func:`save_link` sets it).
+    """
     stamp = now()
     return {
         "url": url,
@@ -196,7 +327,15 @@ def new_link(
 
 
 def public_view(tool: str, link: dict[str, Any]) -> dict[str, Any]:
-    """What the API shows for a link."""
+    """What the API shows for a link.
+
+    Args:
+        tool: Name of the tool (``cvat``).
+        link: The stored link record.
+
+    Returns:
+        The tool, address, remote id and name, last synchronisation and number of linked images.
+    """
     return {
         "tool": tool,
         "url": link.get("url", ""),
@@ -215,6 +354,13 @@ def match_by_name(records: list[ImageRecord], items: list[RemoteItem]) -> dict[s
     paired only when it is unique on both sides (two images or two items with the same name are
     ambiguous and stay unpaired, never silently collapsed). Every image and every item is used at
     most once.
+
+    Args:
+        records: The images of the project.
+        items: The images of the remote project.
+
+    Returns:
+        The remote item of every paired image, by image id.
     """
     by_name: dict[str, list[ImageRecord]] = {}
     by_base: dict[str, list[ImageRecord]] = {}
