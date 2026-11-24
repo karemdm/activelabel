@@ -13,8 +13,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from activelabel.storage import now, read_json, write_json
+from activelabel.storage import DamagedFile, now, read_json, write_json
 from activelabel.tasks import Task
+from activelabel.textcheck import has_control_characters
 
 MAX_NAME = 100
 MAX_DESCRIPTION = 2000
@@ -60,12 +61,12 @@ class Project:
 
 def clean_classes(classes: list[str] | tuple[str, ...]) -> list[str]:
     """Strip names, drop empty ones and repeated ones (keeps the first order)."""
-    seen: dict[str, None] = {}
+    seen: dict[str, str] = {}  # lower case -> first spelling
     for name in classes:
         name = name.strip()
-        if name and name.lower() not in {s.lower() for s in seen}:
-            seen[name] = None
-    return list(seen)
+        if name:
+            seen.setdefault(name.lower(), name)
+    return list(seen.values())
 
 
 class ProjectStore:
@@ -82,16 +83,33 @@ class ProjectStore:
     def _file(self, project_id: int) -> Path:
         return self.dir(project_id) / "project.json"
 
-    def list(self) -> list[Project]:
-        """Every project, newest first."""
+    def _folders(self) -> dict[int, Path]:
+        """Project folders by id (a folder counts even when its project.json is damaged)."""
         if not self.root.exists():
-            return []
+            return {}
+        return {int(f.name): f for f in self.root.iterdir() if f.is_dir() and f.name.isdigit()}
+
+    def list(self) -> list[Project]:
+        """Every readable project, newest first (see :meth:`damaged` for the others)."""
         projects = []
-        for folder in self.root.iterdir():
-            data = read_json(folder / "project.json")
-            if folder.is_dir() and folder.name.isdigit() and data:
+        for folder in self._folders().values():
+            try:
+                data = read_json(folder / "project.json")
+            except DamagedFile:
+                continue
+            if data:
                 projects.append(Project.from_dict(data))
         return sorted(projects, key=lambda p: p.id, reverse=True)
+
+    def damaged(self) -> dict[int, str]:
+        """Projects whose ``project.json`` cannot be read: ``{id: readable message}``."""
+        out: dict[int, str] = {}
+        for project_id, folder in self._folders().items():
+            try:
+                read_json(folder / "project.json")
+            except DamagedFile as exc:
+                out[project_id] = str(exc)
+        return out
 
     def get(self, project_id: int) -> Project:
         """One project.
@@ -112,6 +130,8 @@ class ProjectStore:
             raise ValueError(f"The name is too long (max {MAX_NAME} characters).")
         if len(description) > MAX_DESCRIPTION:
             raise ValueError(f"The description is too long (max {MAX_DESCRIPTION} characters).")
+        if has_control_characters(name) or has_control_characters(description, allow_newlines=True):
+            raise ValueError("The name and description cannot contain control characters.")
         for other in self.list():
             if other.id != own_id and other.name.lower() == name.lower():
                 raise ValueError(f"A project named '{other.name}' already exists.")
@@ -133,8 +153,7 @@ class ProjectStore:
             name, description = self._check(name, description)
             counter = self.root / "next_id.json"
             next_id = int(read_json(counter, 1))
-            existing = [p.id for p in self.list()]
-            project_id = max([next_id, *(i + 1 for i in existing)])
+            project_id = max([next_id, *(i + 1 for i in self._folders())])  # damaged folders keep their id
             stamp = now()
             project = Project(project_id, name, description, Task(task), clean_classes(classes), stamp, stamp)
             write_json(self._file(project_id), project.as_dict())

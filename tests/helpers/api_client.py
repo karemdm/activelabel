@@ -18,6 +18,7 @@ from activelabel.web import (
     training_api,
     video_api,
 )
+from activelabel.web.errors import install_error_handlers
 from activelabel.web.state import AppState
 
 
@@ -26,6 +27,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     state.runner.enqueue = lambda project_id, number: None  # type: ignore[method-assign]  # runs stay queued
     app = FastAPI()
     app.state.activelabel = state
+    install_error_handlers(app)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
     app.include_router(datasets_api.router)
