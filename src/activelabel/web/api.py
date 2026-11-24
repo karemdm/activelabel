@@ -634,7 +634,8 @@ def list_images(
 ) -> dict[str, Any]:
     """A page of images, filtered by status, issue, task, job or a comma-separated list of ids.
 
-    ``issue`` is one flag (blurry, dark, ...) or ``any`` for every image with at least one flag.
+    ``issue`` is one flag (blurry, dark, ...) or ``any`` for every image with at least one flag. In a
+    classification project every item also has ``classes``: the class names of its ground truth.
 
     With ``task`` the items are in task order; ``job`` (1-based) needs ``task``. ``dataset`` keeps the
     images of a dataset version, of one ``part`` (train, val, test) or ``fold`` (0-based).
@@ -699,12 +700,15 @@ def list_images(
         records = [r for r in records if r.id in wanted]
     annotations = load_annotations(state.store.dir(project_id))
     counts = {k: len(v) for k, v in annotations.images.items()} if annotations else {}
+    classified = annotations is not None and annotations.task == Task.CLASSIFICATION
     duplicate_of = issues.load_duplicate_of(state.store.dir(project_id))
     names = {r.id: r.name for r in manifest.all()} if duplicate_of else {}
     page = records[offset : offset + limit]
     items = []
     for record in page:
         item = _image_item(record, counts.get(record.id, 0))
+        if classified and annotations:
+            item["classes"] = sorted({lb.label for lb in annotations.images.get(record.id, [])})
         original = duplicate_of.get(record.id)
         if original and "near_duplicate" in record.issues:
             item["duplicate_of"], item["duplicate_of_name"] = original, names.get(original, "")

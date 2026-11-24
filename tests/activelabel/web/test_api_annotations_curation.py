@@ -5,6 +5,9 @@ import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
+from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.tasks import Task
+
 
 def wait_job(client, project_id, job_id, timeout=30):
     end = time.time() + timeout
@@ -227,3 +230,21 @@ def test_issue_any_lists_every_flagged_image_whatever_the_count(tmp_path):
     page = client.get("/api/projects/1/images", params={"issue": "any"}).json()
     assert [item["id"] for item in page["items"]] == [first.id]
     assert page["total"] == 1
+
+
+def test_a_classification_image_item_names_its_classes(tmp_path):
+    client, state = setup_project(tmp_path, task="classification")
+    first, second = (r.id for r in state.manifest(1).all())
+    labels = {first: [Label("cat"), Label("dog")], second: []}
+    save_annotations(state.store.dir(1), AnnotationSet(Task.CLASSIFICATION, ["cat", "dog"], labels, {}))
+    items = {i["id"]: i for i in client.get("/api/projects/1/images").json()["items"]}
+    assert items[first]["classes"] == ["cat", "dog"]
+    assert items[second]["classes"] == []
+
+
+def test_a_detection_image_item_has_no_class_list(tmp_path):
+    client, state = setup_project(tmp_path)
+    first = state.manifest(1).all()[0].id
+    labels = {first: [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
+    save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["cat"], labels, {}))
+    assert "classes" not in client.get("/api/projects/1/images").json()["items"][0]

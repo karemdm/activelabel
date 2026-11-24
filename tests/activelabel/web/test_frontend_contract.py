@@ -295,3 +295,8 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
     assert "t('common.cancel')" in button
     stage = re.search(r"function setStage\(stage\) \{.*?\n      \}", JS, re.S).group(0)
     assert "closeBtn.textContent = t(stage === 'done' ? 'common.close' : 'common.cancel')" in stage
+
+
+def test_the_viewer_shows_the_class_of_a_classification_image():
+    box = JS[JS.index("function openLightbox") :]
+    assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
