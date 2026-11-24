@@ -11,6 +11,7 @@ from activelabel.annotate import credentials, sessions
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
+from activelabel.errors import CodedError
 from activelabel.jobs import Progress
 from activelabel.labels import Label, annotations_lock, load_annotations
 from activelabel.projects import Project
@@ -18,7 +19,7 @@ from activelabel.storage import read_json, write_json
 from activelabel.sync import engine as sync_engine
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
-from activelabel.web.errors import ApiError
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -127,8 +128,8 @@ def save_tool(tool: str, body: ToolBody, state: AppState = STATE) -> dict[str, A
         settings = credentials.save_settings(
             state.settings.workspace, tool, body.url, body.username, body.secret or None
         )
-    except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    except (ToolError, CodedError) as exc:
+        raise bad_request(exc) from exc
     return credentials.public_view(settings)
 
 

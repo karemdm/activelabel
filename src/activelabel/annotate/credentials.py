@@ -8,10 +8,12 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import keyring
 
 from activelabel.annotate.base import TOOLS, ToolError, ToolSettings
+from activelabel.errors import CodedError
 from activelabel.storage import read_json, write_json
 
 SERVICE = "activelabel"
@@ -53,14 +55,31 @@ def load_settings(workspace: Path, tool: str) -> ToolSettings:
     return ToolSettings(tool, url, username, _get_secret(tool, url))
 
 
+def check_url(url: str) -> None:
+    """Refuse a tool URL that is not ``http://`` or ``https://`` with a server name (empty is allowed).
+
+    Raises:
+        CodedError: ``url_invalid``.
+    """
+    if not url:
+        return
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise CodedError(
+            "url_invalid", "The URL must start with http:// or https:// and name a server.", url=url[:100]
+        )
+
+
 def save_settings(workspace: Path, tool: str, url: str, username: str, secret: str | None) -> ToolSettings:
     """Save URL and user to ``tools.json`` and, when given, the secret to the keyring.
 
     Raises:
         ToolError: unknown tool or the keyring is not usable.
+        CodedError: the URL is not an http(s) address (see :func:`check_url`).
     """
     _check_tool(tool)
     url = url.strip().rstrip("/")
+    check_url(url)
     with _lock:
         if secret:
             try:
