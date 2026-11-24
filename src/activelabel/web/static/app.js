@@ -3954,11 +3954,22 @@
         return t('ds.split_asked', { split: [s.train, s.val, s.test].filter((x) => x != null).join(' / ') });
       }
 
+      /* warnings go into a few groups: one line says how many, the list opens on demand */
+      const WARN_GROUP = { class_missing: 'classes', classes_missing: 'classes', part_empty: 'size', few_images: 'size' };
+      const warnGroup = (w) => WARN_GROUP[w.code] || (/drift|group/.test(String(w.code)) ? 'balance' : 'other');
+      function warnSummary(list) {
+        const count = new Map();
+        list.forEach((w) => count.set(warnGroup(w), (count.get(warnGroup(w)) || 0) + 1));
+        const groups = [...count].map(([g, n]) => t(`ds.warn_g_${g}`, { n: num(n) })).join(' · ');
+        return `${tn('ds.warn_count', list.length)}: ${groups}`;
+      }
+
       function versionCard(v) {
         const sizes = normSizes(v);
         const items = partItems(sizes, v.options);
         const bg = backgroundOf(v.stats);
-        const warns = cleanWarnings(v.warnings, items).map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
+        const cleaned = cleanWarnings(v.warnings, items);
+        const warns = cleaned.map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
         const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
         const id = `ds-v${v.version}`;
         return el('li', { class: 'ds-card card', id, 'aria-labelledby': `${id}-title` },
@@ -3972,11 +3983,16 @@
           el('p', { class: 'muted ds-meta' }, splitText(v), bg > 0 ? ` · ${t('ds.background_count', { n: num(bg) })}` : ''),
           partsBar(items, barLabel(items)),
           legend(items),
-          warns.length || infoBadges.length ? el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns, ...infoBadges) : null,
+          warns.length ? el('details', { class: 'ds-warn-group' },
+            el('summary', null, icon('warning', 14), warnSummary(cleaned)),
+            el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns)) : null,
+          infoBadges.length ? el('ul', { class: 'ds-badges' }, ...infoBadges) : null,
           el('div', { class: 'ds-view' },
             el('span', { class: 'muted' }, t('ds.see_images')),
             ...items.filter((x) => x.n > 0).map((x) => el('button', { type: 'button', class: 'btn small', 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
-              onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label))));
+              onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label)),
+            el('button', { type: 'button', class: 'btn small primary ds-train-with', disabled: !!v.incomplete,
+              onclick: () => { showTab('training'); ctx.panels.training.startWith(v.version); } }, icon('chart', 14), t('ds.train_with'))));
       }
 
       function draw() {
@@ -4516,7 +4532,7 @@
       }
 
       // ---------------------------------------------------------------- new run dialog
-      async function openNew(trigger) {
+      async function openNew(trigger, version = null) {
         let cat;
         let versions;
         try {
@@ -4526,7 +4542,7 @@
         const models = (cat.models || []).filter((m) => m.family !== 'ultralytics');   // YOLO: not trainable yet
         if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
 
-        const st = { dataset: versions[0].version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {} };
+        const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {} };
         const versionOf = () => versions.find((v) => v.version === st.dataset);
         const modelNow = () => models.find((m) => m.id === st.model);
         let active = [];       // parameter specs shown now
@@ -4540,6 +4556,7 @@
         // data
         const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
           [`v${v.version}`, fmtDate(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
+        datasetSel.value = String(st.dataset);
         const foldSel = sel('tr-fold');
         const foldField = el('div', { class: 'field', hidden: true }, el('label', { for: 'tr-fold' }, t('tr.fold')), foldSel);
         function drawFolds() {
@@ -5133,6 +5150,8 @@
 
       panel.mount = () => load();
       panel.show = () => load(true);
+      /** Step 4 sends the person here with a dataset version to train on. */
+      panel.startWith = (version) => openNew(newBtn, version);
       /** The project changed (its task type may have): the models on offer and their names are asked again. */
       panel.refresh = () => {
         catalog = null;

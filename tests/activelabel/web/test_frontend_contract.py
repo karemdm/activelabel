@@ -116,3 +116,9 @@ def test_the_step_bar_marks_each_step_and_keeps_the_current_one_in_view():
 def test_the_class_counts_show_the_biggest_few_with_search_and_see_all():
     """The annotation summary does not list every class: top rows, a search and a toggle."""
     assert "BARS_SHOWN" in JS and "ann.show_all" in JS and "stat-tiles" in JS
+
+
+def test_a_dataset_version_leads_on_to_training_and_groups_its_warnings():
+    """A card offers "train with this version" (the dialog opens on it) and one line for all its warnings."""
+    assert "panel.startWith" in JS and "ctx.panels.training.startWith(v.version)" in JS
+    assert "warnSummary(" in JS and ".ds-warn-group" in CSS
