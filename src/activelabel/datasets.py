@@ -476,6 +476,17 @@ def _gap_ids(
     return out
 
 
+def _segments(
+    video: str, ids: list[str], segment_of: dict[str, tuple[str, int]], where: dict[str, dict[str, Any]]
+) -> list[tuple[list[str], dict[str, Any]]]:
+    """Segments of a cut video as ``(frames in time order, part key)``; every frame of one is in one part."""
+    found: dict[int, list[str]] = {}
+    for i in ids:
+        if i in segment_of and segment_of[i][0] == video:
+            found.setdefault(segment_of[i][1], []).append(i)
+    return [(images, where[images[0]]) for _, images in sorted(found.items())]
+
+
 def _too_few(slots: list[tuple[dict[str, Any], list[str], float]], total: int) -> bool:
     """True when a requested part is empty or has less than half of its share."""
     return any(share > 0 and len(ids) / total < share / 2 for _, ids, share in slots)
@@ -490,7 +501,7 @@ class _Attempt:
     slots: list[tuple[dict[str, Any], list[str], float]]
     biggest: int
     split: set[str]
-    segments: list[tuple[Group, dict[str, Any]]]
+    segment_of: dict[str, tuple[str, int]]
 
 
 def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> Plan:
@@ -562,14 +573,12 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
                     segment_of[i] = (video, number)
         groups = build_groups(candidates, video_of, duplicate_of, classes_of, segment_of)
         rng = random.Random(options.seed)
-        segments: list[tuple[Group, dict[str, Any]]] = []
         folds: list[list[str]] | None = None
         slots: list[tuple[dict[str, Any], list[str], float]]
         if options.kfold is None:
             placed = assign(groups, shares, rng, rest="train")
             parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
             slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
-            segments = [(g, {"part": p}) for p, gs in placed.items() for g in gs if g.video]
         else:
             pool = groups
             test_groups: list[Group] = []
@@ -584,14 +593,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             parts = {"test": _flatten(test_groups, position)}
             slots = [({"part": "test"}, parts["test"], test_share)]
             slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
-            segments = [(g, {"part": "test"}) for g in test_groups if g.video]
-            segments += [
-                (g, {"part": "fold", "fold": n})
-                for n in range(options.kfold)
-                for g in by_fold[str(n)]
-                if g.video
-            ]
-        return _Attempt(parts, folds, slots, max(len(g.images) for g in groups), set(split_ids), segments)
+        return _Attempt(parts, folds, slots, max(len(g.images) for g in groups), set(split_ids), segment_of)
 
     big: set[str] = set()
     if options.videos == "auto" and targets:
@@ -637,6 +639,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     for key, ids, share in slots:
         warnings += _slot_warnings(key, ids, share, total - len(dropped), final.biggest, ordered, labels)
 
+    where = {i: key for key, ids, _ in final.slots for i in ids}  # every image's part (before the gap)
     videos: list[dict[str, Any]] = []
     for video, ids in frames_of.items():
         index = {i: n for n, i in enumerate(ids)}
@@ -645,8 +648,9 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             record = manifest[image_id]
             return index[image_id] if record.frame is None else record.frame
 
-        segs = sorted((s for s in final.segments if s[0].video == video), key=lambda s: s[0].index)
-        cut = video in split and len(segs) >= 2
+        segs = _segments(video, ids, final.segment_of, where)
+        parts_used = {tuple(key.items()) for _, key in segs}
+        cut = video in split and len(parts_used) >= 2
         entry = {
             "video": video,
             "name": names.get(video, video),
@@ -655,10 +659,10 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             "segments": [
                 {
                     **key,
-                    "first_frame": frame_no(min(g.images, key=index.__getitem__)),
-                    "last_frame": frame_no(max(g.images, key=index.__getitem__)),
+                    "first_frame": frame_no(images[0]),
+                    "last_frame": frame_no(images[-1]),
                 }
-                for g, key in segs
+                for images, key in segs
             ]
             if cut
             else [],
