@@ -168,6 +168,8 @@
   "problem.box_clipped": "Some boxes went outside the image and were clipped.",
   "problem.box_degenerate": "Some boxes have no area and were skipped.",
   "problem.polygon_too_few_points": "Some polygons have fewer than 3 points and were skipped.",
+  "problem.no_geometry": "Some labels do not have the shape this project type needs (box, polygon or keypoints); they are left out.",
+  "problem.keypoints_count_mismatch": "Some labels have a different number of keypoints from the others; they are left out.",
   "problem.converted_to_box": "Polygons or keypoints were converted to boxes.",
   "problem.dropped_other_kind": "Some annotations do not fit the task type and were left out.",
   "problem.task_without_image": "Some tasks have no image.",
