@@ -1303,5 +1303,19 @@
   "error.preannotation_not_found": "Esta pré-anotação não existe.",
   "error.preannotation_running": "Estas imagens já estão sendo pré-anotadas.",
   "error.threshold_range": "A confiança mínima deve ficar entre 0,001 e 0,999.",
-  "error.scope_invalid": "As imagens devem ser um destes: {scopes}."
+  "error.scope_invalid": "As imagens devem ser um destes: {scopes}.",
+  "error.frame_out_of_range": "O vídeo tem {frames} frames (numerados a partir de 0).",
+  "error.frame_unreadable": "Este frame não pôde ser lido.",
+  "error.one_file_only": "Envie um vídeo por vez.",
+  "error.video_in_use": "Uma task usa este vídeo: exclua a task primeiro.",
+  "error.video_no_frames": "O vídeo não tem frames ou não tem taxa de quadros.",
+  "error.video_not_enough_disk": "Os frames precisam de cerca de {needed_mb} MB livres em disco e só há {free_mb} MB: pegue menos frames.",
+  "error.video_not_found": "Este vídeo não existe.",
+  "error.video_range_invalid": "O intervalo deve cumprir 0 <= início <= fim < {frames} (frames do vídeo).",
+  "error.video_seconds_range": "Os segundos entre frames devem ser maiores que 0 e no máximo um dia.",
+  "error.video_step_range": "Pegue um frame a cada 1 ou mais frames.",
+  "error.video_task_running": "Uma task está sendo criada a partir de um vídeo: espere terminar e então exclua.",
+  "error.video_too_many_frames": "Esta seleção tem {frames} frames (no máximo {max} por task): pegue um frame a cada poucos frames, ou um trecho menor.",
+  "error.video_type_unsupported": "Tipo de vídeo não aceito; use um de: {allowed}.",
+  "error.video_unreadable": "Este arquivo não é um vídeo que possa ser lido."
 }
