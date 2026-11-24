@@ -8,7 +8,30 @@ annotations, curation) and **Model** (data split, training, models). A trained m
 pre-annotate new images, which a person reviews in CVAT or FiftyOne and feeds back into the next
 training.
 
-Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Design notes: [docs/DESIGN.md](docs/DESIGN.md).
+```mermaid
+flowchart LR
+  subgraph Data
+    direction LR
+    A["1 Images"] --> B["2 Annotations<br/>(optional)"] --> C["3 Curation"]
+  end
+  subgraph Model
+    direction LR
+    D["4 Data split"] --> E["5 Training"] --> F["6 Models"]
+  end
+  C --> D
+  F -- "current model" --> P["Pre-annotate<br/>(step 2)"]
+  N["New images<br/>(step 1, new task)"] --> P
+  P --> R["Review in CVAT or FiftyOne,<br/>or accept as they are"]
+  R -- "new split, new training" --> D
+```
+
+Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Engineering overview with diagrams:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Names in the interface.** This page and the other documents quote the English interface. The
+Portuguese interface has the same screens; its names are given once in parentheses where they are not
+obvious (for example *Gallery* (*Galeria*)), and the full list is in
+[`src/activelabel/i18n/pt.json`](src/activelabel/i18n/pt.json).
 
 ## Install
 
@@ -26,47 +49,59 @@ python -m pip install -e ".[dev]"
 activelabel serve --open
 ```
 
-Or, without activating the environment: `activelabel.cmd serve --open` (Windows) or
-`./activelabel.sh serve --open` (Linux, macOS). The interface opens at
-`http://127.0.0.1:8090`. The service has no login: keep the default host `127.0.0.1`
-unless you are on a trusted network.
+Options of `serve`: `--host` (default `127.0.0.1`), `--port` (default `8090`) and `--open` (opens
+the browser). Without activating the environment, use the launcher of the repository, which runs
+the Python of the `.venv` folder next to it: `activelabel.cmd serve --open` (Windows) or
+`./activelabel.sh serve --open` (Linux, macOS). The interface opens at `http://127.0.0.1:8090`.
+
+The service has no login: keep the default host `127.0.0.1` unless you are on a trusted network.
 
 ## How it works
 
-**New project** (not a step): name, description and task (classification, detection,
+**New project** (not a step): name, description and **type** (classification, detection,
 segmentation or keypoints). The project number is automatic. Classes are optional; they can
 come from the annotation files. A project that already exists in CVAT or Label Studio can
 be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
-bar with the six steps.
+bar with the six steps. (In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
+project is its *type*.)
 
 ### Data
 
-1. **Images** has two tabs. *Galeria* is the grid of images, filtered by task and job.
-   *Tasks e jobs* lists the tasks (one upload, or one video, is one task) split into jobs of a
-   chosen size, as in CVAT; *New task* takes files, a folder, a .zip or a video. Files are
-   stored unchanged, identical images are added once and unreadable files are listed with the
-   reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
+1. **Images** has two tabs. *Gallery* (*Galeria*) is the grid of images, filtered by task and job.
+   *Tasks and jobs* (*Tasks e jobs*) lists the tasks (one upload, or one video, is one task) split
+   into jobs of a chosen size, as in CVAT; *New task* takes files, a folder, a .zip or a video.
+   Files are stored unchanged, identical images are added once and unreadable files are listed with
+   the reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs:
-   - *Resumo*: what the project has (annotated, to review, classes).
-   - *Pré-anotar*: a saved model, or a public pretrained one (COCO), suggests labels for the
-     images of a task; see
-     [docs/PREANNOTATE.md](docs/PREANNOTATE.md).
-   - *CVAT*: send images to CVAT and synchronise annotations in both directions, with a review
-     before anything changes; see [docs/ANNOTATION.md](docs/ANNOTATION.md) and
+   - *Summary* (*Resumo*): what the project has (annotated, to review, classes).
+   - *Pre-annotate* (*Pré-anotar*): a saved model, or a public pretrained one (COCO), suggests
+     labels for the images of a task; see [docs/PREANNOTATE.md](docs/PREANNOTATE.md).
+   - *CVAT*: link the project to CVAT and synchronise annotations in both directions with
+     *Compare with CVAT* (*Comparar com o CVAT*), a review, and *Apply synchronisation*
+     (*Aplicar a sincronização*); see [docs/ANNOTATION.md](docs/ANNOTATION.md) and
      [docs/SYNC.md](docs/SYNC.md).
    - *FiftyOne*: edit annotations in the FiftyOne App and bring them back.
-   - *Importar anotações*: drop annotation files (or a .zip). The format is detected (COCO JSON,
-     YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or video XML, MOT,
-     Label Studio JSON, class folders), the files are matched with the images and a report shows what was found
-     and any problem. Nothing is imported until you choose *Import*, *Change the project task
-     and import*, *Convert and import* (for example outlines to boxes) or *Discard*. Files made for
-     a whole video go to a video task by frame number ([docs/VIDEO.md](docs/VIDEO.md)).
+   - *Import annotations* (*Importar anotações*): drop annotation files (or a .zip). The format is
+     detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or
+     video XML, MOT, Label Studio JSON, class folders), the files are matched with the images and a
+     report shows what was found and any problem. Nothing is imported until you choose *Import*,
+     *Change the type to {task} and import*, *Convert to {task} and import* (for example outlines to
+     boxes) or *Discard*; when the project already has annotations you also choose *Merge* or
+     *Replace*. Files made for a whole video go to a video task by frame number
+     ([docs/VIDEO.md](docs/VIDEO.md)).
+
+   Label Studio is switched off in the interface for now: only *importing a project* from it is
+   offered. Its code stays (docs/SYNC.md, docs/ANNOTATION.md).
 3. **Curation**: *Analyze images* measures brightness, contrast, sharpness, size and a
-   perceptual hash of each image. Filters per issue (corrupt, blurry, dark, overexposed, low
-   contrast, small, near duplicate) show the flagged images; select and *Exclude* them
-   (reversible, *Excluded* tab) or delete them for good (asks first). *Open in FiftyOne* opens
-   the same filter in the FiftyOne App; images tagged `exclude` there can be brought back with
-   *Bring exclusions from FiftyOne*.
+   perceptual hash of each image. Filters per issue (blurry, dark, bright, low contrast, small, odd
+   aspect ratio, grayscale, near duplicate) show the flagged images; *Select suggested* picks the
+   ones that are probably worth excluding; select and *Exclude selected* (reversible, *Excluded*
+   tab, *Restore selected*) or *Delete permanently* (asks first). The limits of each issue can be
+   changed under *Advanced: thresholds* without measuring again, and *Reset analysis* forgets the
+   measures, flags and near-duplicate groups (images, exclusions and annotations stay).
+   *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
+   be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
+   rejected when uploaded.)
 
 ### Model
 
@@ -75,13 +110,16 @@ bar with the six steps.
    class; see [docs/DATASETS.md](docs/DATASETS.md).
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
    fine-tuning or from scratch; single run, grid search or all folds) with live curves and
-   evaluation on the test part. Classification, detection, semantic segmentation and
-   keypoints (torchvision) are available; YOLO/Ultralytics models are planned, not available
-   yet. Packages are installed on demand in a separate environment. See
+   evaluation on the test part. Classification, detection, semantic segmentation, instance
+   segmentation (Mask R-CNN) and keypoints (torchvision) are available; YOLO/Ultralytics models are
+   listed in the API catalogue but hidden in the interface and refused by the API until they are
+   supported. Packages are installed on demand in a separate environment. See
    [docs/TRAINING.md](docs/TRAINING.md).
-6. **Models** keeps the runs you save as models: compare them, choose the current one,
-   download the weights and export ONNX (classification and semantic segmentation). The
-   current model pre-annotates new images (*Anotações*, *Pré-anotar*).
+6. **Models** keeps the runs you save (*Save as model*): compare them, choose the current one
+   (*Make current*), download the weights and export ONNX (classification and semantic
+   segmentation). *Add a public model* adds a pretrained COCO model that needs no training. The
+   current model pre-annotates new images (*Annotations*, *Pre-annotate*) for classification,
+   detection and keypoints.
 
 ### Activities
 
@@ -90,8 +128,9 @@ in a small card in the bottom-right corner of the project page, with progress, *
 *See result*. It can be minimised or closed; finished activities stay in its history. Only one
 heavy process (training, export or pre-annotation) runs at a time; the others wait in a queue.
 
-More: [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models),
-[docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API) and
+More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
+[docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
+[docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models) and
 [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md) (user guide in Portuguese).
 
 ## Settings
@@ -100,9 +139,15 @@ More: [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models),
 | --- | --- | --- |
 | `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Where projects, images and annotations are stored |
 | `ACTIVELABEL_LANG` | `en` | Default interface language (`en` or `pt`) |
-| `ACTIVELABEL_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path |
+| `ACTIVELABEL_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path (`POST /api/projects/{id}/images/folder`; there is no button for it in the interface) |
+
+The address and user of CVAT are kept in `<workspace>/tools.json`; passwords and tokens only in the
+system keyring.
 
 ## Development
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (set-up, tests, lint, types, structure, conventions,
+how the training environment and workers work) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 pre-commit install
@@ -110,9 +155,10 @@ python -m pytest -m "not integration"   # fast tests
 python -m pytest -m integration         # tests that use FiftyOne
 ```
 
-Code lives in `src/activelabel`; tests in `tests/activelabel` mirror it. Formatting and lint
-with ruff, types with mypy; pre-commit runs them and the fast tests on every commit.
+Continuous integration (`.github/workflows/ci.yml`) runs ruff, mypy and the fast tests on Linux and
+Windows on every push to `main` and on pull requests, plus the FiftyOne tests on Linux. macOS runs
+only on demand (Actions tab, *ci*, *Run workflow*).
 
-Continuous integration (`.github/workflows/ci.yml`) runs the same checks on Linux and
-Windows on every push to `main` and on pull requests, plus the FiftyOne tests on Linux.
-macOS runs only on demand (Actions tab, *ci*, *Run workflow*).
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE).
