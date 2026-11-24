@@ -240,6 +240,7 @@
   "cur.thresholds_help": "Changing a limit flags the images again without measuring them again.",
   "cur.thresholds_apply": "Apply thresholds",
   "cur.thresholds_saved": "Thresholds saved.",
+  "cur.threshold_number": "Enter a number for \"{name}\".",
   "threshold.dark": "Dark: brightness below",
   "threshold.bright": "Bright: brightness above",
   "threshold.low_contrast": "Low contrast: contrast below",
