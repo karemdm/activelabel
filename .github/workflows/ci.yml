@@ -34,8 +34,14 @@ jobs:
           python -m ruff format --check .
       - name: Mypy
         run: python -m mypy
-      - name: Unit tests
-        run: python -m pytest -q -m "not integration"
+      - name: Unit tests (coverage must stay at or above 80%, see [tool.coverage] in pyproject.toml)
+        run: python -m pytest -q -m "not integration" --cov --cov-report=term-missing --cov-report=xml
+      - name: Coverage report
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
       - name: Command line
         run: activelabel --help
 
