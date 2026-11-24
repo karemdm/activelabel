@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from typing import Any
 
@@ -43,6 +44,28 @@ def _drop_unusable(task: Task, labels: dict[str, list[Label]]) -> dict[str, int]
     return dropped
 
 
+def _with_new_classes(
+    project_classes: list[str], label_lists: Iterable[list[Label]], declared: Iterable[str]
+) -> list[str]:
+    """The project's classes followed by the classes of ``label_lists`` and ``declared`` it does not have.
+
+    Names are compared ignoring case; a declared name that differs only in case keeps the project's spelling.
+    """
+    classes = list(project_classes)
+    canon = {c.lower(): c for c in classes}
+    seen = set(canon)
+    for items in label_lists:
+        for lb in items:
+            if lb.label.lower() not in seen:
+                classes.append(lb.label)
+                seen.add(lb.label.lower())
+    for name in declared:  # classes declared in the files but not used
+        if name.lower() not in seen:
+            classes.append(canon.get(name.lower(), name))
+            seen.add(name.lower())
+    return classes
+
+
 def apply(
     store: ProjectStore, project_id: int, manifest: Manifest, token: str, action: str, mode: str = "replace"
 ) -> dict[str, Any]:
@@ -55,7 +78,8 @@ def apply(
         token: staging token from :func:`activelabel.annotations.staging.stage`.
         action: import, change_task_and_import, convert_and_import or discard.
         mode: ``replace`` swaps the ground truth; ``merge`` adds labels only for images that have
-            none yet and keeps the existing ones.
+            none yet and keeps the existing ones; only the classes of the labels added are added to
+            the project.
 
     Returns:
         Summary: action, mode, format, task, images/labels imported, kept (merge), added classes, and
@@ -111,18 +135,7 @@ def apply(
     for items in labels.values():
         for lb in items:
             lb.label = canon.get(lb.label.lower(), lb.label)
-    new_classes = list(project.classes)
-    seen = {c.lower() for c in new_classes}
-    for items in labels.values():
-        for lb in items:
-            if lb.label.lower() not in seen:
-                new_classes.append(lb.label)
-                seen.add(lb.label.lower())
-    for name in result.classes:  # classes declared in the files but not used
-        if name.lower() not in seen:
-            new_classes.append(canon.get(name.lower(), name))
-            seen.add(name.lower())
-
+    new_classes = _with_new_classes(project.classes, labels.values(), result.classes)
     check_classes(new_classes)  # before anything is written: a list the project would refuse stops the import
 
     # read, merge and write under one lock: a review, sync or pre-annotation saved meanwhile is kept
@@ -134,6 +147,7 @@ def apply(
             if existing.task != task and any(existing.images.values()):
                 raise ValueError("Existing labels are of another task; use replace instead of merge.")
             final = dict(existing.images)
+            imported: list[list[Label]] = []
             for key, items in labels.items():
                 if final.get(key):
                     kept += 1
@@ -141,8 +155,12 @@ def apply(
                     final[key] = items
                     added += 1
                     n_labels += len(items)
+                    imported.append(items)
                 else:
                     final.setdefault(key, [])
+            # only classes of the labels that were added: a skipped image must not add its class
+            new_classes = _with_new_classes(project.classes, imported, [])
+            check_classes(new_classes)
         elif target is not None and existing is not None:
             # the files are for one video task: only the images of that task are replaced
             mine = {r.id for r in target.frames.values()}
