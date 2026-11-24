@@ -1,4 +1,4 @@
-"""Links between a project and one remote project in CVAT or Label Studio (``<project>/links.json``).
+"""Links between a project and one remote project in CVAT (``<project>/links.json``).
 
 Format (docs/SYNC.md)::
 

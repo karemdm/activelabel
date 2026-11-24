@@ -1263,7 +1263,7 @@
     }
 
 
-    // ================================================================ synchronisation with CVAT / Label Studio
+    // ================================================================ synchronisation with CVAT
     async function loadLinks() {
       try {
         const data = await api('GET', `/projects/${projectId}/links`);
@@ -1309,7 +1309,7 @@
         const open = isHttp(link.url)
           ? el('a', { href: link.url, target: '_blank', rel: 'noopener' }, link.remote_name || toolName(tool), ' ', icon('external', 14))
           : el('span', null, link.remote_name || toolName(tool));
-        const run = el('button', { type: 'button', class: 'btn primary', disabled: planning, title: planning ? t('sync.compare_busy_any') : null, onclick: async (e) => {
+        const run = link.supported === false ? null : el('button', { type: 'button', class: 'btn primary', disabled: planning, title: planning ? t('sync.compare_busy_any') : null, onclick: async (e) => {
           const b = e.currentTarget;
           b.disabled = true;
           try { await startSync(tool); } catch (err) { b.disabled = false; toastError(err); }
@@ -1331,6 +1331,7 @@
             el('div', null, el('dt', null, t('sync.remote_project', { tool: toolName(tool) })), el('dd', null, open)),
             el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
             el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never')))),
+          link.supported === false ? el('p', { class: 'muted' }, t('sync.link_unsupported', { tool: toolName(tool) })) : null,
           el('div', { class: 'session-actions' }, run, unlink));
       }
 
@@ -1562,7 +1563,7 @@
         if (!force && sig === lastSig && !(st && st.error)) return;
         lastSig = sig;
         fill(box, ...[
-          /* CVAT has its own card above; links with paused tools stay readable here */
+          /* CVAT has its own card above; a link of a tool that is not synchronised any more can only be forgotten here */
           ctx.links.some((l) => l.tool !== 'cvat')
             ? el('ul', { class: 'plain link-list' }, ...ctx.links.filter((l) => l.tool !== 'cvat').map(linkCard))
             : null,

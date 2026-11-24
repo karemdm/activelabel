@@ -234,3 +234,16 @@ def test_audit_reports_a_server_problem(env):
     env.remote.fail = "Cannot reach CVAT."
     r = env.client.get("/api/cvat/audit")
     assert r.status_code == 400 and r.json()["detail"] == "Cannot reach CVAT."
+
+
+def test_an_old_link_of_a_tool_that_cannot_be_synchronised_is_listed_and_can_be_forgotten(env):
+    project_dir = env.state.store.dir(env.pid)
+    links.save_link(project_dir, "labelstudio", links.new_link("http://ls", "3", "Pets LS"))
+    links.save_link(project_dir, "cvat", links.new_link("http://remote", env.rid, "Pets remote"))
+    found = env.client.get(f"/api/projects/{env.pid}/links").json()["links"]
+    assert {x["tool"]: x["supported"] for x in found} == {"labelstudio": False, "cvat": True}
+    r = env.client.post(f"/api/projects/{env.pid}/sync/labelstudio", json={})
+    assert r.status_code == 404 and r.json()["code"] == "tool_unknown"
+    assert env.client.delete(f"/api/projects/{env.pid}/links/labelstudio").json() == {"unlinked": True}
+    assert set(links.load_links(project_dir)) == {"cvat"}
+    assert env.client.get(f"/api/projects/{env.pid}").status_code == 200  # the project opens as usual

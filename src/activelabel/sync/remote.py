@@ -1,4 +1,4 @@
-"""Contract of a remote project in CVAT or Label Studio, as seen by the synchronisation (docs/SYNC.md)."""
+"""Contract of a remote project in CVAT, as seen by the synchronisation (docs/SYNC.md)."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class RemoteInfo:
 class RemoteItem:
     """One image of the remote project with its current labels (relative coordinates 0..1)."""
 
-    key: str  # e.g. "<task_id>:<frame>" in CVAT, the task id in Label Studio
+    key: str  # "<task_id>:<frame>" in CVAT
     file_name: str
     width: int
     height: int
@@ -91,7 +91,7 @@ class RemoteProject(Protocol):
         """Every image of the remote project (or of these remote tasks) with its current labels."""
         ...
 
-    supports_tasks: bool  # tasks/jobs, deleted frames (CVAT); False: one flat list of items
+    supports_tasks: bool  # tasks/jobs, deleted frames (CVAT); False: a remote with one flat list of items
 
     def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:
         """Mark frames of a remote task deleted / not deleted (only when ``supports_tasks``)."""

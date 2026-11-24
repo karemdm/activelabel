@@ -271,7 +271,7 @@ def make_plan(
     Args:
         store: projects.
         project_id: the project.
-        tool: ``cvat`` or ``labelstudio``.
+        tool: ``cvat``.
         settings: login of the tool.
         remote: the tool's remote adapter.
         progress: job progress.
@@ -403,7 +403,7 @@ def make_plan(
                 action = REMOVE_LOCAL
         else:  # removed here, present in the tool
             if not supports or (base_removed and rec is None):
-                action = SAME  # Label Studio: local removals are not sent; deleted for good here
+                action = SAME  # a remote without tasks: local removals are not sent; deleted for good here
             elif base_removed:
                 action = RESTORE_LOCAL
             elif base is not None and not links.same_labels(theirs, base):
@@ -1167,7 +1167,7 @@ def link_from_items(
     Args:
         store: projects.
         project_id: the project.
-        tool: ``cvat`` or ``labelstudio``.
+        tool: ``cvat``.
         info: the remote project.
         items: its items right now.
         only: image ids to map (every image when None).

@@ -9,14 +9,11 @@ from activelabel.annotate.base import ToolError
 from activelabel.sync.remote import RemoteProject
 
 OVERRIDES: dict[str, RemoteProject] = {}  # tests register fakes here
-_LAZY = {
-    "cvat": ("activelabel.sync.cvat_remote", "CvatRemote"),
-    "labelstudio": ("activelabel.sync.labelstudio_remote", "LabelStudioRemote"),
-}
+_LAZY = {"cvat": ("activelabel.sync.cvat_remote", "CvatRemote")}
 
 
 def get_remote(tool: str) -> RemoteProject:
-    """The remote project adapter of ``tool`` (``cvat`` or ``labelstudio``).
+    """The remote project adapter of ``tool`` (``cvat``).
 
     Raises:
         ToolError: the tool cannot be synchronised or its adapter is not available.
@@ -24,7 +21,7 @@ def get_remote(tool: str) -> RemoteProject:
     if tool in OVERRIDES:
         return OVERRIDES[tool]
     if tool not in _LAZY:
-        raise ToolError(f"The tool '{tool}' cannot be synchronised (use cvat or labelstudio).")
+        raise ToolError(f"The tool '{tool}' cannot be synchronised (use cvat).")
     module, cls = _LAZY[tool]
     try:
         factory: Any = getattr(importlib.import_module(module), cls)

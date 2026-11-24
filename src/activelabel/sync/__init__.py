@@ -1,1 +1,1 @@
-"""Synchronisation of a project with CVAT or Label Studio (docs/SYNC.md)."""
+"""Synchronisation of a project with CVAT (docs/SYNC.md)."""
