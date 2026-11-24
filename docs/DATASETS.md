@@ -60,16 +60,33 @@ warnings. Nothing is saved until the person confirms.
   - `class_missing`: a class absent from a part that should have images (`part`, `class`);
   - `few_images`: a part with very few images (fewer than 5);
   - `ratio_drift`: a part whose real share is far from the requested one (`expected`, `actual`, in %);
-  - `group_too_big`: a group larger than a part's target that moved the proportions (a big video can
-    make the real percentages drift: the preview shows the real ones);
+  - `group_too_big`: a group larger than a part's target that moved the proportions; `cause` says why the
+    group is big: `video` (frames of one video that stay whole) or `duplicates` (near-identical images
+    kept together), and the interface words the warning accordingly ("Whole videos stay together: the
+    real split is ..." or "Near-identical images stay together: the real split is ...");
+  - `labels_without_geometry`, `keypoints_count_mismatch` and `multiple_classes`: labels left out of the
+    version, see *Labels that are left out*;
   - `no_curation`: curation was not analysed, so the near-duplicate rule could not apply;
   - `video_split`: information, not a problem (see above).
 - Excluded images and images of tasks not chosen never enter.
 - **Pre-annotations are ignored**: labels with a `score` (made by a model, docs/PREANNOTATE.md) are
   not copied into a version, so an image that only has pre-annotations counts as having no labels
   until a person reviews it.
-- **Training needs a validation part**: a version with validation at 0 can be created, but a training
-  run on it fails ("make a version with validation"); with K-fold, each fold is a validation part.
+- **Labels that are left out.** The version keeps, in its label copy, only labels a model of the project's
+  type can use (the same check as the import of annotation files): labels **without the shape of the
+  type** (a box project does not take a label with no box, a segmentation project one with no polygon, and
+  so on) are left out and counted (`labels_without_geometry`); in a keypoints project the labels whose
+  number of points differs from the most common one (`expected`) are left out
+  (`keypoints_count_mismatch`); in a classification project an image with more than one class keeps only
+  the first (`multiple_classes`). Each warning carries `count` and up to five `examples` (image ids). If
+  nothing is usable at all the preview and the creation answer 400 `no_usable_labels`.
+- **A version that cannot train is refused.** A hold-out split whose training part or whose validation
+  part (when it was asked to have images) ended up empty, because there are too few images or groups of
+  images for the proportions, is refused with **409 `dataset_part_empty`** (`params.parts`); send
+  `allow_empty: true` with the options to save it anyway. A training percentage of 0 is a 400
+  (`split_train_empty`). A version with validation at 0 can still be created on purpose, but a training
+  run on it fails ("make a version with validation"); with K-fold, each fold is a validation part. An empty
+  test part or fold is not refused and is listed in the preview (`empty_parts`).
 
 Known limitation: with K-fold on split videos, the safety gap only protects the test part. Frames of
 neighbouring segments can land in different folds, and no frames are left out between folds.
@@ -108,10 +125,10 @@ makes the version *incomplete*, shown on its card).
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/api/projects/{id}/datasets` | | `{versions: [summary]}` (newest first) |
-| POST | `/api/projects/{id}/datasets/preview` | options | `{type, options, sizes, stats, warnings, duplicates_analysed, videos}` (nothing saved) |
-| POST | `/api/projects/{id}/datasets` | options + `note` | the new version (summary) |
+| POST | `/api/projects/{id}/datasets/preview` | options | `{type, options, sizes, stats, warnings, duplicates_analysed, videos, empty_parts, groups, max_kfold}` (nothing saved); `empty_parts`: parts asked to have images that have none (`train`, `val`, `test`, or `fold`); `max_kfold`: the largest K the images allow (at most 10; below 2 K-fold is not possible) |
+| POST | `/api/projects/{id}/datasets` | options + `note` + `allow_empty` (default false) | the new version (summary); 409 `dataset_part_empty` when the training or validation part would be empty |
 | GET | `/api/projects/{id}/datasets/{n}` | | the version without the label copy |
-| DELETE | `/api/projects/{id}/datasets/{n}` | `{confirm: true}` | `{deleted: true}` |
+| DELETE | `/api/projects/{id}/datasets/{n}` | `{confirm: true, confirm_runs?}` | `{deleted: true}`; 409 `dataset_in_use` while a queued or running training run uses the version (cancel it first); 409 `dataset_used_by_runs` (with `params.runs`) when finished runs used it, because they could not be repeated afterwards (saved models keep working): send `confirm_runs: true` to delete anyway |
 | GET | `/api/projects/{id}/images?dataset=n&part=train` | | images of a part (also `fold=i`) |
 
 Summary: `{version, created, note, type, classes, options, sizes: {train, val, test} or {test, folds: [...]},
@@ -119,13 +136,27 @@ stats, warnings, videos, incomplete}`. Options accepted:
 `tasks, split, kfold, background, seed, videos, gap_seconds` (plus `note` on create). Segments of a
 folded version carry `{"part": "fold", "fold": n}`.
 
+## Errors
+
+Split options are checked with a code the interface translates (400): `not_whole_number`,
+`split_percentage_range`, `split_sum`, `split_train_empty`, `kfold_range`, `kfold_test_too_big`,
+`kfold_too_few_groups`, `background_not_bool`, `videos_mode`, `gap_not_number`, `gap_range`,
+`tasks_not_list`, `task_not_found`, `nothing_to_split`, `no_usable_labels`, `note_too_long`,
+`part_unknown`, `split_unknown_part`, `fold_required`, `fold_not_found`, `version_has_no_folds`; 404 `dataset_not_found`.
+
 ## Interface
 
-Step 4 shows the versions as cards (number, date, note, sizes per part as a bar, warnings) and a
-*New version* form (tasks, split percentages as number inputs (no sliders) or K-fold, background switch, note; under *Advanced*:
-seed, videos mode and safety gap) with the live preview, which shows the `video_split` information in
+Step 4 shows the versions as cards (number, date, note, sizes per part as a bar, warnings). The warnings
+of a card are **grouped** under one line such as "5 warnings: missing classes (2) · balance (1) · few
+images (1) · labels (1)" (groups: missing classes, balance, few images, labels, other), that opens the
+list; the badges name the cause (for example "{n} labels without shape", "{n} images with several
+classes", "{n} labels with another number of points"). Each card also has *Train with this version*
+(*Treinar com esta versão*), which opens the *New run* dialog with the version chosen, and the card shows
+the requested and the real percentages when they differ ("Requested: 70/20/10 %"). The *New version* form has (tasks, split percentages as number inputs (no sliders) or K-fold, background switch, note; under *Advanced*:
+seed, videos mode and safety gap), with the live preview, which shows the `video_split` information in
 a neutral style (a small neutral badge "video in N segments" on the version card). A version card opens its images per part in the image grid (filter) and can be
-deleted after confirmation.
+deleted after confirmation; when training runs use the version the server refuses (see the API above) and the
+interface shows its text.
 
 A version holds only image ids and a copy of the labels in the internal format. It is not converted to
 any model format: the training runner writes a `spec.json` (image paths and targets) for the worker,
