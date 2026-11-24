@@ -1,17 +1,22 @@
-# ActiveLabel — synchronisation with CVAT and Label Studio
+# ActiveLabel — synchronisation with CVAT
 
-A project can be **linked** to one remote project in CVAT or Label Studio. Synchronising
-brings both sides to the same annotations, with a review before anything changes. In the interface
-this is offered for CVAT only (the *CVAT* tab of *Annotations*); Label Studio is switched off in the
-interface for now, while the code and the API below accept both tools.
+A project can be **linked** to one remote project in CVAT. Synchronising brings both sides to the same
+annotations, with a review before anything changes. In the interface this is the *CVAT* tab of
+*Annotations*; it is also the only way to review in CVAT (there are no CVAT edit sessions). The API takes
+`cvat` as `{tool}`; any other name answers 404 `tool_unknown`.
+
+Label Studio support was removed. A link written for a tool that cannot be synchronised any more (an old
+workspace) is listed by `GET /api/projects/{id}/links` with `supported: false` and shown as "Linked to a
+discontinued tool" (*Vinculado a uma ferramenta descontinuada*): it cannot be synchronised and can only be
+unlinked, which changes nothing in that tool.
 
 ## Link
 
 `<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, created, last_sync, revision,
 tasks?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
 "removed"?: true}}}}`
-(one link per tool; `key` identifies the image in the remote project, e.g. `"<task_id>:<frame>"`
-in CVAT or the task id in Label Studio; `revision` goes up on every save, so a comparison made before
+(one link per tool; `key` identifies the image in the remote project, `"<task_id>:<frame>"` in CVAT;
+`revision` goes up on every save, so a comparison made before
 another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md). For each image the link
 keeps the labels as they were at the last sync (`labels`) and their hash (`base`, a stable SHA-256 of
 the labels in the internal format, sorted, coordinates rounded to 4 decimals); `removed` marks an image
@@ -24,14 +29,18 @@ A link is created:
 - when the person chooses *Synchronise* (*Sincronizar*) for an existing remote project with the same name
   (images matched by file name; unmatched ones are reported).
 
-In CVAT every task lives **inside** the linked CVAT project: the CVAT client refuses to create a task
-without a `project_id` (a task outside any project would be invisible to the synchronisation and keep
-counting in the plan). Review in CVAT happens only through this synchronisation.
+**Task guard.** In CVAT every task lives **inside** the linked CVAT project. The CVAT client refuses to
+create a task without a `project_id` (`POST /api/tasks` with none is stopped before anything is sent, with
+the text "Refusing to create a CVAT task outside a project"): a task outside any project would be invisible
+to the synchronisation and would keep counting in the plan. If an upload of later batches fails, only the
+half-made task is deleted.
 
-The *Tasks on the server* (*Tasks no servidor*) button of the *CVAT* tab opens a **read-only audit**
-(`GET /api/cvat/audit`): the tasks of every project of the configured server, saying which project is linked
-to one of ours, and the tasks that are in no project grouped by name pattern (digits shown as `#`, e.g.
-`street_round_#`). It never moves or deletes anything.
+**Audit of the server.** The *Tasks on the server* (*Tasks no servidor*) button of the *CVAT* tab opens a
+**read-only audit** (`GET /api/cvat/audit`, 400 `tool_error` when CVAT cannot be reached or refuses the
+login): the tasks of every project of the configured server, saying which project is linked to one of
+ours, and the tasks that are in no project, grouped by name pattern (digits shown as `#`, e.g.
+`street_round_#`; the biggest group first). ActiveLabel only creates tasks inside a project, so those come
+from other tools or older versions. The audit never moves or deletes anything.
 
 ## A linked project that was deleted in CVAT
 
@@ -75,7 +84,7 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    link (`base` hashes, keys, `last_sync`). Result: counts.
 
 Classes: classes found remotely but missing locally are added to the project; local classes
-missing in the remote project are added to it (CVAT labels / Label Studio config).
+missing in the remote project are added to it (CVAT labels).
 
 ## Direction
 
@@ -135,5 +144,6 @@ class RemoteProject(Protocol):          # activelabel/sync/remote.py
     def write(self, settings, remote_id: str, project: Project,
               updates: dict[str, list[Label]]) -> None                # key -> labels (replace)
     def ensure_classes(self, settings, remote_id: str, classes: list[str]) -> None
+    def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
 ```
 `RemoteItem = {key, file_name, width, height, labels: list[Label]}` (labels relative 0..1).
