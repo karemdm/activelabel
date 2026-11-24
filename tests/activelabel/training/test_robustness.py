@@ -227,7 +227,7 @@ def test_run_fails_readably_when_version_is_deleted(setup):
     run = wait_for(finished(store, n))
     assert run["status"] == "failed"
     assert run["error"] == "The data split version of this run was deleted."
-    assert tmp_dirs(runner) == []
+    wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
 
 
 # -- composite runs: best fold value ------------------------------------------------------------
