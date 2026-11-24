@@ -184,7 +184,7 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 
 /* project: one full-width bar with the steps in groups (data | model), above the current step */
 .project-body { margin-top: var(--space-4); }
-.stepper { display: flex; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-2) 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
+.stepper { position: relative; display: flex; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-2) 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
 .step-group { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: var(--space-1) 0.4rem; min-width: 0; }
 .step-group > .step { flex: 1 1 auto; width: auto; }
 .step-group + .step-group { padding-left: var(--space-3); border-left: 1px solid var(--border); }

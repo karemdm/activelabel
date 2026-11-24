@@ -196,3 +196,12 @@ def test_every_error_param_the_page_names_is_a_param_the_server_sends():
     for path in SRC.rglob("*.py"):
         sent |= set(re.findall(r"\b(\w+)=", path.read_text(encoding="utf-8")))
     assert named <= sent, named - sent
+
+
+def test_the_step_bar_contains_its_hidden_texts():
+    """``.sr-only`` is absolutely positioned: without a positioned ``.stepper`` its texts escape the bar's
+    scroll box and make the whole page scroll sideways on a phone."""
+    rule = re.search(r"^\.stepper \{([^}]*)\}", CSS, re.M)
+    assert rule, "the .stepper rule is gone"
+    assert "position: relative" in rule.group(1)
+    assert "overflow-x: auto" in rule.group(1)
