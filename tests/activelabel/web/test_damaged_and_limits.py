@@ -143,7 +143,7 @@ def test_reopening_a_closed_task_is_a_conflict_and_checks_come_before_settings(t
     # nothing is configured: a wrong direction or scope is still reported as such
     wrong = client.post("/api/projects/1/sync/cvat", json={"direction": "sideways"})
     assert wrong.status_code == 400 and "direction" in wrong.json()["detail"]
-    wrong = client.post("/api/projects/1/annotate", json={"tool": "cvat", "scope": "nope"})
+    wrong = client.post("/api/projects/1/annotate", json={"tool": "fiftyone", "scope": "nope"})
     assert wrong.status_code == 400 and "scope" in wrong.json()["detail"]
 
 

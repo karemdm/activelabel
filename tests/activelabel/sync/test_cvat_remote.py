@@ -130,6 +130,7 @@ class FakeCvat:
             (("GET", r"/api/tasks"), self.list_tasks),
             (("POST", r"/api/tasks"), self.post_task),
             (("DELETE", r"/api/tasks/(\d+)"), self.delete_task),
+            (("GET", r"/api/users/self"), lambda kw: Resp(200, {"username": "ana"})),
             (("GET", r"/api/server/about"), lambda kw: Resp(200, {"name": "CVAT"})),
             (("GET", r"/api/tasks/(\d+)/data/meta"), meta),
             (("GET", r"/api/tasks/(\d+)/annotations"), ann),
@@ -253,6 +254,13 @@ def test_find_exact_name_and_get(cvat: FakeCvat) -> None:
     assert CvatRemote().find(SETTINGS, "nothing") is None
     assert CvatRemote().get(SETTINGS, str(pid)).name == "ActiveLabel 7 - Pets"
     assert cvat.auth == ("ana", "s3cret-pw")
+
+
+def test_check_logs_in_and_names_the_user(cvat: FakeCvat) -> None:
+    assert CvatRemote().check(SETTINGS) == "Connected to https://cvat.test as ana"
+    cvat.fail[("GET", "/api/users/self")] = 401
+    with pytest.raises(ToolError, match="username and password"):
+        CvatRemote().check(SETTINGS)
 
 
 def test_get_missing_is_readable(cvat: FakeCvat) -> None:

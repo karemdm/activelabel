@@ -10,6 +10,7 @@ FiftyOne as an argument; it is never logged, stored or put in a message.
 
 from __future__ import annotations
 
+import re
 import shutil
 import uuid
 from collections.abc import Iterator
@@ -20,7 +21,6 @@ from typing import Any
 import requests
 
 from activelabel.annotate.base import ToolError, ToolSettings
-from activelabel.annotate.cvat_tool import explain
 from activelabel.annotations.models import Problem
 from activelabel.images.ingest import ingest_folder
 from activelabel.images.manifest import Manifest
@@ -108,6 +108,39 @@ class _Http:
             str(x["name"]) for x in labels if isinstance(x, dict) and x.get("name") and not x.get("parent_id")
         ]
         return list(dict.fromkeys(names))
+
+
+def _has_status(low: str, code: int) -> bool:
+    """Whether the text names an HTTP status as a number of its own (not inside an id or a path)."""
+    return re.search(rf"(?<![\w/.-]){code}(?![\w.-])", low) is not None
+
+
+def explain(err: Exception, url: str = "") -> ToolError:
+    """Turn CVAT / FiftyOne / network errors into a readable :class:`ToolError`."""
+    if isinstance(err, ToolError):
+        return err
+    text = str(err)
+    low = text.lower()
+    name = type(err).__name__.lower()
+    where = f" at {url}" if url else ""
+    if (
+        "maximum number of" in low or "upgrade" in low
+    ):  # a plan limit often comes as a 403: not a login problem
+        return ToolError(f"CVAT plan limit reached: {text.splitlines()[0] if text else 'see your plan'}")
+    if "auth/login" in low or _has_status(low, 401) or "unauthorized" in low:
+        return ToolError(f"CVAT login failed{where}: check the username and password.")
+    if _has_status(low, 403) or "forbidden" in low:
+        return ToolError(
+            f"CVAT refused the request{where}: the account is not allowed to do this "
+            f"({text.splitlines()[0] if text else 'forbidden'})."
+        )
+    if _has_status(low, 429) or "too many requests" in low:
+        return ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
+    if "connection" in name or "timeout" in name or "max retries" in low or "name or service" in low:
+        return ToolError(f"Cannot reach CVAT{where}: check the address and your network.")
+    if _has_status(low, 404) or "not found" in low or "invalidurl" in name or "missingschema" in name:
+        return ToolError(f"CVAT answered 'not found'{where}: check the address (or the task was deleted).")
+    return ToolError(f"CVAT error: {text.splitlines()[0] if text else type(err).__name__}")
 
 
 def _created(item: dict[str, Any]) -> str:

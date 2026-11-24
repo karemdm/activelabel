@@ -477,6 +477,12 @@ class CvatRemote:
         deleted = {int(d) for d in meta.get("deleted_frames") or []}
         return [(str(fr.get("name", "")), i in deleted) for i, fr in enumerate(_meta_frames(meta))]
 
+    def check(self, settings: ToolSettings) -> str:
+        """Log in to the server; return ``Connected to <url> as <user>`` (raises ToolError)."""
+        api = self._api(settings)
+        who = api.get("/api/users/self") or {}
+        return f"Connected to {api.url} as {who.get('username') or settings.username}"
+
     def server_answers(self, settings: ToolSettings) -> bool:
         """Whether the CVAT server answers (``/api/server/about``): tells "deleted" from "wrong server"."""
         try:

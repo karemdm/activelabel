@@ -421,3 +421,23 @@ def test_an_address_that_is_not_the_cvat_api(monkeypatch):
     monkeypatch.setattr(requests, "Session", lambda: fake)
     with pytest.raises(ToolError, match="did not answer as the CVAT API"):
         ci.list_remote(SETTINGS)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "403 Forbidden: You have reached the maximum number of tasks",
+        "HTTP 403: please upgrade your plan",
+    ],
+)
+def test_plan_limit_is_not_a_login_problem(text):
+    err = ci.explain(RuntimeError(text), "https://cvat.example")
+    assert "plan limit" in str(err) and "login" not in str(err)
+
+
+def test_status_codes_are_matched_as_numbers_not_inside_ids():
+    assert "login failed" in str(ci.explain(RuntimeError("HTTP 401 Unauthorized")))
+    assert "refused" in str(ci.explain(RuntimeError("403 Forbidden")))
+    assert "slow down" in str(ci.explain(RuntimeError("Error 429")))
+    for text in ("task 14031 failed", "/api/tasks/403/data broke", "id 4010 and 2401"):
+        assert str(ci.explain(RuntimeError(text))) == f"CVAT error: {text}"

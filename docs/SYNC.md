@@ -26,6 +26,10 @@ A link is created:
 - when the person chooses *Synchronise* (*Sincronizar*) for an existing remote project with the same name
   (images matched by file name; unmatched ones are reported).
 
+In CVAT every task lives **inside** the linked CVAT project: the CVAT client refuses to create a task
+without a `project_id` (a task outside any project would be invisible to the synchronisation and keep
+counting in the plan). Review in CVAT happens only through this synchronisation.
+
 ## Send when the remote project already exists
 
 `POST /api/projects/{id}/annotate` with a CVAT/Label Studio tool first checks for a link or a
@@ -127,6 +131,7 @@ crosses jobs has one track id per job.
 ```python
 class RemoteProject(Protocol):          # activelabel/sync/remote.py
     tool: str
+    def check(self, settings) -> str                                  # login test, "Connected to ..."
     def find(self, settings, name: str) -> RemoteInfo | None
     def get(self, settings, remote_id: str) -> RemoteInfo            # {id, name, url, images}
     def create(self, settings, project: Project) -> RemoteInfo
