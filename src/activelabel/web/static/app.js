@@ -2289,6 +2289,13 @@
         drawFilter();
         grid.reload();
       };
+      /** A deleted dataset version can no longer filter the gallery (every load would answer 404). */
+      panel.forgetDataset = (n) => {
+        if (!filter.dataset || filter.dataset.n !== n) return;
+        filter = { ...filter, dataset: null };
+        drawFilter();
+        if (panel.mounted) grid.reload();
+      };
       return panel;
     }
 
@@ -2827,9 +2834,12 @@
         const model = models.find((m) => m.number === form.model);
         const n = task ? task[form.scope] || 0 : 0;
         const running = (data.runs || []).find(ACTIVE);
-        const modelSel = el('select', { id: 'pre-model', class: 'tr-select', onchange: (e) => { form.model = Number(e.target.value); form.threshold = null; draw(true); } },
+        /* a saved model this version no longer knows is listed, disabled, and says why */
+        const gone = (data.models || []).filter((m) => m.missing);
+        const modelSel = el('select', { id: 'pre-model', class: 'tr-select', 'aria-describedby': gone.length ? 'pre-model-hint' : null, onchange: (e) => { form.model = Number(e.target.value); form.threshold = null; draw(true); } },
           ...models.map((m) => el('option', { value: String(m.number), selected: m.number === form.model },
-            [`m${m.number}`, m.label, m.value != null ? `${metricName(m.metric)} ${nf3.format(m.value)}` : null, m.current ? t('md.current') : null].filter(Boolean).join(' · '))));
+            [`m${m.number}`, m.label, m.value != null ? `${metricName(m.metric)} ${nf3.format(m.value)}` : null, m.current ? t('md.current') : null].filter(Boolean).join(' · '))),
+          ...gone.map((m) => el('option', { value: String(m.number), disabled: true }, `m${m.number} · ${m.label} · ${t('pre.model_missing')}`)));
         const taskSel = el('select', { id: 'pre-task', class: 'tr-select', onchange: (e) => { form.task = Number(e.target.value); draw(true); } },
           ...tasks.map((x) => el('option', { value: String(x.id), selected: x.id === form.task }, `${x.name} · ${tn('pre.task_unlabeled', x.unlabeled)}`)));
         const scopeOpt = (scope, label, count) => {
@@ -2840,17 +2850,17 @@
         const threshold = el('input', { type: 'number', id: 'pre-threshold', min: '0.05', max: '0.95', step: '0.05', value: String(form.threshold), 'aria-describedby': 'pre-threshold-hint',
           onchange: (e) => { const v = e.target.value === '' ? NaN : Number(e.target.value); form.threshold = Number.isFinite(v) ? Math.min(0.95, Math.max(0.05, v)) : null; draw(true); } });
         const kindHint = model && model.task_kind === 'classification' ? t('pre.threshold_cls') : t('pre.threshold_det');
-        const go = el('button', { type: 'button', class: 'btn primary', id: 'pre-start', disabled: !n || !!running, onclick: (e) => start(e.currentTarget) }, icon('star', 16), tn('pre.start', n));
+        const go = el('button', { type: 'button', class: 'btn primary', id: 'pre-start', disabled: !n || !!running, 'aria-describedby': !n && !running ? 'pre-start-hint' : null, onclick: (e) => start(e.currentTarget) }, icon('star', 16), tn('pre.start', n));
         return el('section', { class: 'pre-section', 'aria-labelledby': 'pre-h-form' },
           el('h3', { id: 'pre-h-form' }, t('pre.form_title')),
           el('p', { class: 'muted' }, t('pre.form_intro')),
           el('div', { class: 'pre-form' },
-            el('div', { class: 'field' }, el('label', { for: 'pre-model' }, t('pre.model')), modelSel),
+            el('div', { class: 'field' }, el('label', { for: 'pre-model' }, t('pre.model')), modelSel, gone.length ? el('p', { class: 'hint', id: 'pre-model-hint' }, t('pre.model_missing_hint')) : null),
             el('div', { class: 'field' }, el('label', { for: 'pre-task' }, t('pre.task')), taskSel),
             el('fieldset', { class: 'field pre-scope' }, el('legend', null, t('pre.images')),
               el('div', { class: 'seg' }, scopeOpt('unlabeled', t('pre.scope_unlabeled'), task ? task.unlabeled : 0), scopeOpt('unreviewed', t('pre.scope_unreviewed_short'), task ? task.unreviewed : 0))),
             el('div', { class: 'field' }, el('label', { for: 'pre-threshold' }, t('pre.threshold')), threshold, el('p', { class: 'hint', id: 'pre-threshold-hint' }, kindHint))),
-          el('div', { class: 'pre-actions' }, go, running ? liveLine(running) : lastOutcome()));
+          el('div', { class: 'pre-actions' }, go, running ? liveLine(running) : (n ? null : el('p', { class: 'hint', id: 'pre-start-hint' }, t('pre.start_none'))) || lastOutcome()));
       }
 
       function lastOutcome() {
@@ -3849,6 +3859,7 @@
         try {
           await api('DELETE', `/projects/${projectId}/datasets/${v.version}`, { json: { confirm: true } });
           toast(t('ds.deleted', { n: v.version }), 'success', 3000);
+          ctx.panels.images.forgetDataset(v.version);
         } catch (err) {
           toastError(err);
         }
@@ -4130,7 +4141,9 @@
       const plain = (v) => String(v);   // hyperparameters are shown exactly (no rounding of 0.0001)
       const foldCount = (v) => Number((v.options || {}).kfold) || (Array.isArray(v.folds) ? v.folds.length : 0) || (v.sizes && Array.isArray(v.sizes.folds) ? v.sizes.folds.length : 0);
       const foldText = (f) => (f == null ? '' : f === 'all' ? t('tr.fold_all') : t('ds.fold', { n: Number(f) + 1 }));
-      const datasetText = (r) => [t('tr.dataset_short', { n: r.dataset }), foldText(r.fold)].filter(Boolean).join(' · ');
+      const datasetText = (r) => (r.dataset == null ? '' : [t('tr.dataset_short', { n: r.dataset }), foldText(r.fold)].filter(Boolean).join(' · '));
+      /* a run whose configuration file is damaged comes without model, dataset or start, with `config_error` instead */
+      const configError = (r) => (r.config_error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, `${t('tr.config_error')} ${r.config_error}`)) : null);
 
       function fmtDuration(ms) {
         const s = Math.max(0, Math.round(ms / 1000));
@@ -4204,7 +4217,7 @@
         const pct = percentOf(r);
         const id = `run-${r.number}`;
         const best = r.best && r.best.value != null ? `${metricName(metric)} ${fmtVal(r.best.value)}` : '';
-        const meta = [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null, r.trainings ? tn('tr.trainings', r.trainings) : null].filter(Boolean);
+        const meta = r.config_error ? [] : [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null, r.trainings ? tn('tr.trainings', r.trainings) : null].filter(Boolean);
         const facts = [durationOf(r), deviceOf(r)].filter(Boolean);
         const act = (name, label, fn, cls = '') => el('button', { type: 'button', class: `btn small ${cls}`, 'data-act': name, onclick: fn }, label);
         return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
@@ -4215,6 +4228,7 @@
           el('p', { class: 'muted tr-meta' }, meta.join(' · ')),
           pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null,
           r.status === 'running' && r.message ? el('p', { class: 'muted tr-msg' }, r.message) : null,
+          configError(r),
           r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null,
           best || facts.length
             ? el('p', { class: 'tr-facts' }, best ? el('strong', null, best) : null, best && facts.length ? ' · ' : null, el('span', { class: 'muted' }, facts.join(' · ')))
@@ -4226,7 +4240,7 @@
               : null,
             r.status === 'done' && !r.model_number ? act('save', t('md.save'), () => saveModel(r), 'primary') : null,
             ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
-            act('again', t('tr.reproduce'), () => reproduceRun(r)),
+            r.config_error ? null : act('again', t('tr.reproduce'), () => reproduceRun(r)),
             ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
       }
 
@@ -4764,6 +4778,7 @@
         let lastLive = '';
 
         function configBlock(r) {
+          if (r.config_error) return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-config' }, el('h3', { id: 'trd-config', class: 'section-title' }, t('tr.config')), configError(r));
           const c = r.config || {};
           const m = modelOf(c.model || r.model);
           const params = Object.entries(c.params || {});
@@ -4968,6 +4983,12 @@
 
       panel.mount = () => load();
       panel.show = () => load(true);
+      /** The project changed (its task type may have): the models on offer and their names are asked again. */
+      panel.refresh = () => {
+        catalog = null;
+        cards.clear();
+        if (panel.mounted) load(true);
+      };
       /** Run counts for the step's status line, before the panel is opened. */
       panel.count = async () => {
         try {
@@ -5257,6 +5278,11 @@
         box);
       panel.mount = () => load();
       panel.show = () => load(true);
+      /** The project changed (its task type may have): model names come from the new catalogue. */
+      panel.refresh = () => {
+        for (const id of Object.keys(labels)) delete labels[id];
+        if (panel.mounted) load(true);
+      };
       panel.count = async () => {
         try {
           const d = await api('GET', `/projects/${projectId}/models`);
