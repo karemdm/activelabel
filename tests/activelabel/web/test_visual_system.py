@@ -75,3 +75,20 @@ def test_the_dialog_head_with_its_close_button_stays_in_view():
     assert rule and "position: sticky" in rule.group(1) and "top: -1.25rem" in rule.group(1)
     assert "background: var(--surface)" in rule.group(1)
     assert "head.append(title, el('button'" in JS  # every dialog opened by openModal gets the head and X
+
+
+def test_phone_targets_are_44_px_wide_as_well_as_high():
+    """#334: icon buttons, pager, language, brand, tabs, task names, summaries, checkboxes and chip X."""
+    block = CSS[CSS.index("every target is at least 44x44 px (#334)") :]
+    for selector in (
+        ".icon-btn.small",
+        ".tr-del",
+        ".pager .btn",
+        ".lb-nav",
+        ".topnav a",
+        ".task-title",
+        "summary",
+    ):
+        assert selector in block, selector
+    assert re.search(r"\.thumb-check \{ padding: 10px", block)  # 22px box + 2 x 10px + border = 44px
+    assert re.search(r"\.chip-x \{ padding: 16px; margin: -", block)
