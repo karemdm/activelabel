@@ -41,6 +41,7 @@ Principles (from what went wrong in the previous tool):
   annotate.json       edit sessions in an annotation tool (docs/ANNOTATION.md)
   annotate/<session>/pulled.json   the annotations brought back by a session, until applied or discarded
   origin.json         where an imported project came from (docs/IMPORT.md)
+  fiftyone.json       {"dataset": "<name>"}: the project's FiftyOne dataset (see below)
   annotations.json    ground truth in the internal format (activelabel.labels)
   annotations.<timestamp>.bak.json   backup made before a change that removes or rewrites annotations
   curation.json       thresholds and near-duplicate groups
@@ -58,8 +59,16 @@ Principles (from what went wrong in the previous tool):
   staging/<token>/    annotation files waiting for a decision (+ <token>.target.json: the video task)
 ```
 
-`ACTIVELABEL_WORKSPACE` can be any folder; the FiftyOne database is not inside it (FiftyOne keeps its
-own, see its documentation).
+`ACTIVELABEL_WORKSPACE` can be any folder (an empty variable counts as not set); the FiftyOne database is
+not inside it (FiftyOne keeps its own, see its documentation).
+
+**The project's FiftyOne dataset.** FiftyOne keeps every dataset of the machine in one database, so two
+workspaces (for example a test server and the real one) must not share a name. A new project gets
+`activelabel-<project id>-<8 random hex digits>`, chosen once and recorded in `<project>/fiftyone.json`.
+A dataset made by an earlier version under the plain name `activelabel-<project id>` is kept under that
+name (renaming it would break open FiftyOne App tabs and edit sessions), but only when its samples point
+into this project's folder; a dataset that holds another workspace's images is never adopted. Deleting a
+project deletes its recorded dataset (and the plain-named one only when it holds this project's images).
 
 ## Screens
 
@@ -98,10 +107,47 @@ own, see its documentation).
 ## HTTP API
 
 All under `/api`; the interactive documentation of the running service is at `/docs` and the schema at
-`/openapi.json`. Errors: `{"detail": "<readable message>"}` with 400 (bad request), 404 (not found), 409
-(conflict: a job of the project is running, or the state changed) or 422 (the body or a parameter has
-the wrong shape; `detail` is the list FastAPI gives). A few 409 answers carry an object in `detail` with a
-`code` the interface acts on (`task_change_annotations`, `classes_in_use`, `remote_exists`).
+`/openapi.json`.
+
+### Errors
+
+Every error body has `detail`, a readable English text. Errors the interface translates also carry a
+stable `code` and the `params` the translated text needs:
+
+```json
+{"detail": "A project named 'Cats' already exists.", "code": "project_name_taken", "params": {"name": "Cats"}}
+```
+
+Status codes: 400 (rejected input), 404 (not found), 409 (conflict: a job of the project is running, or the
+state changed since the person looked), 422 (the body or a parameter has the wrong shape; `detail` is the
+list FastAPI gives) and 500 only for a damaged data file (`code: "file_damaged"`, `params.file`; the project
+list itself survives one damaged project). Three 409/400 answers carry an object in `detail` with its own
+`code` the interface acts on: `task_change_annotations` and `classes_in_use` (PATCH of a project),
+`remote_exists` (send to a tool) and `no_images_added` (a task created from files that add nothing, with
+the upload `report`). The `code` values of the other errors are:
+
+| Status | Codes |
+| --- | --- |
+| 400 | `project_name_empty`, `project_name_taken`, `project_name_too_long`, `description_too_long`, `class_name_invalid`, `class_name_too_long`, `too_many_classes`, `task_name_empty`, `task_name_taken`, `task_name_too_long`, `job_size_invalid`, `control_characters`, `url_invalid`, `url_required`, `confirm_required`, `no_images`, `task_required`, `job_required`, `dataset_required`, `scope_invalid`, `scope_unknown`, `direction_invalid`, `resolution_invalid`, `unknown_thresholds`, `tool_not_configured`, `name_mismatch`, `annotation_format_unknown`, `annotation_unreadable`, `annotations_not_convertible`, `video_task_required`, `pull_first`, `fiftyone_not_opened` |
+| 404 | `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
+| 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `annotations_changed`, `session_finished` |
+
+Texts the interface does not know a code for are shown as the English `detail`.
+
+### Limits
+
+| What | Limit |
+| --- | --- |
+| Project name | at most 100 characters, unique among projects |
+| Project description | at most 2000 characters |
+| Class name | at most 100 characters, not empty |
+| Classes per project | at most 1000 |
+| Task name | at most 100 characters, unique within the project |
+| Images per job | a whole number from 1 to 100,000 |
+| Names and text fields | no control characters (`control_characters`) |
+| Frames taken from a video for one task | at most 20,000; the disk must have about twice the estimated size of the frames free (400 otherwise) |
+| Annotation files kept aside before a decision | at most 1 GiB in all, removed after 24 hours and when the service starts |
+| Tool address (CVAT, Label Studio) | must be `http://` or `https://` (`url_invalid`) |
 
 Calls that change a project's data wait for its running jobs: they answer 409 "Wait for the running task
 to finish, or cancel it" while an analysis, a synchronisation or another job of the project is queued or
