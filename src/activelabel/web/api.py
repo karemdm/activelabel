@@ -30,7 +30,7 @@ from activelabel.labels import (
     save_annotations,
 )
 from activelabel.preannotate import image_state
-from activelabel.projects import Project
+from activelabel.projects import Project, clean_classes
 from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
@@ -263,11 +263,16 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
     (a backup copy is kept); otherwise HTTP 409 ``classes_in_use``. Adding or reordering classes never
     needs a decision. The task decision is checked first.
 
-    The change waits for no running job (HTTP 409) and holds the annotations lock from reading
+    The change waits for no running job (HTTP 409). Changing the task or the classes also waits for
+    training, ONNX export and pre-annotation of the project (HTTP 409 ``busy_training``): they read both.
+    It holds the annotations lock from reading
     ``annotations.json`` to writing it (backup included), so no other writer is lost.
     """
-    state.project(project_id)
-    state.busy(project_id)
+    project = state.project(project_id)
+    changes_labels = (body.task is not None and body.task is not project.task) or (
+        body.classes is not None and clean_classes(body.classes) != project.classes
+    )
+    state.busy(project_id, training=changes_labels)  # a run or pre-annotation reads the type and classes
     with annotations_lock(state.store.dir(project_id)):
         return _update_project_locked(project_id, body, state)
 

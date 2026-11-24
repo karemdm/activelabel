@@ -196,3 +196,18 @@ def test_errors_carry_codes_next_to_the_english_detail(tmp_path):
     assert delete.json()["code"] == "confirm_required"
     gone = client.get("/api/jobs/nope").json()
     assert gone["code"] == "activity_not_found"
+
+
+def test_task_and_classes_wait_for_a_run_or_pre_annotation_but_a_rename_does_not(tmp_path):
+    client, state = make_projects(tmp_path, 1)
+    state.runner.has_active = lambda project_id: True  # a pre-annotation is running
+    task = client.patch("/api/projects/1", json={"task": "classification"})
+    assert task.status_code == 409 and task.json()["code"] == "busy_training"
+    classes = client.patch("/api/projects/1", json={"classes": ["cat"]})
+    assert classes.status_code == 409 and classes.json()["code"] == "busy_training"
+    assert (
+        client.patch("/api/projects/1", json={"classes": [], "task": "detection"}).status_code == 200
+    )  # no change
+    assert client.patch("/api/projects/1", json={"name": "Renamed"}).status_code == 200
+    state.runner.has_active = lambda project_id: False
+    assert client.patch("/api/projects/1", json={"classes": ["cat"]}).status_code == 200
