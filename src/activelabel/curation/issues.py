@@ -84,12 +84,26 @@ WHOLE = ("min_side", "phash_distance")
 
 
 def curation_path(project_dir: Path) -> Path:
-    """File with the thresholds and duplicate map of a project."""
+    """File with the thresholds and duplicate map of a project.
+
+    Args:
+        project_dir: folder of the project.
+
+    Returns:
+        ``<project_dir>/curation.json`` (it may not exist).
+    """
     return project_dir / "curation.json"
 
 
 def load_thresholds(project_dir: Path) -> Thresholds:
-    """Thresholds of a project: the defaults with the saved overrides applied."""
+    """Thresholds of a project: the defaults with the saved overrides applied.
+
+    Args:
+        project_dir: folder of the project.
+
+    Returns:
+        The thresholds; saved values that are unknown or no longer valid are ignored.
+    """
     saved = read_json(curation_path(project_dir), {}).get("thresholds", {})
     values: dict[str, Any] = {}
     for key, value in (saved if isinstance(saved, dict) else {}).items():
@@ -104,7 +118,12 @@ def load_thresholds(project_dir: Path) -> Thresholds:
 
 
 def save_thresholds(project_dir: Path, thresholds: Thresholds) -> None:
-    """Save only the values that differ from the defaults (keeps the duplicate map)."""
+    """Save only the values that differ from the defaults (keeps the duplicate map).
+
+    Args:
+        project_dir: folder of the project.
+        thresholds: the limits to save.
+    """
     data = read_json(curation_path(project_dir), {})
     default = asdict(Thresholds())
     data["thresholds"] = {k: v for k, v in asdict(thresholds).items() if v != default[k]}
@@ -112,18 +131,39 @@ def save_thresholds(project_dir: Path, thresholds: Thresholds) -> None:
 
 
 def load_duplicate_of(project_dir: Path) -> dict[str, str]:
-    """``{duplicate id: id of the image it repeats}`` from the last :func:`flag_issues` run."""
+    """``{duplicate id: id of the image it repeats}`` from the last :func:`flag_issues` run.
+
+    Args:
+        project_dir: folder of the project.
+
+    Returns:
+        The map (empty when the images were never analysed).
+    """
     return dict(read_json(curation_path(project_dir), {}).get("duplicate_of", {}))
 
 
 def _save_duplicate_of(project_dir: Path, duplicate_of: dict[str, str]) -> None:
+    """Save the duplicate map in ``curation.json`` (keeps the thresholds).
+
+    Args:
+        project_dir: folder of the project.
+        duplicate_of: duplicate image id -> id of the image it repeats.
+    """
     data = read_json(curation_path(project_dir), {})
     data["duplicate_of"] = duplicate_of
     write_json(curation_path(project_dir), data)
 
 
 def _find(parent: list[int], i: int) -> int:
-    """The root of ``i`` in the union-find forest ``parent`` (compresses the path it walks)."""
+    """The root of ``i`` in the union-find forest ``parent`` (compresses the path it walks).
+
+    Args:
+        parent: the parent of each node (a root is its own parent); updated by the compression.
+        i: the node to look up.
+
+    Returns:
+        The root of ``i``.
+    """
     while parent[i] != i:
         parent[i] = parent[parent[i]]
         i = parent[i]
@@ -131,7 +171,16 @@ def _find(parent: list[int], i: int) -> int:
 
 
 def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> list[list[str]]:
-    """Groups (size >= 2) of images whose hashes are within ``max_distance`` of a group member."""
+    """Groups (size >= 2) of images whose hashes are within ``max_distance`` of a group member.
+
+    Args:
+        ids: image ids.
+        hashes: the perceptual hash of each image (16 hex digits), in the order of ``ids``.
+        max_distance: the largest Hamming distance (0..64) that links two images.
+
+    Returns:
+        The groups of ids, in the order of their first image.
+    """
     parent = list(range(len(ids)))
     values = np.array([int(h, 16) for h in hashes], dtype=np.uint64)
     # Pigeonhole: two 64-bit hashes that differ in at most d bits agree entirely on at least one of
@@ -230,6 +279,9 @@ def reset_curation(manifest: Manifest) -> int:
     """Forget the whole analysis: measures, issues and hashes of every image, and the duplicate map.
 
     The thresholds stay. Exclusions are not touched.
+
+    Args:
+        manifest: images of the project.
 
     Returns:
         How many images had something to clear.
