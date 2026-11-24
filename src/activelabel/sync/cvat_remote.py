@@ -45,7 +45,7 @@ from activelabel.images.manifest import ImageRecord
 from activelabel.images.video import VIDEO_EXTENSIONS
 from activelabel.importing.common import RemoteNotFound
 from activelabel.importing.cvat_import import _Http
-from activelabel.labels import Label
+from activelabel.labels import MISSING_CORNER, Label, clamp01
 from activelabel.projects import Project
 from activelabel.sync import links
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteJob, RemoteTask
@@ -59,7 +59,6 @@ BATCH = 100  # images per CVAT task created by ``add``
 POLL_INTERVAL = 2.0  # seconds between checks of a task's data
 MAX_POLLS = 300  # checks before giving up (about ten minutes)
 ALL = 1_000_000  # "no limit" for paginated lists
-MISSING_CORNER = (0.0, 0.0)  # position of a point that is not labeled (as in cvat_tool)
 
 
 def _meta_selection(meta: dict[str, Any]) -> tuple[int, int, int]:
@@ -90,10 +89,6 @@ def _meta_frames(meta: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _sleep(seconds: float) -> None:
     time.sleep(seconds)
-
-
-def _clamp(v: float) -> float:
-    return min(1.0, max(0.0, v))
 
 
 class _Api(_Http):
@@ -162,8 +157,8 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | 
     """One CVAT shape -> internal label (None for unsupported types)."""
     kind, pts = shape.get("type"), [float(p) for p in shape.get("points") or []]
     w, h = max(w, 1), max(h, 1)
-    xs = [_clamp(x / w) for x in pts[0::2]]
-    ys = [_clamp(y / h) for y in pts[1::2]]
+    xs = [clamp01(x / w) for x in pts[0::2]]
+    ys = [clamp01(y / h) for y in pts[1::2]]
     if kind == "rectangle" and len(pts) >= 4:
         x0, x1 = sorted(xs[:2])
         y0, y1 = sorted(ys[:2])

@@ -19,6 +19,12 @@ from activelabel.tasks import Task
 
 Point = list[float]  # [x, y]
 Keypoint = list[float]  # [x, y, visibility]; visibility 0 = not labeled, 1 = hidden, 2 = visible
+MISSING_CORNER = (0.0, 0.0)  # where tools that cannot leave a point empty (CVAT) put a point not labeled
+
+
+def clamp01(value: float) -> float:
+    """``value`` limited to the range 0..1 (relative coordinates)."""
+    return min(1.0, max(0.0, value))
 
 
 @dataclass

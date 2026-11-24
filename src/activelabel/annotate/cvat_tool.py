@@ -13,13 +13,12 @@ import math
 import re
 from typing import Any
 
-from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings
-from activelabel.labels import Label
+from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings, need_dataset
+from activelabel.labels import MISSING_CORNER, Label
 from activelabel.projects import Project
 from activelabel.tasks import Task
 
 TASK_SIZE = 50  # images per CVAT task (CVAT Online throttles very large uploads)
-MISSING_CORNER = (0.0, 0.0)  # where missing keypoints are placed in CVAT (points cannot be empty)
 
 # Label type of the CVAT schema per task (FiftyOne's names).
 LABEL_TYPES = {
@@ -114,11 +113,6 @@ def explain(err: Exception, url: str = "") -> ToolError:
     return ToolError(f"CVAT error: {text.splitlines()[0] if text else type(err).__name__}")
 
 
-def _need_dataset(dataset: Any) -> None:
-    if dataset is None:
-        raise ToolError("Open the project in FiftyOne first.")
-
-
 def _login(settings: ToolSettings) -> Any:
     """Authenticated FiftyOne CVAT client (call ``close()`` on it)."""
     from fiftyone.utils.cvat import CVATAnnotationAPI
@@ -205,7 +199,7 @@ class CvatTool:
         anno_key = str(ref.get("anno_key") or "")
         if not anno_key:
             raise ToolError("This session has no CVAT annotation run.")
-        _need_dataset(dataset)
+        need_dataset(dataset)
         field = pull_field(anno_key)
         try:
             dataset.load_annotations(anno_key, dest_field=field, unexpected="keep", cleanup=False, **creds)
@@ -236,7 +230,7 @@ class CvatTool:
         anno_key = str(ref.get("anno_key") or "")
         if not anno_key:
             return
-        _need_dataset(dataset)
+        need_dataset(dataset)
         if anno_key not in dataset.list_annotation_runs():
             return
         if delete_remote:

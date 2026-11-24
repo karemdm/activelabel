@@ -71,7 +71,7 @@ def _filter_step(text: str) -> int:
     return max(1, int(match.group(1))) if match else 1
 
 
-def _task_numbered(root: ET.Element, start: int, step: int, last: int | None, size: int | None) -> bool:
+def _task_numbered(root: ET.Element, start: int, step: int, last: int | None) -> bool:
     """Whether the frame numbers of a CVAT video file count the task's frames (0..size-1).
 
     CVAT's export uses video frame numbers: they all lie on ``start + k * step``. Otherwise they are
@@ -118,8 +118,7 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
         start = _int(first_text) or 0
         step = _filter_step(filter_text)
         last = _int((task.findtext("stop_frame") or "").strip())
-        task_size = _int((task.findtext("size") or "").strip())
-        relative = bool(first_text or filter_text) and _task_numbered(root, start, step, last, task_size)
+        relative = bool(first_text or filter_text) and _task_numbered(root, start, step, last)
         width, height = _f(task.findtext("original_size/width")), _f(task.findtext("original_size/height"))
     for labels in root.iter("labels"):
         for declared in labels.findall("label"):

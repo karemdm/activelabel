@@ -147,7 +147,7 @@ def apply(
         "project_id": project_id,
         "format": fmt,
         "task": task.value,
-        "images_imported": added,
+        "images_imported": added,  # the same number under both names (``images_imported`` is the old one)
         "labels_imported": n_labels,
         "images_kept": kept,
         "images_added": added,

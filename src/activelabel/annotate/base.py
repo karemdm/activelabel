@@ -22,6 +22,16 @@ class ToolError(RuntimeError):
     """A readable problem with a tool (bad login, server not reachable, task deleted...)."""
 
 
+def need_dataset(dataset: Any) -> None:
+    """Refuse to go on without the project's FiftyOne dataset.
+
+    Raises:
+        ToolError: ``dataset`` is None (the project was never opened in FiftyOne).
+    """
+    if dataset is None:
+        raise ToolError("Open the project in FiftyOne first.")
+
+
 @dataclass
 class ToolSettings:
     """How to reach a tool. ``secret`` (password or API token) comes from the keyring only."""

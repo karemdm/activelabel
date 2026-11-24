@@ -31,9 +31,9 @@ from xml.sax.saxutils import quoteattr
 
 import requests
 
-from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings
+from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings, need_dataset
 from activelabel.annotations.labelstudio import _rect_box as _pixel_box
-from activelabel.labels import Label
+from activelabel.labels import Label, clamp01
 from activelabel.projects import Project
 from activelabel.tasks import Task
 
@@ -42,10 +42,6 @@ UPLOAD_TIMEOUT = 300
 BATCH = 20  # files per upload request
 UPLOAD_PREFIX = re.compile(r"^[0-9a-fA-F]{8}-")
 FROM, TO = "label", "image"
-
-
-def _clamp(v: float) -> float:
-    return min(1.0, max(0.0, v))
 
 
 def labeling_config(task: Task, classes: list[str], keypoints: int = 1) -> str:
@@ -134,8 +130,8 @@ def _rect_box(v: dict[str, Any], width: float, height: float) -> list[float]:
     width, height = max(float(width or 0), 1.0), max(float(height or 0), 1.0)
     x, y, w, h = _pixel_box(v, width, height)
     x, y, w, h = x / width, y / height, w / width, h / height
-    x0, y0 = _clamp(x), _clamp(y)
-    return [x0, y0, _clamp(x + w) - x0, _clamp(y + h) - y0]
+    x0, y0 = clamp01(x), clamp01(y)
+    return [x0, y0, clamp01(x + w) - x0, clamp01(y + h) - y0]
 
 
 def from_results(results: list[dict[str, Any]], task: Task, keypoints: int = 0) -> list[Label]:
@@ -151,7 +147,7 @@ def from_results(results: list[dict[str, Any]], task: Task, keypoints: int = 0) 
             size = (res.get("original_width") or 100, res.get("original_height") or 100)
             labels.append(Label(str(val["rectanglelabels"][0]), bbox=_rect_box(val, *size)))
         elif task is Task.SEGMENTATION and kind == "polygonlabels" and val.get("polygonlabels"):
-            ring = [[_clamp(float(x) / 100), _clamp(float(y) / 100)] for x, y in val.get("points") or []]
+            ring = [[clamp01(float(x) / 100), clamp01(float(y) / 100)] for x, y in val.get("points") or []]
             if len(ring) >= 3:
                 xs, ys = [p[0] for p in ring], [p[1] for p in ring]
                 box = [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
@@ -161,7 +157,7 @@ def from_results(results: list[dict[str, Any]], task: Task, keypoints: int = 0) 
             if not num.isdigit() or not cls:
                 continue
             idx = int(num) - 1
-            point = [_clamp(float(val["x"]) / 100), _clamp(float(val["y"]) / 100), 2.0]
+            point = [clamp01(float(val["x"]) / 100), clamp01(float(val["y"]) / 100), 2.0]
             groups = objects.setdefault(cls, [])
             if cls not in order:
                 order.append(cls)
@@ -282,6 +278,7 @@ class LabelStudioTool:
         self, dataset: Any, image_ids: list[str], project: Project, settings: ToolSettings, session_id: str
     ) -> Sent:
         """Create a project, upload the images and pre-load the ground truth as annotations."""
+        need_dataset(dataset)
         client = _Client(settings)
         view = dataset.select_by("image_id", image_ids)
         ids = list(view.values("image_id"))
