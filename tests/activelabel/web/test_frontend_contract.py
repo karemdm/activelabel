@@ -205,3 +205,25 @@ def test_the_step_bar_contains_its_hidden_texts():
     assert rule, "the .stepper rule is gone"
     assert "position: relative" in rule.group(1)
     assert "overflow-x: auto" in rule.group(1)
+
+
+def test_the_split_screen_uses_the_protections_the_api_offers():
+    """The names app.js reads and sends exist in the API: the preview's ``empty_parts`` and ``max_kfold``, the
+    ``allow_empty`` and ``confirm_runs`` flags, and the codes that ask for them."""
+    api = (SRC / "datasets.py").read_text(encoding="utf-8") + (SRC / "web" / "datasets_api.py").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "empty_parts",
+        "max_kfold",
+        "allow_empty",
+        "confirm_runs",
+        "dataset_used_by_runs",
+        "kfold_too_few_groups",
+    ):
+        assert name in api, name
+        assert name in JS, name
+    start = JS.index("function versionCard")
+    card = JS[start : JS.index("function draw()", start)]
+    assert "trainBlockReason" in card
+    assert "disabled: !!v.incomplete || !!noTrain" in card
