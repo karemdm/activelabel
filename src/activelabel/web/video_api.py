@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from pydantic import BaseModel
 
 from activelabel.images.ingest import ingest_frames
+from activelabel.images.manifest import Manifest
 from activelabel.images.video import (
     VIDEO_EXTENSIONS,
     VideoInfo,
@@ -163,6 +165,74 @@ def video_plan(project_id: int, video_id: str, body: Selection, state: AppState 
     return plan(*_select(info, body))
 
 
+def _video_task_job(
+    state: AppState,
+    project_id: int,
+    videos: VideoStore,
+    info: VideoInfo,
+    manifest: Manifest,
+    tasks: TaskStore,
+    frames_range: tuple[int, int, int],
+    size: int | None,
+    task_name: str | None,
+    stem: str,
+    planned: int,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``video_task`` job: extract the frames, ingest them and create the task.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        videos: The video store of the project.
+        info: The video.
+        manifest: The image manifest of the project.
+        tasks: The task store of the project.
+        frames_range: ``(start, stop, step)``: first frame, last frame and the gap between frames taken.
+        size: Images per job of the new task (the default when ``None``).
+        task_name: Name of the task (the video name when ``None``).
+        stem: Name of the video without extension, used in the image names.
+        planned: How many frames the selection should give.
+        progress: Where the job reports its progress.
+
+    Returns:
+        ``{task, frames, planned, stopped_early, step}``.
+
+    Raises:
+        ValueError: No frame could be read from the video.
+    """
+    start, stop, step = frames_range
+    temp = videos.folder / f".frames-{uuid.uuid4().hex}"
+    temp.mkdir(parents=True)
+    try:
+        frames = extract_frames(videos.file(info), start, stop, step, temp, progress)
+        if not frames:
+            raise ValueError("No frame could be read from the video.")
+        real_stop = frames[-1][0]  # the file may end before the planned last frame
+        with tasks.locked():  # ingest and registration are atomic
+            tasks.ensure()
+            items = [
+                (f"{stem}/frame_{index:06d}.jpg", path, info.id, index, index / info.fps)
+                for index, path in frames
+            ]
+            ids = ingest_frames(manifest, items, progress, salt=str(tasks.next_id()))
+            source = {"video": info.id, "start": start, "stop": real_stop, "step": step, "fps": info.fps}
+            try:
+                task = tasks.create(task_name or stem[:100], size, ids, source=source)
+            except Exception:
+                manifest.delete(ids)
+                raise
+        return {
+            "task": _view(state, project_id, task),
+            "frames": len(ids),
+            "planned": planned,
+            "stopped_early": len(ids) < planned,
+            "step": step,
+        }
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+
+
 @router.post("/projects/{project_id}/tasks/from-video")
 def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -> dict[str, Any]:
     """Create a (closed) task with the selected frames of a video, as a background job."""
@@ -176,43 +246,24 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
         raise bad_request(exc) from None
     manifest = state.manifest(project_id)
     tasks = TaskStore(state.store.dir(project_id))
-    video_file = videos.file(info)
     planned = plan(start, stop, step)["frames"]
     try:
         check_extraction(info, planned, videos.folder)
     except ValueError as exc:
         raise bad_request(exc) from None
     stem = (Path(info.name).stem or "video").replace("/", "_").replace("\\", "_")
-
-    def run(progress: Progress) -> dict[str, Any]:
-        temp = videos.folder / f".frames-{uuid.uuid4().hex}"
-        temp.mkdir(parents=True)
-        try:
-            frames = extract_frames(video_file, start, stop, step, temp, progress)
-            if not frames:
-                raise ValueError("No frame could be read from the video.")
-            real_stop = frames[-1][0]  # the file may end before the planned last frame
-            with tasks.locked():  # ingest and registration are atomic
-                tasks.ensure()
-                items = [
-                    (f"{stem}/frame_{index:06d}.jpg", path, info.id, index, index / info.fps)
-                    for index, path in frames
-                ]
-                ids = ingest_frames(manifest, items, progress, salt=str(tasks.next_id()))
-                source = {"video": info.id, "start": start, "stop": real_stop, "step": step, "fps": info.fps}
-                try:
-                    task = tasks.create(task_name or stem[:100], size, ids, source=source)
-                except Exception:
-                    manifest.delete(ids)
-                    raise
-            return {
-                "task": _view(state, project_id, task),
-                "frames": len(ids),
-                "planned": planned,
-                "stopped_early": len(ids) < planned,
-                "step": step,
-            }
-        finally:
-            shutil.rmtree(temp, ignore_errors=True)
-
-    return state.jobs.submit(project_id, "video_task", run).as_dict()
+    job = partial(
+        _video_task_job,
+        state,
+        project_id,
+        videos,
+        info,
+        manifest,
+        tasks,
+        (start, stop, step),
+        size,
+        task_name,
+        stem,
+        planned,
+    )
+    return state.jobs.submit(project_id, "video_task", job).as_dict()

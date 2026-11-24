@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from activelabel import fiftyone_bridge
 from activelabel.annotate import credentials, sessions
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, ToolError, ToolSettings
@@ -48,16 +50,12 @@ class SendBody(BaseModel):
 # -- dataset access (replaced in tests, FiftyOne is slow to start) --------------
 def prepare_dataset(project: Project, state: AppState) -> Any:
     """Refresh the project's FiftyOne dataset from the project and return it."""
-    from activelabel import fiftyone_bridge
-
     manifest = state.manifest(project.id)
     return fiftyone_bridge.sync_dataset(project, manifest, load_annotations(state.store.dir(project.id)))
 
 
 def open_dataset(project: Project, state: AppState) -> Any:
     """The project's FiftyOne dataset (None when it does not exist)."""
-    from activelabel import fiftyone_bridge
-
     return fiftyone_bridge.existing_dataset(state.store.dir(project.id), project.id)
 
 
@@ -179,6 +177,49 @@ def list_sessions(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     return {"sessions": [sessions.public(s) for s in sessions.list_sessions(state.store.dir(project_id))]}
 
 
+def _send_job(
+    state: AppState,
+    project: Project,
+    tool: Any,
+    settings: ToolSettings,
+    body: SendBody,
+    image_ids: list[str],
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``annotate_send`` job: refresh the FiftyOne dataset, send the images, record the session.
+
+    Args:
+        state: The shared state of the application.
+        project: The project the images belong to.
+        tool: The annotation tool that receives the images.
+        settings: The saved settings (URL, user, secret) of that tool.
+        body: The request (tool name and scope).
+        image_ids: The images to send.
+        progress: Where the job reports its progress.
+
+    Returns:
+        ``{session, links, step}``, plus ``kept_fiftyone_edits`` when some images keep edits made in FiftyOne.
+    """
+    project_dir = state.store.dir(project.id)
+    progress.update(message="Preparing the FiftyOne dataset")
+    kept = len(sessions.protected_images(project_dir) & set(image_ids))  # their edits stay in FiftyOne
+    dataset = prepare_dataset(project, state)
+    progress.update(message=f"Sending to {body.tool}")
+    session_id = sessions.new_id()
+    sent = tool.send(dataset, image_ids, project, settings, session_id)
+    session = sessions.create(
+        project_dir, body.tool, body.scope, image_ids, sent.links, sent.ref, session_id=session_id
+    )
+    result: dict[str, Any] = {
+        "session": sessions.public(session),
+        "links": sent.links,
+        "step": "annotate",
+    }
+    if kept:
+        result["kept_fiftyone_edits"] = kept
+    return result
+
+
 @router.post("/projects/{project_id}/annotate")
 def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, Any]:
     """Send images to a tool (job; result ``{session, links}``)."""
@@ -199,28 +240,50 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
         image_ids = sessions.select_images(manifest, body.scope, body.ids, body.issue)
     except ValueError as exc:
         raise bad_request(exc) from exc
-    project_dir = state.store.dir(project_id)
+    job = partial(_send_job, state, project, tool, settings, body, image_ids)
+    return state.jobs.submit(project_id, "annotate_send", job).as_dict()
 
-    def run(progress: Progress) -> dict[str, Any]:
-        progress.update(message="Preparing the FiftyOne dataset")
-        kept = len(sessions.protected_images(project_dir) & set(image_ids))  # their edits stay in FiftyOne
-        dataset = prepare_dataset(project, state)
-        progress.update(message=f"Sending to {body.tool}")
-        session_id = sessions.new_id()
-        sent = tool.send(dataset, image_ids, project, settings, session_id)
-        session = sessions.create(
-            project_dir, body.tool, body.scope, image_ids, sent.links, sent.ref, session_id=session_id
-        )
-        result: dict[str, Any] = {
-            "session": sessions.public(session),
-            "links": sent.links,
-            "step": "annotate",
-        }
-        if kept:
-            result["kept_fiftyone_edits"] = kept
-        return result
 
-    return state.jobs.submit(project_id, "annotate_send", run).as_dict()
+def _pull_job(
+    state: AppState,
+    project: Project,
+    tool: Any,
+    settings: ToolSettings,
+    session: dict[str, Any],
+    session_id: str,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``annotate_pull`` job: read the annotations back, summarise and keep them for applying.
+
+    Args:
+        state: The shared state of the application.
+        project: The project of the session.
+        tool: The annotation tool to read from.
+        settings: The saved settings (URL, user, secret) of that tool.
+        session: The session record (tool, images and reference of the send).
+        session_id: Id of the session.
+        progress: Where the job reports its progress.
+
+    Returns:
+        ``{session, diff}``: the updated session and the summary of the changes.
+    """
+    project_dir = state.store.dir(project.id)
+    image_ids: list[str] = session["image_ids"]
+    progress.update(message=f"Reading annotations from {session['tool']}")
+    new_labels = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
+    summary = diffing.diff(project_dir, image_ids, new_labels, project)
+    write_json(
+        _pulled_file(state, project.id, session_id),
+        {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},
+    )
+    updated = sessions.update(
+        project_dir,
+        session_id,
+        status=sessions.PULLED,
+        diff=summary,
+        base=_local_hashes(project_dir, image_ids),
+    )
+    return {"session": sessions.public(updated), "diff": summary}
 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/pull")
@@ -238,27 +301,8 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
     project = state.project(project_id)
     tool = _session_tool(session["tool"])
     settings = _settings(state, session["tool"])
-    project_dir = state.store.dir(project_id)
-    image_ids: list[str] = session["image_ids"]
-
-    def run(progress: Progress) -> dict[str, Any]:
-        progress.update(message=f"Reading annotations from {session['tool']}")
-        new_labels = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
-        summary = diffing.diff(project_dir, image_ids, new_labels, project)
-        write_json(
-            _pulled_file(state, project_id, session_id),
-            {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},
-        )
-        updated = sessions.update(
-            project_dir,
-            session_id,
-            status=sessions.PULLED,
-            diff=summary,
-            base=_local_hashes(project_dir, image_ids),
-        )
-        return {"session": sessions.public(updated), "diff": summary}
-
-    return state.jobs.submit(project_id, "annotate_pull", run).as_dict()
+    job = partial(_pull_job, state, project, tool, settings, session, session_id)
+    return state.jobs.submit(project_id, "annotate_pull", job).as_dict()
 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/apply")

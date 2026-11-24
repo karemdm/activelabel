@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import threading
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -54,11 +55,30 @@ def asset_version() -> str:
         return str(_VERSION["value"])
 
 
-def _bound_translate(lang: str) -> Callable[..., str]:
-    def t(key: str, **values: Any) -> str:
-        return translate(key, lang, **values)
+def _translate_in(lang: str, key: str, **values: Any) -> str:
+    """:func:`~activelabel.i18n.translate` with the language first, so it can be bound with ``partial``.
 
-    return t
+    Args:
+        lang: Language code.
+        key: Message key.
+        **values: Values for the placeholders of the text.
+
+    Returns:
+        The translated text.
+    """
+    return translate(key, lang, **values)
+
+
+def _bound_translate(lang: str) -> Callable[..., str]:
+    """The ``t(key, **values)`` function the templates call, fixed to one language.
+
+    Args:
+        lang: Language code.
+
+    Returns:
+        A function that translates a key in that language.
+    """
+    return partial(_translate_in, lang)
 
 
 def render(request: Request, template: str, status_code: int = 200, **extra: Any) -> HTMLResponse:
