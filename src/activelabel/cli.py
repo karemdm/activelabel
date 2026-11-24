@@ -13,7 +13,14 @@ from activelabel.web.app import create_app
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: the arguments after the program name; None reads ``sys.argv``.
+
+    Returns:
+        The exit code, 0 when the server stopped normally.
+    """
     parser = argparse.ArgumentParser(prog="activelabel", description="Image datasets from curation to models")
     sub = parser.add_subparsers(dest="command", required=True)
     serve = sub.add_parser("serve", help="Run the web interface")

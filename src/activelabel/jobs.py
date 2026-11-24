@@ -25,6 +25,12 @@ def readable_error(exc: BaseException) -> str:
     """Message shown to people: no class name (it stays in the traceback of the job result).
 
     FiftyOne database failures get a hint, with the technical detail at the end.
+
+    Args:
+        exc: the exception that ended the job.
+
+    Returns:
+        The text to show; a generic sentence when the exception carries no message.
     """
     name = type(exc).__name__
     detail = f"{name}: {exc}"
@@ -60,7 +66,11 @@ class Job:
     finished: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            All the fields of the job as a dict.
+        """
         return asdict(self)
 
 
@@ -68,11 +78,26 @@ class Progress:
     """Handle a job function uses to report progress and to notice cancellation."""
 
     def __init__(self, job: Job, cancel: threading.Event) -> None:
+        """Bind the handle to one job.
+
+        Args:
+            job: the job whose numbers and message are updated.
+            cancel: set by whoever cancels the job; ``check`` raises when it is set.
+        """
         self._job = job
         self._cancel = cancel
 
     def update(self, done: int | None = None, total: int | None = None, message: str | None = None) -> None:
-        """Report progress (any argument may be left out). Also checks for cancellation."""
+        """Report progress (any argument may be left out). Also checks for cancellation.
+
+        Args:
+            done: steps finished so far.
+            total: steps in all.
+            message: what the job is doing, for the interface.
+
+        Raises:
+            Cancelled: when cancellation was requested.
+        """
         if total is not None:
             self._job.total = total
         if done is not None:
@@ -98,6 +123,12 @@ class JobManager:
     """Runs jobs one at a time, in submission order, in a background thread."""
 
     def __init__(self, workers: int = 1, keep: int = 50) -> None:
+        """Start the worker threads.
+
+        Args:
+            workers: how many jobs may run at the same time.
+            keep: finished jobs kept in the list; the oldest finished ones are dropped past it.
+        """
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="activelabel-job")
         self._jobs: dict[str, Job] = {}
         self._cancel: dict[str, threading.Event] = {}
@@ -109,7 +140,14 @@ class JobManager:
     ) -> Job:
         """Queue a job and return its state (updated in place while it runs).
 
-        ``params`` say what the job is about (for example ``{"number": 3}``) and are listed with it.
+        Args:
+            project_id: project the job belongs to.
+            kind: what the job does (``import``, ``analyze``...).
+            function: the work; receives a :class:`Progress` and may return a result dict.
+            params: say what the job is about (for example ``{"number": 3}``) and are listed with it.
+
+        Returns:
+            The job, in the queued state.
         """
         job = Job(uuid.uuid4().hex[:12], project_id, kind, params=dict(params or {}))
         cancel = threading.Event()
@@ -121,6 +159,13 @@ class JobManager:
         return job
 
     def _run(self, job: Job, cancel: threading.Event, function: JobFunction) -> None:
+        """Run one job in a worker thread and record how it ended.
+
+        Args:
+            job: the job to update.
+            cancel: set when the job is cancelled; a job cancelled while queued never starts.
+            function: the work of the job.
+        """
         if cancel.is_set():
             job.status, job.finished = CANCELLED, now()
             return
@@ -139,6 +184,12 @@ class JobManager:
     def cancel(self, job_id: str) -> Job:
         """Ask a job to stop (queued jobs never start; running ones stop at their next check).
 
+        Args:
+            job_id: id of the job.
+
+        Returns:
+            The job (already finished jobs are returned unchanged).
+
         Raises:
             KeyError: unknown job.
         """
@@ -152,21 +203,48 @@ class JobManager:
         return job
 
     def get(self, job_id: str) -> Job:
-        """One job. Raises KeyError when unknown."""
+        """One job.
+
+        Args:
+            job_id: id of the job.
+
+        Returns:
+            The job.
+
+        Raises:
+            KeyError: unknown job.
+        """
         return self._jobs[job_id]
 
     def list(self, project_id: int | None = None) -> list[Job]:
-        """Jobs, newest first (optionally of one project)."""
+        """Jobs, newest first (optionally of one project).
+
+        Args:
+            project_id: only the jobs of this project; None for all.
+
+        Returns:
+            The jobs, newest first.
+        """
         with self._lock:  # submit and clear change the dict from other threads
             jobs = [j for j in self._jobs.values() if project_id is None or j.project_id == project_id]
         return sorted(jobs, key=lambda j: j.created, reverse=True)
 
     def active(self, project_id: int) -> builtins.list[Job]:
-        """Queued or running jobs of a project."""
+        """Queued or running jobs of a project.
+
+        Args:
+            project_id: the project.
+
+        Returns:
+            The jobs that have not finished.
+        """
         return [j for j in self.list(project_id) if j.status not in FINISHED]
 
     def clear(self, project_id: int) -> int:
         """Remove the finished jobs of a project (queued and running ones stay).
+
+        Args:
+            project_id: the project.
 
         Returns:
             How many jobs were removed.
@@ -181,6 +259,7 @@ class JobManager:
         return len(finished)
 
     def _trim(self) -> None:
+        """Drop the oldest finished jobs when there are more than ``keep`` jobs."""
         finished = [j for j in sorted(self._jobs.values(), key=lambda j: j.created) if j.status in FINISHED]
         for job in finished[: max(0, len(self._jobs) - self._keep)]:
             self._jobs.pop(job.id, None)

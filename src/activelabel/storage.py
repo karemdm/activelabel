@@ -27,12 +27,22 @@ class DamagedFile(ValueError):
     """
 
     def __init__(self, message: str, file: str = "") -> None:
+        """Keep the readable message and the name of the file.
+
+        Args:
+            message: what the person sees (names the file and how to recover it).
+            file: name of the damaged file, e.g. ``project.json``.
+        """
         super().__init__(message)
         self.file = file
 
 
 def now() -> str:
-    """Current time, ISO 8601 in UTC (the interface shows it in local time)."""
+    """Current time, ISO 8601 in UTC (the interface shows it in local time).
+
+    Returns:
+        The time as text, to the second, with the UTC offset.
+    """
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
@@ -41,6 +51,16 @@ def _retry(action: Callable[[], T]) -> T:
 
     On Windows, replacing a file fails while any process (another thread, an antivirus, the search
     indexer) has it open; the condition lasts milliseconds.
+
+    Args:
+        action: the file operation; called again when it raises ``PermissionError``.
+
+    Returns:
+        Whatever ``action`` returns.
+
+    Raises:
+        PermissionError: the file was still in use after the last attempt.
+        AssertionError: never in practice; it only tells the type checker the loop always ends.
     """
     for attempt in range(RETRIES):
         try:
@@ -78,6 +98,13 @@ def write_json(path: Path, data: Any, indent: int | None = 1) -> None:
 
 def read_json(path: Path, default: Any = None) -> Any:
     """Read a JSON file, or ``default`` when it does not exist.
+
+    Args:
+        path: file to read.
+        default: what to return when the file does not exist.
+
+    Returns:
+        The parsed JSON, or ``default`` when there is no file.
 
     Raises:
         DamagedFile: the file is damaged (the message names the file and is readable).

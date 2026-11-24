@@ -74,7 +74,11 @@ class IngestReport:
     per_file: list[str | None] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form: counts plus at most 200 examples of each list."""
+        """JSON-ready form: counts plus at most 200 examples of each list.
+
+        Returns:
+            The counts, and the first examples of duplicates, rejected files and annotation files.
+        """
         return {
             "added": self.added,
             "duplicates": self.duplicates[:MAX_EXAMPLES],
@@ -94,6 +98,12 @@ def _clean_name(name: str) -> str | None:
     """Normalised relative name, or None when it is absolute (``/``, ``C:/``) or climbs out with ``..``.
 
     A colon elsewhere in the name (``a:b.png``) is fine: files are stored under their id.
+
+    Args:
+        name: the name as sent (either kind of slash).
+
+    Returns:
+        The name with ``/`` separators and without empty or ``.`` parts, or None when it is unsafe.
     """
     name = name.replace("\\", "/")
     if not name or name.startswith("/") or DRIVE_PATH.match(name):
@@ -105,6 +115,14 @@ def _clean_name(name: str) -> str | None:
 
 
 def _is_hidden(name: str) -> bool:
+    """Whether a file is one the system adds and people did not (``.hidden``, ``__MACOSX``, ``Thumbs.db``).
+
+    Args:
+        name: the cleaned relative name (``/`` separators).
+
+    Returns:
+        True when the file is to be skipped without a word.
+    """
     parts = name.split("/")
     return any(p.startswith(".") or p == "__MACOSX" for p in parts) or parts[-1].lower() in IGNORED_NAMES
 
@@ -113,6 +131,12 @@ def _read_image(path: Path) -> tuple[int, int, str]:
     """Check a file with Pillow and return its displayed (EXIF-oriented) width and height and its extension.
 
     The extension comes from the content (a PNG sent as ``photo.jpg`` is stored as ``.png``).
+
+    Args:
+        path: the file to check.
+
+    Returns:
+        The width, the height and the extension (with the dot) of the real format.
 
     Raises:
         ValueError: the file is not a readable image of a supported kind (the message is the rejection
@@ -143,6 +167,12 @@ class _Ingester:
     """State of one import: ids seen, pending manifest records, report, progress."""
 
     def __init__(self, manifest: Manifest, progress: Progress | None) -> None:
+        """Start an import.
+
+        Args:
+            manifest: images of the project; its ids are the ones already known.
+            progress: optional progress/cancellation handle.
+        """
         self.manifest = manifest
         self.progress = progress
         self.report = IngestReport()
@@ -155,7 +185,14 @@ class _Ingester:
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
     def tick(self, message: str) -> None:
-        """Report progress; raises Cancelled when the user cancelled."""
+        """Report progress.
+
+        Args:
+            message: what is being done (the name of the file).
+
+        Raises:
+            Cancelled: the user cancelled.
+        """
         if self.progress is not None:
             self.progress.update(self.done, self.total, message)
 
@@ -166,11 +203,21 @@ class _Ingester:
             self.manifest.add(batch)
 
     def reject(self, name: str, reason: str) -> None:
-        """Record a file that was not stored."""
+        """Record a file that was not stored.
+
+        Args:
+            name: the file.
+            reason: ``corrupt``, ``too small``, ``unsupported``...
+        """
         self.report.rejected.append({"name": name, "reason": reason})
 
     def handle(self, name: str, stream: BinaryIO) -> None:
-        """Process one uploaded or on-disk file (and note which image it became in ``report.per_file``)."""
+        """Process one uploaded or on-disk file (and note which image it became in ``report.per_file``).
+
+        Args:
+            name: its name, with sub-folders.
+            stream: its content.
+        """
         self.last_id = None
         try:
             self._handle(name, stream)
@@ -178,6 +225,12 @@ class _Ingester:
             self.report.per_file.append(self.last_id)
 
     def _handle(self, name: str, stream: BinaryIO) -> None:
+        """Store an image, expand a zip, or note an annotation file, according to the name.
+
+        Args:
+            name: the file name, with sub-folders.
+            stream: its content.
+        """
         self.tick(name)
         self.done += 1
         clean = _clean_name(name)
@@ -207,10 +260,20 @@ class _Ingester:
     ) -> int:
         """Stream a file to disk, validate it and register it (stored under its real kind's extension).
 
-        Returns the bytes read.
+        Args:
+            name: the name the image had.
+            stream: its content.
+            limit: most bytes to read; None for no limit (a zip entry is limited by what is left of the
+                archive's allowance).
+            salt: hashed after the content (video frames: video, frame and task, so identical frames
+                still get their own id).
+            extra: more fields of the image record.
 
-        ``salt`` is hashed after the content (video frames: video, frame and task, so identical
-        frames still get their own id); ``extra`` are more fields of the image record.
+        Returns:
+            The bytes read.
+
+        Raises:
+            _ZipTooLarge: more than ``limit`` bytes.
         """
         tmp = self.images_dir / f".{uuid.uuid4().hex}.part"
         size = 0
@@ -250,6 +313,12 @@ class _Ingester:
             tmp.unlink(missing_ok=True)
 
     def _expand_zip(self, archive_name: str, stream: BinaryIO) -> None:
+        """Store the images of an uploaded archive.
+
+        Args:
+            archive_name: the name of the archive.
+            stream: its content (copied to a temporary file when it cannot seek).
+        """
         with contextlib.ExitStack() as stack:
             if not hasattr(stream, "seekable"):
                 # Python 3.10: an upload (SpooledTemporaryFile) has no seekable(), which zipfile needs
@@ -262,6 +331,12 @@ class _Ingester:
             self._read_zip(archive_name, stream)
 
     def _read_zip(self, archive_name: str, stream: BinaryIO) -> None:
+        """Go through the entries of an archive, refusing one with too many or too large entries.
+
+        Args:
+            archive_name: the name of the archive.
+            stream: its content, seekable.
+        """
         try:
             archive = zipfile.ZipFile(stream)
         except zipfile.BadZipFile:
@@ -289,7 +364,19 @@ class _Ingester:
                     return
 
     def _zip_entry(self, archive: zipfile.ZipFile, info: zipfile.ZipInfo, remaining: int) -> int:
-        """Process one archive entry; returns the real number of bytes it used."""
+        """Process one archive entry.
+
+        Args:
+            archive: the open archive.
+            info: the entry.
+            remaining: bytes the archive may still use once expanded.
+
+        Returns:
+            The real number of bytes the entry used.
+
+        Raises:
+            _ZipTooLarge: the entry is larger than ``remaining``.
+        """
         clean = _clean_name(info.filename)
         if clean is None:
             self.reject(info.filename, "unsafe path")
@@ -311,7 +398,11 @@ class _Ingester:
         return 0
 
     def finish(self) -> IngestReport:
-        """Write what is pending and report the end."""
+        """Write what is pending and report the end.
+
+        Returns:
+            The report of the import.
+        """
         self.flush()
         self.tick("done")
         return self.report
@@ -396,6 +487,14 @@ def ingest_frames(
 
 
 def _walk(folder: Path) -> Iterator[Path]:
+    """Every file below a folder, in name order, without hidden folders and ``__MACOSX``.
+
+    Args:
+        folder: where to start.
+
+    Yields:
+        The path of each file.
+    """
     for current, dirs, names in os.walk(folder):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__MACOSX")
         for name in sorted(names):
@@ -408,6 +507,9 @@ def check_folder(folder: Path, import_root: Path | None) -> Path:
     Args:
         folder: folder asked for.
         import_root: allowed root (``ACTIVELABEL_IMPORT_ROOT``); None means importing by path is off.
+
+    Returns:
+        The folder, resolved.
 
     Raises:
         ValueError: importing by path is off, or the folder is not a folder inside the root.
