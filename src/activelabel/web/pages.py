@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from activelabel.i18n import DEFAULT, SUPPORTED, messages, pick_language, translate
 
@@ -119,6 +121,27 @@ def render(request: Request, template: str, status_code: int = 200, **extra: Any
     if query and query.lower() in SUPPORTED:
         response.set_cookie(LANG_COOKIE, lang, max_age=ONE_YEAR, samesite="lax")
     return response
+
+
+async def unknown_address(request: Request, exc: Exception) -> Response:
+    """Answer a 404 for an address that is not the API's or a static file's with the "page not found" page.
+
+    Args:
+        request: The request.
+        exc: The HTTP error; anything but a 404 of a page address keeps the JSON answer.
+
+    Returns:
+        The page (HTTP 404), or the standard JSON error.
+    """
+    path = request.url.path
+    if (
+        isinstance(exc, StarletteHTTPException)
+        and exc.status_code == 404
+        and not path.startswith(("/api", "/static"))
+    ):
+        return render(request, "notfound.html", status_code=404)
+    assert isinstance(exc, StarletteHTTPException)
+    return await http_exception_handler(request, exc)
 
 
 @router.get("/", response_class=HTMLResponse)

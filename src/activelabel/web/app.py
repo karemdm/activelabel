@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from activelabel import __version__
 from activelabel.annotations import cleanup_staging
@@ -66,6 +67,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.state.activelabel = state
     app.state.settings = state.settings
     install_error_handlers(app)
+    app.add_exception_handler(StarletteHTTPException, pages.unknown_address)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
     app.include_router(datasets_api.router)

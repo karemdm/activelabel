@@ -10,8 +10,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
+from activelabel.config import Settings
 from activelabel.i18n import messages
 from activelabel.web import pages
+from activelabel.web.app import create_app
 
 WEB = Path(pages.__file__).parent
 ISSUES = ["blurry", "dark", "bright", "low_contrast", "small", "odd_aspect", "grayscale", "near_duplicate"]
@@ -165,3 +167,13 @@ def test_the_package_ships_the_subfolders_of_the_static_files():
     """``web/static/*`` skips subfolders; the interface may keep scripts and styles in some."""
     root = Path(pages.STATIC_DIR).parents[3]
     assert '"web/static/**/*"' in (root / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_an_unknown_address_shows_the_not_found_page_but_the_api_keeps_json(tmp_path):
+    client = TestClient(create_app(Settings(workspace=tmp_path / "ws")))
+    page = client.get("/nothing/here", params={"lang": "pt"})
+    assert page.status_code == 404 and "text/html" in page.headers["content-type"]
+    assert "Página não encontrada" in page.text
+    api = client.get("/api/nothing-here")
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
+    assert client.get("/static/nothing.css").headers["content-type"].startswith("application/json")
