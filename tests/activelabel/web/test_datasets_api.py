@@ -144,3 +144,26 @@ def test_video_options_are_passed_and_reported(tmp_path):
         assert client.post(BASE + "/preview", json=bad).status_code == 400
     default = client.post(BASE + "/preview", json={}).json()["options"]
     assert default["videos"] == "auto" and default["gap_seconds"] == 0.5
+
+
+def test_empty_training_or_validation_part_is_refused_unless_allowed(tmp_path):
+    client, _, _ = _setup(tmp_path, n=2)
+    preview = client.post(BASE + "/preview", json={"seed": 1}).json()
+    assert "val" in preview["empty_parts"] and preview["groups"] == 2
+    refused = client.post(BASE, json={"seed": 1})
+    assert refused.status_code == 409 and "validation" in refused.json()["detail"]
+    assert client.get(BASE).json() == {"versions": []}
+    allowed = client.post(BASE, json={"seed": 1, "allow_empty": True})
+    assert allowed.status_code == 200 and allowed.json()["sizes"]["val"] == 0
+    asked_for_none = client.post(BASE, json={"seed": 1, "split": {"train": 100, "val": 0, "test": 0}})
+    assert asked_for_none.status_code == 200  # nothing was asked for the empty parts
+
+
+def test_preview_tells_the_largest_kfold(tmp_path):
+    client, _, _ = _setup(tmp_path, n=30)
+    body = client.post(BASE + "/preview", json={"seed": 1}).json()
+    assert body["groups"] == 30 and body["max_kfold"] == 10 and body["empty_parts"] == []
+    few, _, _ = _setup(tmp_path / "few", n=4)[0], None, None
+    small = few.post(BASE + "/preview", json={"seed": 1}).json()
+    assert small["max_kfold"] == 4  # the 10% test part gets no group of 4
+    assert few.post(BASE + "/preview", json={"kfold": 5}).status_code == 400

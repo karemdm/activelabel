@@ -410,3 +410,17 @@ def test_cut_video_is_reported_when_every_segment_is_glued_to_another_image(tmp_
     assert video["split"] and len(video["segments"]) == 10
     assert [w for w in p.warnings if w["code"] == "video_split"]
     assert p.stats["gap"] == video["gap"]
+
+
+def test_group_warning_names_its_real_cause(tmp_path):
+    pdir, project = build(tmp_path / "one", {"a1": ["a"], "a2": ["b"]})
+    assert not [w for w in plan(pdir, project).warnings if w["code"] == "group_too_big"]  # no group at all
+    spec = {f"i{k:02d}": ["a"] for k in range(20)}
+    pdir, project = build(tmp_path / "dups", spec)
+    write_json(curation_path(pdir), {"duplicate_of": {f"i{k:02d}": "i00" for k in range(1, 17)}})
+    found = [w for w in plan(pdir, project).warnings if w["code"] == "group_too_big"]
+    assert found and {w["cause"] for w in found} == {"duplicates"}  # not a video: no video in this project
+    videos = {f"i{k:02d}": "v1" for k in range(17)}
+    pdir, project = build(tmp_path / "vid", spec, videos=videos)
+    found = [w for w in plan(pdir, project, videos="whole").warnings if w["code"] == "group_too_big"]
+    assert found and {w["cause"] for w in found} == {"video"}

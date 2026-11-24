@@ -27,6 +27,7 @@ class DatasetBody(BaseModel):
     videos: str = "auto"
     gap_seconds: float = 0.5
     note: str = ""
+    allow_empty: bool = False
 
 
 class DeleteDataset(BaseModel):
@@ -38,7 +39,7 @@ class DeleteDataset(BaseModel):
 def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
     project = state.project(project_id)
     project_dir = state.store.dir(project_id)
-    data = body.model_dump(exclude={"note"})
+    data = body.model_dump(exclude={"note", "allow_empty"})
     try:
         options = parse_options(data, [t.id for t in TaskStore(project_dir).load()])
         return plan_split(project_dir, project, options)
@@ -65,8 +66,20 @@ def preview_dataset(project_id: int, body: DatasetBody, state: AppState = STATE)
 
 @router.post("/projects/{project_id}/datasets")
 def create_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) -> dict[str, Any]:
-    """Save a new dataset version and return its summary."""
+    """Save a new dataset version and return its summary.
+
+    A hold-out split whose training or validation part (asked to have images) ended up empty is
+    refused with 409 unless the body has ``allow_empty: true``: such a version cannot train a model.
+    """
     plan = _plan(state, project_id, body)
+    blocked = [p for p in plan.empty_parts() if p in ("train", "val")]
+    if blocked and not body.allow_empty:
+        names = " and ".join("training" if p == "train" else "validation" for p in blocked)
+        raise HTTPException(
+            409,
+            f"The {names} part would have no images (too few images or groups of images for these "
+            "proportions): a model cannot be trained on this version.",
+        )
     try:
         return _store(state, project_id).create(plan, body.note)
     except ValueError as error:

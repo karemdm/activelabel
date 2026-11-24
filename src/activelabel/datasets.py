@@ -344,6 +344,22 @@ class Plan:
     warnings: list[dict[str, Any]]
     duplicates_analysed: bool
     videos: list[dict[str, Any]] = field(default_factory=list)
+    groups: int = 0
+    foldable: int = 0
+
+    def empty_parts(self) -> list[str]:
+        """Parts that were asked to have images (a share above 0) and have none (``fold`` for a fold)."""
+        if self.folds is not None:
+            empty = ["fold"] * any(not f for f in self.folds)
+            return (["test"] if self.options.split["test"] > 0 and not self.parts["test"] else []) + empty
+        return [p for p in PARTS if self.options.split[p] > 0 and not self.parts[p]]
+
+    def max_kfold(self) -> int:
+        """Largest K the images allow (at most 10): the groups left for the folds once the test part is taken.
+
+        Below 2 K-fold is not possible.
+        """
+        return min(10, self.foldable)
 
     def sizes(self) -> dict[str, Any]:
         """Images per part (``{test, folds: [...]}`` with K-fold)."""
@@ -365,6 +381,9 @@ class Plan:
             "warnings": self.warnings,
             "duplicates_analysed": self.duplicates_analysed,
             "videos": self.videos,
+            "empty_parts": self.empty_parts(),
+            "groups": self.groups,
+            "max_kfold": self.max_kfold(),
         }
 
 
@@ -383,7 +402,7 @@ def _slot_warnings(
     ids: list[str],
     fraction: float,
     total: int,
-    biggest: int,
+    biggest: tuple[int, str],
     classes: list[str],
     labels: dict[str, list[Label]],
 ) -> list[dict[str, Any]]:
@@ -398,8 +417,11 @@ def _slot_warnings(
     target = total * fraction
     real = 100.0 * len(ids) / total
     drifted = abs(real - 100.0 * fraction) > DRIFT
-    if biggest > target and drifted:  # a big group only matters when it moved the proportions
-        out.append({"code": "group_too_big", **key, "images": biggest, "target": round(target, 1)})
+    size, cause = biggest
+    if size > max(1, target) and drifted:  # a big group only matters when it moved the proportions
+        out.append(
+            {"code": "group_too_big", **key, "images": size, "target": round(target, 1), "cause": cause}
+        )
     if drifted:
         out.append(
             {"code": "ratio_drift", **key, "expected": round(100.0 * fraction, 1), "actual": round(real, 1)}
@@ -499,7 +521,9 @@ class _Attempt:
     parts: dict[str, list[str]]
     folds: list[list[str]] | None
     slots: list[tuple[dict[str, Any], list[str], float]]
-    biggest: int
+    biggest: tuple[int, str]
+    groups: int
+    foldable: int
     split: set[str]
     segment_of: dict[str, tuple[str, int]]
 
@@ -574,9 +598,19 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         groups = build_groups(candidates, video_of, duplicate_of, classes_of, segment_of)
         rng = random.Random(options.seed)
         folds: list[list[str]] | None = None
+        foldable = len(groups)
         slots: list[tuple[dict[str, Any], list[str], float]]
         if options.kfold is None:
             placed = assign(groups, shares, rng, rest="train")
+            if test_share > 0:  # the groups K-fold would have left for its folds
+                foldable = len(
+                    assign(
+                        groups,
+                        {"pool": 1 - test_share, "test": test_share},
+                        random.Random(options.seed),
+                        rest="pool",
+                    )["pool"]
+                )
             parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
             slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
         else:
@@ -585,6 +619,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             if test_share > 0:
                 placed = assign(groups, {"pool": 1 - test_share, "test": test_share}, rng, rest="pool")
                 pool, test_groups = placed["pool"], placed["test"]
+            foldable = len(pool)
             if len(pool) < options.kfold:
                 raise ValueError(f"There are only {len(pool)} groups of images for {options.kfold} folds.")
             k_share = (1 - test_share) / options.kfold
@@ -593,7 +628,18 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             parts = {"test": _flatten(test_groups, position)}
             slots = [({"part": "test"}, parts["test"], test_share)]
             slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
-        return _Attempt(parts, folds, slots, max(len(g.images) for g in groups), set(split_ids), segment_of)
+        largest = max(groups, key=lambda g: len(g.images))
+        cause = "video" if any(video_of.get(i) for i in largest.images) else "duplicates"
+        return _Attempt(
+            parts,
+            folds,
+            slots,
+            (len(largest.images), cause),
+            len(groups),
+            foldable,
+            set(split_ids),
+            segment_of,
+        )
 
     big: set[str] = set()
     if options.videos == "auto" and targets:
@@ -703,6 +749,8 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         warnings=warnings,
         duplicates_analysed=analysed,
         videos=videos,
+        groups=final.groups,
+        foldable=final.foldable,
     )
 
 
