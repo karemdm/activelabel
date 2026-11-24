@@ -12,7 +12,8 @@ class Settings:
     """Settings of the service.
 
     Attributes:
-        workspace: ``ACTIVELABEL_WORKSPACE``: projects, images and annotations live here.
+        workspace: ``ACTIVELABEL_WORKSPACE``: projects, images and annotations live here (empty or unset:
+            ``~/.activelabel``).
         language: ``ACTIVELABEL_LANG``: default interface language (``en`` or ``pt``).
         import_root: ``ACTIVELABEL_IMPORT_ROOT``: folders on this machine that may be imported
             by path (besides uploads from the browser). Empty: importing by path is off.
@@ -27,10 +28,11 @@ class Settings:
         """Build settings from the environment (``environ`` is injectable for tests)."""
         env = os.environ if environ is None else environ
         default = cls()
-        root = env.get("ACTIVELABEL_IMPORT_ROOT", "")
+        root = env.get("ACTIVELABEL_IMPORT_ROOT", "").strip()
+        workspace = env.get("ACTIVELABEL_WORKSPACE", "").strip()  # empty means not set, not "."
         return cls(
-            workspace=Path(env.get("ACTIVELABEL_WORKSPACE", str(default.workspace))).expanduser(),
-            language=env.get("ACTIVELABEL_LANG", default.language),
+            workspace=Path(workspace).expanduser() if workspace else default.workspace,
+            language=env.get("ACTIVELABEL_LANG", "").strip() or default.language,
             import_root=Path(root).expanduser().resolve() if root else None,
         )
 

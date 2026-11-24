@@ -11,3 +11,10 @@ def test_from_env(tmp_path):
     assert (
         Settings.from_env({"ACTIVELABEL_IMPORT_ROOT": str(tmp_path)}).import_root == Path(tmp_path).resolve()
     )
+
+
+def test_empty_workspace_means_not_set():
+    default = Settings().workspace
+    assert Settings.from_env({"ACTIVELABEL_WORKSPACE": ""}).workspace == default
+    assert Settings.from_env({"ACTIVELABEL_WORKSPACE": "  "}).workspace == default
+    assert Settings.from_env({"ACTIVELABEL_LANG": ""}).language == "en"
