@@ -3740,17 +3740,23 @@
         job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${jobError(job)}`) : null);
     }
 
-    /* A small card in the corner: what is running and the latest finished activity (the rest is in
-       the history). It can be minimised to a pill and closed; finished activities that were closed
-       stay closed. Both choices are remembered per project in this browser. */
+    /* A small pill in the corner (#262): what is running, or the latest finished activity. A failure stays
+       on the pill (red, with its icon and word) until the person opens it; a success fades after a few
+       seconds. The pill opens the card with the details and the history; finished activities that were
+       closed stay closed (remembered per project in this browser). A hidden live line tells screen
+       readers when the activity changes (not at every percent). */
     const jobsKey = `al.jobs.${projectId}`;
     const jobsPrefs = (() => {
-      try { const v = JSON.parse(localStorage.getItem(jobsKey) || '{}'); return { min: !!v.min, closed: new Set(v.closed || []) }; } catch (err) { return { min: false, closed: new Set() }; }
+      try { const v = JSON.parse(localStorage.getItem(jobsKey) || '{}'); return { min: true, closed: new Set(v.closed || []) }; } catch (err) { return { min: true, closed: new Set() }; }
     })();
     function saveJobsPrefs() {
       try { localStorage.setItem(jobsKey, JSON.stringify({ min: jobsPrefs.min, closed: [...jobsPrefs.closed].slice(-200) })); } catch (err) { /* not remembered */ }
     }
     let jobsFocus = null;
+    let jobsFade = null;
+    const jobsSeen = new Set();  // failures the person opened: from then on they fade like successes
+    const jobsLive = el('p', { class: 'sr-only', role: 'status' });
+    document.body.appendChild(jobsLive);
     function renderJobs() {
       if (ctx.syncDraw) ctx.syncDraw();
       ctx.watchers.forEach((watch) => watch());
@@ -3761,13 +3767,24 @@
       const shown = [...running, ...latest];
       jobsBox.hidden = !shown.length;
       jobsBox.classList.toggle('min', jobsPrefs.min);
-      if (!shown.length) { fill(jobsBox); return; }
+      clearTimeout(jobsFade);
+      if (!shown.length) { fill(jobsBox); jobsLive.textContent = ''; return; }
       const pct = running.length === 1 && running[0].total ? Math.round((running[0].done / running[0].total) * 100) : null;
       const summary = running.length
         ? `${tn('jobs.running_n', running.length)}${pct != null ? ` · ${pct}%` : ''}`
         : `${statusText(latest[0].status)} · ${kindText(latest[0].kind, latest[0])}`;
       const glyph = running.length ? el('span', { class: 'tr-dot', 'aria-hidden': 'true' }) : icon(latest[0].status === 'done' ? 'check' : 'error', 14);
-      const toggle = (min) => { jobsPrefs.min = min; saveJobsPrefs(); jobsFocus = min ? 'open' : 'min'; renderJobs(); };
+      const said = `${t('jobs.title')}: ${running.length ? tn('jobs.running_n', running.length) : summary}`;
+      if (jobsLive.textContent !== said) jobsLive.textContent = said;
+      const state = running.length ? 'running' : latest[0].status;
+      const fades = !running.length && (state !== 'failed' || jobsSeen.has(latest[0].id));
+      if (fades && jobsPrefs.min) {
+        jobsFade = setTimeout(() => { jobsPrefs.closed.add(latest[0].id); saveJobsPrefs(); renderJobs(); }, 6000);
+      }
+      const toggle = (min) => {
+        if (!min) finished.forEach((j) => jobsSeen.add(j.id));  // opened: the failure was seen
+        jobsPrefs.min = min; saveJobsPrefs(); jobsFocus = min ? 'open' : 'min'; renderJobs();
+      };
       const close = () => {
         finished.forEach((j) => jobsPrefs.closed.add(j.id));
         if (running.length) jobsPrefs.min = true;
@@ -3776,7 +3793,7 @@
         renderJobs();
       };
       if (jobsPrefs.min) {
-        fill(jobsBox, el('button', { type: 'button', class: 'jobs-pill', 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
+        fill(jobsBox, el('button', { type: 'button', class: `jobs-pill is-${state}${fades ? ' fades' : ''}`, 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
           glyph, el('span', null, summary), el('span', { class: 'sr-only' }, t('jobs.show'))));
       } else {
         const head = el('div', { class: 'jobs-head' },

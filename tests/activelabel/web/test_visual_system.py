@@ -38,3 +38,14 @@ def test_step_markers_carry_the_state_in_the_shape():
     assert re.search(r"^\.step\.current \.step-num \{[^}]*background: var\(--group", CSS, re.M)
     assert "state === 'done' ? icon('check', 16) : state === 'attention' ? '!'" in JS
     assert "t(`step.state_${state}`)" in JS  # the state as hidden text for screen readers
+
+
+def test_activities_is_a_pill_where_failures_stay_and_successes_fade():
+    """#262: the pill is the default; it never covers the last row; screen readers hear the changes."""
+    assert "return { min: true, closed:" in JS
+    assert re.search(r"\.jobs-pill\.is-failed \{[^}]*var\(--danger\)", CSS)
+    assert re.search(r"\.jobs-pill\.fades \{[^}]*animation: jobs-fade", CSS)
+    assert "state !== 'failed' || jobsSeen.has(" in JS  # a failure fades only after it was opened
+    assert re.search(r"\.page:has\(\.jobs-bar:not\(\[hidden\]\)\) \{ padding-bottom", CSS)
+    assert "el('p', { class: 'sr-only', role: 'status' })" in JS
+    assert re.search(r"prefers-reduced-motion[^\n]*\.jobs-pill\.fades \{ animation: none", CSS)
