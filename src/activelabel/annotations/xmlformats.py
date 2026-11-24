@@ -133,8 +133,11 @@ def _shape(ctx: ParseContext, shape: ET.Element, width: float, height: float, wh
     if kind in UNSUPPORTED_SHAPES:
         ctx.problem("unsupported_shape", f"{where}: {kind}")
         return None
+    if not name:  # no class: a label with an empty name would become a class of its own
+        ctx.problem("invalid_annotation", f"{where}: {kind} without a label")
+        return None
     if kind == "tag":
-        return Label(name) if name else None
+        return Label(name)
     if kind == "box":
         x0, y0, x1, y1 = (_f(shape.get(k)) for k in ("xtl", "ytl", "xbr", "ybr"))
         box = ctx.box(x0, y0, x1 - x0, y1 - y0, width, height, where)

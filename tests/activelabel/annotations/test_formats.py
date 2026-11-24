@@ -281,3 +281,14 @@ def test_a_label_file_called_labels_txt_is_not_a_names_file(env):
     assert not is_names_file(folder / "labels.txt")
     write(folder, "names.txt", "cat\ndog\n")
     assert is_names_file(folder / "names.txt")
+
+
+def test_cvat_shape_without_label_is_a_problem_not_an_empty_class(env):
+    folder, images, recs = env
+    xml = """<annotations><image id="0" name="a.png" width="100" height="50">
+      <box xtl="10" ytl="5" xbr="30" ybr="15"/><box label="cat" xtl="1" ytl="1" xbr="9" ybr="9"/>
+    </image></annotations>"""
+    res = parse([write(folder, "a.xml", xml)], "cvat", images)
+    assert [lb.label for lb in res.labels[recs["a.png"].id]] == ["cat"] and res.classes == ["cat"]
+    problem = next(p for p in res.problems if p.code == "invalid_annotation")
+    assert "without a label" in problem.examples[0]
