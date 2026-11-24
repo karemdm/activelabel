@@ -35,7 +35,7 @@ from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
-from activelabel.textcheck import message_of
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -89,8 +89,16 @@ class ImageIds(BaseModel):
 
 
 # -- helpers ------------------------------------------------------------------
-def _bad_request(exc: Exception) -> HTTPException:
-    return HTTPException(400, message_of(exc))
+def _unreadable(reason: str, file: str = "") -> ApiError:
+    """HTTP 400: an annotation file could not be read (``file`` and the parser's ``reason``)."""
+    where = f"{file}: " if file else ""
+    return ApiError(
+        400,
+        "annotation_unreadable",
+        f"The annotation file could not be read: {where}{reason}",
+        file=file,
+        reason=reason,
+    )
 
 
 def project_overview(state: AppState, project: Project) -> dict[str, Any]:
@@ -204,7 +212,7 @@ def create_project(body: NewProject, state: AppState = STATE) -> dict[str, Any]:
     except DamagedFile:
         raise  # a damaged file is not the caller's mistake: answered by the error handler
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     return project_overview(state, project)
 
 
@@ -294,7 +302,13 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
         if body.annotations == "convert":
             converted = ann.convert_annotations(ground_truth, new)
             if converted is None:
-                raise HTTPException(400, f"Annotations for {old.value} cannot be converted to {new.value}.")
+                raise ApiError(
+                    400,
+                    "annotations_not_convertible",
+                    f"Annotations for {old.value} cannot be converted to {new.value}.",
+                    from_task=old.value,
+                    to_task=new.value,
+                )
             result = dict(zip(("images", "labels"), _counts(converted), strict=True))
         else:
             result = {"images": images, "labels": labels}
@@ -335,7 +349,7 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
     try:
         project = state.store.update(project_id, **changes)
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     if converted is not None:
         save_annotations(project_dir, _with_classes(cleaned or converted, project))
     elif result is not None:
@@ -361,7 +375,7 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     """Delete a project with all its files. The name must be typed again."""
     project = state.project(project_id)
     if body.confirm_name.strip() != project.name:
-        raise HTTPException(400, "The name does not match; nothing was deleted.")
+        raise ApiError(400, "name_mismatch", "The name does not match; nothing was deleted.")
     state.busy(project_id, training=True)
     project_dir = state.store.dir(project_id)
     recorded = recorded_name(project_dir)
@@ -413,7 +427,7 @@ def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) 
     try:
         folder = check_folder(Path(body.path).expanduser(), root)  # refused now, not later inside the job
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     tasks = TaskStore(state.store.dir(project_id))
 
     def run(progress: Progress) -> dict[str, Any]:
@@ -451,19 +465,19 @@ def list_images(
     manifest = state.manifest(project_id)
     records = manifest.all()
     if job is not None and task is None:
-        raise HTTPException(400, "Give the task of the job.")
+        raise ApiError(400, "task_required", "Give the task of the job.")
     if (part is not None or fold is not None) and dataset is None:
-        raise HTTPException(400, "Give the dataset version of the part or fold.")
+        raise ApiError(400, "dataset_required", "Give the dataset version of the part or fold.")
     if task is not None:
         try:
             chosen = TaskStore(state.store.dir(project_id)).get(task)
         except TaskNotFound:
-            raise HTTPException(404, "This task does not exist.") from None
+            raise ApiError(404, "task_not_found", "This task does not exist.") from None
         order = chosen.images
         if job is not None:
             found = [j for j in task_jobs(chosen) if j.n == job]
             if not found:
-                raise HTTPException(404, "This job does not exist.")
+                raise ApiError(404, "job_not_found", "This job does not exist.")
             order = found[0].image_ids
         by_id = {r.id: r for r in records}
         records = [by_id[i] for i in order if i in by_id]
@@ -471,9 +485,9 @@ def list_images(
         try:
             members = DatasetStore(state.store.dir(project_id)).image_ids(dataset, part, fold)
         except DatasetNotFound:
-            raise HTTPException(404, "This dataset version does not exist.") from None
+            raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
         except ValueError as error:
-            raise HTTPException(400, str(error)) from None
+            raise bad_request(error) from None
         if task is None:
             by_id = {r.id: r for r in records}
             records = [by_id[i] for i in members if i in by_id]
@@ -507,7 +521,7 @@ def _record(state: AppState, project_id: int, image_id: str) -> tuple[Any, Image
     try:
         return manifest, manifest.get(image_id)
     except KeyError:
-        raise HTTPException(404, "This image is not in the project.") from None
+        raise ApiError(404, "image_not_found", "This image is not in the project.") from None
 
 
 @router.get("/projects/{project_id}/images/{image_id}/thumb")
@@ -540,7 +554,7 @@ def restore_images(project_id: int, body: ImageIds, state: AppState = STATE) -> 
 def delete_images(project_id: int, body: ImageIds, state: AppState = STATE) -> dict[str, int]:
     """Delete images and their files for good (also their annotations and thumbnails)."""
     if not body.confirm:
-        raise HTTPException(400, "Deleting cannot be undone: confirm it first.")
+        raise ApiError(400, "confirm_required", "Deleting cannot be undone: confirm it first.")
     return {"deleted": delete_image_files(state, project_id, body.ids)}
 
 
@@ -588,7 +602,7 @@ def get_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
     try:
         return state.jobs.get(job_id).as_dict()
     except KeyError:
-        raise HTTPException(404, JOB_GONE) from None
+        raise ApiError(404, "activity_not_found", JOB_GONE) from None
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -597,7 +611,7 @@ def cancel_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
     try:
         job: Job = state.jobs.cancel(job_id)
     except KeyError:
-        raise HTTPException(404, JOB_GONE) from None
+        raise ApiError(404, "activity_not_found", JOB_GONE) from None
     return job.as_dict()
 
 
@@ -631,23 +645,27 @@ def check_annotations(
     try:
         target = ann.build_target(project_dir, manifest, task, class_name)
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     if task is not None and target is None:
-        raise _bad_request(ValueError("Choose a task made from a video."))
+        raise bad_request(ValueError("Choose a task made from a video."))
     try:
         token = ann.stage(project_dir, [(f.filename or "annotations", f.file) for f in files])
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     staged = ann.load_staged(project_dir, token)
     try:
         fmt = ann.detect_format(staged)
     except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
         ann.discard_staged(project_dir, token)
-        raise HTTPException(400, f"The annotation file could not be read: {exc}") from exc
+        raise _unreadable(str(exc)) from exc
     if fmt is None:
+        broken = ann.unreadable_file(staged)
         ann.discard_staged(project_dir, token)
-        raise HTTPException(
+        if broken is not None:
+            raise _unreadable(broken[1], broken[0])
+        raise ApiError(
             400,
+            "annotation_format_unknown",
             "The annotation format was not recognised. Supported: COCO JSON, YOLO txt (with data.yaml or "
             "classes.txt), Pascal VOC XML, CVAT for images or video XML, Label Studio JSON and MOT txt.",
         )
@@ -655,8 +673,9 @@ def check_annotations(
         target = None  # image files are matched by name unless the task was chosen
     if fmt in ann.VIDEO_ONLY and target is None:
         ann.discard_staged(project_dir, token)
-        raise HTTPException(
+        raise ApiError(
             400,
+            "video_task_required",
             "This file is made for a video: choose the video task it belongs to (none or several found).",
         )
     if target is not None:
@@ -666,7 +685,7 @@ def check_annotations(
         report = ann.validate(result, project)
     except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
         ann.discard_staged(project_dir, token)
-        raise HTTPException(400, f"The annotation file could not be read: {exc}") from exc
+        raise _unreadable(str(exc)) from exc
     if not report.can_import:  # the only option left is to discard: nothing to keep aside
         ann.discard_staged(project_dir, token)
     return {
@@ -687,9 +706,9 @@ def apply_annotations(
     try:
         return ann.apply(state.store, project_id, manifest, token, body.action, body.mode)
     except FileNotFoundError as exc:  # unknown, discarded or expired staging
-        raise HTTPException(404, str(exc)) from exc
+        raise ApiError(404, "staging_not_found", str(exc)) from exc
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
 
 
 @router.delete("/projects/{project_id}/annotations/{token}")
@@ -699,7 +718,7 @@ def discard_annotations(project_id: int, token: str, state: AppState = STATE) ->
     try:
         ann.discard_staged(state.store.dir(project_id), token)
     except ValueError as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     return {"discarded": True}
 
 
@@ -792,11 +811,16 @@ def set_thresholds(project_id: int, body: dict[str, float], state: AppState = ST
     current = asdict(issues.load_thresholds(project_dir))
     unknown = set(body) - set(current)
     if unknown:
-        raise HTTPException(400, f"Unknown thresholds: {', '.join(sorted(unknown))}")
+        raise ApiError(
+            400,
+            "unknown_thresholds",
+            f"Unknown thresholds: {', '.join(sorted(unknown))}",
+            names=sorted(unknown),
+        )
     try:
         thresholds = issues.Thresholds(**{**current, **body})
     except (TypeError, ValueError) as exc:
-        raise _bad_request(exc) from exc
+        raise bad_request(exc) from exc
     issues.save_thresholds(project_dir, thresholds)
     issues.flag_issues(manifest, thresholds)
     return _curation(state, project_id)
@@ -832,7 +856,7 @@ def open_fiftyone(
         try:
             TaskStore(project_dir).get(task_id)
         except TaskNotFound:
-            raise HTTPException(404, "Unknown task.") from None
+            raise ApiError(404, "task_not_found", "This task does not exist.") from None
 
     def run(progress: Progress) -> dict[str, Any]:
         from activelabel import fiftyone_bridge
@@ -858,7 +882,9 @@ def pull_exclusions(project_id: int, state: AppState = STATE) -> dict[str, int]:
 
     dataset = fiftyone_bridge.existing_dataset(state.store.dir(project_id), project_id)
     if dataset is None:
-        raise HTTPException(
-            400, "Open the project in FiftyOne first, tag images with 'exclude', then try again."
+        raise ApiError(
+            400,
+            "fiftyone_not_opened",
+            "Open the project in FiftyOne first, tag images with 'exclude', then try again.",
         )
     return {"excluded": fiftyone_bridge.pull_exclusions(dataset, manifest)}

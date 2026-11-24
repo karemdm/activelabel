@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore, Plan, parse_options, plan_split
 from activelabel.tasks_store import TaskStore
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -42,7 +43,7 @@ def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
         options = parse_options(data, [t.id for t in TaskStore(project_dir).load()])
         return plan_split(project_dir, project, options)
     except ValueError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
 
 
 def _store(state: AppState, project_id: int) -> DatasetStore:
@@ -69,7 +70,7 @@ def create_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) 
     try:
         return _store(state, project_id).create(plan, body.note)
     except ValueError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
 
 
 @router.get("/projects/{project_id}/datasets/{number}")
@@ -78,7 +79,7 @@ def get_dataset(project_id: int, number: int, state: AppState = STATE) -> dict[s
     try:
         return _store(state, project_id).get(number)
     except DatasetNotFound:
-        raise HTTPException(404, "This dataset version does not exist.") from None
+        raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
 
 
 @router.delete("/projects/{project_id}/datasets/{number}")
@@ -88,9 +89,9 @@ def delete_dataset(
     """Delete a version (needs ``{"confirm": true}``); its number is not reused."""
     store = _store(state, project_id)
     if not (body and body.confirm):
-        raise HTTPException(400, "Confirm the deletion of this dataset version.")
+        raise ApiError(400, "confirm_required", "Confirm the deletion of this dataset version.")
     try:
         store.delete(number)
     except DatasetNotFound:
-        raise HTTPException(404, "This dataset version does not exist.") from None
+        raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
     return {"deleted": True}

@@ -13,6 +13,7 @@ from activelabel.jobs import Progress
 from activelabel.sync import engine, links
 from activelabel.sync.registry import get_remote
 from activelabel.sync.remote import RemoteProject
+from activelabel.web.errors import ApiError
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -41,14 +42,16 @@ class ApplyBody(BaseModel):
 
 def _tool(tool: str) -> str:
     if tool not in SYNC_TOOLS:
-        raise HTTPException(404, f"Unknown tool '{tool}' (use cvat or labelstudio).")
+        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat or labelstudio).", tool=tool)
     return tool
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
-        raise HTTPException(400, f"Configure {tool} first (URL, user, password/token).")
+        raise ApiError(
+            400, "tool_not_configured", f"Configure {tool} first (URL, user, password/token).", tool=tool
+        )
     return settings
 
 
@@ -73,7 +76,7 @@ def unlink(project_id: int, tool: str, state: AppState = STATE) -> dict[str, boo
     state.project(project_id)
     _tool(tool)
     if not links.remove_link(state.store.dir(project_id), tool):
-        raise HTTPException(404, f"This project is not linked to {tool}.")
+        raise ApiError(404, "not_linked", f"This project is not linked to {tool}.", tool=tool)
     return {"unlinked": True}
 
 
@@ -84,13 +87,13 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
     _tool(tool)
     body = body or PlanBody()
     if body.direction not in engine.DIRECTIONS:
-        raise HTTPException(400, "The direction must be both, pull or push.")
+        raise ApiError(400, "direction_invalid", "The direction must be both, pull or push.")
     if body.scope not in engine.SCOPES:
-        raise HTTPException(400, "The scope must be project, task or job.")
+        raise ApiError(400, "scope_invalid", "The scope must be project, task or job.")
     if body.scope != "project" and body.task is None:
-        raise HTTPException(400, "Choose the task.")
+        raise ApiError(400, "task_required", "Choose the task.")
     if body.scope == "job" and body.job is None:
-        raise HTTPException(400, "Choose the job.")
+        raise ApiError(400, "job_required", "Choose the job.")
     state.busy(project_id)  # the input is checked first: a wrong request is wrong whatever the state
     settings = _settings(state, tool)
     remote = _remote(tool)
@@ -124,7 +127,9 @@ def apply(
     state.project(project_id)
     _tool(tool)
     if engine.load_plan(state.store.dir(project_id), plan_id) is None:
-        raise HTTPException(404, "This comparison does not exist (it may be old). Synchronise again.")
+        raise ApiError(
+            404, "plan_not_found", "This comparison does not exist (it may be old). Synchronise again."
+        )
     state.busy(project_id)
     settings = _settings(state, tool)
     remote = _remote(tool)
@@ -132,7 +137,7 @@ def apply(
     if body.default not in (None, "", "local", "remote") or any(
         v not in engine.CHOICES for v in body.resolutions.values()
     ):
-        raise HTTPException(400, "Resolutions and default must be 'local' or 'remote'.")
+        raise ApiError(400, "resolution_invalid", "Resolutions and default must be 'local' or 'remote'.")
     store = state.store
 
     def run(progress: Progress) -> dict[str, Any]:

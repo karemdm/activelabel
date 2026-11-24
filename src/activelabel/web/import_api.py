@@ -16,6 +16,7 @@ from activelabel.jobs import Progress
 from activelabel.sync import engine as sync_engine
 from activelabel.sync.registry import get_remote
 from activelabel.tasks import Task
+from activelabel.web.errors import ApiError
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -37,14 +38,14 @@ class ImportBody(BaseModel):
 
 def _importer(tool: str) -> ModuleType:
     if tool not in IMPORTERS:
-        raise HTTPException(404, f"Unknown tool '{tool}' (use cvat or labelstudio).")
+        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat or labelstudio).", tool=tool)
     return IMPORTERS[tool]
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
-        raise HTTPException(400, f"Configure {tool} first")
+        raise ApiError(400, "tool_not_configured", f"Configure {tool} first", tool=tool)
     return settings
 
 

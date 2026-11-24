@@ -102,6 +102,26 @@ def detect_format(files: list[Path]) -> str | None:
     return next(iter(found)) if len(found) == 1 else None
 
 
+def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
+    """The first JSON or XML file that is not well-formed, as ``(file name, parser message)``, or None.
+
+    Used to say what is wrong when :func:`detect_format` finds no format: a cut-off file is not "an
+    unknown format".
+    """
+    for path in files:
+        suffix = path.suffix.lower()
+        try:
+            if suffix == ".json":
+                json.loads(path.read_text(encoding="utf-8-sig"))
+            elif suffix == ".xml":
+                ET.parse(path)
+        except (ValueError, ET.ParseError) as exc:  # UnicodeDecodeError is a ValueError
+            return path.name, str(exc)
+        except OSError:
+            continue
+    return None
+
+
 def parse(
     files: list[Path], fmt: str, images: list[ImageRecord], target: VideoTarget | None = None
 ) -> ParseResult:

@@ -11,7 +11,7 @@ from activelabel.annotations.target import build_target
 from activelabel.annotations.validation import CHANGE_TASK, CONVERT, DISCARD, IMPORT, to_detection, validate
 from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
-from activelabel.projects import ProjectStore
+from activelabel.projects import ProjectStore, check_classes
 from activelabel.storage import now
 from activelabel.tasks import Task
 
@@ -38,7 +38,8 @@ def apply(
 
     Raises:
         ValueError: unknown action or mode, action not allowed for these files, nothing to import,
-            or merge into labels of another task.
+            or merge into labels of another task, or class names the project cannot hold
+            (:class:`~activelabel.errors.CodedError`).
     """
     if action not in ACTIONS:
         raise ValueError(f"Unknown action: {action}")
@@ -95,6 +96,8 @@ def apply(
         if name.lower() not in seen:
             new_classes.append(canon.get(name.lower(), name))
             seen.add(name.lower())
+
+    check_classes(new_classes)  # before anything is written: a list the project would refuse stops the import
 
     # read, merge and write under one lock: a review, sync or pre-annotation saved meanwhile is kept
     with annotations_lock(project_dir):

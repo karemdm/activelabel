@@ -18,6 +18,7 @@ from activelabel.storage import read_json, write_json
 from activelabel.sync import engine as sync_engine
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
+from activelabel.web.errors import ApiError
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -68,14 +69,16 @@ def open_dataset(project: Project, state: AppState) -> Any:
 # -- helpers ------------------------------------------------------------------
 def _tool_name(tool: str) -> str:
     if tool not in TOOLS:
-        raise HTTPException(404, f"Unknown annotation tool '{tool}'.")
+        raise ApiError(404, "tool_unknown", f"Unknown annotation tool '{tool}'.", tool=tool)
     return tool
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
-        raise HTTPException(400, f"Configure {tool} first (URL, user, password/token).")
+        raise ApiError(
+            400, "tool_not_configured", f"Configure {tool} first (URL, user, password/token).", tool=tool
+        )
     return settings
 
 
@@ -91,8 +94,8 @@ def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any
     try:
         return sessions.get(state.store.dir(project_id), session_id)
     except sessions.SessionNotFound:
-        raise HTTPException(
-            404, "This annotation session does not exist (it may have been closed)."
+        raise ApiError(
+            404, "session_not_found", "This annotation session does not exist (it may have been closed)."
         ) from None
 
 
@@ -119,7 +122,7 @@ def save_tool(tool: str, body: ToolBody, state: AppState = STATE) -> dict[str, A
     """Save URL and user (and the secret, in the system keyring, when given)."""
     _tool_name(tool)
     if tool != "fiftyone" and not body.url.strip():
-        raise HTTPException(400, "Give the URL of the tool.")
+        raise ApiError(400, "url_required", "Give the URL of the tool.")
     try:
         settings = credentials.save_settings(
             state.settings.workspace, tool, body.url, body.username, body.secret or None
@@ -162,7 +165,12 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
     project = state.project(project_id)
     tool = _tool(_tool_name(body.tool))
     if body.scope not in sessions.SCOPES:
-        raise HTTPException(400, f"Unknown scope '{body.scope}' (use: {', '.join(sessions.SCOPES)}).")
+        raise ApiError(
+            400,
+            "scope_unknown",
+            f"Unknown scope '{body.scope}' (use: {', '.join(sessions.SCOPES)}).",
+            scope=body.scope,
+        )
     manifest = state.manifest_with_images(project_id)
     state.busy(project_id)
     settings = _settings(state, body.tool)
@@ -218,7 +226,12 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
     """Read the annotations back and summarise the changes (job; result ``{session, diff}``)."""
     session = _session(state, project_id, session_id)
     if session["status"] in (sessions.APPLIED, sessions.DISCARDED):
-        raise HTTPException(409, f"This session was already {session['status']}. Start a new one.")
+        raise ApiError(
+            409,
+            "session_finished",
+            f"This session was already {session['status']}. Start a new one.",
+            status=session["status"],
+        )
     state.busy(project_id)
     project = state.project(project_id)
     tool = _tool(session["tool"])
@@ -256,21 +269,25 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
     except ValueError:  # damaged file: the annotations have to be brought back again
         data = None
     if session["status"] != sessions.PULLED or data is None:
-        raise HTTPException(400, "Bring the annotations back first (Pull), then review and apply them.")
+        raise ApiError(
+            400, "pull_first", "Bring the annotations back first (Pull), then review and apply them."
+        )
     new_labels = {i: [Label.from_dict(x) for x in items] for i, items in data.items()}
     project_dir = state.store.dir(project_id)
     with annotations_lock(project_dir):  # the check and the write see the same labels
         session = _session(state, project_id, session_id)  # again: a second click may have applied it
         if session["status"] == sessions.APPLIED:
-            raise HTTPException(409, "These annotations were already applied.")
+            raise ApiError(409, "already_applied", "These annotations were already applied.")
         base: dict[str, str] = session.get("base") or {}
         current = _local_hashes(project_dir, session["image_ids"])
         changed = sum(1 for i, h in current.items() if base.get(i) != h)
         if changed:
-            raise HTTPException(
+            raise ApiError(
                 409,
+                "annotations_changed",
                 f"The annotations of {changed} images changed since you brought them back: "
                 "bring them back again.",
+                count=changed,
             )
         counts = diffing.apply(
             state.store, project_id, state.manifest(project_id), session["image_ids"], new_labels
@@ -284,7 +301,9 @@ def discard_session(project_id: int, session_id: str, state: AppState = STATE) -
     """Throw away the pulled annotations (the project does not change)."""
     session = _session(state, project_id, session_id)
     if session["status"] == sessions.APPLIED:
-        raise HTTPException(409, "These annotations were already applied: there is nothing to discard.")
+        raise ApiError(
+            409, "already_applied", "These annotations were already applied: there is nothing to discard."
+        )
     sessions.update(state.store.dir(project_id), session_id, status=sessions.DISCARDED)
     return {"discarded": True}
 

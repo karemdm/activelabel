@@ -145,3 +145,54 @@ def test_reopening_a_closed_task_is_a_conflict_and_checks_come_before_settings(t
     assert wrong.status_code == 400 and "direction" in wrong.json()["detail"]
     wrong = client.post("/api/projects/1/annotate", json={"tool": "cvat", "scope": "nope"})
     assert wrong.status_code == 400 and "scope" in wrong.json()["detail"]
+
+
+def test_class_names_are_limited(tmp_path):
+    client, _ = make_projects(tmp_path, 1)
+    long_name = client.patch("/api/projects/1", json={"classes": ["x" * 101]})
+    assert long_name.status_code == 400 and long_name.json()["code"] == "class_name_too_long"
+    assert long_name.json()["params"]["max"] == 100
+    many = client.patch("/api/projects/1", json={"classes": [f"c{i}" for i in range(1001)]})
+    assert many.status_code == 400 and many.json()["code"] == "too_many_classes"
+    assert (
+        client.patch("/api/projects/1", json={"classes": ["x" * 100, "b\x00"]}).json()["code"]
+        == "class_name_invalid"
+    )
+    ok = client.patch("/api/projects/1", json={"classes": ["x" * 100, *[f"c{i}" for i in range(999)]]})
+    assert ok.status_code == 200
+    created = client.post("/api/projects", json={"name": "N", "task": "detection", "classes": ["y" * 101]})
+    assert created.status_code == 400 and created.json()["code"] == "class_name_too_long"
+
+
+def test_task_names_are_unique_per_project_ignoring_case(tmp_path):
+    client, _ = make_projects(tmp_path, 1)
+    path = tmp_path / "a.png"
+    make_image(path)
+
+    def new_task(name, seed):
+        make_image(path, seed=seed)
+        return client.post(
+            "/api/projects/1/tasks", files=[("files", ("a.png", path.read_bytes()))], data={"name": name}
+        )
+
+    assert new_task("T A", 1).status_code == 200
+    dup = new_task("t a", 2)
+    assert dup.status_code == 400 and dup.json()["code"] == "task_name_taken"
+    assert dup.json()["params"] == {"name": "T A"}
+    assert len(client.get("/api/projects/1/images").json()["items"]) == 1  # nothing stored by the refused one
+    assert new_task("T B", 3).status_code == 200
+    renamed = client.patch("/api/projects/1/tasks/2", json={"name": "T a"})
+    assert renamed.status_code == 400 and renamed.json()["code"] == "task_name_taken"
+    assert client.patch("/api/projects/1/tasks/2", json={"name": "t b"}).status_code == 200  # its own name
+
+
+def test_errors_carry_codes_next_to_the_english_detail(tmp_path):
+    client, _ = make_projects(tmp_path, 1)
+    taken = client.post("/api/projects", json={"name": "p0", "task": "detection"}).json()
+    assert taken["detail"] == "A project named 'P0' already exists." and taken["code"] == "project_name_taken"
+    missing = client.get("/api/projects/99").json()
+    assert missing["code"] == "project_not_found" and "detail" in missing
+    delete = client.post("/api/projects/1/images/delete", json={"ids": []})
+    assert delete.json()["code"] == "confirm_required"
+    gone = client.get("/api/jobs/nope").json()
+    assert gone["code"] == "activity_not_found"

@@ -141,3 +141,15 @@ def test_ground_truth_class_names_follow_the_project_classes(tmp_path):
     assert client.get("/api/projects/1/annotations").json()["class_names"] == ["cat", "dog"]
     client.patch("/api/projects/1", json={"classes": ["dog"], "classes_action": "remove_annotations"})
     assert client.get("/api/projects/1/annotations").json()["class_names"] == ["dog"]
+
+
+def test_a_cut_off_json_is_reported_as_unreadable_not_as_unknown_format(tmp_path):
+    client, state = setup_project(tmp_path)
+    cut = coco(["0.png", "1.png"])[:40].encode()
+    response = client.post("/api/projects/1/annotations", files=[("files", ("instances.json", cut))])
+    body = response.json()
+    assert response.status_code == 400 and body["code"] == "annotation_unreadable"
+    assert body["params"]["file"] == "instances.json" and body["params"]["reason"]
+    assert "instances.json" in body["detail"] and staged(state) == []
+    other = client.post("/api/projects/1/annotations", files=[("files", ("x.json", b'{"a": 1}'))])
+    assert other.json()["code"] == "annotation_format_unknown"

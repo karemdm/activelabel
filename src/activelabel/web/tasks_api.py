@@ -23,6 +23,7 @@ from activelabel.tasks_store import (
     jobs,
 )
 from activelabel.web.api import delete_image_files, ingest_uploads
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -93,7 +94,7 @@ def _find(store: TaskStore, task_id: int) -> ImageTask:
     try:
         return store.get(task_id)
     except TaskNotFound:
-        raise HTTPException(404, "This task does not exist.") from None
+        raise ApiError(404, "task_not_found", "This task does not exist.") from None
 
 
 @router.get("/projects/{project_id}/tasks")
@@ -202,13 +203,18 @@ def create_task(
     try:
         size = check_job_size(_whole_number(job_size))
         task_name = clean_name(name) if name.strip() else None
+        if task_name:
+            store.check_name_free(task_name)  # before any image is stored
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
     with store.locked():  # ingest and registration are atomic
         store.ensure()  # migrate before the new images exist
         report, added = ingest_uploads(manifest, files)
         if not added and not open:
-            raise HTTPException(400, {"message": "No image was added to the task.", "report": report})
+            raise HTTPException(
+                400,
+                {"code": "no_images_added", "message": "No image was added to the task.", "report": report},
+            )
         task = store.create(task_name, size, added, open=open)
     return {"task": _view(state, project_id, task), "report": report}
 
@@ -220,7 +226,7 @@ def append_images(project_id: int, task_id: int, files: FILES, state: AppState =
     store = TaskStore(state.store.dir(project_id))
     with store.locked():  # nothing is stored unless the task exists and is open
         if not _find(store, task_id).open:
-            raise HTTPException(409, "This task is closed: its images are fixed.")
+            raise ApiError(409, "task_closed", "This task is closed: its images are fixed.")
         report, added = ingest_uploads(manifest, files)
         store.append(task_id, added)
     return report
@@ -237,7 +243,7 @@ def change_task(project_id: int, task_id: int, body: TaskChanges, state: AppStat
     with store.locked():
         task = _find(store, task_id)
         if body.open and not task.open:
-            raise HTTPException(409, "A closed task cannot be reopened.")
+            raise ApiError(409, "task_closed", "A closed task cannot be reopened.")
         try:
             if body.name is not None:
                 task = store.rename(task_id, body.name)
@@ -247,7 +253,7 @@ def change_task(project_id: int, task_id: int, body: TaskChanges, state: AppStat
                     store.delete(task_id)
                     return {**_view(state, project_id, task), "removed": True}
         except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise bad_request(exc) from exc
     return _view(state, project_id, task)
 
 
@@ -258,8 +264,10 @@ def delete_task(project_id: int, task_id: int, body: DeleteTask, state: AppState
     with store.locked():
         task = _find(store, task_id)
         if not body.confirm:
-            raise HTTPException(
-                400, "Deleting a task deletes its images and cannot be undone: confirm it first."
+            raise ApiError(
+                400,
+                "confirm_required",
+                "Deleting a task deletes its images and cannot be undone: confirm it first.",
             )
         state.busy(project_id, training=True)  # checked before anything changes (deleting images needs it)
         # images first: their task goes with its last image; deleting the task first would leave
