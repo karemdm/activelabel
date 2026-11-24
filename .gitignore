@@ -10,3 +10,7 @@ dist/
 workspace/
 *.zip
 samples/
+# Node tooling (tests of the interface; see docs/DEVELOPMENT.md)
+node_modules/
+playwright-report/
+test-results/
