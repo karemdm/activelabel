@@ -265,3 +265,17 @@ def test_the_public_model_button_is_hidden_when_the_type_has_no_public_model():
     assert "public-catalog" in models[:600]
     assert "publicBtn.hidden = publicAvailable === false" in models
     assert "md.empty_no_public" in models
+
+
+def test_zero_is_plural_in_every_language():
+    """``tn`` picks the singular text only for exactly 1 (Portuguese's own rule would also give it to 0)."""
+    plural = JS[JS.index("const tn =") :]
+    assert "n === 1 ? '_one' : '_other'" in plural[:200]
+    assert "PluralRules" not in JS
+
+
+def test_the_portuguese_texts_keep_task_and_say_no_english_for_boxes():
+    """Task (the unit of images) stays "task", never "tarefa"; "caixas delimitadoras" has no English gloss."""
+    pt = (SRC / "i18n" / "pt.json").read_text(encoding="utf-8")
+    assert "bounding box" not in pt.lower()
+    assert not re.search(r"tarefa", pt, re.I)
