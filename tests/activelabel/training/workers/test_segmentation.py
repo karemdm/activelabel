@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-WORKER = Path(__file__).parents[3] / "src" / "activelabel" / "training" / "workers" / "segmentation.py"
+WORKER = Path(__file__).parents[4] / "src" / "activelabel" / "training" / "workers" / "segmentation.py"
 
 
 @pytest.fixture(scope="module")

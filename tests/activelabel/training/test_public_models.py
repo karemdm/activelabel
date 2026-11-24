@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import textwrap
 from pathlib import Path
@@ -122,26 +121,6 @@ def test_add_public_model_and_preannotate(det):
     labels = next(iter(load_annotations(state.store.dir(2)).images.values()))
     assert labels[0].label == "person" and labels[0].model == "m1" and labels[0].score == 0.8
     wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
-
-
-def test_worker_skips_unmapped_categories():
-    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
-    path = Path(__file__).parents[3] / "src/activelabel/training/workers/predict.py"
-    spec = importlib.util.spec_from_file_location("predict_public_under_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    classes = [None, "car", None]  # category 1 unmapped, 2 → car, 3 unmapped
-    out = module.detection_labels(
-        [[0, 0, 10, 10], [0, 0, 20, 20], [0, 0, 30, 30]],
-        [1, 2, 3],
-        [0.9, 0.9, 0.9],
-        100,
-        100,
-        classes,
-        0.5,
-        "m1",
-    )
-    assert [o["label"] for o in out] == ["car"]
 
 
 def test_public_model_has_no_export_or_download_and_can_leave_the_catalogue(det, monkeypatch):

@@ -1,34 +1,7 @@
 import pytest
 import yaml
 
-from activelabel.training.catalog import MODELS, PROJECT_TYPES, TASK_KINDS, get_model, models_for
 from activelabel.training.config import MAX_GRID, ConfigError, RunConfig, validate
-from activelabel.training.runs import RunBusy, RunNotFound, RunStore
-
-
-def test_catalog_consistency():
-    ids = [m.id for m in MODELS]
-    assert len(ids) == len(set(ids))
-    for m in MODELS:
-        assert m.packages and m.task_kind in TASK_KINDS and m.types
-        for spec in m.param_specs():
-            assert spec.check(spec.default) == spec.default, (m.id, spec.name)
-            if spec.kind == "choice":
-                assert spec.default in spec.choices
-        assert m.param("image_size").default == m.image_size
-    for t in PROJECT_TYPES:
-        assert models_for(t)
-    assert {m.task_kind for m in models_for("segmentation")} == {"semantic", "instance"}
-    for wanted in (
-        "resnet18",
-        "vit_b_16",
-        "ssdlite320_mobilenet_v3_large",
-        "yolov8n",
-        "yolo11l-seg",
-        "yolo11m-pose",
-    ):
-        assert get_model(wanted)
-    assert "ultralytics" in get_model("yolov8s").packages
 
 
 def _cfg(**kw):
@@ -122,32 +95,3 @@ def test_grid_expansion_order_and_cap():
     ]
     assert all(k.mode == "single" and not k.grid and not k.is_composite() for k in kids)
     assert not _cfg().is_composite() and _cfg().children(0) == [_cfg()]
-
-
-def test_run_store_numbers_and_files(tmp_path):
-    store = RunStore(tmp_path)
-    assert store.list() == []
-    first = store.create(_cfg())
-    assert first["number"] == 1 and first["status"] == "queued" and first["children"] == []
-    assert (tmp_path / "runs" / "r1" / "config.yaml").exists()
-    assert store.config(1) == _cfg()
-    store.create(_cfg())
-    store.delete(2)
-    assert store.create(_cfg())["number"] == 3  # never reused
-    assert [r["number"] for r in store.list()] == [3, 1]
-
-    store.update(1, status="running", started="t")
-    assert store.get(1)["status"] == "running" and store.get(1)["created"] == first["created"]
-    with pytest.raises(RunBusy):
-        store.delete(1)
-    with pytest.raises(ValueError):
-        store.update(1, status="weird")
-    store.update(1, status="done")
-    assert store.metrics(1) == [] and store.results(1) is None
-    folder = tmp_path / "runs" / "r1"
-    (folder / "metrics.jsonl").write_text('{"epoch": 1}\n{"epoch": 2}\n{"epo', encoding="utf-8")
-    (folder / "results.json").write_text('{"best": 2}', encoding="utf-8")
-    assert store.metrics(1) == [{"epoch": 1}, {"epoch": 2}] and store.results(1) == {"best": 2}
-    store.delete(1)
-    with pytest.raises(RunNotFound):
-        store.get(1)

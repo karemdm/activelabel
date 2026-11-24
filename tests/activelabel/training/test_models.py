@@ -1,7 +1,5 @@
-import importlib.util
 import json
 import textwrap
-from pathlib import Path
 
 import pytest
 from training_fakes import FAKE_WORKER, FakeEnv, tmp_dirs, wait_for
@@ -160,20 +158,6 @@ def test_detection_export_comes_later(models, tmp_path):
     failed = wait_for(lambda: (e := export_state(client, 1)).get("status") == "failed" and e)
     assert "comes later" in failed["error"] and "PyTorch" in failed["error"]
     assert len(runner.environment.ensured) == before  # nothing installed
-
-
-def test_export_worker_key_check():
-    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
-    path = Path(__file__).parents[3] / "src/activelabel/training/workers/export_onnx.py"
-    spec = importlib.util.spec_from_file_location("export_onnx_under_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.check_keys(["backbone.bn1.num_batches_tracked"], ["aux_classifier.4.weight"])
-    with pytest.raises(ValueError, match="do not match"):
-        module.check_keys(["head.weight"], [])
-    with pytest.raises(ValueError, match="do not match"):
-        module.check_keys([], ["extra.weight"])
-    assert module.KINDS == ("classification", "semantic")
 
 
 def test_fake_worker_is_shared():

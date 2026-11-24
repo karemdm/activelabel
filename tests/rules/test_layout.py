@@ -18,20 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src" / "activelabel"
 TESTS = ROOT / "tests" / "activelabel"
 
-BASELINE = {
-    "curation/issues.py",
-    "curation/quality.py",
-    "curation/summary.py",
-    "preannotate.py",
-    "training/catalog.py",
-    "training/config.py",
-    "training/runs.py",
-    "training/workers/classification.py",
-    "training/workers/detection.py",
-    "training/workers/export_onnx.py",
-    "training/workers/predict.py",
-    "training/workers/segmentation.py",
-}
+BASELINE: set[str] = set()  # every module has its mirror test; keep it empty
 
 
 def _has_code(path: Path) -> bool:

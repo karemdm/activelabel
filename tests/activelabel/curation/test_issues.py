@@ -1,9 +1,11 @@
-import pytest
+import random
+
+from curation_images import LIMITS, add, build
 from PIL import Image
-from sample_images import make_image
 
 from activelabel.curation.issues import (
     Thresholds,
+    _group_duplicates,
     flag_issues,
     load_duplicate_of,
     load_thresholds,
@@ -12,33 +14,6 @@ from activelabel.curation.issues import (
 from activelabel.curation.quality import hamming, measure_images
 from activelabel.curation.summary import suggest_exclusions, summary
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
-from activelabel.jobs import Cancelled
-
-LIMITS = Thresholds(min_side=40, low_contrast=3.0)  # the sample images are small and soft
-
-
-def add(manifest, image_id, **kwargs):
-    path = manifest.project_dir / "images" / f"{image_id}.png"
-    make_image(path, **kwargs)
-    with Image.open(path) as img:
-        width, height = img.size
-    record = ImageRecord(
-        image_id, f"{image_id}.png", f"images/{image_id}.png", width, height, 1, "2026-01-01"
-    )
-    manifest.add([record])
-    return path
-
-
-def build(tmp_path):
-    manifest = Manifest(tmp_path)
-    add(manifest, "ok1", seed=1)
-    add(manifest, "ok2", seed=2)
-    add(manifest, "ok3", seed=3)
-    add(manifest, "dark", seed=4, brightness=10)
-    add(manifest, "blur", seed=5, blur=3)
-    add(manifest, "tiny", size=(32, 24), seed=6)
-    add(manifest, "wide", size=(200, 48), seed=7)
-    return manifest
 
 
 def test_measure_and_issues(tmp_path):
@@ -106,53 +81,7 @@ def test_thresholds_roundtrip(tmp_path):
     assert loaded.min_side == 100 and loaded.dark == 30.0 and loaded.bright == Thresholds().bright
 
 
-def test_summary(tmp_path):
-    manifest = build(tmp_path)
-    measure_images(manifest)
-    flag_issues(manifest, LIMITS)
-    data = summary(manifest)
-    assert data["issue_ids"]["dark"] == ["dark"]
-    assert data["issues"]["dark"] == 1
-    hist = data["histograms"]["brightness"]
-    assert len(hist["counts"]) == 20 and sum(hist["counts"]) == 7 and len(hist["edges"]) == 21
-
-
-class Stop:
-    def __init__(self, after):
-        self.calls, self.after = 0, after
-
-    def update(self, done=None, total=None, message=None):
-        self.calls += 1
-        if self.calls > self.after:
-            raise Cancelled
-
-    def check(self):
-        pass
-
-
-def test_cancel_keeps_measured(tmp_path, monkeypatch):
-    import activelabel.curation.quality as quality
-
-    monkeypatch.setattr(quality, "BATCH", 2)
-    manifest = build(tmp_path)
-    with pytest.raises(Cancelled):
-        measure_images(manifest, Stop(2))
-    done = [r for r in manifest.all() if r.metrics]
-    assert 0 < len(done) < 7
-
-
-def test_corrupt_file_is_skipped(tmp_path):
-    manifest = build(tmp_path)
-    (tmp_path / "images" / "tiny.png").write_bytes(b"not an image")
-    assert measure_images(manifest) == 6
-    assert manifest.get("tiny").metrics == {}
-
-
 def test_group_duplicates_matches_a_brute_force_search():
-    import random
-
-    from activelabel.curation.issues import _group_duplicates
-
     rng = random.Random(7)
     hashes = [rng.getrandbits(64) for _ in range(150)]
     for k in range(0, 150, 5):  # near copies at distances 0..8 of an earlier hash
@@ -178,23 +107,3 @@ def test_group_duplicates_matches_a_brute_force_search():
         want = sorted(sorted(g) for g in expected.values() if len(g) > 1)
         got = sorted(sorted(g) for g in _group_duplicates(ids, texts, limit))
         assert got == want
-
-
-def test_oversized_image_is_skipped_not_fatal(tmp_path, monkeypatch):
-    manifest = build(tmp_path)
-    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)  # "tiny" (32x24) passes, the others are bombs
-    assert measure_images(manifest) == 1
-    assert manifest.get("tiny").metrics and not manifest.get("ok1").metrics
-
-
-def test_manifest_is_written_once_per_save_interval(tmp_path, monkeypatch):
-    import activelabel.curation.quality as quality
-
-    manifest = build(tmp_path)
-    saves = []
-    original = manifest.update
-    monkeypatch.setattr(manifest, "update", lambda changes: (saves.append(len(changes)), original(changes)))
-    monkeypatch.setattr(quality, "BATCH", 2)
-    monkeypatch.setattr(quality, "SAVE_EVERY", 4)
-    assert measure_images(manifest) == 7
-    assert saves == [4, 3]

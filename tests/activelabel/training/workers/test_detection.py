@@ -17,7 +17,7 @@ from activelabel.training.config import RunConfig
 from activelabel.training.runner import RunnerError, build_spec, worker_script
 from activelabel.training.runs import RunStore
 
-WORKER = Path(__file__).parents[3] / "src" / "activelabel" / "training" / "workers" / "detection.py"
+WORKER = Path(__file__).parents[4] / "src" / "activelabel" / "training" / "workers" / "detection.py"
 
 
 @pytest.fixture(scope="module")
