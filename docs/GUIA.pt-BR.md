@@ -70,7 +70,7 @@ interface chama de *Tipo*.
 - *Galeria*: a grade de imagens, com filtros por task e por job.
 - *Tasks e jobs*: as tasks do projeto (cada envio de imagens, ou cada vídeo, é uma task),
   divididas em jobs do tamanho que você escolher, como no CVAT. Em *Nova task* solte
-  arquivos, uma pasta, um .zip ou um vídeo. Os arquivos são guardados sem alteração; imagens
+  arquivos, uma pasta, um .zip ou um vídeo. Os arquivos são guardados sem alteração (o tipo da imagem vem do conteúdo, não da extensão); imagens
   idênticas entram uma só vez; arquivos ilegíveis aparecem na lista com o motivo. Detalhes:
   [TASKS.md](TASKS.md) e [VIDEO.md](VIDEO.md).
 

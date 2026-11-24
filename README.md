@@ -70,8 +70,8 @@ project is its *type*.)
 1. **Images** has two tabs. *Gallery* (*Galeria*) is the grid of images, filtered by task and job.
    *Tasks and jobs* (*Tasks e jobs*) lists the tasks (one upload, or one video, is one task) split
    into jobs of a chosen size, as in CVAT; *New task* takes files, a folder, a .zip or a video.
-   Files are stored unchanged, identical images are added once and unreadable files are listed with
-   the reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
+   Files are stored unchanged (the kind of an image is decided by its content, not its extension),
+   identical images are added once and unreadable files are listed with the reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs:
    - *Summary* (*Resumo*): what the project has (annotated, to review, classes).
    - *Pre-annotate* (*Pré-anotar*): a saved model, or a public pretrained one (COCO), suggests
