@@ -1295,5 +1295,13 @@
   "error.single_run_has_grid": "Um treino único não tem grade: use o modo grade ou tire as listas.",
   "error.start_in_params": "Defina o ponto de partida na opção 'start', não dentro de 'params'.",
   "error.start_invalid": "O ponto de partida deve ser um de: {choices}.",
-  "error.training_unavailable": "Treinar modelos YOLO ainda não está disponível."
+  "error.training_unavailable": "Treinar modelos YOLO ainda não está disponível.",
+  "error.model_kind_mismatch": "Este modelo gera rótulos de {kind}, que o projeto não usa.",
+  "error.model_not_in_catalogue": "Este modelo não está no catálogo desta versão do ActiveLabel.",
+  "error.no_images_for_choice": "Nenhuma imagem desta task corresponde à escolha.",
+  "error.preannotation_kind_unsupported": "A pré-anotação ainda não funciona com este modelo (a família YOLO não é aceita).",
+  "error.preannotation_not_found": "Esta pré-anotação não existe.",
+  "error.preannotation_running": "Estas imagens já estão sendo pré-anotadas.",
+  "error.threshold_range": "A confiança mínima deve ficar entre 0,001 e 0,999.",
+  "error.scope_invalid": "As imagens devem ser um destes: {scopes}."
 }
