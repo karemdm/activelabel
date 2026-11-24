@@ -14,10 +14,6 @@ from activelabel.annotations.context import ParseContext, bbox_of_points, declar
 from activelabel.labels import Label
 
 
-def _num(value: Any) -> float:
-    return float(value)
-
-
 def parse_coco(ctx: ParseContext, files: list[Path]) -> None:
     """Read COCO files into ``ctx``."""
     for path in files:
@@ -75,7 +71,7 @@ def _annotation(
         keypoints = _keypoints(ctx, ann.get("keypoints"), cat, width, height, where)
         bbox = None
         if ann.get("bbox"):
-            x, y, w, h = (_num(v) for v in ann["bbox"][:4])
+            x, y, w, h = (float(v) for v in ann["bbox"][:4])
             bbox = ctx.box(x, y, w, h, width, height, where)
     except (TypeError, ValueError, IndexError):
         ctx.problem("invalid_annotation", where)

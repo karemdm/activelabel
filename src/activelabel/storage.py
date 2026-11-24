@@ -13,7 +13,7 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 RETRIES = 8
-RETRY_DELAY = 0.02  # seconds, growing with each attempt (about 0.7 s in all)
+RETRY_DELAY = 0.02  # seconds, growing with each attempt (0.02 + 0.04 + ... + 0.14 = about 0.6 s in all)
 
 
 class DamagedFile(ValueError):

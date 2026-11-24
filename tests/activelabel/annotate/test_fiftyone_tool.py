@@ -60,3 +60,18 @@ def test_send_edit_pull_close(tmp_path, project):
     tool.close(dataset, settings, sent.ref, False)
     assert not dataset.has_saved_view(sent.ref["view"])
     tool.close(dataset, settings, sent.ref, False)  # no error when already gone
+
+
+def test_tools_say_so_when_the_project_was_never_opened_in_fiftyone():
+    from activelabel.annotate.base import ToolError
+
+    tool, settings = get_tool("fiftyone"), ToolSettings("fiftyone")
+    project = Project(1, "t", "", Task.DETECTION, ["cat"])
+    with pytest.raises(ToolError, match="Open the project in FiftyOne"):
+        tool.send(None, ["a"], project, settings, "s1")
+    with pytest.raises(ToolError, match="Open the project in FiftyOne"):
+        tool.pull(None, ["a"], project, settings, {})
+    with pytest.raises(ToolError, match="Open the project in FiftyOne"):
+        get_tool("labelstudio").send(
+            None, ["a"], project, ToolSettings("labelstudio", "http://x", "", "t"), "s1"
+        )

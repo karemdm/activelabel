@@ -127,14 +127,15 @@ def parse(
 ) -> ParseResult:
     """Read annotation files and match them to images.
 
-    Images match by exact relative name, then by case-insensitive file name; a file name shared by
-    several images is reported (``ambiguous_image_name``) and skipped. Coordinates become relative using
-    the image size of the record, or the size written in the file (COCO, VOC, CVAT) when it differs
-    (``size_mismatch``).
+    Images match by exact relative name, then by the same name ignoring case, then by file name alone
+    ignoring case; a name shared by several images is reported (``ambiguous_image_name``) and skipped.
+    Coordinates become relative using the image size of the record, or the size written in the file
+    (COCO, VOC, CVAT) when it differs (``size_mismatch``).
 
     Args:
         files: annotation files (see :func:`detect_format`).
-        fmt: one of coco, yolo, voc, cvat, labelstudio, folders (folders ignores ``files``).
+        fmt: one of ``FORMATS``: coco, yolo, voc, cvat, labelstudio, folders (ignores ``files``), cvatvideo
+            and mot (these two need ``target``).
         images: images of the project (of the video task, when ``target`` is given).
         target: a video task. COCO and YOLO files are then matched by frame number instead of by file
             name (see :mod:`activelabel.annotations.videoformats`); cvatvideo and mot need it.

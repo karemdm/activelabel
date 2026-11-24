@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -100,14 +101,14 @@ def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any
         ) from None
 
 
-def _local_hashes(project_dir: Any, image_ids: list[str]) -> dict[str, str]:
+def _local_hashes(project_dir: Path, image_ids: list[str]) -> dict[str, str]:
     """Hash of the local labels of each image (to notice later that they changed)."""
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}
     return {i: label_hash(images.get(i, [])) for i in image_ids}
 
 
-def _pulled_file(state: AppState, project_id: int, session_id: str) -> Any:
+def _pulled_file(state: AppState, project_id: int, session_id: str) -> Path:
     return sessions.session_dir(state.store.dir(project_id), session_id) / "pulled.json"
 
 

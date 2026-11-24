@@ -8,7 +8,7 @@ from collections.abc import Iterable, Sequence
 from activelabel.annotations.models import PROBLEMS, ParseResult, Problem
 from activelabel.annotations.target import VideoTarget
 from activelabel.images.manifest import ImageRecord
-from activelabel.labels import Label, Point
+from activelabel.labels import Label, Point, clamp01
 
 MAX_UNMATCHED_EXAMPLES = 20
 EPS = 1e-6
@@ -59,10 +59,6 @@ def declared_size(
     if (int(w), int(h)) != (rec.width, rec.height):
         ctx.problem("size_mismatch", f"{name}: {int(w)}x{int(h)} vs {rec.width}x{rec.height}")
     return w, h
-
-
-def _clip(value: float) -> float:
-    return min(1.0, max(0.0, value))
 
 
 class ParseContext:
@@ -118,9 +114,11 @@ class ParseContext:
         return None, False
 
     def match(self, *names: str, example: str | None = None) -> ImageRecord | None:
-        """Image for the first of ``names`` that matches (exact name, then case-insensitive basename).
+        """Image for the first of ``names`` that matches.
 
-        Records an unmatched or ambiguous problem when none matches.
+        For each name the lookup tries the exact relative name, then the same ignoring case, then the file
+        name alone ignoring case; a lookup that finds several images is ambiguous and counts as no match.
+        Records an unmatched or ambiguous problem when no name matches.
         """
         ambiguous = False
         for name in names:
@@ -202,7 +200,7 @@ class ParseContext:
             return None
         if x0 < -EPS or y0 < -EPS or x1 > 1 + EPS or y1 > 1 + EPS:
             self.problem("box_clipped", where)
-        cx0, cy0, cx1, cy1 = _clip(x0), _clip(y0), _clip(x1), _clip(y1)
+        cx0, cy0, cx1, cy1 = clamp01(x0), clamp01(y0), clamp01(x1), clamp01(y1)
         if cx1 - cx0 <= EPS or cy1 - cy0 <= EPS:
             self.problem("box_degenerate", where)
             return None
@@ -218,7 +216,7 @@ class ParseContext:
         if width <= 0 or height <= 0 or not all(math.isfinite(v) for p in points for v in p[:2]):
             self.problem("invalid_annotation", where)
             return None
-        return [[_clip(p[0] / width), _clip(p[1] / height)] for p in points]
+        return [[clamp01(p[0] / width), clamp01(p[1] / height)] for p in points]
 
     def point(
         self, x: float, y: float, v: float, width: float, height: float, where: str
@@ -227,7 +225,7 @@ class ParseContext:
         if not all(math.isfinite(t) for t in (x, y, v)) or width <= 0 or height <= 0:
             self.problem("invalid_annotation", where)
             return None
-        return [_clip(x / width), _clip(y / height), float(int(v))]
+        return [clamp01(x / width), clamp01(y / height), float(int(v))]
 
     def result(self) -> ParseResult:
         """Final result of the run."""

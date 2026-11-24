@@ -55,9 +55,6 @@ CHANGED_LINK = (
 )
 
 
-log = logging.getLogger(__name__)
-
-
 class SyncError(ToolError):
     """A readable problem of the synchronisation."""
 
