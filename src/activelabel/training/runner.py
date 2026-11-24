@@ -26,8 +26,9 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from activelabel import __version__, preannotate
 from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
@@ -248,6 +249,58 @@ class _Target:
     dir: Path
     log: Path
     update: Callable[..., Any]
+
+
+def _pump_lines(stream: IO[str], lines: queue.Queue[str | None]) -> None:
+    """Move the lines of a process's output to a queue (``None`` marks the end); runs in a thread."""
+    for line in stream:
+        lines.put(line)
+    lines.put(None)
+
+
+def _send_message(update: Callable[..., Any], message: str) -> None:
+    """Show a set-up message (environment preparation) through ``update(message=...)``."""
+    update(message=message)
+
+
+def _report_step(store: RunStore, number: int, progress: Progress, message: str) -> None:
+    """Show a set-up message (environment preparation) in the job and in the run."""
+    progress.update(message=message)
+    store.update(number, message=message)
+
+
+def _update_child(store: RunStore, number: int, index: int, **fields: Any) -> None:
+    """Write the fields a child training reports: the top-level ones also go to the run itself."""
+    top = {k: v for k, v in fields.items() if k in TOP_FIELDS}
+    own = {k: v for k, v in fields.items() if k != "message"}
+    store.update_child(number, index, top=top, **own)
+
+
+class _PredictionEvents:
+    """Collects the events of a pre-annotation process: labels per image, unreadable images, progress."""
+
+    def __init__(
+        self, runs: preannotate.PreannotationStore, number: int, progress: Progress, total: int
+    ) -> None:
+        self.predictions: dict[str, list[Label]] = {}
+        self.unreadable: list[str] = []
+        self._runs = runs
+        self._number = number
+        self._progress = progress
+        self._total = total
+        self._last = 0.0
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        """Take one event of the process (``prediction``, ``skipped`` or ``progress``)."""
+        kind = event.get("event")
+        if kind == "prediction":
+            self.predictions[str(event["id"])] = preannotate.mask_labels(event.get("labels") or [])
+        elif kind == "skipped":
+            self.unreadable.append(str(event.get("id")))
+        elif kind == "progress" and time.monotonic() - self._last >= PROGRESS_EVERY:
+            self._last = time.monotonic()
+            self._runs.update(self._number, done=event.get("step", 0), total=event.get("steps", self._total))
+            self._progress.update(done=event.get("step"), total=event.get("steps"))
 
 
 def _describe(entry: dict[str, Any]) -> str:
@@ -587,11 +640,10 @@ class TrainingRunner:
             (folder / EXPORT_FILES[fmt]).unlink(missing_ok=True)  # an old export is not kept as the new one
             part.unlink(missing_ok=True)
 
-            def step(message: str) -> None:
-                store.set_export(number, fmt, message=message)
-
             self.environment.ensure(
-                [*model.packages, *EXTRA_PACKAGES, *EXPORT_PACKAGES[fmt]], progress.check, step
+                [*model.packages, *EXTRA_PACKAGES, *EXPORT_PACKAGES[fmt]],
+                progress.check,
+                partial(_send_message, partial(store.set_export, number, fmt)),
             )
             progress.check()
             store.set_export(number, fmt, message="")
@@ -707,11 +759,9 @@ class TrainingRunner:
             if not items:
                 raise RunnerError("None of the images of this task could be read.")
 
-            def step(message: str) -> None:
-                runs.update(number, message=message)
-
             packages = PUBLIC_PACKAGES if public else model.packages  # type: ignore[union-attr]
-            self.environment.ensure([*packages, *EXTRA_PACKAGES], progress.check, step)
+            update = partial(_send_message, partial(runs.update, number))
+            self.environment.ensure([*packages, *EXTRA_PACKAGES], progress.check, update)
             progress.check()
             runs.update(number, phase="predicting", message="", total=len(items), done=0)
             self.tmp_root.mkdir(parents=True, exist_ok=True)
@@ -744,27 +794,13 @@ class TrainingRunner:
                 }
             spec_file = tmp / "spec.json"
             spec_file.write_text(json.dumps(spec), encoding="utf-8")
-            predictions: dict[str, list[Label]] = {}
-            unreadable: list[str] = []
-            last = {"t": 0.0}
-
-            def on_event(event: dict[str, Any]) -> None:
-                kind = event.get("event")
-                if kind == "prediction":
-                    predictions[str(event["id"])] = preannotate.mask_labels(event.get("labels") or [])
-                elif kind == "skipped":
-                    unreadable.append(str(event.get("id")))
-                elif kind == "progress" and time.monotonic() - last["t"] >= PROGRESS_EVERY:
-                    last["t"] = time.monotonic()
-                    runs.update(number, done=event.get("step", 0), total=event.get("steps", len(items)))
-                    progress.update(done=event.get("step"), total=event.get("steps"))
-
+            events = _PredictionEvents(runs, number, progress, len(items))
             script = self._scripts(kind).parent / PREDICT_SCRIPT.name
             cmd = [str(self.environment.python()), str(script), str(spec_file)]
             log_file = project_dir / "preannotations" / f"p{number}.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
             self._run_export(
-                project_id, number, "predict", cmd, tmp, log_file, progress, on_event, "pre-annotation"
+                project_id, number, "predict", cmd, tmp, log_file, progress, events, "pre-annotation"
             )
             now_project = self._project(project_id)  # it may have been edited while the model ran
             if now_project.task is not project.task or list(now_project.classes) != list(project.classes):
@@ -773,9 +809,9 @@ class TrainingRunner:
                     "nothing was written. Run it again."
                 )
             counts: dict[str, Any] = dict(
-                preannotate.apply_predictions(project_dir, now_project, predictions, str(run["scope"]))
+                preannotate.apply_predictions(project_dir, now_project, events.predictions, str(run["scope"]))
             )
-            counts["unreadable"] = len(unreadable)
+            counts["unreadable"] = len(events.unreadable)
             counts["removed_classes"] = removed  # classes of the model the project does not have
             runs.update(number, status=DONE, finished=now(), phase="", done=len(items), counts=counts)
         except Cancelled:
@@ -829,13 +865,8 @@ class TrainingRunner:
                 self._export_procs[key] = proc
             lines: queue.Queue[str | None] = queue.Queue()
 
-            def pump() -> None:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    lines.put(line)
-                lines.put(None)
-
-            reader = threading.Thread(target=pump, daemon=True)
+            assert proc.stdout is not None
+            reader = threading.Thread(target=_pump_lines, args=(proc.stdout, lines), daemon=True)
             reader.start()
             try:
                 while True:
@@ -934,12 +965,10 @@ class TrainingRunner:
             raise RunnerError(f"Training YOLO models {COMES_LATER}.")
         script = self._scripts(model.task_kind)
 
-        def step(message: str) -> None:
-            progress.update(message=message)
-            store.update(number, message=message)
-
         env = self.environment
-        env.ensure([*model.packages, *EXTRA_PACKAGES], progress.check, step)
+        env.ensure(
+            [*model.packages, *EXTRA_PACKAGES], progress.check, partial(_report_step, store, number, progress)
+        )
         progress.check()
 
         store.update(number, phase="preparing", message="")
@@ -1019,11 +1048,6 @@ class TrainingRunner:
             with log_file.open("a", encoding="utf-8") as log:
                 log.write(f"== {cid}: {_describe(entries[i])} ==\n")
 
-            def update(index: int = i, **fields: Any) -> None:
-                top = {k: v for k, v in fields.items() if k in TOP_FIELDS}
-                own = {k: v for k, v in fields.items() if k != "message"}
-                store.update_child(number, index, top=top, **own)
-
             try:
                 spec = build_spec(self._project_dir(project_id), child, model, child_dir, version)
                 spec_dir = tmp / cid
@@ -1046,7 +1070,7 @@ class TrainingRunner:
                     started=now(),
                     epochs=epochs,
                 )
-                target = _Target(child_dir, log_file, update)
+                target = _Target(child_dir, log_file, partial(_update_child, store, number, i))
                 self._train(key, target, progress, [*cmd, str(spec_file)], spec_dir, spec)
             except Cancelled:
                 for j in range(i, len(entries)):
@@ -1124,13 +1148,8 @@ class TrainingRunner:
             with self._lock:
                 self._procs[key] = proc
 
-            def pump() -> None:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    lines.put(line)
-                lines.put(None)
-
-            reader = threading.Thread(target=pump, daemon=True)
+            assert proc.stdout is not None
+            reader = threading.Thread(target=_pump_lines, args=(proc.stdout, lines), daemon=True)
             reader.start()
             try:
                 eof = False

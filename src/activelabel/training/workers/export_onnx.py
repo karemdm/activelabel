@@ -60,6 +60,18 @@ def check_keys(missing: list[str], unexpected: list[str]) -> None:
         raise ValueError(f"The weights do not match the network ({sample}).")
 
 
+class Logits(torch.nn.Module):
+    """A torchvision segmentation model that returns only its logits (ONNX wants a plain tensor)."""
+
+    def __init__(self, inner: Any) -> None:
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, x: Any) -> Any:
+        """The ``out`` logits of the wrapped model for the images ``x``."""
+        return self.inner(x)["out"]
+
+
 def export(spec: dict[str, Any]) -> dict[str, Any]:
     """Rebuild the network, load the weights and write the ONNX file. Returns ``{"size", "inputs"}``."""
     task = spec["task"]
@@ -80,15 +92,6 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
     emit("log", message=f"exporting {spec['build']['model']} ({task}) at {size}px")
     net = model
     if task == "semantic":
-
-        class Logits(torch.nn.Module):
-            def __init__(self, inner: Any) -> None:
-                super().__init__()
-                self.inner = inner
-
-            def forward(self, x: Any) -> Any:
-                return self.inner(x)["out"]
-
         net = Logits(model).eval()
     with torch.no_grad():
         torch.onnx.export(

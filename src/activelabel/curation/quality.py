@@ -15,6 +15,7 @@ The 64-bit perceptual hash (DCT based, hex) goes to ``ImageRecord.phash``.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,22 @@ def measure_file(path: Path) -> tuple[dict[str, float], str]:
     return metrics, perceptual_hash(gray)
 
 
+def _measure_record(manifest: Manifest, record: ImageRecord) -> tuple[str, dict[str, Any] | None]:
+    """Measure one image: ``(id, values)``, with ``values`` None when the file cannot be read."""
+    try:
+        metrics, phash = measure_file(manifest.file_path(record))
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return record.id, None
+    return record.id, {"metrics": metrics, "phash": phash}
+
+
+def _save_pending(manifest: Manifest, pending: dict[str, dict[str, Any]]) -> None:
+    """Write the measures waiting in ``pending`` to the manifest and empty it."""
+    if pending:
+        manifest.update(pending)
+        pending.clear()
+
+
 def measure_images(
     manifest: Manifest, progress: Progress | None = None, recompute: bool = False, workers: int = 4
 ) -> int:
@@ -110,34 +127,21 @@ def measure_images(
         progress.update(done=0, total=len(todo), message="Measuring images")
     measured = 0
 
-    def work(record: ImageRecord) -> tuple[str, dict[str, Any] | None]:
-        try:
-            metrics, phash = measure_file(manifest.file_path(record))
-        except (OSError, ValueError, Image.DecompressionBombError):
-            return record.id, None
-        return record.id, {"metrics": metrics, "phash": phash}
-
     pending: dict[str, dict[str, Any]] = {}
-
-    def save() -> None:
-        if pending:
-            manifest.update(pending)
-            pending.clear()
-
     try:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="activelabel-measure") as pool:
             for start in range(0, len(todo), BATCH):
                 if progress:
                     progress.check()
                 chunk = todo[start : start + BATCH]
-                for image_id, values in pool.map(work, chunk):
+                for image_id, values in pool.map(partial(_measure_record, manifest), chunk):
                     if values is not None:
                         pending[image_id] = values
                         measured += 1
                 if len(pending) >= SAVE_EVERY:
-                    save()
+                    _save_pending(manifest, pending)
                 if progress:
                     progress.update(done=min(start + BATCH, len(todo)))
     finally:
-        save()
+        _save_pending(manifest, pending)
     return measured

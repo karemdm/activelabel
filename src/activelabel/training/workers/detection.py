@@ -22,6 +22,7 @@ import random
 import sys
 import time
 import traceback
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -665,6 +666,67 @@ def epoch_scores(result: dict[str, Any]) -> dict[str, float]:
     return fields
 
 
+def make_loader(
+    items: list[dict[str, Any]],
+    train_mode: bool,
+    task: str,
+    keypoints: int,
+    plan: dict[str, Any],
+    batch_size: int,
+    workers: int,
+    generator: Any,
+) -> Any:
+    """A data loader over ``items``.
+
+    Args:
+        items: the images of one part.
+        train_mode: shuffle and augment (the training part) instead of only reading.
+        task: ``detection``, ``instance`` or ``keypoints``.
+        keypoints: points per object (0 when the task has none).
+        plan: the augmentation plan (``flip`` and ``jitter`` are used in train mode).
+        batch_size: images per batch.
+        workers: loader processes (0 loads in the main process).
+        generator: the seeded random generator used when shuffling.
+
+    Returns:
+        A ``DataLoader`` yielding ``(images, targets)`` batches.
+    """
+    flip, jitter = (bool(plan["flip"]), float(plan["jitter"])) if train_mode else (False, 0.0)
+    return DataLoader(
+        DetectionDataset(items, task, keypoints, flip, jitter),
+        batch_size=batch_size,
+        shuffle=train_mode,
+        num_workers=workers,
+        collate_fn=collate,
+        generator=generator if train_mode else None,
+    )
+
+
+def report_step(epoch: int, epochs: int, step: int, steps: int) -> None:
+    """Tell the runner about the progress of a training epoch (about twenty times per epoch).
+
+    Args:
+        epoch: the epoch (from 1).
+        epochs: how many epochs the run has.
+        step: the batch just done (from 1).
+        steps: batches in the epoch.
+    """
+    if step == steps or step % max(1, steps // 20) == 0:
+        emit("progress", phase="training", epoch=epoch, epochs=epochs, step=step, steps=steps)
+
+
+def save_checkpoint(path: Path, model: Any, meta: dict[str, Any], epoch: int) -> None:
+    """Write the weights of ``model`` with what is needed to rebuild it.
+
+    Args:
+        path: the ``.pt`` file.
+        model: the network.
+        meta: classes, model name, family, image size... saved next to the weights.
+        epoch: the epoch the weights come from.
+    """
+    torch.save({"state_dict": model.state_dict(), **meta, "epoch": epoch}, path)
+
+
 def train(spec: dict[str, Any]) -> dict[str, Any]:
     """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
     p, classes, metric, task = spec["params"], spec["classes"], spec["metric"], spec["task"]
@@ -679,18 +741,16 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
 
-    def loader(name: str, train_mode: bool) -> Any:
-        flip, jitter = (bool(plan["flip"]), float(plan["jitter"])) if train_mode else (False, 0.0)
-        return DataLoader(
-            DetectionDataset(parts[name], task, keypoints, flip, jitter),
-            batch_size=batch,
-            shuffle=train_mode,
-            num_workers=workers,
-            collate_fn=collate,
-            generator=generator if train_mode else None,
-        )
-
-    train_loader, val_loader = loader("train", True), loader("val", False)
+    loader = partial(
+        make_loader,
+        task=task,
+        keypoints=keypoints,
+        plan=plan,
+        batch_size=batch,
+        workers=workers,
+        generator=generator,
+    )
+    train_loader, val_loader = loader(parts["train"], True), loader(parts["val"], False)
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
@@ -699,29 +759,20 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
 
-    def checkpoint(file: str, epoch: int) -> None:
-        torch.save(
-            {
-                "state_dict": model.state_dict(),
-                "classes": classes,
-                "model": spec["model"],
-                "family": spec["family"],
-                "task": task,
-                "num_keypoints": keypoints,
-                "image_size": int(p["image_size"]),
-                "epoch": epoch,
-            },
-            out / file,
-        )
+    meta = {
+        "classes": classes,
+        "model": spec["model"],
+        "family": spec["family"],
+        "task": task,
+        "num_keypoints": keypoints,
+        "image_size": int(p["image_size"]),
+    }
 
     for epoch in range(1, epochs + 1):
         started = time.monotonic()
 
-        def on_step(step: int, steps: int, epoch: int = epoch) -> None:
-            if step == steps or step % max(1, steps // 20) == 0:
-                emit("progress", phase="training", epoch=epoch, epochs=epochs, step=step, steps=steps)
-
         model.train()
+        on_step = partial(report_step, epoch, epochs)
         train_loss = train_epoch(model, train_loader, optimizer, device, torch, epoch == 1, on_step)
         scores = evaluate(model, val_loader, spec, device, torch)
         if scheduler is not None:
@@ -731,10 +782,10 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         if improved:
             best = {"epoch": epoch, "scores": scores}
             since_best = 0
-            checkpoint("best.pt", epoch)
+            save_checkpoint(out / "best.pt", model, meta, epoch)
         else:
             since_best += 1
-        checkpoint("last.pt", epoch)
+        save_checkpoint(out / "last.pt", model, meta, epoch)
         emit(
             "epoch",
             epoch=epoch,
@@ -761,7 +812,10 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         emit("progress", phase="evaluating", epoch=ran, epochs=epochs)
         state = torch.load(out / "best.pt", map_location=device)
         model.load_state_dict(state["state_dict"])
-        results["test"] = {**evaluate(model, loader("test", False), spec, device, torch), "classes": classes}
+        results["test"] = {
+            **evaluate(model, loader(parts["test"], False), spec, device, torch),
+            "classes": classes,
+        }
     (out / "results.json").write_text(json.dumps(results), encoding="utf-8")
     return results
 

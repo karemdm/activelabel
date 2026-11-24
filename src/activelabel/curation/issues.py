@@ -122,16 +122,17 @@ def _save_duplicate_of(project_dir: Path, duplicate_of: dict[str, str]) -> None:
     write_json(curation_path(project_dir), data)
 
 
+def _find(parent: list[int], i: int) -> int:
+    """The root of ``i`` in the union-find forest ``parent`` (compresses the path it walks)."""
+    while parent[i] != i:
+        parent[i] = parent[parent[i]]
+        i = parent[i]
+    return i
+
+
 def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> list[list[str]]:
     """Groups (size >= 2) of images whose hashes are within ``max_distance`` of a group member."""
     parent = list(range(len(ids)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
     values = np.array([int(h, 16) for h in hashes], dtype=np.uint64)
     # Pigeonhole: two 64-bit hashes that differ in at most d bits agree entirely on at least one of
     # d + 1 chunks, so only hashes sharing a chunk value are compared (not every pair).
@@ -148,10 +149,10 @@ def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> l
                 xor = values[bucket[n + 1 :]] ^ values[bucket[n]]
                 bits = np.unpackbits(xor.view(np.uint8).reshape(-1, 8), axis=1).sum(axis=1)
                 for offset in np.nonzero(bits <= max_distance)[0]:
-                    parent[find(int(bucket[n]))] = find(int(bucket[n + 1 + offset]))
+                    parent[_find(parent, int(bucket[n]))] = _find(parent, int(bucket[n + 1 + offset]))
     groups: dict[int, list[str]] = {}
     for i, image_id in enumerate(ids):
-        groups.setdefault(find(i), []).append(image_id)
+        groups.setdefault(_find(parent, i), []).append(image_id)
     return [g for g in groups.values() if len(g) > 1]
 
 

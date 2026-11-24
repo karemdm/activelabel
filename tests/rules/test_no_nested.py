@@ -15,38 +15,7 @@ from pathlib import Path
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "activelabel"
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
-BASELINE = {
-    "curation/issues.py:_group_duplicates.find",
-    "curation/quality.py:measure_images.save",
-    "curation/quality.py:measure_images.work",
-    "datasets.py:assign.pick",
-    "datasets.py:assign.place_video",
-    "datasets.py:assign.put",
-    "datasets.py:assign.score",
-    "datasets.py:build_groups.find",
-    "datasets.py:build_groups.union",
-    "datasets.py:plan_split.attempt",
-    "datasets.py:plan_split.frame_no",
-    "datasets.py:plan_split.seconds",
-    "training/catalog.py:_classification.m",
-    "training/runner.py:TrainingRunner._export.step",
-    "training/runner.py:TrainingRunner._preannotate.on_event",
-    "training/runner.py:TrainingRunner._preannotate.step",
-    "training/runner.py:TrainingRunner._run.step",
-    "training/runner.py:TrainingRunner._run_children.update",
-    "training/runner.py:TrainingRunner._run_export.pump",
-    "training/runner.py:TrainingRunner._train.pump",
-    "training/workers/classification.py:train.checkpoint",
-    "training/workers/classification.py:train.loader",
-    "training/workers/classification.py:train.on_step",
-    "training/workers/detection.py:train.checkpoint",
-    "training/workers/detection.py:train.loader",
-    "training/workers/detection.py:train.on_step",
-    "training/workers/export_onnx.py:export.Logits",
-    "training/workers/segmentation.py:train.checkpoint",
-    "training/workers/segmentation.py:train.loader",
-    "training/workers/segmentation.py:train.on_step",
-}
+BASELINE: set[str] = set()  # every nested definition is gone; keep it empty
 
 
 def _nested_definitions(path: Path) -> set[str]:

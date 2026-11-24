@@ -242,23 +242,26 @@ _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
 
 
-def _classification() -> list[ModelSpec]:
-    def m(
-        id_: str, label: str, family: str, size: int = 224, defaults: dict[str, Any] | None = None
-    ) -> ModelSpec:
-        packages = _TV if family == "torchvision" else _TIMM
-        return ModelSpec(
-            id_,
-            label,
-            ("classification",),
-            family,
-            "classification",
-            packages,
-            size,
-            params=(_LABEL_SMOOTHING,),
-            defaults=defaults or {},
-        )
+def _classifier(
+    id_: str, label: str, family: str, size: int = 224, defaults: dict[str, Any] | None = None
+) -> ModelSpec:
+    """One image classifier of the catalogue (from torchvision or timm)."""
+    packages = _TV if family == "torchvision" else _TIMM
+    return ModelSpec(
+        id_,
+        label,
+        ("classification",),
+        family,
+        "classification",
+        packages,
+        size,
+        params=(_LABEL_SMOOTHING,),
+        defaults=defaults or {},
+    )
 
+
+def _classification() -> list[ModelSpec]:
+    m = _classifier
     return [
         m("resnet18", "ResNet-18", "torchvision"),
         m("resnet50", "ResNet-50", "torchvision"),
