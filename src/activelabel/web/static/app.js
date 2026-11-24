@@ -689,7 +689,23 @@
   const EDIT_TOOLS = LABEL_STUDIO_ENABLED ? ['fiftyone', 'labelstudio'] : ['fiftyone'];
   const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
   const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
-  const SESSION_STATUSES = ['open', 'pulled', 'applied', 'discarded', 'closed'];
+  /* progress messages the server writes in English; the ones that carry a tool name are matched by shape */
+  const JOB_MESSAGE_SHAPES = [
+    [/^Listing (.+) data$/, 'jobmsg.listing'],
+    [/^Reading annotations from (\w+)$/, 'jobmsg.reading_annotations_from'],
+    [/^Reading (\w+)$/, 'jobmsg.reading'],
+    [/^Writing to (\w+)$/, 'jobmsg.writing'],
+    [/^Sending to (\w+)$/, 'jobmsg.sending'],
+  ];
+  /** A job's progress message in the interface language (the text itself when it is not a known one). */
+  const jobMessage = (job) => {
+    const m = String((job && job.message) || '');
+    for (const [shape, key] of JOB_MESSAGE_SHAPES) {
+      const found = shape.exec(m);
+      if (found) return t(key, { tool: toolName(found[1]) });
+    }
+    return tr(`jobmsg.${m}`, m);
+  };
   const statusLabel = (st) => tr(`annotate.status.${st}`, st || '?');
   const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
   const imagesOf = (s) => (Array.isArray(s.images) ? s.images.length : Number(s.images) || 0);
@@ -1384,7 +1400,7 @@
             draw(true);
           } catch (err) {
             apply.dataset.busy = '0';
-            if (err.status === 409) st.error = 'stale'; else toastError(err);
+            if (err.status === 404) st.error = 'stale'; else toastError(err);  // 404: the comparison is gone; 409 only means a job is running
             update();
           }
         });
@@ -2158,7 +2174,7 @@
             el('strong', null, t('video.creating')),
             el('button', { type: 'button', class: 'btn small', onclick: async () => { try { await api('POST', `/jobs/${job.id}/cancel`); } catch (e) { toastError(e); } } }, t('common.cancel'))),
           progressBar(job.done, job.total, t('video.creating')),
-          job.message ? el('p', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null);
+          job.message ? el('p', { class: 'muted job-msg' }, jobMessage(job)) : null);
       }
 
       async function pollJob(id) {
@@ -3452,9 +3468,17 @@
     const statusText = (status) => tr(`job.status.${status}`, status);
     const isActive = (job) => job.status === 'queued' || job.status === 'running';
 
+    /* Runs, exports and pre-annotations stop through their own endpoint (it ends the process and marks the
+       run), which needs the run number: the job does not carry it, so these are cancelled in their step. */
+    const RUN_KINDS = new Set(['training', 'export', 'preannotate']);
+
     function jobStep(job) {
       const kind = String(job.kind || '');
       if (/^sync_/.test(kind)) return 'annotations';
+      if (kind === 'training') return 'training';
+      if (kind === 'export') return 'models';
+      if (kind === 'preannotate') return 'annotations';
+      if (kind === 'video_task') return 'images';
       if (/fiftyone/.test(kind)) return 'fiftyone';
       if (/analy|curat/.test(kind)) return 'curation';
       if (/annot/.test(kind)) return 'annotations';
@@ -3476,7 +3500,7 @@
           el('strong', null, kindText(job.kind, job)),
           el('span', { class: `status status-${job.status}` }, statusText(job.status)),
           el('span', { class: 'muted small' }, fmtTime(job.finished || job.started || job.created)),
-          active ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
+          active && !RUN_KINDS.has(job.kind) ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
           !active && job.status === 'done' && step === 'fiftyone' && url
             ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
             : null,
@@ -3485,7 +3509,7 @@
             : null),
         active ? el('div', { class: 'job-progress' }, progressBar(job.done, job.total, kindText(job.kind, job)),
           el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')) : null,
-        active && job.message ? el('div', { class: 'muted job-msg' }, tr(`jobmsg.${job.message}`, job.message)) : null,
+        active && job.message ? el('div', { class: 'muted job-msg' }, jobMessage(job)) : null,
         !active && job.status === 'done' && resultText(job) ? el('div', { class: 'muted job-msg' }, resultText(job)) : null,
         job.error ? el('div', { class: 'job-error' }, `${t('common.error')} ${jobError(job)}`) : null);
     }
@@ -5468,11 +5492,6 @@
     }
 
     // ---- job
-    const jobMessage = (job) => {
-      const m = String(job.message || '');
-      if (/^Listing .+ data$/.test(m)) return t('jobmsg.listing', { tool: toolName(state.tool) });
-      return tr(`jobmsg.${m}`, m);
-    };
 
     function showJobView(on) {
       sourceBox.hidden = on;
