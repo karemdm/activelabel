@@ -12,7 +12,6 @@ import yaml
 from activelabel.annotations.coco import parse_coco
 from activelabel.annotations.context import ParseContext
 from activelabel.annotations.folders import parse_folders
-from activelabel.annotations.labelstudio import parse_labelstudio
 from activelabel.annotations.models import ParseResult
 from activelabel.annotations.target import VideoTarget
 from activelabel.annotations.videoformats import (
@@ -27,7 +26,7 @@ from activelabel.annotations.xmlformats import parse_cvat, parse_voc
 from activelabel.annotations.yolo import is_label_text, is_names_file, parse_yolo
 from activelabel.images.manifest import ImageRecord
 
-FORMATS = ("coco", "yolo", "voc", "cvat", "labelstudio", "folders", "cvatvideo", "mot")
+FORMATS = ("coco", "yolo", "voc", "cvat", "folders", "cvatvideo", "mot")
 VIDEO_ONLY = ("cvatvideo", "mot")  # formats that only make sense for a video task
 
 
@@ -38,9 +37,6 @@ def _json_format(path: Path) -> str | None:
         return None
     if isinstance(data, dict) and isinstance(data.get("images"), list) and "annotations" in data:
         return "coco"
-    if isinstance(data, list) and data and all(isinstance(t, dict) for t in data):
-        if any(isinstance(t.get("data"), dict) for t in data):
-            return "labelstudio"
     return None
 
 
@@ -75,7 +71,7 @@ def _yolo_part(path: Path) -> str | None:
 
 
 def detect_format(files: list[Path]) -> str | None:
-    """Annotation format by content: coco, yolo, voc, cvat, labelstudio, cvatvideo (CVAT video), mot or None.
+    """Annotation format by content: coco, yolo, voc, cvat, cvatvideo (CVAT video), mot or None.
 
     Several YOLO txt files plus data.yaml count as one dataset. Unrelated files are ignored; files of
     two different formats give None. Class folders (``folders``) come from image names, see
@@ -134,7 +130,7 @@ def parse(
 
     Args:
         files: annotation files (see :func:`detect_format`).
-        fmt: one of ``FORMATS``: coco, yolo, voc, cvat, labelstudio, folders (ignores ``files``), cvatvideo
+        fmt: one of ``FORMATS``: coco, yolo, voc, cvat, folders (ignores ``files``), cvatvideo
             and mot (these two need ``target``).
         images: images of the project (of the video task, when ``target`` is given).
         target: a video task. COCO and YOLO files are then matched by frame number instead of by file
@@ -159,7 +155,6 @@ def parse(
             "yolo": parse_yolo_frames if target else parse_yolo,
             "voc": parse_voc,
             "cvat": parse_cvat,
-            "labelstudio": parse_labelstudio,
             "cvatvideo": parse_cvat_video,
             "mot": parse_mot,
         }

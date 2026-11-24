@@ -74,7 +74,7 @@ class ParseResult:
     """What was read from the annotation files.
 
     Attributes:
-        format: coco, yolo, voc, cvat, labelstudio, folders, cvatvideo or mot.
+        format: coco, yolo, voc, cvat, folders, cvatvideo or mot.
         labels: labels per image id. Images matched without objects have an empty list.
         classes: class names in file order (declared ones first, then by first use).
         files: names of the annotation files read.
