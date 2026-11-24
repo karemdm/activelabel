@@ -60,3 +60,28 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Tests that use FiftyOne
         run: python -m pytest -q -m integration
+
+  package:
+    # the checks above run on an editable install, which reads the source tree: only the built package
+    # shows a data file (page, text, script) that the build leaves out
+    name: package (wheel in a clean environment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip wheel . --no-deps -w dist
+      - name: Check that the wheel has every file of the package
+        run: python tests/package/check_wheel.py dist/*.whl src/activelabel
+      - name: Install the wheel (not editable) in a new environment
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install dist/*.whl
+      - name: Start the installed server and fetch the pages
+        # from another folder, so the source tree cannot be imported by mistake
+        working-directory: ${{ runner.temp }}
+        run: clean/bin/python "$GITHUB_WORKSPACE/tests/package/smoke_server.py" 8765
