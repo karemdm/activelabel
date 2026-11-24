@@ -128,3 +128,9 @@ def test_the_training_settings_are_closed_with_a_line_for_what_is_not_the_defaul
     """The hyperparameters sit in a closed section whose line lists only the changed values."""
     assert "changedLine()" in JS and "tr.params_default" in JS
     assert re.search(r"\.tr-adv\s*\{", CSS)
+
+
+def test_empty_lists_carry_their_action_and_models_do_not_need_images():
+    """Empty data splits, runs and models put the action in the empty state; step 6 is not gated by images."""
+    assert JS.count("emptyState(") >= 4  # the helper and its three users
+    assert "step !== 'models' && !hasImages()" in JS

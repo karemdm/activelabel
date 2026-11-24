@@ -966,7 +966,7 @@
   "status.models_other": "{n} models",
   "status.current_model": "current: m{n}",
   "md.intro": "The best training runs saved as model versions, and public pretrained models. The current model is the one used next.",
-  "md.empty": "No saved models yet. In Training, save a finished run as a model.",
+  "md.empty": "No models yet. Save a finished run as a model or add a public model.",
   "md.go_training": "Go to Training",
   "md.save": "Save as model",
   "md.save_title": "Save run #{n} as a model",
