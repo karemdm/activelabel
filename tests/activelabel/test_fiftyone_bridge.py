@@ -311,3 +311,11 @@ def test_open_fiftyone_session_keeps_its_ground_truth(tmp_path, project):
     assert len(kept.detections) == 1  # not overwritten by the (empty) project labels
     other = again.match(fo.ViewField("image_id") == "i1").first()[bridge.GROUND_TRUTH]
     assert len(other.detections) == 1  # images outside the session are refreshed
+
+
+def test_a_keypoint_without_visibility_counts_as_visible():
+    label = Label("p", keypoints=[[0.1, 0.2], [0.3, 0.4, 2], [0.5, 0.6, 0]])  # [x, y] has no third value
+    pose = bridge._ground_truth(Task.KEYPOINTS, [label]).keypoints[0]
+    assert list(pose.points[0]) == [0.1, 0.2] and list(pose.points[1]) == [0.3, 0.4]
+    assert pose.points[2][0] != pose.points[2][0]  # not labeled: NaN
+    assert pose.visibility == [2, 2, 0]

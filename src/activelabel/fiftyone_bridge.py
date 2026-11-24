@@ -152,6 +152,11 @@ def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
     dataset.add_sample_field(GROUND_TRUTH, fo.EmbeddedDocumentField, embedded_doc_type=wanted)
 
 
+def _visibility(point: list[float]) -> int:
+    """Visibility of a keypoint: its third value, or 2 (visible) for a point written as ``[x, y]``."""
+    return int(point[2]) if len(point) > 2 else 2
+
+
 def _ground_truth(task: Task, labels: list[Label]) -> Any:
     """FiftyOne label of one image for the task (None when it has no labels)."""
     if not labels:
@@ -184,9 +189,11 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
                 label=lb.label,
                 index=lb.track,
                 confidence=lb.score,
-                points=[(p[0], p[1]) if p[2] > 0 else (float("nan"), float("nan")) for p in lb.keypoints],
+                points=[
+                    (p[0], p[1]) if _visibility(p) > 0 else (float("nan"), float("nan")) for p in lb.keypoints
+                ],
                 # FiftyOne has no visibility nor box for keypoints: kept aside so an edit does not lose them
-                visibility=[int(p[2]) if len(p) > 2 else 2 for p in lb.keypoints],
+                visibility=[_visibility(p) for p in lb.keypoints],
                 box=list(lb.bbox) if lb.bbox else None,
             )
             for lb in labels
