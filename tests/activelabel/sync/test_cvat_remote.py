@@ -80,7 +80,7 @@ class FakeCvat:
         return self.projects[pid]
 
     def add_task(
-        self, pid: int, frames: list[tuple[str, int, int]], ann: dict[str, Any] | None = None
+        self, pid: int | None, frames: list[tuple[str, int, int]], ann: dict[str, Any] | None = None
     ) -> int:
         tid = self.new_id()
         self.tasks[tid] = {
@@ -168,11 +168,11 @@ class FakeCvat:
         return self.page([x for x in self.labels if x["project_id"] == pid], kw)
 
     def list_tasks(self, kw: dict[str, Any]) -> Resp:
-        pid = int(kw["params"]["project_id"])
+        wanted = kw["params"].get("project_id")  # absent: every task of the server
         rows = [
-            {"id": t["id"], "name": t["name"], "size": len(t["frames"])}
+            {"id": t["id"], "name": t["name"], "size": len(t["frames"]), "project_id": t["project_id"]}
             for t in self.tasks.values()
-            if t["project_id"] == pid
+            if wanted is None or t["project_id"] == int(wanted)
         ]
         return self.page(rows, kw)
 
@@ -261,6 +261,48 @@ def test_check_logs_in_and_names_the_user(cvat: FakeCvat) -> None:
     cvat.fail[("GET", "/api/users/self")] = 401
     with pytest.raises(ToolError, match="username and password"):
         CvatRemote().check(SETTINGS)
+
+
+def named_task(cvat: FakeCvat, pid: int | None, name: str, frames: int = 1) -> int:
+    tid = cvat.add_task(pid, [(f"{i}.jpg", 10, 10) for i in range(frames)])
+    cvat.tasks[tid]["name"] = name
+    return tid
+
+
+def test_audit_lists_tasks_per_project_and_groups_the_loose_ones(cvat: FakeCvat) -> None:
+    a = cvat.add_project("ActiveLabel 7 - Pets", ["cat"])["id"]
+    b = cvat.add_project("Empty", [])["id"]
+    t1 = named_task(cvat, a, "first", 2)
+    for n in (1, 2, 12):
+        named_task(cvat, None, f"pets_round_{n}")
+    named_task(cvat, None, "ActiveLabel 7 added 1 (2026-11-20)")
+    named_task(cvat, None, "ActiveLabel 7 added 2 (2026-11-21)")
+    named_task(cvat, None, "something else")
+    cvat.calls.clear()
+    found = CvatRemote().audit(SETTINGS)
+    assert [p["name"] for p in found["projects"]] == ["ActiveLabel 7 - Pets", "Empty"]
+    pets = found["projects"][0]
+    assert pets["tasks"] == [
+        {"id": str(t1), "name": "first", "size": 2, "url": f"https://cvat.test/tasks/{t1}"}
+    ]
+    assert pets["url"] == f"https://cvat.test/projects/{a}" and found["projects"][1]["tasks"] == [] and b
+    loose = {g["pattern"]: [t["name"] for t in g["tasks"]] for g in found["loose"]}
+    assert loose == {
+        "pets_round_#": ["pets_round_1", "pets_round_2", "pets_round_12"],
+        "ActiveLabel # added # (#-#-#)": [
+            "ActiveLabel 7 added 1 (2026-11-20)",
+            "ActiveLabel 7 added 2 (2026-11-21)",
+        ],
+        "something else": ["something else"],
+    }
+    assert found["loose"][0]["pattern"] == "pets_round_#"  # the biggest group first
+    assert {c[0] for c in cvat.calls} == {"GET"}  # read-only: nothing was created, changed or deleted
+
+
+def test_audit_shows_the_tasks_of_a_project_the_account_cannot_list(cvat: FakeCvat) -> None:
+    named_task(cvat, 999, "hidden project task")
+    (only,) = CvatRemote().audit(SETTINGS)["projects"]
+    assert only["id"] == "999" and only["name"] == "" and only["tasks"][0]["name"] == "hidden project task"
 
 
 def test_get_missing_is_readable(cvat: FakeCvat) -> None:

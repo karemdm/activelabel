@@ -30,6 +30,11 @@ In CVAT every task lives **inside** the linked CVAT project: the CVAT client ref
 without a `project_id` (a task outside any project would be invisible to the synchronisation and keep
 counting in the plan). Review in CVAT happens only through this synchronisation.
 
+The *Tasks on the server* (*Tasks no servidor*) button of the *CVAT* tab opens a **read-only audit**
+(`GET /api/cvat/audit`): the tasks of every project of the configured server, saying which project is linked
+to one of ours, and the tasks that are in no project grouped by name pattern (digits shown as `#`, e.g.
+`street_round_#`). It never moves or deletes anything.
+
 ## Send when the remote project already exists
 
 `POST /api/projects/{id}/annotate` with a CVAT/Label Studio tool first checks for a link or a
@@ -124,6 +129,7 @@ crosses jobs has one track id per job.
 | GET | `/api/projects/{id}/links` | | `{links: [{tool, url, remote_id, remote_name, last_sync, images}]}` |
 | DELETE | `/api/projects/{id}/links/{tool}` | | `{unlinked: true}` (remote untouched); 409 while a job of the project runs; 404 `not_linked` |
 | POST | `/api/projects/{id}/sync/{tool}` | `{create?, remote_id?, scope: "project"\|"task"\|"job" (default project), task?, job?, direction: "both"\|"pull"\|"push" (default both)}` | job `sync_plan` |
+| GET | `/api/cvat/audit` | | `{url, projects: [{id, name, url, linked_to: {id, name}\|null, tasks: [{id, name, size, url}]}], loose: [{pattern, tasks}]}`; read-only |
 | POST | `/api/projects/{id}/sync/{tool}/{plan_id}/apply` | `{resolutions, default, delete_tasks}` | job `sync_apply`; 404 when the comparison no longer exists |
 
 ## Remote adapters (Python)
