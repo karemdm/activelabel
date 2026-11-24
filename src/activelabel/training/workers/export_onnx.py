@@ -57,8 +57,11 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
     """Rebuild the network, load the weights and write the ONNX file. Returns ``{"size", "inputs"}``."""
     import torch
 
-    worker = importlib.import_module(spec["worker"])
     task = spec["task"]
+    if task not in KINDS:
+        raise ValueError(f"ONNX export of {task} models is not available yet.")
+    worker = importlib.import_module(spec["worker"])
+    # weights_only=False: best.pt is written by ActiveLabel's own training (never a downloaded file)
     checkpoint = torch.load(spec["checkpoint"], map_location="cpu", weights_only=False)
     build = {**spec["build"], "num_keypoints": checkpoint.get("num_keypoints") or 0}
     built = worker.build_model(build, False)
@@ -69,8 +72,6 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
     size = int(checkpoint.get("image_size") or spec["build"]["params"].get("image_size") or 224)
     out = Path(spec["output"])
     tmp = out.with_suffix(".part")
-    if task not in KINDS:
-        raise ValueError(f"ONNX export of {task} models is not available yet.")
     emit("log", message=f"exporting {spec['build']['model']} ({task}) at {size}px")
     net = model
     if task == "semantic":

@@ -154,6 +154,24 @@ def test_cancel_grid(setup):
     wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
 
 
+def test_cancel_between_two_children(setup, monkeypatch):
+    client, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = composite(state, mode="grid", grid={"fake": ["ok"], "epochs": [1, 2, 3]})
+    real_train = runner._train
+
+    def train_then_cancel(*args, **kwargs):
+        real_train(*args, **kwargs)  # the first child ends normally...
+        client.post(f"/api/projects/1/runs/{n}/cancel")  # ...and the run is cancelled before the next
+
+    monkeypatch.setattr(runner, "_train", train_then_cancel)
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "cancelled"
+    assert [c["status"] for c in run["children"]] == ["done", "cancelled", "cancelled"]
+    wait_for(lambda: tmp_dirs(runner) == [])
+
+
 def test_cancel_running(setup):
     client, state, runner = setup
     n = new_run(state, fake="sleep")

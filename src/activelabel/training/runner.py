@@ -66,7 +66,7 @@ EXPORT_SCRIPT = WORKERS_DIR / "export_onnx.py"
 PUBLIC_PACKAGES = ("torch", "torchvision")  # what a public torchvision model needs
 PREDICT_SCRIPT = WORKERS_DIR / "predict.py"
 EXPORT_PACKAGES = {"onnx": ("onnx",)}  # installed only when a model is exported
-#: Kinds of task whose ONNX graph is checked to give the same results as PyTorch. Detection models
+#: Kinds of task that can be exported to ONNX (the graph is checked with onnx.checker). Detection models
 #: (torchvision) trace into graphs that break on images without candidate boxes: they come later.
 ONNX_KINDS = ("classification", "semantic")
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
@@ -386,6 +386,8 @@ class TrainingRunner:
             raise ModelError(f"The format must be one of: {', '.join(FORMATS)}.")
         store = ModelStore(self._project_dir(project_id))
         card = store.get(number)
+        if card.get("source") == "public":
+            raise ModelError("A public model has no weights here to export (they are downloaded when used).")
         if ((card.get("exports") or {}).get(fmt) or {}).get("status") in (QUEUED, RUNNING):
             return card
         card = store.set_export(number, fmt, status=QUEUED, error="", message="", requested=now())
@@ -930,7 +932,12 @@ class TrainingRunner:
         store.update(number, children=entries, trainings=len(entries), phase="training")
         log_file = run_dir / "log.txt"
         for i, child in enumerate(children):
-            progress.check()
+            try:
+                progress.check()
+            except Cancelled:  # cancelled between two children: the rest never start
+                for j in range(i, len(entries)):
+                    store.update_child(number, j, status=CANCELLED, finished=now())
+                raise
             cid = entries[i]["id"]
             child_dir = run_dir / cid
             child_dir.mkdir(parents=True, exist_ok=True)

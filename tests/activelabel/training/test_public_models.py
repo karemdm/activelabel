@@ -141,3 +141,40 @@ def test_worker_skips_unmapped_categories():
         "m1",
     )
     assert [o["label"] for o in out] == ["car"]
+
+
+def test_public_model_has_no_export_or_download_and_can_leave_the_catalogue(det, monkeypatch):
+    client, state, runner = det
+    body = {"public": "coco_fasterrcnn_mobilenet_v3", "mapping": {"person": "person"}}
+    assert client.post("/api/projects/2/models/public", json=body).status_code == 200
+    export = client.post("/api/projects/2/models/1/export", json={"format": "onnx"})
+    assert export.status_code == 400 and "public model" in export.json()["detail"]
+    for kind in ("pytorch", "onnx"):
+        download = client.get(f"/api/projects/2/models/1/download/{kind}")
+        assert download.status_code == 404 and "public model" in download.json()["detail"]
+
+    from activelabel.training import public_models
+
+    monkeypatch.setattr(public_models, "PUBLIC_MODELS", ())  # a later version without this model
+    model = client.get("/api/projects/2/preannotations").json()["models"][0]
+    assert model["missing"] and not model["supported"]
+    task = client.get("/api/projects/2/preannotations").json()["tasks"][0]["id"]
+    start = client.post("/api/projects/2/preannotations", json={"model": 1, "task": task, "threshold": 0.3})
+    assert start.status_code == 400 and "catalogue" in start.json()["detail"]
+
+
+def test_threshold_is_checked_as_stored_and_model_delete_waits(det):
+    client, state, runner = det
+    body = {"public": "coco_fasterrcnn_mobilenet_v3", "mapping": {"person": "person"}}
+    client.post("/api/projects/2/models/public", json=body)
+    task = client.get("/api/projects/2/preannotations").json()["tasks"][0]["id"]
+    for bad in (0.0004, 0.9996, 0, 1):
+        r = client.post("/api/projects/2/preannotations", json={"model": 1, "task": task, "threshold": bad})
+        assert r.status_code == 400, bad
+
+    from activelabel.preannotate import PreannotationStore
+
+    PreannotationStore(state.store.dir(2)).create(model=1, task=task, scope="unlabeled", threshold=0.3)
+    delete = client.request("DELETE", "/api/projects/2/models/1", json={"confirm": True})
+    assert delete.status_code == 409 and "pre-annotation" in delete.json()["detail"]
+    assert client.get("/api/projects/2/models").json()["models"][0]["number"] == 1

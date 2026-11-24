@@ -394,12 +394,13 @@ class DetectionDataset:
 
     def __getitem__(self, index: int) -> tuple[Any, dict[str, Any]]:
         import torch
-        from PIL import Image
+        from PIL import Image, ImageOps
         from torchvision.transforms import ColorJitter
         from torchvision.transforms.functional import pil_to_tensor
 
         with Image.open(self.items[index]["path"]) as opened:
-            image = opened.convert("RGB")
+            # labels are drawn on the photo as shown (EXIF rotation applied)
+            image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
         width, height = image.size
         target = build_target(self.items[index], width, height, self.task, self.num_keypoints)
         tensor = pil_to_tensor(image).float() / 255.0

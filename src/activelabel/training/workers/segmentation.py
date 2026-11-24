@@ -286,11 +286,12 @@ class SegmentationDataset:
     def __getitem__(self, index: int) -> tuple[Any, Any]:
         import numpy
         import torch
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         item = self.items[index]
         with Image.open(item["path"]) as opened:
-            image = opened.convert("RGB")
+            # labels are drawn on the photo as shown (EXIF rotation applied)
+            image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
         mask = rasterize_mask(item.get("objects") or [], image.width, image.height, self.classes)
         if self.preset is None:
             image, mask = resize_pair(image, mask, self.size)

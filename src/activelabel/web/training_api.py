@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,7 +38,11 @@ def _store(state: AppState, project_id: int) -> RunStore:
 
 
 def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
-    config = store.config(run["number"])
+    """A run with the main fields of its configuration (``config_error`` when the file is unreadable)."""
+    try:
+        config = store.config(run["number"])
+    except (OSError, ValueError) as exc:  # a missing or damaged config.yaml must not hide every run
+        return {**run, "config_error": str(exc) or type(exc).__name__}
     return {
         **run,
         "model": config.model,
@@ -67,6 +73,8 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
         raise HTTPException(
             400, "Some images of this dataset version were deleted from the project: make a new version."
         )
+    if not version.get("folds") and not (version.get("sizes") or {}).get("train"):
+        raise HTTPException(400, "The training part of this dataset version has no images: make another one.")
     if not version.get("folds") and not (version.get("sizes") or {}).get("val"):
         raise HTTPException(
             400, "This dataset version has no validation images: make a version with validation."
@@ -118,10 +126,24 @@ def run_log(project_id: int, number: int, lines: int = 200, state: AppState = ST
         folder = store._require(number)  # noqa: SLF001 - folder of an existing run
     except RunNotFound:
         raise HTTPException(404, "This training run does not exist.") from None
-    path = folder / "log.txt"
-    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-    tail = text.splitlines()[-max(1, min(int(lines), 2000)) :]
-    return {"lines": tail}
+    count = max(1, min(int(lines), 2000))
+    return {"lines": _tail(folder / "log.txt", count)}
+
+
+def _tail(path: Path, count: int, chunk: int = 64 * 1024) -> list[str]:
+    """The last ``count`` lines of a text file, reading only its end."""
+    if not path.exists():
+        return []
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        end = position = handle.tell()
+        data = b""
+        while position > 0 and data.count(b"\n") <= count:
+            position = max(0, position - chunk)
+            handle.seek(position)
+            data = handle.read(end - position)
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    return lines[-count:] if position == 0 else lines[1:][-count:]  # the first piece may be cut
 
 
 @router.get("/projects/{project_id}/runs")
@@ -156,9 +178,10 @@ def get_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, 
                 metrics = store.metrics(number, current)
             except RunNotFound:
                 metrics = []
+        summary = _summary(store, run)
         return {
-            **_summary(store, run),
-            "config": store.config(number).to_dict(),
+            **summary,
+            "config": None if "config_error" in summary else store.config(number).to_dict(),
             "metrics": metrics,
             "results": store.results(number),
         }
@@ -211,6 +234,8 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
         config = _store(state, project_id).config(number)
     except RunNotFound:
         raise HTTPException(404, "This run does not exist.") from None
+    except (OSError, ValueError):
+        raise HTTPException(409, "The configuration of this run is missing or damaged.") from None
     return _create(state, project, config)
 
 

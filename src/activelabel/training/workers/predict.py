@@ -93,7 +93,7 @@ def detection_labels(
 def predict(spec: dict[str, Any]) -> dict[str, int]:
     """Run the model over every item, emitting one ``prediction`` per image."""
     import torch
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     task = spec["task"]
     if task not in KINDS:
@@ -109,6 +109,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         classes: list[str | None] = [public["mapping"].get(c) for c in public["categories"][1:]]
     else:
         worker = importlib.import_module(spec["worker"])
+        # weights_only=False: best.pt is written by ActiveLabel's own training (never a downloaded file)
         checkpoint = torch.load(spec["checkpoint"], map_location="cpu", weights_only=False)
         build = {**spec["build"], "num_keypoints": checkpoint.get("num_keypoints") or 0}
         built = worker.build_model(build, False)
@@ -137,7 +138,8 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         for step, item in enumerate(items, start=1):
             try:
                 with Image.open(item["path"]) as opened:
-                    image = opened.convert("RGB")
+                    # boxes must fit the photo as shown (EXIF rotation applied), like the labels
+                    image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
             except (OSError, ValueError) as exc:  # a corrupt or missing file: the others go on
                 totals["unreadable"] += 1
                 emit("skipped", id=item["id"], message=str(exc) or type(exc).__name__)

@@ -191,11 +191,13 @@ class ImageDataset:
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         item = self.items[index]
         with Image.open(item["path"]) as image:
-            return self.transform(image.convert("RGB")), int(item["label"])
+            # labels are drawn on the photo as shown (EXIF rotation applied)
+            upright = ImageOps.exif_transpose(image) or image
+            return self.transform(upright.convert("RGB")), int(item["label"])
 
 
 # ---------------------------------------------------------------------------
