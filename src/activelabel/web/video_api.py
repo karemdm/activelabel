@@ -16,6 +16,7 @@ from activelabel.images.video import (
     VIDEO_EXTENSIONS,
     VideoInfo,
     VideoStore,
+    check_extraction,
     extract_frames,
     frame_jpeg,
     plan,
@@ -158,6 +159,10 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
     tasks = TaskStore(state.store.dir(project_id))
     video_file = videos.file(info)
     planned = plan(start, stop, step)["frames"]
+    try:
+        check_extraction(info, planned, videos.folder)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     stem = (Path(info.name).stem or "video").replace("/", "_").replace("\\", "_")
 
     def run(progress: Progress) -> dict[str, Any]:
