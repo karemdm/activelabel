@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -100,7 +101,14 @@ def test_rules_never_overwrite_people(pre):
     predicted[empty[4]] = []  # the model found nothing
     predicted[empty[5]] = [Label("zebra", score=0.9, model="m1")]  # a class the project does not have
     counts = preannotate.apply_predictions(project_dir, project, predicted, "unlabeled")
-    assert counts == {"images": 4, "objects": 4, "skipped": 1, "empty": 2}
+    assert counts == {
+        "images": 4,
+        "objects": 4,
+        "skipped": 1,
+        "empty": 2,
+        "dropped_class": 1,
+        "dropped_geometry": 0,
+    }
     images = load_annotations(project_dir).images
     assert images[labelled][0].score is None and empty[4] not in images and empty[5] not in images
     assert images[empty[0]][0].as_dict() == {"label": "a", "score": 0.8, "model": "m1"}
@@ -145,7 +153,16 @@ def test_preannotate_end_to_end(pre):
         )
     )
     assert (
-        run["counts"] == {"images": 5, "objects": 5, "skipped": 0, "empty": 1, "unreadable": 0}
+        run["counts"]
+        == {
+            "images": 5,
+            "objects": 5,
+            "skipped": 0,
+            "empty": 1,
+            "dropped_class": 0,
+            "dropped_geometry": 0,
+            "unreadable": 0,
+        }
         and run["done"] == 6
     )
     assert run["model_label"] == "ResNet-18" and run["scope"] == "unlabeled" and run["threshold"] == 0.4
@@ -298,3 +315,47 @@ def test_masks_become_polygon_labels():
         preannotate.decode_mask({"size": [3, 3], "counts": [0, 4]})
     assert set(preannotate.KINDS) >= {"instance", "semantic"}
     assert preannotate.fits("semantic", Task.SEGMENTATION) and preannotate.fits("instance", Task.SEGMENTATION)
+
+
+def test_only_current_classes_and_the_task_shape_are_written(pre):
+    client, state, runner, empty = pre
+    project_dir, project = state.store.dir(1), state.project(1)
+    annotations = load_annotations(project_dir)
+    annotations.classes = [*annotations.classes, "old"]  # a class the project no longer has
+    save_annotations(project_dir, annotations)
+    box = Label("a", bbox=[0.1, 0.1, 0.2, 0.2], score=0.9, model="m1")  # a box is not a classification
+    counts = preannotate.apply_predictions(
+        project_dir,
+        project,
+        {empty[0]: [Label("old", score=0.9, model="m1"), Label("a", score=0.9, model="m1")], empty[1]: [box]},
+        "unlabeled",
+    )
+    assert counts["objects"] == 2 and counts["dropped_class"] == 1 and counts["dropped_geometry"] == 0
+    detection = replace(project, task=Task.DETECTION)
+    bare = Label("a", score=0.9, model="m1")  # no box
+    counts = preannotate.apply_predictions(project_dir, detection, {empty[2]: [bare, box]}, "unlabeled")
+    assert counts["objects"] == 1 and counts["dropped_geometry"] == 1
+    assert [lb.label for lb in load_annotations(project_dir).images[empty[0]]] == ["a"]
+
+
+def test_nothing_is_written_when_the_project_changed_during_the_run(pre, monkeypatch):
+    client, state, runner, empty = pre
+    task_id = TaskStore(state.store.dir(1)).load()[0].id
+    original = runner._run_export
+
+    def changing(*args, **kwargs):
+        original(*args, **kwargs)
+        state.store.update(1, classes=["a"])  # a class was removed while the model ran
+
+    monkeypatch.setattr(runner, "_run_export", changing)
+    resp = client.post("/api/projects/1/preannotations", json={"model": 1, "task": task_id, "threshold": 0.4})
+    run = wait_for(
+        lambda: (
+            (r := client.get("/api/projects/1/preannotations").json()["runs"][0])["number"]
+            == resp.json()["number"]
+            and r["status"] in ("done", "failed")
+            and r
+        )
+    )
+    assert run["status"] == "failed" and "nothing was written" in run["error"]
+    assert not [i for i in load_annotations(state.store.dir(1)).images if i in empty]

@@ -24,7 +24,14 @@ import cv2
 import numpy as np
 
 from activelabel.images.manifest import ACTIVE, Manifest
-from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
+from activelabel.labels import (
+    AnnotationSet,
+    Label,
+    annotations_lock,
+    geometry_problem,
+    load_annotations,
+    save_annotations,
+)
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
 from activelabel.tasks import Task
@@ -190,27 +197,44 @@ def apply_predictions(
 
     Images that changed since the run started are skipped: with ``unlabeled`` an image a person
     labelled (or reviewed as empty) meanwhile, with ``unreviewed`` an image that now has a reviewed
-    label, and an image deleted or excluded meanwhile. Labels of classes the project no longer has are
-    dropped.
+    label, and an image deleted or excluded meanwhile. Only labels of the project's CURRENT classes and
+    with the shape its task needs are kept; the others are counted, not written.
 
     Returns:
         ``{"images": written, "objects": labels written, "skipped": images left as they were,
-        "empty": images the model found nothing in}``.
+        "empty": images the model found nothing in, "dropped_class": labels of a class the project does
+        not have, "dropped_geometry": labels without the shape of the task}``.
     """
     manifest = Manifest(project_dir).load()
     with annotations_lock(project_dir):
         annotations = load_annotations(project_dir) or AnnotationSet(
             project.task, list(project.classes), {}, {}
         )
-        classes = set(annotations.classes) | set(project.classes)
-        counts = {"images": 0, "objects": 0, "skipped": 0, "empty": 0}
+        classes = set(project.classes)
+        counts = {
+            "images": 0,
+            "objects": 0,
+            "skipped": 0,
+            "empty": 0,
+            "dropped_class": 0,
+            "dropped_geometry": 0,
+        }
         wanted = "none" if scope == "unlabeled" else "pre"
         for image_id, labels in predictions.items():
             gone = image_id not in manifest or manifest[image_id].status != ACTIVE
             if gone or image_state(annotations.images, image_id) != wanted:
                 counts["skipped"] += 1
                 continue
-            kept = [lb for lb in labels if lb.label in classes and lb.score is not None]
+            kept = []
+            for lb in labels:
+                if lb.score is None:
+                    continue
+                if lb.label not in classes:
+                    counts["dropped_class"] += 1
+                elif geometry_problem(project.task, lb):
+                    counts["dropped_geometry"] += 1
+                else:
+                    kept.append(lb)
             if kept:
                 annotations.images[image_id] = kept
                 counts["images"] += 1

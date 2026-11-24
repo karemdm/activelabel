@@ -717,7 +717,13 @@ class TrainingRunner:
             self._run_export(
                 project_id, number, "predict", cmd, tmp, log_file, progress, on_event, "pre-annotation"
             )
-            counts = preannotate.apply_predictions(project_dir, project, predictions, str(run["scope"]))
+            now_project = self._project(project_id)  # it may have been edited while the model ran
+            if now_project.task is not project.task or list(now_project.classes) != list(project.classes):
+                raise RunnerError(
+                    "The project's type or classes changed while the pre-annotation was running: "
+                    "nothing was written. Run it again."
+                )
+            counts = preannotate.apply_predictions(project_dir, now_project, predictions, str(run["scope"]))
             counts["unreadable"] = len(unreadable)
             runs.update(number, status=DONE, finished=now(), phase="", done=len(items), counts=counts)
         except Cancelled:
