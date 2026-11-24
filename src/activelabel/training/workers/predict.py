@@ -11,7 +11,10 @@ from the mapping are dropped.
 
 Prints JSON lines on stdout: ``progress`` (``step``/``steps``), one ``prediction`` per image
 (``{"id", "labels"}`` in ActiveLabel's label format, coordinates relative to the image), then
-``done`` (``{"images", "objects"}``), or ``error``. Preprocessing is the one used to evaluate the
+``done`` (``{"images", "objects"}``), or ``error``. Instance and semantic segmentation models give
+every label a ``mask`` (``size`` and run-length ``counts`` of a binary mask of at most
+``MAX_MASK_SIDE`` pixels on its longer side, relative to the whole image): this process has no
+OpenCV, ActiveLabel turns the masks into polygons. Preprocessing is the one used to evaluate the
 model in training: resize to the model's input size and ImageNet normalisation for classification,
 the image as it is (values 0..1) for detection, which resizes inside the network.
 """
@@ -26,8 +29,10 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-KINDS = ("classification", "detection", "keypoints")
-DETECTION_KINDS = ("detection", "keypoints")
+KINDS = ("classification", "detection", "keypoints", "instance", "semantic")
+DETECTION_KINDS = ("detection", "keypoints", "instance")
+MAX_MASK_SIDE = 512
+MASK_THRESHOLD = 0.5  # instance mask probability that counts as inside the object
 
 
 def emit(event: str, **fields: Any) -> None:
@@ -50,6 +55,56 @@ def classification_labels(
     return [{"label": classes[best], "score": round(score, 4), "model": model}]
 
 
+def encode_mask(mask: Any) -> dict[str, Any]:
+    """Run-length form of a 2-D boolean array: ``{"size": [h, w], "counts": [...]}``.
+
+    ``counts`` are the lengths of the alternating runs of the flattened (row by row) mask, the first
+    one of zeros (possibly 0 long).
+    """
+    import numpy as np
+
+    flat = np.asarray(mask, dtype=bool).reshape(-1)
+    changes = np.flatnonzero(flat[1:] != flat[:-1]) + 1
+    bounds = np.concatenate(([0], changes, [len(flat)]))
+    counts = np.diff(bounds).tolist()
+    if len(flat) and flat[0]:
+        counts.insert(0, 0)
+    return {"size": [int(mask.shape[0]), int(mask.shape[1])], "counts": counts}
+
+
+def mask_step(width: int, height: int) -> int:
+    """Subsampling step that brings the longer side of a mask to at most ``MAX_MASK_SIDE``."""
+    return max(1, -(-max(width, height) // MAX_MASK_SIDE))
+
+
+def semantic_labels(
+    classes_map: Any, confidence: Any, classes: list[str | None], threshold: float, model: str
+) -> list[dict[str, Any]]:
+    """One label per class found in a per-pixel class map (0 is background, then the project's classes).
+
+    The score of a class is the mean confidence of its pixels; classes below ``threshold`` are left
+    out. The label has only a mask: ActiveLabel splits it into one polygon object per region.
+    """
+    import numpy as np
+
+    out = []
+    for index in np.unique(classes_map):
+        if index < 1 or index > len(classes) or classes[int(index) - 1] is None:
+            continue
+        inside = classes_map == index
+        score = float(confidence[inside].mean())
+        if score >= threshold:
+            out.append(
+                {
+                    "label": classes[int(index) - 1],
+                    "score": round(score, 4),
+                    "model": model,
+                    "mask": encode_mask(inside),
+                }
+            )
+    return out
+
+
 def detection_labels(
     boxes: list[list[float]],
     labels: list[int],
@@ -60,8 +115,12 @@ def detection_labels(
     threshold: float,
     model: str,
     keypoints: list[list[list[float]]] | None = None,
+    masks: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Objects at or above ``threshold``: relative box ``[x, y, w, h]``, class name (0 is background)."""
+    """Objects at or above ``threshold``: relative box ``[x, y, w, h]``, class name (0 is background).
+
+    ``masks`` (one boolean 2-D array per detection, any resolution) add a ``mask`` to each object.
+    """
     out = []
     for i, (box, label, score) in enumerate(zip(boxes, labels, scores, strict=True)):
         if score < threshold or not 1 <= int(label) <= len(classes) or classes[int(label) - 1] is None:
@@ -86,8 +145,42 @@ def detection_labels(
                 ]
                 for p in keypoints[i]
             ]
+        if masks is not None:
+            item["mask"] = encode_mask(masks[i])
         out.append(item)
     return out
+
+
+def instance_masks(probabilities: Any, width: int, height: int) -> list[Any]:
+    """Boolean masks (reduced to at most ``MAX_MASK_SIDE`` pixels) of the ``(N, 1, H, W)`` mask output."""
+    step = mask_step(width, height)
+    return [m[::step, ::step] for m in (probabilities[:, 0] > MASK_THRESHOLD).cpu().numpy()]
+
+
+def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device: str) -> tuple[Any, Any]:
+    """Per-pixel ``(class map, confidence)`` of an image, at most ``MAX_MASK_SIDE`` pixels wide.
+
+    The image is resized to the training size, like in evaluation, and the logits are scaled back
+    to the (reduced) size of the photo before the argmax.
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    width, height = image.size
+    step = mask_step(width, height)
+    small = image.resize((size, size), Image.Resampling.BILINEAR)
+    array = (np.asarray(small, dtype="float32") / 255.0 - np.array(mean, dtype="float32")) / np.array(
+        std, dtype="float32"
+    )
+    batch = torch.from_numpy(array.transpose(2, 0, 1).copy()).unsqueeze(0).to(device)
+    logits = model(batch)["out"]
+    logits = torch.nn.functional.interpolate(
+        logits, size=(-(-height // step), -(-width // step)), mode="bilinear", align_corners=False
+    )
+    probabilities = torch.softmax(logits, dim=1)[0]
+    confidence, classes_map = probabilities.max(0)
+    return classes_map.cpu().numpy(), confidence.cpu().numpy()
 
 
 def predict(spec: dict[str, Any]) -> dict[str, int]:
@@ -131,7 +224,8 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
             model.score_thresh = min(float(model.score_thresh), threshold)
     else:
         size = int(checkpoint.get("image_size") or spec["build"]["params"]["image_size"])
-        transform = worker.build_transforms(worker.eval_plan(size))
+        if task == "classification":
+            transform = worker.build_transforms(worker.eval_plan(size))
     items = spec["items"]
     totals = {"images": 0, "objects": 0, "unreadable": 0}
     with torch.no_grad():
@@ -146,7 +240,17 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                 emit("progress", step=step, steps=len(items))
                 continue
             width, height = image.size
-            if task in DETECTION_KINDS:
+            if task == "semantic":
+                classes_map, confidence = semantic_map(
+                    model,
+                    image,
+                    size,
+                    checkpoint.get("mean") or worker.MEAN,
+                    checkpoint.get("std") or worker.STD,
+                    device,
+                )
+                labels = semantic_labels(classes_map, confidence, classes, threshold, name)
+            elif task in DETECTION_KINDS:
                 from torchvision.transforms.functional import pil_to_tensor
 
                 tensor = (pil_to_tensor(image).float() / 255.0).to(device)
@@ -161,6 +265,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                     threshold,
                     name,
                     out["keypoints"].cpu().tolist() if task == "keypoints" and "keypoints" in out else None,
+                    instance_masks(out["masks"], width, height) if task == "instance" else None,
                 )
             else:
                 logits = model(transform(image).unsqueeze(0).to(device))

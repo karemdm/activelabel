@@ -20,6 +20,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
+
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
 from activelabel.projects import Project
@@ -28,10 +31,18 @@ from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 
 SCOPES = ("unlabeled", "unreviewed")
-#: Kinds of task a model can pre-annotate now (segmentation needs masks turned into polygons: later).
-KINDS = ("classification", "detection", "keypoints")
+#: Kinds of task a model can pre-annotate now (segmentation masks become polygons: see ``mask_labels``).
+KINDS = ("classification", "detection", "keypoints", "instance", "semantic")
 #: The project type whose labels each kind of model makes.
-KIND_TASK = {"classification": Task.CLASSIFICATION, "detection": Task.DETECTION, "keypoints": Task.KEYPOINTS}
+KIND_TASK = {
+    "classification": Task.CLASSIFICATION,
+    "detection": Task.DETECTION,
+    "keypoints": Task.KEYPOINTS,
+    "instance": Task.SEGMENTATION,
+    "semantic": Task.SEGMENTATION,
+}
+MIN_REGION = 0.0002  # a mask region smaller than this share of the image is noise, not an object
+SIMPLIFY = 0.004  # polygon simplification: tolerance as a share of the region's perimeter (min. 1 pixel)
 QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
 
 _LOCKS: dict[Path, threading.RLock] = {}
@@ -60,6 +71,64 @@ def image_state(images: dict[str, list[Label]], image_id: str) -> str:
     if labels and all(is_preannotation(lb) for lb in labels):
         return "pre"
     return "human"
+
+
+def decode_mask(mask: dict[str, Any]) -> Any:
+    """Boolean 2-D array of a run-length mask (``size`` ``[h, w]``, alternating ``counts``, zeros first)."""
+    height, width = mask["size"]
+    values = np.arange(len(mask["counts"])) % 2 == 1
+    flat = np.repeat(values, mask["counts"])
+    if flat.size != height * width:
+        raise ValueError("A mask does not fit its size.")
+    return flat.reshape(height, width)
+
+
+def mask_polygons(mask: Any) -> list[list[list[float]]]:
+    """Outer outlines of the regions of a boolean mask as relative rings (holes are not kept).
+
+    Regions below ``MIN_REGION`` of the image are dropped and every outline is simplified
+    (Douglas-Peucker, tolerance ``SIMPLIFY`` of its perimeter, at least 1 pixel).
+    """
+    height, width = mask.shape
+    found, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    rings = []
+    for contour in found:
+        if cv2.contourArea(contour) < max(2.0, MIN_REGION * width * height):
+            continue
+        tolerance = max(1.0, SIMPLIFY * cv2.arcLength(contour, True))
+        points = cv2.approxPolyDP(contour, tolerance, True).reshape(-1, 2)
+        if len(points) >= 3:
+            rings.append([[round((x + 0.5) / width, 6), round((y + 0.5) / height, 6)] for x, y in points])
+    return rings
+
+
+def _box_of(rings: list[list[list[float]]]) -> list[float]:
+    xs = [p[0] for ring in rings for p in ring]
+    ys = [p[1] for ring in rings for p in ring]
+    return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
+
+
+def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
+    """Labels from the predictions of a segmentation model (``mask`` in each item, others as they are).
+
+    An item with a box is one object (an instance): all the regions of its mask are its rings. An
+    item without a box (the mask of a whole class, from a semantic model) becomes one object per
+    region. Items whose mask has no region left are dropped.
+    """
+    out: list[Label] = []
+    for item in items:
+        if "mask" not in item:
+            out.append(Label.from_dict(item))
+            continue
+        rings = mask_polygons(decode_mask(item["mask"]))
+        if not rings:
+            continue
+        common = {"score": item.get("score"), "model": item.get("model")}
+        if item.get("bbox"):
+            out.append(Label(item["label"], bbox=_box_of(rings), polygons=rings, **common))
+        else:
+            out += [Label(item["label"], bbox=_box_of([r]), polygons=[r], **common) for r in rings]
+    return out
 
 
 def fits(kind: str, project_task: Task) -> bool:
