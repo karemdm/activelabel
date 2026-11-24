@@ -42,7 +42,7 @@ def env(tmp_path, monkeypatch):
     tool = FakeTool()
     monkeypatch.setitem(registry.OVERRIDES, "cvat", tool)
     monkeypatch.setattr(annotate_api, "prepare_dataset", lambda project, state: SimpleNamespace())
-    monkeypatch.setattr(annotate_api, "open_dataset", lambda project: SimpleNamespace())
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: SimpleNamespace())
     body = {"name": "p", "task": "detection", "classes": ["cat"]}
     pid = client.post("/api/projects", json=body).json()["id"]
     paths = []

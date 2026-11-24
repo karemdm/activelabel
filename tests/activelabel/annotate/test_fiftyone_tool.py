@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def project(monkeypatch):
     unique = f"test-activelabel-{uuid.uuid4().hex[:8]}"
-    monkeypatch.setattr(bridge, "dataset_name", lambda pid: unique)
+    monkeypatch.setattr(bridge, "dataset_name", lambda project_dir, pid: unique)
     monkeypatch.setattr(bridge, "launch_app", lambda dataset, view=None, port=0: f"http://x/{view}")
     yield Project(1, "t", "", Task.DETECTION, ["cat", "dog"])
     if fo.dataset_exists(unique):

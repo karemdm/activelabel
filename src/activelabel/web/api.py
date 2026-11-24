@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -16,6 +17,7 @@ from activelabel import annotations as ann
 from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
+from activelabel.fiftyone_names import recorded_name
 from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.importing.common import read_origin
@@ -300,8 +302,22 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     if body.confirm_name.strip() != project.name:
         raise HTTPException(400, "The name does not match; nothing was deleted.")
     state.busy(project_id, training=True)
+    project_dir = state.store.dir(project_id)
+    recorded = recorded_name(project_dir)
     state.store.delete(project_id)
+    drop_fiftyone_dataset(project_dir, project_id, recorded)
     return {"deleted": project_id}
+
+
+def drop_fiftyone_dataset(project_dir: Path, project_id: int, recorded: str | None) -> None:
+    """Delete the project's FiftyOne dataset in the background (starting FiftyOne can take seconds)."""
+
+    def run() -> None:
+        from activelabel import fiftyone_bridge
+
+        fiftyone_bridge.delete_dataset(project_dir, project_id, recorded)
+
+    threading.Thread(target=run, name="activelabel-drop-dataset", daemon=True).start()
 
 
 # -- images -------------------------------------------------------------------
@@ -769,13 +785,11 @@ def pull_exclusions(project_id: int, state: AppState = STATE) -> dict[str, int]:
     """Exclude the images tagged ``exclude`` in the FiftyOne App."""
     state.project(project_id)
     manifest = state.manifest(project_id)
-    import fiftyone as fo
-
     from activelabel import fiftyone_bridge
 
-    name = fiftyone_bridge.dataset_name(project_id)
-    if not fo.dataset_exists(name):
+    dataset = fiftyone_bridge.existing_dataset(state.store.dir(project_id), project_id)
+    if dataset is None:
         raise HTTPException(
             400, "Open the project in FiftyOne first, tag images with 'exclude', then try again."
         )
-    return {"excluded": fiftyone_bridge.pull_exclusions(fo.load_dataset(name), manifest)}
+    return {"excluded": fiftyone_bridge.pull_exclusions(dataset, manifest)}

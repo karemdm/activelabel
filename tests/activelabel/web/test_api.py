@@ -94,3 +94,16 @@ def test_steps_need_images(tmp_path):
     assert analyze.status_code == 400 and "images" in analyze.json()["detail"]
     files = [("files", ("a.json", b"{}"))]
     assert client.post("/api/projects/1/annotations", files=files).status_code == 400
+
+
+def test_deleting_a_project_drops_its_fiftyone_dataset(tmp_path, monkeypatch):
+    from activelabel.fiftyone_names import record_name
+    from activelabel.web import api
+
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "Cats", "task": "detection"})
+    record_name(state.store.dir(1), "activelabel-1-abc12345")
+    dropped = []
+    monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args))
+    assert client.request("DELETE", "/api/projects/1", json={"confirm_name": "Cats"}).status_code == 200
+    assert dropped == [(state.store.dir(1), 1, "activelabel-1-abc12345")]
