@@ -4,6 +4,7 @@ import pytest
 
 from activelabel.curation.issues import curation_path
 from activelabel.datasets import DatasetStore, parse_options, plan_split
+from activelabel.errors import CodedError
 from activelabel.images.manifest import ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.projects import ProjectStore
@@ -484,3 +485,25 @@ def test_poses_must_have_the_same_number_of_points(tmp_path):
     warning = codes(p)["keypoints_count_mismatch"]
     assert warning["count"] == 2 and warning["expected"] == 3 and set(warning["examples"]) == {"odd1", "odd2"}
     assert not {"odd1", "odd2"} & {i for ids in p.parts.values() for i in ids}
+
+
+def test_split_errors_carry_a_code():
+    def code(options, tasks=(1,)):
+        with pytest.raises(CodedError) as caught:
+            parse_options(options, list(tasks))
+        return caught.value.code
+
+    assert code({"split": {"train": 60, "val": 20, "test": 10}}) == "split_sum"
+    assert code({"split": {"train": 0, "val": 50, "test": 50}}) == "split_train_empty"
+    assert code({"split": {"train": 70.5, "val": 19.5, "test": 10}}) == "not_whole_number"
+    assert code({"split": {"train": 70, "val": 20, "test": 10, "x": 0}}) == "split_unknown_part"
+    assert code({"kfold": 11}) == "kfold_range"
+    assert code({"tasks": [9]}) == "task_not_found"
+    assert code({"gap_seconds": -1}) == "gap_range" and code({"videos": "x"}) == "videos_mode"
+
+
+def test_kfold_with_too_few_groups_says_how_many(tmp_path):
+    pdir, project = build(tmp_path, {"a": ["a"], "b": ["b"]})
+    with pytest.raises(CodedError) as caught:
+        plan(pdir, project, kfold=3)
+    assert caught.value.code == "kfold_too_few_groups" and caught.value.params == {"groups": 2, "folds": 3}
