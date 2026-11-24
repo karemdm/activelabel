@@ -834,6 +834,8 @@
   "tr.select_metric": "Best-epoch metric",
   "tr.select_metric_help": "Chooses the best epoch (and the best run).",
   "tr.params": "Hyperparameters",
+  "tr.params_default": "default values",
+  "tr.params_more": "+{n}",
   "tr.more_params": "More parameters",
   "tr.err_required": "Required.",
   "tr.err_number": "\"{v}\" is not a number.",

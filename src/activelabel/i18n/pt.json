@@ -834,6 +834,8 @@
   "tr.select_metric": "Métrica da melhor época",
   "tr.select_metric_help": "Escolhe a melhor época (e o melhor treino).",
   "tr.params": "Hiperparâmetros",
+  "tr.params_default": "valores padrão",
+  "tr.params_more": "+{n}",
   "tr.more_params": "Mais parâmetros",
   "tr.err_required": "Obrigatório.",
   "tr.err_number": "\"{v}\" não é um número.",

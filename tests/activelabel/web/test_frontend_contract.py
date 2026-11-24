@@ -122,3 +122,9 @@ def test_a_dataset_version_leads_on_to_training_and_groups_its_warnings():
     """A card offers "train with this version" (the dialog opens on it) and one line for all its warnings."""
     assert "panel.startWith" in JS and "ctx.panels.training.startWith(v.version)" in JS
     assert "warnSummary(" in JS and ".ds-warn-group" in CSS
+
+
+def test_the_training_settings_are_closed_with_a_line_for_what_is_not_the_default():
+    """The hyperparameters sit in a closed section whose line lists only the changed values."""
+    assert "changedLine()" in JS and "tr.params_default" in JS
+    assert re.search(r"\.tr-adv\s*\{", CSS)
