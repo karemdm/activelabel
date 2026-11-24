@@ -14,7 +14,9 @@ In the **Images** step, tab *Tasks and jobs* (*Tasks e jobs*): *New task* → *V
 | Take one frame every | **N frames** or **X seconds** (seconds are turned into frames with the video's FPS and the result is shown: "every 2 s = every 60 frames at 30 fps") |
 | Images per job | as for images (CVAT `segment_size`) |
 
-The form shows, before creating: duration, FPS, resolution, total frames, **how many frames the
+A task takes at most **20,000 frames** from a video, and the disk must have about twice the estimated
+size of the frames free (they are written to a temporary folder first); otherwise the request is refused
+(400) with a text that says to take fewer frames. The form shows, before creating: duration, FPS, resolution, total frames, **how many frames the
 task will have**, and a strip of thumbnails at the chosen step.
 
 ## Storage
@@ -38,7 +40,7 @@ training. Nothing has to know about video formats except the extraction.
 | DELETE | `/api/projects/{id}/videos/{video_id}` | | `{deleted}`; 409 while a task uses the video or one is being made |
 | GET | `/api/projects/{id}/videos/{video_id}/frame` | `n` (frame number, required), `w` (width in pixels, 16 to 4096, default 320) | JPEG of that frame |
 | POST | `/api/projects/{id}/videos/{video_id}/plan` | `{start, stop, step, every_seconds}` | how many frames the selection gives (no extraction) |
-| POST | `/api/projects/{id}/tasks/from-video` | `{video, name?, job_size?, start, stop, step, every_seconds}` | job `video_task`; result `{task, frames, planned, stopped_early, step}` |
+| POST | `/api/projects/{id}/tasks/from-video` | `{video, name?, job_size?, start, stop, step, every_seconds}` | job `video_task`; result `{task, frames, planned, stopped_early, step}`; 400 when the selection has more than 20,000 frames or does not fit on the disk |
 
 `start`, `stop` and `step` are **frame numbers** (`stop` empty: the last frame; `step` default 1);
 `every_seconds`, when given, replaces `step` (rounded to whole frames with the video's FPS). The task is

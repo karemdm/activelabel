@@ -52,6 +52,8 @@ warnings. Nothing is saved until the person confirms.
   the part furthest below its image target; ties are broken with the seeded random generator.
   Everything is deterministic for the same options and seed.
   Classification uses the image class; detection/segmentation/keypoints the classes of its objects.
+- A video that was cut is reported (`video_split`) whenever its segments went to two or more parts, also
+  when some segments sit next to other images of the same near-duplicate group.
 - **Information** `video_split` (not a problem): names a video that was cut, the number of
   segments, the parts that use spread segments and the frames left out as a gap.
 - **Warnings** (never errors), each with a `code`:
