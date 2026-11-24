@@ -16,6 +16,7 @@ import random
 import sys
 import time
 import traceback
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -352,6 +353,56 @@ def run_epoch(
     return _ratio(total, count), truth, predicted
 
 
+def make_loader(
+    items: list[dict[str, Any]], transform: Any, shuffle: bool, batch_size: int, workers: int, generator: Any
+) -> Any:
+    """A data loader over ``items``.
+
+    Args:
+        items: the images of one part (``path`` and class index each).
+        transform: the transforms applied to every image.
+        shuffle: shuffle with ``generator`` (the training part).
+        batch_size: images per batch.
+        workers: loader processes (0 loads in the main process).
+        generator: the seeded random generator used when shuffling.
+
+    Returns:
+        A ``DataLoader``.
+    """
+    return DataLoader(
+        ImageDataset(items, transform),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=workers,
+        generator=generator if shuffle else None,
+    )
+
+
+def report_step(epoch: int, epochs: int, step: int, steps: int) -> None:
+    """Tell the runner about the progress of a training epoch (about twenty times per epoch).
+
+    Args:
+        epoch: the epoch (from 1).
+        epochs: how many epochs the run has.
+        step: the batch just done (from 1).
+        steps: batches in the epoch.
+    """
+    if step == steps or step % max(1, steps // 20) == 0:
+        emit("progress", phase="training", epoch=epoch, epochs=epochs, step=step, steps=steps)
+
+
+def save_checkpoint(path: Path, model: Any, meta: dict[str, Any], epoch: int) -> None:
+    """Write the weights of ``model`` with what is needed to rebuild it.
+
+    Args:
+        path: the ``.pt`` file.
+        model: the network.
+        meta: classes, model name, family, image size... saved next to the weights.
+        epoch: the epoch the weights come from.
+    """
+    torch.save({"state_dict": model.state_dict(), **meta, "epoch": epoch}, path)
+
+
 def train(spec: dict[str, Any]) -> dict[str, Any]:
     """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
@@ -368,16 +419,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
 
-    def loader(name: str, tf: Any, shuffle: bool) -> Any:
-        return DataLoader(
-            ImageDataset(parts[name], tf),
-            batch_size=batch,
-            shuffle=shuffle,
-            num_workers=workers,
-            generator=generator if shuffle else None,
-        )
-
-    train_loader, val_loader = loader("train", train_tf, True), loader("val", eval_tf, False)
+    loader = partial(make_loader, batch_size=batch, workers=workers, generator=generator)
+    train_loader, val_loader = loader(parts["train"], train_tf, True), loader(parts["val"], eval_tf, False)
     model, head = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, head, torch)
@@ -388,32 +431,23 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
 
-    def checkpoint(file: str, epoch: int) -> None:
-        torch.save(
-            {
-                "state_dict": model.state_dict(),
-                "classes": classes,
-                "model": spec["model"],
-                "family": spec["family"],
-                "image_size": size,
-                "mean": MEAN,
-                "std": STD,
-                "epoch": epoch,
-            },
-            out / file,
-        )
+    meta = {
+        "classes": classes,
+        "model": spec["model"],
+        "family": spec["family"],
+        "image_size": size,
+        "mean": MEAN,
+        "std": STD,
+    }
 
     for epoch in range(1, epochs + 1):
         started = time.monotonic()
-
-        def on_step(step: int, steps: int, epoch: int = epoch) -> None:
-            if step == steps or step % max(1, steps // 20) == 0:
-                emit("progress", phase="training", epoch=epoch, epochs=epochs, step=step, steps=steps)
 
         model.train()
         if spec["start"] == "transfer":
             model.eval()  # frozen backbone: no batch-norm statistics or dropout changes
             head.train()
+        on_step = partial(report_step, epoch, epochs)
         train_loss, _, _ = run_epoch(model, train_loader, device, torch, loss_fn, optimizer, on_step)
         model.eval()
         val_loss, truth, predicted = run_epoch(model, val_loader, device, torch, loss_fn)
@@ -425,10 +459,10 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         if improved:
             best = {"epoch": epoch, "scores": scores, "val_loss": val_loss}
             since_best = 0
-            checkpoint("best.pt", epoch)
+            save_checkpoint(out / "best.pt", model, meta, epoch)
         else:
             since_best += 1
-        checkpoint("last.pt", epoch)
+        save_checkpoint(out / "last.pt", model, meta, epoch)
         emit(
             "epoch",
             epoch=epoch,
@@ -462,7 +496,9 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         state = torch.load(out / "best.pt", map_location=device)
         model.load_state_dict(state["state_dict"])
         model.eval()
-        test_loss, truth, predicted = run_epoch(model, loader("test", eval_tf, False), device, torch, loss_fn)
+        test_loss, truth, predicted = run_epoch(
+            model, loader(parts["test"], eval_tf, False), device, torch, loss_fn
+        )
         results["test"] = {"loss": test_loss, **evaluation(truth, predicted, classes)}
     (out / "results.json").write_text(json.dumps(results), encoding="utf-8")
     return results

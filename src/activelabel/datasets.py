@@ -174,6 +174,28 @@ class Group:
     index: int = -1
 
 
+class _DisjointSets:
+    """Union-find over strings: items join the structure when first seen."""
+
+    def __init__(self) -> None:
+        self._parent: dict[str, str] = {}
+
+    def find(self, item: str) -> str:
+        """The representative of the set that holds ``item`` (a new item is a set of its own)."""
+        parent = self._parent
+        parent.setdefault(item, item)
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    def union(self, a: str, b: str) -> None:
+        """Merge the sets of ``a`` and ``b``."""
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self._parent[rb] = ra
+
+
 def build_groups(
     candidates: list[str],
     videos: dict[str, str],
@@ -189,34 +211,21 @@ def build_groups(
     """
     segment_of = segment_of or {}
     split_videos = {v for v, _ in segment_of.values()}
-    parent: dict[str, str] = {}
-
-    def find(x: str) -> str:
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a: str, b: str) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[rb] = ra
-
+    sets = _DisjointSets()
     for image_id in candidates:
-        find(image_id)
+        sets.find(image_id)
         if image_id in segment_of:
             video, number = segment_of[image_id]
-            union(image_id, f"segment:{video}#{number}")
+            sets.union(image_id, f"segment:{video}#{number}")
         elif videos.get(image_id):
-            union(image_id, "video:" + videos[image_id])
+            sets.union(image_id, "video:" + videos[image_id])
     for dup, kept in duplicate_of.items():
         if videos.get(dup) in split_videos and videos.get(dup) == videos.get(kept):
             continue  # neighbouring frames are similar by nature: the safety gap handles the borders
-        union(dup, kept)  # through images that are not candidates too: they still link the others
+        sets.union(dup, kept)  # through images that are not candidates too: they still link the others
     roots: dict[str, Group] = {}
     for image_id in candidates:  # keeps candidate order
-        group = roots.setdefault(find(image_id), Group([]))
+        group = roots.setdefault(sets.find(image_id), Group([]))
         group.images.append(image_id)
         group.classes.update(classes_of.get(image_id, ()))
     for group in roots.values():
@@ -227,65 +236,54 @@ def build_groups(
     return list(roots.values())
 
 
-def assign(
-    groups: list[Group], fractions: dict[str, float], rng: random.Random, rest: str | None = None
-) -> dict[str, list[Group]]:
-    """Give each group to a part: iterative stratification, rarest classes first.
+class _Placement:
+    """The state of one ``assign`` call: what every part has got so far, and how to choose the next part."""
 
-    A group goes to the part furthest below its target for the group's rarest class, then below its
-    targets for the group's other classes, then below its image target; remaining ties are broken
-    with ``rng``. Groups without classes (background) come last and are spread by image count.
+    def __init__(
+        self, groups: list[Group], fractions: dict[str, float], rng: random.Random, rest: str | None
+    ) -> None:
+        self.parts = list(fractions)
+        self.fractions = fractions
+        self.rng = rng
+        self.rest = rest
+        self.out: dict[str, list[Group]] = {p: [] for p in self.parts}
+        total_images = sum(len(g.images) for g in groups)
+        self.totals: Counter[str] = Counter()
+        for g in groups:
+            self.totals.update(g.classes)
+        self.want_images = {p: total_images * fractions[p] for p in self.parts}
+        self.got_images = dict.fromkeys(self.parts, 0)
+        self.got: dict[str, Counter[str]] = {p: Counter() for p in self.parts}
 
-    Segments of split videos (groups with ``video``) are placed first, video by video: each part
-    other than ``rest`` gets as many segments as it still needs (proportional to its missing images),
-    taken evenly spread over the video's timeline and never adjacent when avoidable; the other
-    segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
-    same way, neighbours going to different parts. Which part gets which chosen segment follows the
-    class stratification.
-    """
-    parts = list(fractions)
-    out: dict[str, list[Group]] = {p: [] for p in parts}
-    by_video: dict[str, list[Group]] = {}
-    regular: list[Group] = []
-    for g in groups:
-        if g.video:
-            by_video.setdefault(g.video, []).append(g)
-        else:
-            regular.append(g)
-    for video in [v for v, segs in by_video.items() if len(segs) < 2]:
-        regular += by_video.pop(video)
-    total_images = sum(len(g.images) for g in groups)
-    totals: Counter[str] = Counter()
-    for g in groups:
-        totals.update(g.classes)
-    want_images = {p: total_images * fractions[p] for p in parts}
-    got_images = dict.fromkeys(parts, 0)
-    got: dict[str, Counter[str]] = {p: Counter() for p in parts}
-
-    def score(p: str, names: list[str]) -> tuple[float, float, float]:
-        deficits = [totals[c] * fractions[p] - got[p][c] for c in names]
+    def score(self, p: str, names: list[str]) -> tuple[float, float, float]:
+        """How far part ``p`` is below its targets: for the rarest class, the other classes, the images."""
+        deficits = [self.totals[c] * self.fractions[p] - self.got[p][c] for c in names]
         return (
             round(deficits[0], 6) if deficits else 0.0,
             round(sum(deficits[1:]), 6),
-            round(want_images[p] - got_images[p], 6),
+            round(self.want_images[p] - self.got_images[p], 6),
         )
 
-    def pick(g: Group, candidates: list[str]) -> str:
-        names = sorted(g.classes, key=lambda c: (totals[c], c))
-        best = max(score(p, names) for p in candidates)
-        return rng.choice([p for p in candidates if score(p, names) == best])
+    def pick(self, g: Group, candidates: list[str]) -> str:
+        """The candidate part furthest below its targets for ``g`` (ties broken with the random generator)."""
+        names = sorted(g.classes, key=lambda c: (self.totals[c], c))
+        best = max(self.score(p, names) for p in candidates)
+        return self.rng.choice([p for p in candidates if self.score(p, names) == best])
 
-    def put(g: Group, p: str) -> None:
-        out[p].append(g)
-        got_images[p] += len(g.images)
-        got[p].update(g.classes)
+    def put(self, g: Group, p: str) -> None:
+        """Give group ``g`` to part ``p``."""
+        self.out[p].append(g)
+        self.got_images[p] += len(g.images)
+        self.got[p].update(g.classes)
 
-    def place_video(segs: list[Group]) -> None:
+    def place_video(self, segs: list[Group]) -> None:
+        """Share the segments of one video (in time order) among the parts."""
+        rest, parts, want_images, got_images = self.rest, self.parts, self.want_images, self.got_images
         m = len(segs)
         movable = [p for p in parts if p != rest]
         if not movable:
             for g in segs:
-                put(g, parts[0])
+                self.put(g, parts[0])
             return
         need = {p: max(0.0, want_images[p] - got_images[p]) for p in movable}
         if rest is None:  # every segment goes to some part
@@ -315,25 +313,54 @@ def assign(
                 break
             if last and segs[pos].index - last[0] == 1 and len(candidates) > 1:
                 candidates = [p for p in candidates if p != last[1]] or candidates
-            p = pick(segs[pos], candidates)
+            p = self.pick(segs[pos], candidates)
             remaining[p] -= 1
-            put(segs[pos], p)
+            self.put(segs[pos], p)
             taken.add(pos)
             last = (segs[pos].index, p)
         for pos, g in enumerate(segs):
             if pos not in taken:
-                put(g, rest if rest is not None else movable[0])
+                self.put(g, rest if rest is not None else movable[0])
 
+
+def assign(
+    groups: list[Group], fractions: dict[str, float], rng: random.Random, rest: str | None = None
+) -> dict[str, list[Group]]:
+    """Give each group to a part: iterative stratification, rarest classes first.
+
+    A group goes to the part furthest below its target for the group's rarest class, then below its
+    targets for the group's other classes, then below its image target; remaining ties are broken
+    with ``rng``. Groups without classes (background) come last and are spread by image count.
+
+    Segments of split videos (groups with ``video``) are placed first, video by video: each part
+    other than ``rest`` gets as many segments as it still needs (proportional to its missing images),
+    taken evenly spread over the video's timeline and never adjacent when avoidable; the other
+    segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
+    same way, neighbours going to different parts. Which part gets which chosen segment follows the
+    class stratification.
+    """
+    parts = list(fractions)
+    by_video: dict[str, list[Group]] = {}
+    regular: list[Group] = []
+    for g in groups:
+        if g.video:
+            by_video.setdefault(g.video, []).append(g)
+        else:
+            regular.append(g)
+    for video in [v for v, segs in by_video.items() if len(segs) < 2]:
+        regular += by_video.pop(video)
+    placement = _Placement(groups, fractions, rng, rest)
     for segs in sorted(by_video.values(), key=lambda s: (-sum(len(g.images) for g in s), s[0].video)):
-        place_video(sorted(segs, key=lambda g: g.index))
+        placement.place_video(sorted(segs, key=lambda g: g.index))
 
     order = list(regular)
     rng.shuffle(order)
     inf = float("inf")
+    totals = placement.totals
     order.sort(key=lambda g: (min((totals[c] for c in g.classes), default=inf), -len(g.images)))
     for g in order:
-        put(g, pick(g, parts))
-    return out
+        placement.put(g, placement.pick(g, parts))
+    return placement.out
 
 
 def fingerprint(
@@ -605,6 +632,95 @@ def usable_labels(
     return kept, {"unusable": unusable, "keypoints": expected, "warnings": warnings}
 
 
+@dataclass
+class _Splitter:
+    """What every attempt of ``plan_split`` shares: the candidates, their groups' inputs and the targets."""
+
+    options: DatasetOptions
+    candidates: list[str]
+    position: dict[str, int]
+    classes_of: dict[str, set[str]]
+    video_of: dict[str, str]
+    duplicate_of: dict[str, str]
+    frames_of: dict[str, list[str]]
+    shares: dict[str, float]
+    test_share: float
+
+    def attempt(self, split_ids: set[str]) -> _Attempt:
+        """Split with the videos in ``split_ids`` cut into segments (the others stay whole)."""
+        options, candidates, shares, test_share = self.options, self.candidates, self.shares, self.test_share
+        position, frames_of = self.position, self.frames_of
+        segment_of: dict[str, tuple[str, int]] = {}
+        for video in sorted(split_ids):
+            for number, (a, b) in enumerate(_chunks(len(frames_of[video]))):
+                for i in frames_of[video][a:b]:
+                    segment_of[i] = (video, number)
+        groups = build_groups(candidates, self.video_of, self.duplicate_of, self.classes_of, segment_of)
+        rng = random.Random(options.seed)
+        folds: list[list[str]] | None = None
+        foldable = len(groups)
+        slots: list[tuple[dict[str, Any], list[str], float]]
+        if options.kfold is None:
+            placed = assign(groups, shares, rng, rest="train")
+            if test_share > 0:  # the groups K-fold would have left for its folds
+                foldable = len(
+                    assign(
+                        groups,
+                        {"pool": 1 - test_share, "test": test_share},
+                        random.Random(options.seed),
+                        rest="pool",
+                    )["pool"]
+                )
+            parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
+            slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
+        else:
+            pool = groups
+            test_groups: list[Group] = []
+            if test_share > 0:
+                placed = assign(groups, {"pool": 1 - test_share, "test": test_share}, rng, rest="pool")
+                pool, test_groups = placed["pool"], placed["test"]
+            foldable = len(pool)
+            if len(pool) < options.kfold:
+                raise CodedError(
+                    "kfold_too_few_groups",
+                    f"There are only {len(pool)} groups of images for {options.kfold} folds.",
+                    groups=len(pool),
+                    folds=options.kfold,
+                )
+            k_share = (1 - test_share) / options.kfold
+            by_fold = assign(pool, {str(n): 1 / options.kfold for n in range(options.kfold)}, rng)
+            folds = [_flatten(by_fold[str(n)], position) for n in range(options.kfold)]
+            parts = {"test": _flatten(test_groups, position)}
+            slots = [({"part": "test"}, parts["test"], test_share)]
+            slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
+        largest = max(groups, key=lambda g: len(g.images))
+        cause = "video" if any(self.video_of.get(i) for i in largest.images) else "duplicates"
+        return _Attempt(
+            parts,
+            folds,
+            slots,
+            (len(largest.images), cause),
+            len(groups),
+            foldable,
+            set(split_ids),
+            segment_of,
+        )
+
+
+def _seconds(record: Any, fps: dict[str, float]) -> float | None:
+    """The time of an image in its video (seconds), or None when it cannot be known."""
+    if record.time is not None:
+        return float(record.time)
+    if record.frame is not None and fps.get(record.video):
+        return record.frame / fps[record.video]
+    return None
+
+
+def _frame_no(record: Any, position: int) -> int:
+    """The frame number of an image: the one in the manifest, or its position in the video's order."""
+    return position if record.frame is None else record.frame
+
+
 def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> Plan:
     """Compute a split (nothing is saved).
 
@@ -663,14 +779,6 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             )
         )
 
-    def seconds(image_id: str) -> float | None:
-        record = manifest[image_id]
-        if record.time is not None:
-            return float(record.time)
-        if record.frame is not None and fps.get(record.video):
-            return record.frame / fps[record.video]
-        return None
-
     test_share = options.split["test"] / 100
     shares = {p: options.split[p] / 100 for p in PARTS if options.split[p] > 0}
     if options.kfold is None:
@@ -680,76 +788,22 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             total * (1 - test_share) / options.kfold
         ]
 
-    def attempt(split_ids: set[str]) -> _Attempt:
-        segment_of: dict[str, tuple[str, int]] = {}
-        for video in sorted(split_ids):
-            for number, (a, b) in enumerate(_chunks(len(frames_of[video]))):
-                for i in frames_of[video][a:b]:
-                    segment_of[i] = (video, number)
-        groups = build_groups(candidates, video_of, duplicate_of, classes_of, segment_of)
-        rng = random.Random(options.seed)
-        folds: list[list[str]] | None = None
-        foldable = len(groups)
-        slots: list[tuple[dict[str, Any], list[str], float]]
-        if options.kfold is None:
-            placed = assign(groups, shares, rng, rest="train")
-            if test_share > 0:  # the groups K-fold would have left for its folds
-                foldable = len(
-                    assign(
-                        groups,
-                        {"pool": 1 - test_share, "test": test_share},
-                        random.Random(options.seed),
-                        rest="pool",
-                    )["pool"]
-                )
-            parts = {p: _flatten(placed.get(p, []), position) for p in PARTS}
-            slots = [({"part": p}, parts[p], options.split[p] / 100) for p in PARTS]
-        else:
-            pool = groups
-            test_groups: list[Group] = []
-            if test_share > 0:
-                placed = assign(groups, {"pool": 1 - test_share, "test": test_share}, rng, rest="pool")
-                pool, test_groups = placed["pool"], placed["test"]
-            foldable = len(pool)
-            if len(pool) < options.kfold:
-                raise CodedError(
-                    "kfold_too_few_groups",
-                    f"There are only {len(pool)} groups of images for {options.kfold} folds.",
-                    groups=len(pool),
-                    folds=options.kfold,
-                )
-            k_share = (1 - test_share) / options.kfold
-            by_fold = assign(pool, {str(n): 1 / options.kfold for n in range(options.kfold)}, rng)
-            folds = [_flatten(by_fold[str(n)], position) for n in range(options.kfold)]
-            parts = {"test": _flatten(test_groups, position)}
-            slots = [({"part": "test"}, parts["test"], test_share)]
-            slots += [({"part": "fold", "fold": n}, folds[n], k_share) for n in range(options.kfold)]
-        largest = max(groups, key=lambda g: len(g.images))
-        cause = "video" if any(video_of.get(i) for i in largest.images) else "duplicates"
-        return _Attempt(
-            parts,
-            folds,
-            slots,
-            (len(largest.images), cause),
-            len(groups),
-            foldable,
-            set(split_ids),
-            segment_of,
-        )
-
     big: set[str] = set()
     if options.videos == "auto" and targets:
         big = {v for v, ids in frames_of.items() if len(ids) >= MIN_SPLIT_FRAMES and len(ids) > min(targets)}
+    splitter = _Splitter(
+        options, candidates, position, classes_of, video_of, duplicate_of, frames_of, shares, test_share
+    )
     final: _Attempt | None
     try:
-        final = attempt(set())
+        final = splitter.attempt(set())
     except ValueError:
         if not big:
             raise
         final = None
     if big and (final is None or _too_few(final.slots, total)):
         try:
-            final = attempt(big)
+            final = splitter.attempt(big)
         except ValueError:
             if final is None:
                 raise
@@ -765,7 +819,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         droppable = {i for f in final.folds for i in f}
     gap = _gap_ids(
         {v: frames_of[v] for v in split},
-        {i: seconds(i) for i in candidates if manifest[i].video in split},
+        {i: _seconds(manifest[i], fps) for i in candidates if manifest[i].video in split},
         protected,
         droppable,
         options.gap_seconds,
@@ -786,10 +840,6 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     for video, ids in frames_of.items():
         index = {i: n for n, i in enumerate(ids)}
 
-        def frame_no(image_id: str, index: dict[str, int] = index) -> int:
-            record = manifest[image_id]
-            return index[image_id] if record.frame is None else record.frame
-
         segs = _segments(video, ids, final.segment_of, where)
         parts_used = {tuple(key.items()) for _, key in segs}
         cut = video in split and len(parts_used) >= 2
@@ -801,8 +851,8 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             "segments": [
                 {
                     **key,
-                    "first_frame": frame_no(images[0]),
-                    "last_frame": frame_no(images[-1]),
+                    "first_frame": _frame_no(manifest[images[0]], index[images[0]]),
+                    "last_frame": _frame_no(manifest[images[-1]], index[images[-1]]),
                 }
                 for images, key in segs
             ]
