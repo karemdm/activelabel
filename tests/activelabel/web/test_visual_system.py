@@ -3,6 +3,7 @@
 These are contract checks on ``app.css`` and ``app.js``: the look itself is checked in a browser.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -130,3 +131,16 @@ def test_cards_use_the_whole_row_and_delete_is_not_alone_on_a_phone():
     assert re.search(r"\.ds-cards \{ grid-template-columns: repeat\(auto-fit,", block)
     assert re.search(r"\.tr-actions > \.tr-del \{ grid-column: 2; grid-row: 1;", block)
     assert re.search(r"\.ds-del \{ position: absolute;", block)
+
+
+def test_small_ux_fixes_of_the_audit():
+    """#342 (CSS and wording): project types 2 x 2, the FiftyOne send button sized like the others, the class
+    instruction in the help line (it was cut in the placeholder) and the annotation tile renamed."""
+    assert re.search(r"\.task-cards:not\(\.tool-cards\) \{ grid-template-columns: repeat\(2,", CSS)
+    assert re.search(r"\.send-row \.btn\.big \{ min-height: 40px; font-size: inherit;", CSS)
+    i18n = STATIC.parent.parent / "i18n"
+    pt = json.loads((i18n / "pt.json").read_text(encoding="utf-8"))
+    en = json.loads((i18n / "en.json").read_text(encoding="utf-8"))
+    assert pt["ann.tile_labels"] == "Objetos anotados" and en["ann.tile_labels"] == "Annotated objects"
+    assert "Enter" not in pt["classes.placeholder"] and "Enter" in pt["new.classes_hint"]
+    assert "Enter" not in en["classes.placeholder"] and "Enter" in en["new.classes_hint"]
