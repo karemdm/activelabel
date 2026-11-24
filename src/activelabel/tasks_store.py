@@ -166,9 +166,19 @@ class TaskStore:
         write_json(self.path, {"next_id": next_id, "tasks": [t.as_dict() for t in tasks]})
 
     def load(self) -> list[ImageTask]:
-        """Every task, in creation order (runs the migration on first read)."""
-        with self._lock:
+        """Every task, in creation order (runs the migration on first read).
+
+        A reader never waits for a long upload: while another thread holds the lock (ingest holds it for
+        a whole upload) the tasks are read as last saved (the file is replaced atomically). Images not
+        registered yet are then not shown, and the migration of orphans waits for a quiet moment.
+        """
+        if not self._lock.acquire(blocking=False):
+            data = read_json(self.path)
+            return [ImageTask(**t) for t in data["tasks"]] if data else []
+        try:
             return self._read()[1]
+        finally:
+            self._lock.release()
 
     def ensure(self) -> None:
         """Make sure tasks.json exists (migrating when there are images), before new images are stored."""

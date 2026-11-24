@@ -79,3 +79,38 @@ def test_clean_classes_keeps_first_spelling_and_order():
     assert clean_classes([" Cat", "cat", "", "Dog", "DOG", "bird"]) == ["Cat", "Dog", "bird"]
     many = [f"c{i}" for i in range(20000)]
     assert clean_classes(many + many) == many
+
+
+def test_reading_projects_and_tasks_does_not_wait_for_a_running_upload(tmp_path):
+    import threading
+
+    from activelabel.tasks_store import TaskStore
+
+    client, state = make_projects(tmp_path, 1)
+    path = tmp_path / "a.png"
+    make_image(path)
+    assert upload(client, 1, [path]).status_code == 200
+    holding, release = threading.Event(), threading.Event()
+
+    def hold_the_lock():  # what ingest does for a whole upload
+        with TaskStore(state.store.dir(1)).locked():
+            holding.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=hold_the_lock)
+    holder.start()
+    assert holding.wait(5)
+    results = {}
+
+    def read():
+        for url in ("/api/projects", "/api/projects/1", "/api/projects/1/tasks"):
+            results[url] = client.get(url).status_code
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    reader.join(5)
+    still_waiting = reader.is_alive()
+    release.set()
+    holder.join()
+    reader.join()
+    assert not still_waiting and set(results.values()) == {200}
