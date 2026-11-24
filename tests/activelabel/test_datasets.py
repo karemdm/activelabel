@@ -395,3 +395,18 @@ def test_summary_keeps_the_video_report(tmp_path):
     made = store.create(plan(pdir, project))
     assert made["videos"][0]["split"] and store.versions()[0]["videos"] == made["videos"]
     assert any(w["code"] == "video_split" for w in made["warnings"])
+
+
+def test_cut_video_is_reported_when_every_segment_is_glued_to_another_image(tmp_path):
+    frames = {f"f{k:02d}": ["a"] for k in range(50)}
+    glue = {f"y{k}": ["a"] for k in range(10)}
+    pdir, project = build(tmp_path, frames | glue, videos=dict.fromkeys(frames, "v1"), fps=2)
+    links = {f"y{k}": f"f{5 * k:02d}" for k in range(10)}  # each 5-frame segment meets a still image
+    write_json(curation_path(pdir), {"duplicate_of": links})
+    p = plan(pdir, project)
+    (video,) = p.videos
+    where = part_of(p)
+    assert len({where[i] for i in frames if i in where}) > 1  # the video really is in several parts
+    assert video["split"] and len(video["segments"]) == 10
+    assert [w for w in p.warnings if w["code"] == "video_split"]
+    assert p.stats["gap"] == video["gap"]
