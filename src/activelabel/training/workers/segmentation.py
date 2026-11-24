@@ -28,6 +28,12 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import numpy
+import torch
+import torchvision
+from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+from torch.utils.data import DataLoader
+
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
 METRICS = ("miou", "dice", "pixel_accuracy")
@@ -117,8 +123,6 @@ def rasterize_mask(objects: list[dict[str, Any]], width: int, height: int, class
     Every ring of an object is filled with its class (rings are not treated as holes). An object
     without a usable polygon is drawn as its filled bounding box; one with neither is skipped.
     """
-    from PIL import Image, ImageDraw
-
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
     for obj in objects:
@@ -168,8 +172,6 @@ def random_crop_box(
 
 def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
     """Image (bilinear) and mask (nearest) resized to ``size`` x ``size``."""
-    from PIL import Image
-
     return image.resize((size, size), Image.Resampling.BILINEAR), mask.resize(
         (size, size), Image.Resampling.NEAREST
     )
@@ -177,8 +179,6 @@ def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
 
 def augment_pair(image: Any, mask: Any, preset: str, size: int, rng: Any = random) -> tuple[Any, Any]:
     """Training augmentation applied consistently to image and mask, output ``size`` x ``size``."""
-    from PIL import Image, ImageEnhance
-
     plan = augmentation_plan(preset)
     if plan["rotate"]:
         angle = rng.uniform(-plan["rotate"], plan["rotate"])
@@ -284,10 +284,6 @@ class SegmentationDataset:
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, Any]:
-        import numpy
-        import torch
-        from PIL import Image, ImageOps
-
         item = self.items[index]
         with Image.open(item["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
@@ -320,8 +316,6 @@ def pick_device(torch: Any) -> str:
 
 def seed_everything(seed: int, torch: Any) -> None:
     """Seed Python, numpy and torch."""
-    import numpy
-
     random.seed(seed)
     numpy.random.seed(seed)
     torch.manual_seed(seed)
@@ -335,9 +329,6 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
     Raises:
         SpecError: unknown model.
     """
-    import torch
-    import torchvision
-
     model_id = spec["model"]
     builder = getattr(torchvision.models.segmentation, model_id, None)
     if builder is None or model_id not in MODELS:
@@ -445,9 +436,6 @@ def run_epoch(
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
     """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
-    import torch
-    from torch.utils.data import DataLoader
-
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
     n_classes = len(classes) + 1
     out = Path(spec["output_dir"])

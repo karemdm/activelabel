@@ -26,6 +26,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
+import torchvision
+from PIL import Image, ImageDraw, ImageOps
+from torch.utils.data import DataLoader
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.keypoint_rcnn import KeypointRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+from torchvision.transforms import ColorJitter
+from torchvision.transforms.functional import pil_to_tensor
 
 METRICS = ("map50_95", "map50")
 TASKS = ("detection", "instance", "keypoints")
@@ -101,8 +110,6 @@ def warmup_factor(step: int, steps: int) -> float:
 
 def polygon_mask(polygons: list[list[list[float]]] | None, width: int, height: int) -> Array:
     """``(height, width)`` uint8 mask, 1 inside the rings (relative points), drawn with PIL."""
-    from PIL import Image, ImageDraw
-
     image = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(image)
     for ring in polygons or []:
@@ -414,11 +421,6 @@ class DetectionDataset:
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, dict[str, Any]]:
-        import torch
-        from PIL import Image, ImageOps
-        from torchvision.transforms import ColorJitter
-        from torchvision.transforms.functional import pil_to_tensor
-
         with Image.open(self.items[index]["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
             image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
@@ -472,18 +474,12 @@ def replace_heads(
     """Replace the predictors of a COCO-pretrained model for this project's classes."""
     n = classes_with_background
     if hasattr(model, "roi_heads"):
-        from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-
         predictor = model.roi_heads.box_predictor
         model.roi_heads.box_predictor = FastRCNNPredictor(predictor.cls_score.in_features, n)
         if model_id.startswith("maskrcnn"):
-            from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-
             old = model.roi_heads.mask_predictor
             model.roi_heads.mask_predictor = MaskRCNNPredictor(old.conv5_mask.in_channels, 256, n)
         if model_id.startswith("keypointrcnn"):
-            from torchvision.models.detection.keypoint_rcnn import KeypointRCNNPredictor
-
             old = model.roi_heads.keypoint_predictor
             model.roi_heads.keypoint_predictor = KeypointRCNNPredictor(
                 old.kps_score_lowres.in_channels, num_keypoints
@@ -519,9 +515,6 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
     Raises:
         SpecError: torchvision has no such detection model.
     """
-    import torch
-    import torchvision
-
     p, model_id = spec["params"], spec["model"]
     builder = getattr(torchvision.models.detection, model_id, None)
     if builder is None:
@@ -674,9 +667,6 @@ def epoch_scores(result: dict[str, Any]) -> dict[str, float]:
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
     """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
-    import torch
-    from torch.utils.data import DataLoader
-
     p, classes, metric, task = spec["params"], spec["classes"], spec["metric"], spec["task"]
     out = Path(spec["output_dir"])
     out.mkdir(parents=True, exist_ok=True)

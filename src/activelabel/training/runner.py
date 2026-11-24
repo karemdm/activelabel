@@ -34,6 +34,7 @@ from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, JobManager, Progress
 from activelabel.labels import Label, geometry_problem
+from activelabel.projects import ProjectStore
 from activelabel.storage import now, write_json
 from activelabel.tasks import Task
 from activelabel.training.catalog import ModelSpec, get_model
@@ -351,8 +352,6 @@ class TrainingRunner:
         """The project (type and classes), read from its folder when no lookup was given."""
         if self._project_lookup is not None:
             return self._project_lookup(project_id)
-        from activelabel.projects import ProjectStore
-
         return ProjectStore(self._project_dir(project_id).parent).get(project_id)
 
     # -- public ------------------------------------------------------------

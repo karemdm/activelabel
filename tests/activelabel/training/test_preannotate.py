@@ -57,6 +57,7 @@ def pre(setup, tmp_path):
 
 
 def worker_module():
+    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
     path = Path(__file__).parents[3] / "src/activelabel/training/workers/predict.py"
     spec = importlib.util.spec_from_file_location("predict_under_test", path)
     module = importlib.util.module_from_spec(spec)

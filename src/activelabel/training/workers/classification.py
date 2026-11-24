@@ -19,6 +19,18 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import numpy
+import torch
+import torchvision
+from PIL import Image, ImageOps
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+try:
+    import timm
+except ImportError:  # timm is optional: only the timm families need it
+    timm = None
+
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
 METRICS = ("accuracy", "macro_f1")
@@ -191,8 +203,6 @@ class ImageDataset:
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
-        from PIL import Image, ImageOps
-
         item = self.items[index]
         with Image.open(item["path"]) as image:
             # labels are drawn on the photo as shown (EXIF rotation applied)
@@ -216,8 +226,6 @@ def pick_device(torch: Any) -> str:
 
 def seed_everything(seed: int, torch: Any) -> None:
     """Seed Python, numpy and torch."""
-    import numpy
-
     random.seed(seed)
     numpy.random.seed(seed)
     torch.manual_seed(seed)
@@ -227,8 +235,6 @@ def seed_everything(seed: int, torch: Any) -> None:
 
 def build_transforms(plan: list[tuple[str, dict[str, Any]]]) -> Any:
     """Compose the planned transforms, then tensor conversion and normalisation."""
-    from torchvision import transforms
-
     steps = [getattr(transforms, name)(**kwargs) for name, kwargs in plan]
     steps += [transforms.ToTensor(), transforms.Normalize(MEAN, STD)]
     return transforms.Compose(steps)
@@ -255,16 +261,13 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> tuple[Any, Any]:
     Raises:
         SpecError: a size the model cannot take.
     """
-    import torch
-
     n = len(spec["classes"])
     model_id, size = spec["model"], int(spec["params"]["image_size"])
     if spec["family"] == "timm":
-        import timm
-
+        if timm is None:
+            raise ImportError("timm is not installed in the training environment.")
         model = timm.create_model(model_id, pretrained=pretrained, num_classes=n)
         return model, model.get_classifier()
-    import torchvision
 
     if model_id.startswith("vit") and size != 224:
         raise SpecError("ViT-B/16 only takes 224 pixel images.")
@@ -351,9 +354,6 @@ def run_epoch(
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
     """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
-    import torch
-    from torch.utils.data import DataLoader
-
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
     out = Path(spec["output_dir"])
     out.mkdir(parents=True, exist_ok=True)

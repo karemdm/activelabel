@@ -247,6 +247,7 @@ WORKER = Path(__file__).parents[3] / "src" / "activelabel" / "training" / "worke
 
 @pytest.fixture(scope="module")
 def worker():
+    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
     spec = importlib.util.spec_from_file_location("classification_worker", WORKER)
     module = importlib.util.module_from_spec(spec)
     sys.modules["classification_worker"] = module

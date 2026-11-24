@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import psutil
+
 IS_WINDOWS = sys.platform == "win32"
 MAX_PATH_LENGTH = 90  # longer environment paths break the 260-character limit on Windows
 CUDA_TAGS = ("cu126", "cu124", "cu121", "cu118")  # newest first
@@ -140,8 +142,6 @@ def remove_tree(path: Path) -> None:
 
 def kill_tree(proc: subprocess.Popen[str]) -> None:
     """Kill a process and everything it started (pip starts build subprocesses)."""
-    import psutil
-
     victims: list[Any] = []
     try:
         parent = psutil.Process(proc.pid)
