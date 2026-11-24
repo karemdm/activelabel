@@ -24,7 +24,10 @@ from activelabel.web.state import AppState
 
 def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestClient, AppState]:
     state = AppState(Settings(workspace=tmp_path / "ws", import_root=import_root))
-    state.runner.enqueue = lambda project_id, number: None  # type: ignore[method-assign]  # runs stay queued
+    # runs and pre-annotations stay queued: a test that posts one must never start a real environment
+    # install or worker (a test that wants the real thing builds its own runner, as the training tests do)
+    state.runner.enqueue = lambda project_id, number: None  # type: ignore[method-assign]
+    state.runner.enqueue_preannotation = lambda project_id, number: None  # type: ignore[method-assign]
     app = FastAPI()
     app.state.activelabel = state
     install_error_handlers(app)
