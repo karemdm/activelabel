@@ -218,3 +218,12 @@ def test_changing_the_task_of_a_project_without_labels_rewrites_the_saved_task(t
     save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["cat"], {}, {}))  # no images in it
     assert client.patch("/api/projects/1", json={"task": "classification"}).status_code == 200
     assert load_annotations(state.store.dir(1)).task is Task.CLASSIFICATION
+
+
+def test_issue_any_lists_every_flagged_image_whatever_the_count(tmp_path):
+    client, state = setup_project(tmp_path)
+    first = state.manifest(1).all()[0]
+    state.manifest(1).update({first.id: {"issues": ["blurry", "dark"]}})
+    page = client.get("/api/projects/1/images", params={"issue": "any"}).json()
+    assert [item["id"] for item in page["items"]] == [first.id]
+    assert page["total"] == 1

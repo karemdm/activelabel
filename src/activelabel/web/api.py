@@ -634,6 +634,8 @@ def list_images(
 ) -> dict[str, Any]:
     """A page of images, filtered by status, issue, task, job or a comma-separated list of ids.
 
+    ``issue`` is one flag (blurry, dark, ...) or ``any`` for every image with at least one flag.
+
     With ``task`` the items are in task order; ``job`` (1-based) needs ``task``. ``dataset`` keeps the
     images of a dataset version, of one ``part`` (train, val, test) or ``fold`` (0-based).
 
@@ -688,7 +690,9 @@ def list_images(
             records = [r for r in records if r.id in keep]
     if status != "all":
         records = [r for r in records if r.status == status]
-    if issue:
+    if issue == "any":
+        records = [r for r in records if r.issues]
+    elif issue:
         records = [r for r in records if issue in r.issues]
     if ids:
         wanted = set(ids.split(","))
