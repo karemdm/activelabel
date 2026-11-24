@@ -35,22 +35,41 @@ def bad_request(exc: Exception) -> HTTPException:
     return HTTPException(400, message_of(exc))
 
 
+async def api_error(request: Request, exc: Exception) -> JSONResponse:
+    """Exception handler: the JSON body of an :class:`ApiError` (``detail``, ``code`` and ``params``).
+
+    Args:
+        request: The request that failed (unused).
+        exc: The error raised; an :class:`ApiError` (the handler is registered for that class only).
+
+    Returns:
+        The JSON response with the status code and headers of the error.
+    """
+    assert isinstance(exc, ApiError)
+    return JSONResponse(
+        {"detail": exc.detail, "code": exc.code, "params": exc.params},
+        status_code=exc.status_code,
+        headers=exc.headers,
+    )
+
+
+async def damaged_file(request: Request, exc: Exception) -> JSONResponse:
+    """Exception handler: HTTP 500 with the readable text of a damaged data file.
+
+    Args:
+        request: The request that failed (unused).
+        exc: The :class:`~activelabel.storage.DamagedFile` raised.
+
+    Returns:
+        The JSON response (code ``file_damaged``, the file name in ``params``).
+    """
+    return JSONResponse(
+        {"detail": str(exc), "code": "file_damaged", "params": {"file": getattr(exc, "file", "")}},
+        status_code=500,
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
     """Answer an :class:`ApiError` with its code and a damaged data file with HTTP 500 and a readable text."""
-
-    async def api_error(request: Request, exc: Exception) -> JSONResponse:
-        assert isinstance(exc, ApiError)
-        return JSONResponse(
-            {"detail": exc.detail, "code": exc.code, "params": exc.params},
-            status_code=exc.status_code,
-            headers=exc.headers,
-        )
-
-    async def damaged_file(request: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(
-            {"detail": str(exc), "code": "file_damaged", "params": {"file": getattr(exc, "file", "")}},
-            status_code=500,
-        )
-
     app.add_exception_handler(ApiError, api_error)
     app.add_exception_handler(DamagedFile, damaged_file)

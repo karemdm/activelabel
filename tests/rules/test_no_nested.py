@@ -55,20 +55,6 @@ BASELINE = {
     "training/workers/segmentation.py:train.checkpoint",
     "training/workers/segmentation.py:train.loader",
     "training/workers/segmentation.py:train.on_step",
-    "web/annotate_api.py:pull.run",
-    "web/annotate_api.py:send.run",
-    "web/api.py:analyze.run",
-    "web/api.py:drop_fiftyone_dataset.run",
-    "web/api.py:import_folder.run",
-    "web/api.py:open_fiftyone.run",
-    "web/app.py:create_app.lifespan",
-    "web/errors.py:install_error_handlers.api_error",
-    "web/errors.py:install_error_handlers.damaged_file",
-    "web/import_api.py:start_import.run",
-    "web/pages.py:_bound_translate.t",
-    "web/sync_api.py:apply.run",
-    "web/sync_api.py:plan.run",
-    "web/video_api.py:task_from_video.run",
 }
 
 

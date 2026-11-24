@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 from dataclasses import asdict
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -14,6 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from activelabel import annotations as ann
+from activelabel import fiftyone_bridge
 from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
@@ -395,14 +397,19 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
 
 
 def drop_fiftyone_dataset(project_dir: Path, project_id: int, recorded: str) -> None:
-    """Delete the project's recorded FiftyOne dataset in the background (starting it can take seconds)."""
+    """Delete the project's recorded FiftyOne dataset in the background (starting it can take seconds).
 
-    def run() -> None:
-        from activelabel import fiftyone_bridge
-
-        fiftyone_bridge.delete_dataset(project_dir, project_id, recorded)
-
-    threading.Thread(target=run, name="activelabel-drop-dataset", daemon=True).start()
+    Args:
+        project_dir: Folder of the project.
+        project_id: Id of the project.
+        recorded: Name of the FiftyOne dataset recorded for the project.
+    """
+    threading.Thread(
+        target=fiftyone_bridge.delete_dataset,
+        args=(project_dir, project_id, recorded),
+        name="activelabel-drop-dataset",
+        daemon=True,
+    ).start()
 
 
 # -- images -------------------------------------------------------------------
@@ -426,6 +433,30 @@ def upload_images(project_id: int, files: UPLOADS, state: AppState = STATE) -> d
     return report
 
 
+def _import_folder_job(
+    manifest: Manifest, tasks: TaskStore, folder: Path, root: Path | None, progress: Progress
+) -> dict[str, Any]:
+    """Body of the ``import_folder`` job: ingest the folder and put its images in a new task.
+
+    Args:
+        manifest: The image manifest of the project.
+        tasks: The task store of the project.
+        folder: The folder to import (already checked).
+        root: The import root the folder must be inside of (``None`` when not restricted).
+        progress: Where the job reports its progress.
+
+    Returns:
+        The ingest report, plus ``task`` (the new task id) when any image was added.
+    """
+    with tasks.locked():
+        tasks.ensure()
+        ingested = ingest_folder(manifest, folder, root, progress)
+        result = ingested.as_dict()
+        if ingested.ids:
+            result["task"] = tasks.create(images=ingested.ids).id
+        return result
+
+
 @router.post("/projects/{project_id}/images/folder")
 def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) -> dict[str, Any]:
     """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT) as a new task, as a job.
@@ -439,17 +470,8 @@ def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) 
     except ValueError as exc:
         raise bad_request(exc) from exc
     tasks = TaskStore(state.store.dir(project_id))
-
-    def run(progress: Progress) -> dict[str, Any]:
-        with tasks.locked():
-            tasks.ensure()
-            ingested = ingest_folder(manifest, folder, root, progress)
-            result = ingested.as_dict()
-            if ingested.ids:
-                result["task"] = tasks.create(images=ingested.ids).id
-            return result
-
-    return state.jobs.submit(project_id, "import_folder", run).as_dict()
+    job = partial(_import_folder_job, manifest, tasks, folder, root)
+    return state.jobs.submit(project_id, "import_folder", job).as_dict()
 
 
 @router.get("/projects/{project_id}/images")
@@ -783,20 +805,34 @@ def _curation(state: AppState, project_id: int) -> dict[str, Any]:
     }
 
 
+def _analyze_job(
+    manifest: Manifest, project_dir: Path, recompute: bool, progress: Progress
+) -> dict[str, Any]:
+    """Body of the ``analyze`` job: measure the images, then flag the issues.
+
+    Args:
+        manifest: The image manifest of the project.
+        project_dir: Folder of the project (where the thresholds are saved).
+        recompute: Measure every image again, also those already measured.
+        progress: Where the job reports its progress.
+
+    Returns:
+        ``{measured, issues, step}``: how many images were measured and the count per issue.
+    """
+    measured = quality.measure_images(manifest, progress, recompute=recompute)
+    progress.update(message="Flagging issues")
+    counts = issues.flag_issues(manifest, issues.load_thresholds(project_dir))
+    return {"measured": measured, "issues": counts, "step": "curation"}
+
+
 @router.post("/projects/{project_id}/curation/analyze")
 def analyze(project_id: int, body: Analyze | None = None, state: AppState = STATE) -> dict[str, Any]:
     """Measure the images and flag issues, as a job (it can be cancelled)."""
     manifest = state.manifest_with_images(project_id)
     project_dir = state.store.dir(project_id)
     recompute = bool(body and body.recompute)
-
-    def run(progress: Progress) -> dict[str, Any]:
-        measured = quality.measure_images(manifest, progress, recompute=recompute)
-        progress.update(message="Flagging issues")
-        counts = issues.flag_issues(manifest, issues.load_thresholds(project_dir))
-        return {"measured": measured, "issues": counts, "step": "curation"}
-
-    return state.jobs.submit(project_id, "analyze", run).as_dict()
+    job = partial(_analyze_job, manifest, project_dir, recompute)
+    return state.jobs.submit(project_id, "analyze", job).as_dict()
 
 
 @router.delete("/projects/{project_id}/curation")
@@ -851,6 +887,39 @@ class OpenFiftyOne(BaseModel):
     job: int | None = None  # with ``task``: only this job (view built on demand)
 
 
+def _open_fiftyone_job(
+    project: Project,
+    manifest: Manifest,
+    project_dir: Path,
+    view: str | None,
+    task_id: int | None,
+    job_no: int | None,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``fiftyone`` job: refresh the project's dataset and launch the FiftyOne App.
+
+    Args:
+        project: The project to open.
+        manifest: The image manifest of the project.
+        project_dir: Folder of the project.
+        view: Name of the view to open (the whole dataset when ``None``).
+        task_id: Restrict the view to this task, when given.
+        job_no: Restrict the view to this job of the task, when given.
+        progress: Where the job reports its progress.
+
+    Returns:
+        ``{url, view, step}``: the address of the App and the view opened.
+    """
+    progress.update(message="Preparing the FiftyOne dataset")
+    dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
+    progress.update(message="Opening the FiftyOne App")
+    return {
+        "url": fiftyone_bridge.launch_app(dataset, view, task=task_id, job=job_no),
+        "view": view or "",
+        "step": "curation",
+    }
+
+
 @router.post("/projects/{project_id}/fiftyone")
 def open_fiftyone(
     project_id: int, body: OpenFiftyOne | None = None, state: AppState = STATE
@@ -867,20 +936,8 @@ def open_fiftyone(
             TaskStore(project_dir).get(task_id)
         except TaskNotFound:
             raise ApiError(404, "task_not_found", "This task does not exist.") from None
-
-    def run(progress: Progress) -> dict[str, Any]:
-        from activelabel import fiftyone_bridge
-
-        progress.update(message="Preparing the FiftyOne dataset")
-        dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
-        progress.update(message="Opening the FiftyOne App")
-        return {
-            "url": fiftyone_bridge.launch_app(dataset, view, task=task_id, job=job_no),
-            "view": view or "",
-            "step": "curation",
-        }
-
-    return state.jobs.submit(project_id, "fiftyone", run).as_dict()
+    job = partial(_open_fiftyone_job, project, manifest, project_dir, view, task_id, job_no)
+    return state.jobs.submit(project_id, "fiftyone", job).as_dict()
 
 
 @router.post("/projects/{project_id}/fiftyone/pull-exclusions")
@@ -888,8 +945,6 @@ def pull_exclusions(project_id: int, state: AppState = STATE) -> dict[str, int]:
     """Exclude the images tagged ``exclude`` in the FiftyOne App."""
     state.project(project_id)
     manifest = state.manifest(project_id)
-    from activelabel import fiftyone_bridge
-
     dataset = fiftyone_bridge.existing_dataset(state.store.dir(project_id), project_id)
     if dataset is None:
         raise ApiError(

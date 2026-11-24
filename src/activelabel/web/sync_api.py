@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -112,6 +113,47 @@ def unlink(project_id: int, tool: str, state: AppState = STATE) -> dict[str, boo
     return {"unlinked": True}
 
 
+def _plan_job(
+    state: AppState,
+    project_id: int,
+    tool: str,
+    settings: ToolSettings,
+    remote: RemoteProject,
+    body: PlanBody,
+    remote_id: str | None,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``sync_plan`` job: compare the project with the remote one and save the comparison.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        tool: Name of the remote tool.
+        settings: The saved settings (URL, user, secret) of the tool.
+        remote: The remote project adapter of the tool.
+        body: The request (create, scope, task, job and direction).
+        remote_id: Id of the remote project to link to, when given.
+        progress: Where the job reports its progress.
+
+    Returns:
+        The saved comparison (id and summary of the differences).
+    """
+    return engine.make_plan(
+        state.store,
+        project_id,
+        tool,
+        settings,
+        remote,
+        progress,
+        body.create,
+        remote_id,
+        scope=body.scope,
+        task_id=body.task,
+        job=body.job,
+        direction=body.direction,
+    )
+
+
 @router.post("/projects/{project_id}/sync/{tool}")
 def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppState = STATE) -> dict[str, Any]:
     """Compare the project with its remote project (job ``sync_plan``; result: the plan)."""
@@ -130,25 +172,47 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
     settings = _settings(state, tool)
     remote = _remote(tool)
     remote_id = str(body.remote_id) if body.remote_id not in (None, "") else None
-    store = state.store
+    job = partial(_plan_job, state, project_id, tool, settings, remote, body, remote_id)
+    return state.jobs.submit(project_id, "sync_plan", job).as_dict()
 
-    def run(progress: Progress) -> dict[str, Any]:
-        return engine.make_plan(
-            store,
-            project_id,
-            tool,
-            settings,
-            remote,
-            progress,
-            body.create,
-            remote_id,
-            scope=body.scope,
-            task_id=body.task,
-            job=body.job,
-            direction=body.direction,
-        )
 
-    return state.jobs.submit(project_id, "sync_plan", run).as_dict()
+def _apply_job(
+    state: AppState,
+    project_id: int,
+    tool: str,
+    settings: ToolSettings,
+    remote: RemoteProject,
+    plan_id: str,
+    body: ApplyBody,
+    progress: Progress,
+) -> dict[str, Any]:
+    """Body of the ``sync_apply`` job: carry out a saved comparison.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        tool: Name of the remote tool.
+        settings: The saved settings (URL, user, secret) of the tool.
+        remote: The remote project adapter of the tool.
+        plan_id: Id of the saved comparison.
+        body: The request (resolutions, default choice and whether to delete tasks).
+        progress: Where the job reports its progress.
+
+    Returns:
+        The counts of what was applied.
+    """
+    return engine.apply_plan(
+        state.store,
+        project_id,
+        tool,
+        settings,
+        remote,
+        plan_id,
+        body.resolutions,
+        body.default,
+        progress,
+        delete_tasks=body.delete_tasks,
+    )
 
 
 @router.post("/projects/{project_id}/sync/{tool}/{plan_id}/apply")
@@ -170,20 +234,5 @@ def apply(
         v not in engine.CHOICES for v in body.resolutions.values()
     ):
         raise ApiError(400, "resolution_invalid", "Resolutions and default must be 'local' or 'remote'.")
-    store = state.store
-
-    def run(progress: Progress) -> dict[str, Any]:
-        return engine.apply_plan(
-            store,
-            project_id,
-            tool,
-            settings,
-            remote,
-            plan_id,
-            body.resolutions,
-            body.default,
-            progress,
-            delete_tasks=body.delete_tasks,
-        )
-
-    return state.jobs.submit(project_id, "sync_apply", run).as_dict()
+    job = partial(_apply_job, state, project_id, tool, settings, remote, plan_id, body)
+    return state.jobs.submit(project_id, "sync_apply", job).as_dict()
