@@ -5,9 +5,9 @@
    Scales (use these, not raw values):
      spacing  --space-1..6   0.25 / 0.5 / 0.75 / 1 / 1.5 / 2 rem
      type     --font-xs..xl  0.8 / 0.875 / 1 / 1.1 / 1.3 rem (weights 400 and 600); body 15px.
-              --font (sans) for text; --mono for kickers, ids (#2, v2), counts, metrics and step
-              summaries, always with tabular numbers. No uppercase (it breaks pt accents and
-              names like mAP50-95): a kicker is told apart by mono, colour and letter spacing.
+              --font (sans) for text, step summaries and kickers; --mono only for ids (#2, v2),
+              counts, image names and metric tiles, always with tabular numbers. No uppercase (it
+              breaks pt accents and names like mAP50-95): a kicker is told apart by colour and spacing.
      radius   --radius-sm 8px, --radius 10px, --radius-pill
      touch    --touch 36px (interactive targets; 44px on small screens)
    Breakpoints (media queries cannot use variables): 480px phone, 760px small, 900px medium, 1100px wide.
@@ -95,7 +95,7 @@ h3 { font-size: var(--font-lg); }
 .panel h2[id^="h-"] { font-size: 24px; line-height: 1.25; font-weight: 700; }
 .panel h2[id^="h-"] + p, .ds-head p { max-width: 72ch; text-wrap: pretty; }
 /* mono: ids, counts and metrics line up digit by digit */
-.project-id, .count, .count-badge, .step-tab-count, .step-status, .bar-value, .job-count, .task-progress-text,
+.project-id, .count, .count-badge, .step-tab-count, .bar-value, .job-count, .task-progress-text,
 .thumb-name, .tr-chips li, .ds-legend, .ds-sum, .tr-combos { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 h4 { font-size: var(--font-sm); margin-top: 1.1rem; }
 p { margin: 0 0 var(--space-3); }
@@ -229,7 +229,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .step-group[data-group="model"] { --group: var(--modelo); --group-soft: var(--modelo-soft); }
 .step-group:has(.step.current) { border-color: var(--group); box-shadow: inset 0 3px 0 var(--group); }
 .step-group > .step { flex: 1 1 auto; width: auto; }
-.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-family: var(--mono); font-size: 12px; line-height: 1.2; font-weight: 600; letter-spacing: 0.08em; color: var(--group, var(--muted)); }
+.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: 12px; line-height: 1.2; font-weight: 700; letter-spacing: 0.06em; color: var(--group, var(--muted)); }
 .step { display: flex; align-items: center; gap: 0.65rem; text-align: left; padding: var(--space-2) 0.65rem; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; min-width: 0; width: 100%; transition: background-color var(--area-fade), border-color var(--area-fade); }
 .step:hover { background: var(--surface-2); border-color: var(--border); }
 .step:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
