@@ -230,16 +230,14 @@ def _scope(
     return [found], list(chosen.image_ids)
 
 
-def _task_mapping(
-    tasks: list[ImageTask], tmap: dict[str, Any], link_items: dict[str, Any], supports: bool
-) -> dict[str, str]:
+def _task_mapping(tasks: list[ImageTask], tmap: dict[str, Any], link_items: dict[str, Any]) -> dict[str, str]:
     """Local task id -> remote task id, from the link (or inferred from the keys of an older link)."""
     out: dict[str, str] = {}
     for t in tasks:
         known = (tmap.get(str(t.id)) or {}).get("remote_task")
         if known:
             out[str(t.id)] = str(known)
-        elif supports:
+        else:
             found = {
                 _key_task(link_items[i]["key"]) for i in t.images if (link_items.get(i) or {}).get("key")
             }
@@ -302,23 +300,22 @@ def make_plan(
     manifest = Manifest(project_dir)
     local_tasks = TaskStore(project_dir).load()
     scoped_tasks, scope_ids = _scope(local_tasks, scope, task_id, job)
-    supports = bool(getattr(remote, "supports_tasks", False))
     link = links.get_link(project_dir, tool)
     link_items: dict[str, dict[str, Any]] = (link or {}).get("items", {})
     tmap: dict[str, Any] = (link or {}).get("tasks", {})
     progress.update(message=f"Reading {tool}")
     info = _find_remote(remote, settings, project, link, remote_id, create)
-    rtasks = remote.tasks(settings, info.id) if info and supports else []
+    rtasks = remote.tasks(settings, info.id) if info else []
     rtask_ids = {rt.id for rt in rtasks}
-    mapping = _task_mapping(local_tasks, tmap, link_items, supports)
+    mapping = _task_mapping(local_tasks, tmap, link_items)
 
     # which remote tasks are read: all of them for the project, else the ones of the scope
     read: set[str] | None = None  # None: everything
-    if supports and scope != "project":
+    if scope != "project":
         read = {mapping[str(t.id)] for t in scoped_tasks if str(t.id) in mapping}
         read |= {_key_task(link_items[i]["key"]) for i in scope_ids if (link_items.get(i) or {}).get("key")}
         read &= rtask_ids
-    elif supports and remote_tasks is not None:
+    elif remote_tasks is not None:
         read = {str(t) for t in remote_tasks} & rtask_ids
     if info is None or (read is not None and not read):
         items: list[RemoteItem] = []
@@ -330,7 +327,7 @@ def make_plan(
     local = _local_labels(project_dir)
     by_key = {it.key: it for it in items}
     known_tasks = rtask_ids if read is None else read
-    if supports and info is not None:
+    if info is not None:
         # remote tasks the link knows but the tool no longer has: deleted there, so their images
         # count as removed (for the tasks of the scope)
         scoped = {str(t.id) for t in scoped_tasks}
@@ -348,7 +345,7 @@ def make_plan(
 
     def remote_known(key: str) -> bool:
         """Whether the remote side of this key was read (a missing item then means removed)."""
-        return not supports or _key_task(key) in known_tasks
+        return _key_task(key) in known_tasks
 
     # candidates: images of the scope, plus (project/task scope) linked images deleted locally
     in_tasks = {i for t in local_tasks for i in t.images}
@@ -356,7 +353,7 @@ def make_plan(
     if scope != "job":
         for image_id, link_entry in link_items.items():
             key = link_entry.get("key", "")
-            if image_id not in in_tasks and key and remote_known(key) and (read is None or supports):
+            if image_id not in in_tasks and key and remote_known(key):
                 candidates.append(image_id)
     linked = {i for i in candidates if (link_items.get(i) or {}).get("key")}
     used = {link_items[i]["key"] for i in linked}
@@ -396,14 +393,14 @@ def make_plan(
             action = SAME if base_removed else GONE
         elif here:  # missing in the tool
             if base_removed:
-                action = RESTORE_REMOTE if supports else SAME
+                action = RESTORE_REMOTE
             elif base is not None and not links.same_labels(mine, base):
                 action, kind = CONFLICT, "removed_remote"
             else:
                 action = REMOVE_LOCAL
         else:  # removed here, present in the tool
-            if not supports or (base_removed and rec is None):
-                action = SAME  # a remote without tasks: local removals are not sent; deleted for good here
+            if base_removed and rec is None:
+                action = SAME  # deleted for good here
             elif base_removed:
                 action = RESTORE_LOCAL
             elif base is not None and not links.same_labels(theirs, base):
@@ -412,7 +409,7 @@ def make_plan(
                 action = REMOVE_REMOTE
         if direction != BOTH:  # one side wins: no conflicts, every difference goes one way
             action, kind = _directed(action, kind, direction, rec is not None, there), ""
-            if action == RESTORE_REMOTE and supports and _key_task(key) not in rtask_ids:
+            if action == RESTORE_REMOTE and _key_task(key) not in rtask_ids:
                 action = SAME  # its task no longer exists in the tool: nothing to restore there
         decisions[image_id] = {
             "key": key,
@@ -449,13 +446,13 @@ def make_plan(
     for t in scoped_tasks:
         sent = str(t.id) in mapping or any((link_items.get(i) or {}).get("key") for i in t.images)
         sent = sent or any(i in decisions for i in t.images)
-        if supports and not sent and direction == PULL_ONLY:
+        if not sent and direction == PULL_ONLY:
             only_here_tasks.append({"task": t.id, "name": t.name, "images": len(t.images)})
             unsynced_set.difference_update(t.images)
-        elif supports and not sent and (why := _skip_reason(t, records)):
+        elif not sent and (why := _skip_reason(t, records)):
             skipped_tasks.append({"task": t.id, "name": t.name, "reason": why, "images": len(t.images)})
             unsynced_set.difference_update(t.images)  # not sent one by one either
-        elif supports and not sent:
+        elif not sent:
             tasks_create.append(
                 {"task": t.id, "name": t.name, "job_size": t.job_size, "images": len(t.images)}
             )
@@ -486,7 +483,7 @@ def make_plan(
     ]
     mapped_remote = set(mapping.values()) | {_key_task(d["key"]) for d in decisions.values() if d["key"]}
     tasks_new: list[dict[str, Any]] = []
-    if supports and scope == "project" and direction != PUSH_ONLY:  # push: the tool's extra tasks stay
+    if scope == "project" and direction != PUSH_ONLY:  # push: the tool's extra tasks stay
         tasks_new = [
             {"remote_task": rt.id, "name": rt.name, "job_size": rt.job_size, "images": rt.size}
             for rt in rtasks
@@ -494,7 +491,7 @@ def make_plan(
         ]
     new_remote = {t["remote_task"] for t in tasks_new}
     leftovers = [it for it in items if it.key not in {d["key"] for d in decisions.values()}]
-    unmatched = [it for it in leftovers if not supports or _key_task(it.key) not in new_remote]
+    unmatched = [it for it in leftovers if _key_task(it.key) not in new_remote]
     if scope == "job":  # the other jobs of the task are outside the scope, not "only in the tool"
         unmatched = []
 
@@ -697,11 +694,8 @@ def apply_plan(
             raise RemoteChanged(CHANGED_REMOTE)
     else:
         wanted = sorted({_key_task(d["key"]) for d in decisions.values() if d["key"]})
-        supports = bool(getattr(remote, "supports_tasks", False))
-        if wanted or not supports:
-            current = {
-                it.key: it for it in remote.items(settings, rid, project.task, wanted if supports else None)
-            }
+        if wanted:
+            current = {it.key: it for it in remote.items(settings, rid, project.task, wanted)}
     checked = [i for i, a in final_action.items() if a not in (SAME, GONE, ADD)]
     _check_unchanged(decisions, current, project, local, records, checked)
     dropping = _safe_drops(remote, settings, plan, decisions, final_action, delete_tasks, warnings)
@@ -940,9 +934,9 @@ def _refresh_tracked(
 
     Only frames with a tracked object (here or there) are taken, and only when they had no pending
     change here (pushed now, or equal to their labels at the last synchronisation), so nothing made
-    here is lost. Tools without tasks have no tracks: nothing to do.
+    here is lost.
     """
-    if not push_ids or not getattr(remote, "supports_tasks", False):
+    if not push_ids:
         return {}
     touched = sorted({_key_task(decisions[i]["key"]) for i in push_ids if decisions[i].get("key")})
     if not touched:

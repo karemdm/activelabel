@@ -117,9 +117,9 @@ def test_create_through_the_api(env):
     configure(env)
     env.remote.projects.clear()
     job = plan(env, create=True)
-    assert job["result"]["create"] is True and job["result"]["add"] == 2
+    assert job["result"]["create"] is True and len(job["result"]["tasks_create"]) == 1
     done = apply(env, job["result"]["plan_id"])
-    assert done["result"]["added"] == 2 and len(env.remote.projects) == 1
+    assert done["result"]["tasks_created"] == 1 and len(env.remote.projects) == 1
 
 
 def test_unlink(env):
@@ -166,7 +166,6 @@ def test_scope_validation(env):
 
 
 def test_scopes_and_delete_tasks_through_the_api(env):
-    env.remote.supports_tasks = True
     job = plan(env, create=True)
     assert job["status"] == "done" and len(job["result"]["tasks_create"]) == 1
     done = apply(env, job["result"]["plan_id"])

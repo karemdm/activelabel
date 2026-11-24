@@ -212,7 +212,7 @@ def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_k
         "/api/projects/1/tasks", files=_files(paths), data={"name": "A", "job_size": "2", "open": "false"}
     )
     assert client.get("/api/projects/1/tasks").json()["tasks"][0].get("remote") is None  # not linked
-    fake = FakeRemote("cvat", tasks=True)
+    fake = FakeRemote("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
     rid = fake.seed("P").id
@@ -260,7 +260,7 @@ def test_unreachable_cvat_is_cached_and_never_breaks_the_list(tmp_path, monkeypa
             calls.append(1)
             raise RuntimeError("connection reset")
 
-    fake = Broken("cvat", tasks=True)
+    fake = Broken("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
     _link_cvat(client, state, fake)
@@ -287,7 +287,7 @@ def test_slow_cvat_does_not_hang_the_list(tmp_path, monkeypatch, remotes, fake_k
             release.wait(5)
             return []
 
-    fake = Slow("cvat", tasks=True)
+    fake = Slow("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
     monkeypatch.setattr(tasks_api, "REMOTE_TIMEOUT", 0.2)
