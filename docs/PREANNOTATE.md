@@ -4,28 +4,31 @@ The loop that improves a model with new data: a saved model (step 6) suggests la
 a person reviews them in CVAT or FiftyOne, the reviewed images go into a new version of the data split
 and a new training.
 
-Everything happens in one place: **Anotações → Pré-anotar**, in the order of the work. The model must
+Everything happens in one place: **Annotations → Pre-annotate** (*Anotações → Pré-anotar*), in the order
+of the work. The model must
 be one of the project's models (step 6, docs/TRAINING.md): a training saved as a model, or a
 [public pretrained model](#public-models) added without any local training.
 
-1. **Pré-anotar com um modelo**: model (the current one by default), task (the newest one with images
-   without annotations by default), which images, minimum confidence (the screen accepts 0.05 to 0.95); one button.
-2. **Para revisar**: per task, how many images have pre-annotations that nobody reviewed yet, with
-   *Revisar no CVAT* (opens the CVAT tab with that task chosen), *Revisar no FiftyOne* (opens the
-   FiftyOne tab with "Pré-anotadas, não revisadas" chosen) and *Aceitar como estão*.
-3. **Histórico**: every run with model, task, threshold and result.
+1. **Pre-annotate with a model** (*Pré-anotar com um modelo*): model (the current one by default),
+   task (the newest one with images without annotations by default), which images (*Without annotations*
+   or *Pre-annotated, not reviewed*), minimum confidence (the screen accepts 0.05 to 0.95); one button.
+2. **To review** (*Para revisar*): per task, how many images have pre-annotations that nobody reviewed
+   yet, with *Review in CVAT* (opens the CVAT tab with that task chosen), *Review in FiftyOne* (opens
+   the FiftyOne tab with "Pre-annotated, not reviewed" chosen) and *Accept as they are*
+   (*Aceitar como estão*).
+3. **History** (*Histórico*): every run with model, task, threshold and result.
 
 ## Rules
 
 - A pre-annotation is a label with a `score` (the model's confidence) and the `model` that made it
   (`m1`…).
-- It **never replaces a label made by a person**. *Sem anotação* fills only images without labels;
-  *Não revisadas* redoes only images whose labels are all pre-annotations (for example with a better
+- It **never replaces a label made by a person**. *Without annotations* fills only images without labels;
+  *Pre-annotated, not reviewed* redoes only images whose labels are all pre-annotations (for example with a better
   model). An image a person labelled while the run was going is left as it is.
 - It **never trains a model by accident**: a dataset version ignores labels with a score, so an image
   with only pre-annotations counts as unlabelled until it is reviewed.
 - **Reviewed** means: the labels came back from CVAT (sync) or from FiftyOne (edit session), or the
-  person chose *Aceitar como estão* (labels kept, score and model removed). Sync compares labels by
+  person chose *Accept as they are* (labels kept, score and model removed). Sync compares labels by
   class and geometry only, so accepting does not send anything to CVAT by itself.
 - FiftyOne shows the confidence of pre-annotations (`confidence` of each detection), to filter the
   doubtful ones first.
@@ -53,7 +56,8 @@ segmentation need masks turned into polygons and come later; YOLO comes with the
 
 ## Public models
 
-A project can pre-annotate before it has any training: **Modelos → Adicionar modelo público** adds a
+A project can pre-annotate before it has any training: **Models → Add a public model** (*Modelos →
+Adicionar modelo público*) adds a
 model already trained by others as the next model (`m<N>`), like a saved one. It is meant for a first
 round of labels to review, not to replace a model trained on the project's own images.
 
@@ -84,12 +88,12 @@ mapping is empty, or names a category or class that does not exist).
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/api/projects/{id}/preannotations` | models that can pre-annotate, tasks with counts (images, unlabeled, unreviewed), runs |
-| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", threshold}` (threshold 0.5 when omitted; the screen proposes 0.3 for detection) |
+| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", threshold}` (threshold 0.5 when omitted, accepted from 0.001 to 0.999; the screen offers 0.05 to 0.95 and proposes 0.3 for detection) |
 | POST | `/api/projects/{id}/preannotations/{n}/cancel` | cancel a queued or running run |
 | POST | `/api/projects/{id}/preannotations/accept` | accept the pre-annotations of a task (`{task}`) or of every task |
 
 Errors: 404 for an unknown model or run; 400 for a model whose kind is not supported yet or does not fit
-the project type, a threshold outside (0, 1), an unknown scope or task, or no image to fill; 409 when the
+the project type, a threshold outside 0.001–0.999, an unknown scope or task, or no image to fill; 409 when the
 same task and scope are already being pre-annotated.
 
 Edit sessions accept the image scope `preannotated` (images whose labels are all pre-annotations).

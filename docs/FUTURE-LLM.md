@@ -26,8 +26,8 @@ field in the labels; the core stays as it is.
 Fine-tuning (LoRA/QLoRA or full) on text or image+text data. This needs:
 
 - new data types: text, conversations, image+text pairs;
-- an annotation tool for text (CVAT does not annotate text; Label Studio does — see the paused
-  Label Studio branch);
+- an annotation tool for text (CVAT does not annotate text; Label Studio does — it is switched off in the
+  interface for now, but its code stays);
 - new metrics: perplexity, ROUGE/BLEU, exact match, evaluation by a judge model;
 - in practice a GPU, and a check of its memory before a model can be chosen.
 
@@ -63,8 +63,8 @@ Fine-tuning (LoRA/QLoRA or full) on text or image+text data. This needs:
 
 - Text is much more likely than images to contain personal data: projects with text get the same
   care as any personal data (minimum necessary, no sharing outside the project).
-- Models run locally by default. An external AI service may receive project data only if it is
-  approved by the organisation; no other service is used with that data.
+- Models run locally by default. An external AI service may receive project data only if the project owner
+  explicitly approves it; no other service is used with that data.
 - Tokens for model hubs are kept in the system keyring, like the CVAT credentials, never in files.
 
 ## Suggested delivery (small pull requests, when the time comes)
