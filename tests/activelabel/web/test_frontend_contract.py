@@ -244,6 +244,7 @@ def test_a_run_whose_model_was_deleted_cannot_be_saved_again():
     model), and the run's save button is disabled with the reason, also after a refused save."""
     assert "ctx.weightless.add(m.run)" in JS
     assert "run_no_weights" in JS
+    assert "r.has_weights === false" in JS  # the list says so, also after a reload
     card = JS[JS.index("const noWeights") :]
     assert "saveButton.disabled = true" in card[:400]
     assert "md.no_weights" in card[:1500]

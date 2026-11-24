@@ -177,3 +177,17 @@ def test_export_worker_key_check():
 
 def test_fake_worker_is_shared():
     assert "best.pt" in FAKE_WORKER
+
+
+def test_the_run_list_says_whether_each_run_still_has_its_weights(models):
+    client, state, runner = models
+    run = finished_run(state, runner)
+
+    def listed():
+        return {r["number"]: r for r in client.get("/api/projects/1/runs").json()["runs"]}[run]
+
+    assert listed()["has_weights"] is True
+    assert client.post("/api/projects/1/models", json={"run": run}).status_code == 200
+    assert listed()["has_weights"] is False  # the weights moved to the model
+    client.request("DELETE", "/api/projects/1/models/1", json={"confirm": True})
+    assert listed()["has_weights"] is False  # and went with it when the model was deleted
