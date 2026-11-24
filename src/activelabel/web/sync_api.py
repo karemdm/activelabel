@@ -82,9 +82,6 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
     """Compare the project with its remote project (job ``sync_plan``; result: the plan)."""
     state.project(project_id)
     _tool(tool)
-    state.busy(project_id)
-    settings = _settings(state, tool)
-    remote = _remote(tool)
     body = body or PlanBody()
     if body.direction not in engine.DIRECTIONS:
         raise HTTPException(400, "The direction must be both, pull or push.")
@@ -94,6 +91,9 @@ def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppSta
         raise HTTPException(400, "Choose the task.")
     if body.scope == "job" and body.job is None:
         raise HTTPException(400, "Choose the job.")
+    state.busy(project_id)  # the input is checked first: a wrong request is wrong whatever the state
+    settings = _settings(state, tool)
+    remote = _remote(tool)
     remote_id = str(body.remote_id) if body.remote_id not in (None, "") else None
     store = state.store
 

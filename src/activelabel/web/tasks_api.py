@@ -228,17 +228,24 @@ def append_images(project_id: int, task_id: int, files: FILES, state: AppState =
 
 @router.patch("/projects/{project_id}/tasks/{task_id}")
 def change_task(project_id: int, task_id: int, body: TaskChanges, state: AppState = STATE) -> dict[str, Any]:
-    """Rename a task and/or close it (``open: false``). Reopening a closed task is refused."""
+    """Rename a task and/or close it (``open: false``). Reopening a closed task is refused (HTTP 409).
+
+    Closing a task that holds no image (an upload that added nothing) removes it: the answer then has
+    ``removed: true``.
+    """
     store = _store(state, project_id)
     with store.locked():
         task = _find(store, task_id)
         if body.open and not task.open:
-            raise HTTPException(400, "A closed task cannot be reopened.")
+            raise HTTPException(409, "A closed task cannot be reopened.")
         try:
             if body.name is not None:
                 task = store.rename(task_id, body.name)
             if body.open is False:
                 task = store.close(task_id)
+                if not task.images:  # an upload that added nothing (all duplicates) leaves no empty task
+                    store.delete(task_id)
+                    return {**_view(state, project_id, task), "removed": True}
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
     return _view(state, project_id, task)

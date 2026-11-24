@@ -160,9 +160,11 @@ def list_sessions(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, Any]:
     """Send images to a tool (job; result ``{session, links}``)."""
     project = state.project(project_id)
+    tool = _tool(_tool_name(body.tool))
+    if body.scope not in sessions.SCOPES:
+        raise HTTPException(400, f"Unknown scope '{body.scope}' (use: {', '.join(sessions.SCOPES)}).")
     manifest = state.manifest_with_images(project_id)
     state.busy(project_id)
-    tool = _tool(_tool_name(body.tool))
     settings = _settings(state, body.tool)
     try:
         image_ids = sessions.select_images(manifest, body.scope, body.ids, body.issue)

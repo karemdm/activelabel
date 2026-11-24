@@ -114,3 +114,34 @@ def test_reading_projects_and_tasks_does_not_wait_for_a_running_upload(tmp_path)
     holder.join()
     reader.join()
     assert not still_waiting and set(results.values()) == {200}
+
+
+def test_an_upload_that_adds_nothing_leaves_no_empty_task(tmp_path):
+    client, _ = make_projects(tmp_path, 1)
+    path = tmp_path / "a.png"
+    make_image(path)
+    files = [("files", ("a.png", path.read_bytes()))]
+    assert client.post("/api/projects/1/tasks", files=files).status_code == 200  # task 1, open
+    again = client.post("/api/projects/1/tasks", files=files)  # a duplicate: nothing added
+    assert again.status_code == 200 and again.json()["task"]["images"] == 0
+    closed = client.patch(f"/api/projects/1/tasks/{again.json()['task']['id']}", json={"open": False})
+    assert closed.status_code == 200 and closed.json()["removed"] is True
+    assert [t["images"] for t in client.get("/api/projects/1/tasks").json()["tasks"]] == [1]
+    assert upload(client, 1, [path]).json().get("task") is None  # POST /images makes none either
+
+
+def test_reopening_a_closed_task_is_a_conflict_and_checks_come_before_settings(tmp_path):
+    client, _ = make_projects(tmp_path, 1)
+    path = tmp_path / "a.png"
+    make_image(path)
+    assert (
+        client.post("/api/projects/1/tasks", files=[("files", ("a.png", path.read_bytes()))]).status_code
+        == 200
+    )
+    client.patch("/api/projects/1/tasks/1", json={"open": False})
+    assert client.patch("/api/projects/1/tasks/1", json={"open": True}).status_code == 409
+    # nothing is configured: a wrong direction or scope is still reported as such
+    wrong = client.post("/api/projects/1/sync/cvat", json={"direction": "sideways"})
+    assert wrong.status_code == 400 and "direction" in wrong.json()["detail"]
+    wrong = client.post("/api/projects/1/annotate", json={"tool": "cvat", "scope": "nope"})
+    assert wrong.status_code == 400 and "scope" in wrong.json()["detail"]

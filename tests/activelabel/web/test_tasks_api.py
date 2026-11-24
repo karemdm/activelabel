@@ -67,7 +67,7 @@ def test_rename_and_delete_with_confirm(tmp_path):
     client.post("/api/projects/1/tasks", files=_files(paths[2:]), data={"name": "B", "open": "false"})
     assert client.patch("/api/projects/1/tasks/1", json={"name": "Renamed"}).json()["name"] == "Renamed"
     assert client.patch("/api/projects/1/tasks/1", json={"name": " "}).status_code == 400
-    assert client.patch("/api/projects/1/tasks/1", json={"open": True}).status_code == 400
+    assert client.patch("/api/projects/1/tasks/1", json={"open": True}).status_code == 409
     assert client.request("DELETE", "/api/projects/1/tasks/1", json={}).status_code == 400
     assert client.get("/api/projects/1/images", params={"status": "all"}).json()["total"] == 3
     result = client.request("DELETE", "/api/projects/1/tasks/1", json={"confirm": True})
@@ -183,7 +183,7 @@ def test_patch_open_true_is_idempotent_on_open_task_only(tmp_path):
     again = client.patch(f"/api/projects/1/tasks/{tid}", json={"open": True})
     assert again.status_code == 200 and again.json()["open"] is True
     client.patch(f"/api/projects/1/tasks/{tid}", json={"open": False})
-    assert client.patch(f"/api/projects/1/tasks/{tid}", json={"open": True}).status_code == 400
+    assert client.patch(f"/api/projects/1/tasks/{tid}", json={"open": True}).status_code == 409
 
 
 def test_orphan_image_goes_to_a_new_task(tmp_path):
