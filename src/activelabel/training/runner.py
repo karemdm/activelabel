@@ -30,11 +30,12 @@ from pathlib import Path
 from typing import Any
 
 from activelabel import __version__, preannotate
-from activelabel.datasets import DatasetNotFound, DatasetStore
+from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, JobManager, Progress
-from activelabel.labels import Label
+from activelabel.labels import Label, geometry_problem
 from activelabel.storage import now, write_json
+from activelabel.tasks import Task
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
@@ -115,15 +116,37 @@ def selection_key(metric: str) -> str:
     return f"val_{metric}"
 
 
-def _objects(own: list[dict[str, Any]], classes: list[str]) -> list[dict[str, Any]]:
-    """Objects of an image for the spec: the class index and whichever shapes the label has."""
+KIND_TASK = {
+    "detection": Task.DETECTION,
+    "instance": Task.SEGMENTATION,
+    "semantic": Task.SEGMENTATION,
+    "keypoints": Task.KEYPOINTS,
+}
+
+
+def _objects(
+    own: list[dict[str, Any]], classes: list[str], kind: str, keypoints: int | None
+) -> list[dict[str, Any]]:
+    """Objects of an image for the spec: the class index and the one shape this kind of model trains on.
+
+    A box for detection, polygons (3 or more points each) for instance segmentation (a box stands in
+    for the polygon only in semantic segmentation), points for pose (all with ``keypoints`` points).
+    Labels of another class or without that shape are left out.
+    """
     out = []
+    task = KIND_TASK[kind]
     for label in own:
         if label.get("label") not in classes:
             continue
-        shapes = {k: label[k] for k in ("bbox", "polygons", "keypoints") if label.get(k)}
-        if shapes:
-            out.append({"label": classes.index(label["label"]), **shapes})
+        item = Label.from_dict(label)
+        if kind == "semantic" and not item.polygons and item.bbox:
+            shapes = {"bbox": item.bbox}
+        elif geometry_problem(task, item, keypoints) is not None:
+            continue
+        else:
+            names = {"detection": ("bbox",), "instance": ("polygons", "bbox"), "semantic": ("polygons",)}
+            shapes = {k: label[k] for k in names.get(kind, ("keypoints", "bbox")) if label.get(k)}
+        out.append({"label": classes.index(label["label"]), **shapes})
     return out
 
 
@@ -152,6 +175,12 @@ def build_spec(
     records = manifest.load()
     labels = version.get("labels") or {}
     out_parts: dict[str, list[dict[str, Any]]] = {}
+    expected_points = (
+        common_count(len(lb.get("keypoints") or []) for own in labels.values() for lb in own)
+        if model.task_kind == "keypoints"
+        else None
+    )
+    unusable: list[str] = []
     missing = 0
     for name in ("train", "val", "test"):
         items: list[dict[str, Any]] = []
@@ -163,7 +192,10 @@ def build_spec(
                 continue
             own = labels.get(image_id) or []
             if model.task_kind in OBJECT_KINDS:
-                items.append({"path": str(path.resolve()), "objects": _objects(own, classes)})
+                objects = _objects(own, classes, model.task_kind, expected_points)
+                if own and not objects:
+                    unusable.append(image_id)
+                items.append({"path": str(path.resolve()), "objects": objects})
                 continue
             if not own or own[0].get("label") not in classes:
                 continue
@@ -171,6 +203,12 @@ def build_spec(
         out_parts[name] = items
     if missing:
         raise RunnerError(f"{missing} image(s) of this dataset version are no longer in the project.")
+    if unusable:
+        raise RunnerError(
+            f"{len(unusable)} image(s) of this dataset version have labels without the shape a "
+            f"{model.task_kind} model trains on (for example {', '.join(unusable[:3])}): make a new "
+            "version, which leaves such labels out."
+        )
     if not out_parts["train"]:
         raise RunnerError("The training part has no labelled images.")
     if not out_parts["val"]:
@@ -181,16 +219,7 @@ def build_spec(
             if not any(i["objects"] for i in out_parts[name]):
                 raise RunnerError(f"The {name} part has no labelled objects.")
         if model.task_kind == "keypoints":
-            extra["num_keypoints"] = max(
-                (
-                    len(o["keypoints"])
-                    for p in out_parts.values()
-                    for i in p
-                    for o in i["objects"]
-                    if "keypoints" in o
-                ),
-                default=0,
-            )
+            extra["num_keypoints"] = expected_points or 0
             if not extra["num_keypoints"]:
                 raise RunnerError("The labels have no keypoints.")
     params = config.effective_params(model)

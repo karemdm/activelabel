@@ -188,7 +188,7 @@ def det_project(tmp_path):
     kps = [[0.2, 0.2, 2], [0.3, 0.3, 1], [0.4, 0.4, 0]]
     images = {
         i: [
-            Label("a", bbox=[0.1, 0.1, 0.3, 0.3], polygons=poly, keypoints=kps[: 2 + k % 2]),
+            Label("a", bbox=[0.1, 0.1, 0.3, 0.3], polygons=poly, keypoints=kps),
             Label("b"),
         ]
         for k, i in enumerate(ids[:9])
@@ -215,8 +215,14 @@ def test_build_spec_objects(det_project):
         items = [i for p in spec["parts"].values() for i in p]
         assert items and all("label" not in i and Path(i["path"]).is_absolute() for i in items)
         objects = [o for i in items for o in i["objects"]]
-        assert objects and all(o["label"] == 0 and o["bbox"] and o["polygons"] for o in objects)
-        assert all("keypoints" in o for o in objects)
+        assert objects and all(o["label"] == 0 for o in objects)  # the class "b" has no shape at all
+        shapes = {
+            "detection": {"bbox"},
+            "instance": {"polygons", "bbox"},
+            "semantic": {"polygons"},
+            "keypoints": {"keypoints", "bbox"},
+        }[kind]
+        assert all(set(o) - {"label"} == shapes for o in objects)  # only what this kind trains on
         assert ("num_keypoints" in spec) == (kind == "keypoints")
         if kind == "keypoints":
             assert spec["num_keypoints"] == 3
@@ -254,3 +260,46 @@ def test_oks_and_keypoint_map(w):
     wrong = w.APAccumulator(1)
     wrong.add([0.9], [0], [0], far)
     assert wrong.summary(["a"])["map50"] == 0.0
+
+
+def test_spec_refuses_labels_without_the_shape_of_the_model(det_project):
+    project_dir = det_project.store.dir(1)
+    version = DatasetStore(project_dir).read(1)
+    ids = list(version["labels"])
+    for i in ids[:2]:
+        version["labels"][i] = [{"label": "a", "bbox": [0.1, 0.1, 0.3, 0.3]}]  # no polygon, no points
+    run_dir = project_dir / "runs" / "r1"
+    for model_id, what in (("maskrcnn_resnet50_fpn", "instance"), ("keypointrcnn_resnet50_fpn", "keypoints")):
+        with pytest.raises(RunnerError, match=f"2 image.*{what}"):
+            build_spec(
+                project_dir, RunConfig(dataset=1, model=model_id), get_model(model_id), run_dir, version
+            )
+    spec = build_spec(
+        project_dir,
+        RunConfig(dataset=1, model="deeplabv3_resnet50"),
+        get_model("deeplabv3_resnet50"),
+        run_dir,
+        version,
+    )  # semantic segmentation may use a box instead of a polygon
+    assert spec["task"] == "semantic"
+
+
+def test_spec_drops_poses_with_another_number_of_points(det_project):
+    project_dir = det_project.store.dir(1)
+    version = DatasetStore(project_dir).read(1)
+    ids = list(version["labels"])
+    version["labels"][ids[0]][0]["keypoints"] = [[0.2, 0.2, 2], [0.3, 0.3, 2]]  # 2 points, the rest have 3
+    version["labels"][ids[0]].append(
+        {
+            "label": "a",
+            "bbox": [0.1, 0.1, 0.3, 0.3],
+            "keypoints": [[0.2, 0.2, 2], [0.3, 0.3, 2], [0.4, 0.4, 2]],
+        }
+    )
+    model = get_model("keypointrcnn_resnet50_fpn")
+    spec = build_spec(
+        project_dir, RunConfig(dataset=1, model=model.id), model, project_dir / "runs" / "r1", version
+    )
+    assert spec["num_keypoints"] == 3
+    counts = {len(o["keypoints"]) for p in spec["parts"].values() for i in p for o in i["objects"]}
+    assert counts == {3}

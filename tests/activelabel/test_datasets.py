@@ -424,3 +424,63 @@ def test_group_warning_names_its_real_cause(tmp_path):
     pdir, project = build(tmp_path / "vid", spec, videos=videos)
     found = [w for w in plan(pdir, project, videos="whole").warnings if w["code"] == "group_too_big"]
     assert found and {w["cause"] for w in found} == {"video"}
+
+
+def build_with(tmp_path, task, labels_by_image):
+    """A project of ``task`` whose images carry exactly these ``Label`` lists."""
+    from activelabel.tasks import Task as _Task
+
+    pdir, project = build(tmp_path, {i: ["a"] for i in labels_by_image}, task=task)
+    images = {i: v for i, v in labels_by_image.items() if v}
+    save_annotations(pdir, AnnotationSet(_Task(task), project.classes, images, {}))
+    return pdir, project
+
+
+def codes(p):
+    return {w["code"]: w for w in p.warnings}
+
+
+def test_labels_without_the_task_shape_do_not_count(tmp_path):
+    good = {f"g{k:02d}": [Label("a", bbox=[0.1, 0.1, 0.4, 0.4])] for k in range(14)}
+    bad = {f"n{k}": [Label("b")] for k in range(3)}  # a class without a box: not a detection label
+    pdir, project = build_with(tmp_path, "detection", good | bad)
+    p = plan(pdir, project)
+    used = {i for ids in p.parts.values() for i in ids}
+    assert used == set(good)
+    warning = codes(p)["labels_without_geometry"]
+    assert warning["count"] == 3 and set(warning["examples"]) <= set(bad)
+    assert all("b" not in v["objects"] for v in p.stats.values())  # not in the proportions either
+
+
+def test_nothing_usable_is_refused_with_a_code(tmp_path):
+    pdir, project = build_with(
+        tmp_path, "segmentation", {f"i{k}": [Label("a", bbox=[0, 0, 0.5, 0.5])] for k in range(6)}
+    )
+    with pytest.raises(ValueError) as caught:
+        plan(pdir, project)
+    assert caught.value.code == "no_usable_labels"
+    pdir, project = build_with(tmp_path / "two", "detection", {"x": []})
+    with pytest.raises(ValueError) as caught:
+        plan(pdir, project)
+    assert caught.value.code == "nothing_to_split"
+
+
+def test_classification_keeps_the_first_class_and_says_so(tmp_path):
+    spec = {f"i{k:02d}": [Label("a" if k % 2 else "b")] for k in range(14)}
+    spec["i00"] = [Label("a"), Label("b")]
+    pdir, project = build_with(tmp_path, "classification", spec)
+    p = plan(pdir, project)
+    assert codes(p)["multiple_classes"]["count"] == 1 and codes(p)["multiple_classes"]["examples"] == ["i00"]
+    assert [lb["label"] for lb in p.labels["i00"]] == ["a"]
+
+
+def test_poses_must_have_the_same_number_of_points(tmp_path):
+    def pose(n):
+        return [Label("a", bbox=[0, 0, 0.5, 0.5], keypoints=[[0.1 * k, 0.2, 2] for k in range(n)])]
+
+    spec = {f"p{k:02d}": pose(3) for k in range(12)} | {"odd1": pose(2), "odd2": pose(5)}
+    pdir, project = build_with(tmp_path, "keypoints", spec)
+    p = plan(pdir, project)
+    warning = codes(p)["keypoints_count_mismatch"]
+    assert warning["count"] == 2 and warning["expected"] == 3 and set(warning["examples"]) == {"odd1", "odd2"}
+    assert not {"odd1", "odd2"} & {i for ids in p.parts.values() for i in ids}
