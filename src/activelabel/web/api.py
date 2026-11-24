@@ -31,6 +31,7 @@ from activelabel.labels import (
 )
 from activelabel.preannotate import image_state
 from activelabel.projects import Project
+from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
@@ -143,8 +144,54 @@ def _image_item(record: ImageRecord, labels: int) -> dict[str, Any]:
 # -- projects -----------------------------------------------------------------
 @router.get("/projects")
 def list_projects(state: AppState = STATE) -> list[dict[str, Any]]:
-    """Every project with its counts, newest first."""
-    return [project_overview(state, p) for p in state.store.list()]
+    """Every project with its counts, newest first.
+
+    A project with a damaged file is still listed, with ``damaged`` (a readable message) and empty counts,
+    so one bad file does not hide the others.
+    """
+    items = [_safe_overview(state, p) for p in state.store.list()]
+    items += [_damaged_overview(i, message) for i, message in state.store.damaged().items()]
+    return sorted(items, key=lambda item: item["id"], reverse=True)
+
+
+def _damaged_overview(project_id: int, message: str, project: Project | None = None) -> dict[str, Any]:
+    """Stand-in for a project that cannot be read: right shape, empty counts, ``damaged`` set."""
+    base = (
+        project.as_dict()
+        if project
+        else {
+            "id": project_id,
+            "name": f"Project {project_id}",
+            "description": "",
+            "task": Task.CLASSIFICATION.value,
+            "classes": [],
+            "created": "",
+            "updated": "",
+        }
+    )
+    counts = dict.fromkeys(
+        (
+            "images",
+            "active",
+            "excluded",
+            "annotated",
+            "preannotated",
+            "labels",
+            "with_issues",
+            "analyzed",
+            "tasks",
+        ),
+        0,
+    )
+    steps = {"images": "empty", "annotations": "none", "curation": "not_analyzed"}
+    return {**base, "origin": None, "counts": counts, "steps": steps, "damaged": message}
+
+
+def _safe_overview(state: AppState, project: Project) -> dict[str, Any]:
+    try:
+        return project_overview(state, project)
+    except DamagedFile as exc:
+        return _damaged_overview(project.id, str(exc), project)
 
 
 @router.post("/projects")
@@ -152,6 +199,8 @@ def create_project(body: NewProject, state: AppState = STATE) -> dict[str, Any]:
     """Create a project (the id is automatic)."""
     try:
         project = state.store.create(body.name, body.description, body.task, body.classes)
+    except DamagedFile:
+        raise  # a damaged file is not the caller's mistake: answered by the error handler
     except ValueError as exc:
         raise _bad_request(exc) from exc
     return project_overview(state, project)

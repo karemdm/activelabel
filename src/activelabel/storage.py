@@ -16,6 +16,14 @@ RETRIES = 8
 RETRY_DELAY = 0.02  # seconds, growing with each attempt (about 0.7 s in all)
 
 
+class DamagedFile(ValueError):
+    """A JSON file of the workspace cannot be read (cut off or edited by hand).
+
+    A ``ValueError`` so code that already handles unreadable data keeps working; the web layer answers
+    it with a readable message instead of a bare server error.
+    """
+
+
 def now() -> str:
     """Current time, ISO 8601 in UTC (the interface shows it in local time)."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -38,12 +46,17 @@ def _retry(action: Callable[[], T]) -> T:
 
 
 def write_json(path: Path, data: Any) -> None:
-    """Write JSON atomically: a reader never sees a half-written file."""
+    """Write JSON atomically: a reader never sees a half-written file, and a power cut keeps the old one.
+
+    The data is flushed to disk before the file replaces the old one.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(data, handle, ensure_ascii=False, indent=1)
+            handle.flush()
+            os.fsync(handle.fileno())
         _retry(lambda: os.replace(tmp, path))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -54,14 +67,14 @@ def read_json(path: Path, default: Any = None) -> Any:
     """Read a JSON file, or ``default`` when it does not exist.
 
     Raises:
-        ValueError: the file is damaged (the message names the file and is readable).
+        DamagedFile: the file is damaged (the message names the file and is readable).
     """
     if not path.exists():
         return default
     try:
         return json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError(
+        raise DamagedFile(
             f"The file {path.name} is damaged and cannot be read ({exc}). "
             f"Restore it from a backup or remove it: {path}"
         ) from exc

@@ -24,6 +24,7 @@ from activelabel.web import (
     training_api,
     video_api,
 )
+from activelabel.web.errors import install_error_handlers
 from activelabel.web.state import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -43,6 +44,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app = FastAPI(title="activelabel", version=__version__, lifespan=lifespan)
     app.state.activelabel = state
     app.state.settings = state.settings
+    install_error_handlers(app)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
     app.include_router(datasets_api.router)

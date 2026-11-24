@@ -16,8 +16,10 @@ from typing import Any
 
 from activelabel.images.manifest import Manifest
 from activelabel.storage import now, read_json, write_json
+from activelabel.textcheck import has_control_characters
 
 MAX_NAME = 100
+MAX_JOB_SIZE = 100_000
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -85,12 +87,12 @@ def check_job_size(job_size: Any) -> int | None:
     """Validate "images per job".
 
     Raises:
-        ValueError: not a positive integer (and not None).
+        ValueError: not a whole number from 1 to ``MAX_JOB_SIZE`` (and not None).
     """
     if job_size is None:
         return None
-    if isinstance(job_size, bool) or not isinstance(job_size, int) or job_size < 1:
-        raise ValueError("Images per job must be a positive whole number (or empty).")
+    if isinstance(job_size, bool) or not isinstance(job_size, int) or not 1 <= job_size <= MAX_JOB_SIZE:
+        raise ValueError(f"Images per job must be a whole number from 1 to {MAX_JOB_SIZE} (or empty).")
     return job_size
 
 
@@ -117,6 +119,8 @@ def clean_name(name: str) -> str:
         raise ValueError("Give the task a name.")
     if len(name) > MAX_NAME:
         raise ValueError(f"The name is too long (max {MAX_NAME} characters).")
+    if has_control_characters(name):
+        raise ValueError("The name cannot contain control characters.")
     return name
 
 
