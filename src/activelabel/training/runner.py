@@ -337,7 +337,9 @@ class TrainingRunner:
         key = (project_id, number)
         with self._lock:
             self._waiting.append(key)
-            job = self._jobs.submit(project_id, "training", lambda p: self._execute(key, p))
+            job = self._jobs.submit(
+                project_id, "training", lambda p: self._execute(key, p), {"number": number}
+            )
             self._job_ids[key] = job.id
         self._write_positions()
 
@@ -391,12 +393,19 @@ class TrainingRunner:
         if ((card.get("exports") or {}).get(fmt) or {}).get("status") in (QUEUED, RUNNING):
             return card
         card = store.set_export(number, fmt, status=QUEUED, error="", message="", requested=now())
-        self._jobs.submit(project_id, "export", lambda p: self._export(project_id, number, fmt, p))
+        self._jobs.submit(
+            project_id,
+            "export",
+            lambda p: self._export(project_id, number, fmt, p),
+            {"number": number, "format": fmt},
+        )
         return card
 
     def enqueue_preannotation(self, project_id: int, number: int) -> None:
         """Queue a stored pre-annotation run (in the same queue as the training runs)."""
-        job = self._jobs.submit(project_id, "preannotate", lambda p: self._preannotate(project_id, number, p))
+        job = self._jobs.submit(
+            project_id, "preannotate", lambda p: self._preannotate(project_id, number, p), {"number": number}
+        )
         with self._lock:
             self._pre_jobs[(project_id, number)] = job.id
 

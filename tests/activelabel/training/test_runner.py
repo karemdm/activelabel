@@ -305,3 +305,17 @@ def test_worker_dataset_needs_torch(worker, tmp_path):
     data = worker.ImageDataset([{"path": str(image), "label": 1}], transforms.ToTensor())
     tensor, label = data[0]
     assert label == 1 and tensor.shape[0] == 3
+
+
+def test_jobs_carry_the_number_of_their_run(setup):
+    client, state, runner = setup
+    n = new_run(state)
+    runner.enqueue(1, n)
+    wait_for(lambda: store_status(state, n) == "done")
+    (job,) = [j for j in runner._jobs.list(1) if j.kind == "training"]
+    assert job.as_dict()["params"] == {"number": n}
+    assert runner._jobs.submit(1, "analyze", lambda progress: {}).as_dict()["params"] == {}
+
+
+def store_status(state, n):
+    return RunStore(state.store.dir(1)).get(n)["status"]
