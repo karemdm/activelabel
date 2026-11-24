@@ -13,12 +13,15 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from activelabel.errors import CodedError
 from activelabel.storage import DamagedFile, now, read_json, write_json
 from activelabel.tasks import Task
 from activelabel.textcheck import has_control_characters
 
 MAX_NAME = 100
 MAX_DESCRIPTION = 2000
+MAX_CLASS_NAME = 100
+MAX_CLASSES = 1000
 
 
 class ProjectNotFound(KeyError):
@@ -57,6 +60,31 @@ class Project:
     def from_dict(cls, data: dict[str, Any]) -> Project:
         """Inverse of :meth:`as_dict`."""
         return cls(**{**data, "task": Task(data["task"])})
+
+
+def check_classes(classes: list[str] | tuple[str, ...]) -> None:
+    """Refuse class lists that are too long or have a name that is too long (or has control characters).
+
+    Raises:
+        CodedError: ``class_name_too_long``, ``class_name_invalid`` or ``too_many_classes``.
+    """
+    names = clean_classes(classes)
+    if len(names) > MAX_CLASSES:
+        raise CodedError(
+            "too_many_classes", f"Too many classes (max {MAX_CLASSES}).", max=MAX_CLASSES, count=len(names)
+        )
+    for name in names:
+        if len(name) > MAX_CLASS_NAME:
+            raise CodedError(
+                "class_name_too_long",
+                f"The class name '{name[:30]}...' is too long (max {MAX_CLASS_NAME} characters).",
+                max=MAX_CLASS_NAME,
+                name=name[:30],
+            )
+        if has_control_characters(name):
+            raise CodedError(
+                "class_name_invalid", "Class names cannot contain control characters.", name=name[:30]
+            )
 
 
 def clean_classes(classes: list[str] | tuple[str, ...]) -> list[str]:
@@ -125,16 +153,26 @@ class ProjectStore:
     def _check(self, name: str, description: str, own_id: int | None = None) -> tuple[str, str]:
         name, description = name.strip(), description.strip()
         if not name:
-            raise ValueError("Give the project a name.")
+            raise CodedError("project_name_empty", "Give the project a name.")
         if len(name) > MAX_NAME:
-            raise ValueError(f"The name is too long (max {MAX_NAME} characters).")
+            raise CodedError(
+                "project_name_too_long", f"The name is too long (max {MAX_NAME} characters).", max=MAX_NAME
+            )
         if len(description) > MAX_DESCRIPTION:
-            raise ValueError(f"The description is too long (max {MAX_DESCRIPTION} characters).")
+            raise CodedError(
+                "description_too_long",
+                f"The description is too long (max {MAX_DESCRIPTION} characters).",
+                max=MAX_DESCRIPTION,
+            )
         if has_control_characters(name) or has_control_characters(description, allow_newlines=True):
-            raise ValueError("The name and description cannot contain control characters.")
+            raise CodedError(
+                "control_characters", "The name and description cannot contain control characters."
+            )
         for other in self.list():
             if other.id != own_id and other.name.lower() == name.lower():
-                raise ValueError(f"A project named '{other.name}' already exists.")
+                raise CodedError(
+                    "project_name_taken", f"A project named '{other.name}' already exists.", name=other.name
+                )
         return name, description
 
     def create(
@@ -151,6 +189,7 @@ class ProjectStore:
         """
         with self._lock:
             name, description = self._check(name, description)
+            check_classes(classes)
             counter = self.root / "next_id.json"
             next_id = int(read_json(counter, 1))
             project_id = max([next_id, *(i + 1 for i in self._folders())])  # damaged folders keep their id
@@ -180,6 +219,7 @@ class ProjectStore:
             if "task" in changes:
                 project.task = Task(changes["task"])
             if "classes" in changes:
+                check_classes(changes["classes"])
                 project.classes = clean_classes(changes["classes"])
             project.updated = now()
             write_json(self._file(project_id), project.as_dict())

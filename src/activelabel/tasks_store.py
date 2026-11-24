@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.storage import now, read_json, write_json
 from activelabel.textcheck import has_control_characters
@@ -87,12 +88,16 @@ def check_job_size(job_size: Any) -> int | None:
     """Validate "images per job".
 
     Raises:
-        ValueError: not a whole number from 1 to ``MAX_JOB_SIZE`` (and not None).
+        CodedError: ``job_size_invalid``: not a whole number from 1 to ``MAX_JOB_SIZE`` (and not None).
     """
     if job_size is None:
         return None
     if isinstance(job_size, bool) or not isinstance(job_size, int) or not 1 <= job_size <= MAX_JOB_SIZE:
-        raise ValueError(f"Images per job must be a whole number from 1 to {MAX_JOB_SIZE} (or empty).")
+        raise CodedError(
+            "job_size_invalid",
+            f"Images per job must be a whole number from 1 to {MAX_JOB_SIZE} (or empty).",
+            max=MAX_JOB_SIZE,
+        )
     return job_size
 
 
@@ -112,15 +117,17 @@ def clean_name(name: str) -> str:
     """Strip a task name.
 
     Raises:
-        ValueError: empty or too long.
+        CodedError: ``task_name_empty``, ``task_name_too_long`` or ``control_characters``.
     """
     name = name.strip()
     if not name:
-        raise ValueError("Give the task a name.")
+        raise CodedError("task_name_empty", "Give the task a name.")
     if len(name) > MAX_NAME:
-        raise ValueError(f"The name is too long (max {MAX_NAME} characters).")
+        raise CodedError(
+            "task_name_too_long", f"The name is too long (max {MAX_NAME} characters).", max=MAX_NAME
+        )
     if has_control_characters(name):
-        raise ValueError("The name cannot contain control characters.")
+        raise CodedError("control_characters", "The name cannot contain control characters.")
     return name
 
 
@@ -207,6 +214,28 @@ class TaskStore:
         """The task that holds an image, or None."""
         return next((t for t in self.load() if image_id in t.images), None)
 
+    def check_name_free(self, name: str, own_id: int | None = None) -> None:
+        """Refuse a name another task of the project already has (case does not matter).
+
+        Raises:
+            CodedError: ``task_name_taken``.
+        """
+        wanted = name.strip().lower()
+        for task in self.load():
+            if task.id != own_id and task.name.lower() == wanted:
+                raise CodedError(
+                    "task_name_taken", f"A task named '{task.name}' already exists.", name=task.name
+                )
+
+    def _unique(self, name: str, tasks: list[ImageTask]) -> str:
+        """``name``, or ``name (2)``, ``name (3)``... when another task has it (tasks made by imports)."""
+        taken = {t.name.lower() for t in tasks}
+        candidate, n = name, 1
+        while candidate.lower() in taken:
+            n += 1
+            candidate = f"{name} ({n})"
+        return candidate
+
     # -- changes ----------------------------------------------------------------
     def create(
         self,
@@ -219,8 +248,11 @@ class TaskStore:
     ) -> ImageTask:
         """Create a task with the next free id (default name "Task <id>"); other open tasks are closed.
 
+        A name another task already has gets a number added (``Name (2)``): callers that must refuse
+        a repeated name call :meth:`check_name_free` first (the API does, before storing images).
+
         Raises:
-            ValueError: empty or too long name; invalid ``job_size``.
+            CodedError: empty or too long name; invalid ``job_size``.
         """
         name = clean_name(name) if name is not None else None
         job_size = check_job_size(job_size)
@@ -228,9 +260,8 @@ class TaskStore:
             next_id, tasks = self._read(images or ())
             for other in tasks:
                 other.open = False
-            task = ImageTask(
-                next_id, name or f"Task {next_id}", now(), job_size, list(images or []), open, source
-            )
+            name = self._unique(name, tasks) if name else f"Task {next_id}"
+            task = ImageTask(next_id, name, now(), job_size, list(images or []), open, source)
             tasks.append(task)
             self._write(next_id + 1, tasks)
             return task
@@ -281,10 +312,11 @@ class TaskStore:
 
         Raises:
             TaskNotFound: unknown id.
-            ValueError: empty or too long name.
+            CodedError: empty, too long or repeated name.
         """
         name = clean_name(name)
         with self._lock:
+            self.check_name_free(name, task_id)
             next_id, tasks, task = self._change(task_id)
             task.name = name
             self._write(next_id, tasks)

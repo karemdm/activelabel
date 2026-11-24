@@ -21,7 +21,14 @@ class DamagedFile(ValueError):
 
     A ``ValueError`` so code that already handles unreadable data keeps working; the web layer answers
     it with a readable message instead of a bare server error.
+
+    Attributes:
+        file: name of the damaged file (``project.json``).
     """
+
+    def __init__(self, message: str, file: str = "") -> None:
+        super().__init__(message)
+        self.file = file
 
 
 def now() -> str:
@@ -82,5 +89,6 @@ def read_json(path: Path, default: Any = None) -> Any:
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise DamagedFile(
             f"The file {path.name} is damaged and cannot be read ({exc}). "
-            f"Restore it from a backup or remove it: {path}"
+            f"Restore it from a backup or remove it: {path}",
+            path.name,
         ) from exc
