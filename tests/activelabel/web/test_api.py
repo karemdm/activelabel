@@ -110,3 +110,19 @@ def test_deleting_a_project_drops_its_fiftyone_dataset(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args))
     assert client.request("DELETE", "/api/projects/1", json={"confirm_name": "Cats"}).status_code == 200
     assert dropped == [(state.store.dir(1), 1, "activelabel-1-abc12345")]
+
+
+def test_deleting_a_project_touches_fiftyone_only_when_it_has_a_dataset(tmp_path, monkeypatch):
+    from activelabel.fiftyone_names import record_name
+    from activelabel.web import api
+
+    dropped = []
+    monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args[2]))
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "Never", "task": "detection"})
+    client.post("/api/projects", json={"name": "Used", "task": "detection"})
+    record_name(state.store.dir(2), "activelabel-2-abcd1234")
+    assert client.request("DELETE", "/api/projects/1", json={"confirm_name": "Never"}).status_code == 200
+    assert dropped == []  # no FiftyOne for a project that never used it
+    assert client.request("DELETE", "/api/projects/2", json={"confirm_name": "Used"}).status_code == 200
+    assert dropped == ["activelabel-2-abcd1234"]

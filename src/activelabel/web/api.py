@@ -378,7 +378,10 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE) -> dict[str, Any]:
-    """Delete a project with all its files. The name must be typed again."""
+    """Delete a project with all its files. The name must be typed again.
+
+    FiftyOne is only touched when the project has a recorded dataset (``fiftyone.json``).
+    """
     project = state.project(project_id)
     if body.confirm_name.strip() != project.name:
         raise ApiError(400, "name_mismatch", "The name does not match; nothing was deleted.")
@@ -386,12 +389,13 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     project_dir = state.store.dir(project_id)
     recorded = recorded_name(project_dir)
     state.store.delete(project_id)
-    drop_fiftyone_dataset(project_dir, project_id, recorded)
+    if recorded:  # a project that never used FiftyOne has nothing there: do not start it
+        drop_fiftyone_dataset(project_dir, project_id, recorded)
     return {"deleted": project_id}
 
 
-def drop_fiftyone_dataset(project_dir: Path, project_id: int, recorded: str | None) -> None:
-    """Delete the project's FiftyOne dataset in the background (starting FiftyOne can take seconds)."""
+def drop_fiftyone_dataset(project_dir: Path, project_id: int, recorded: str) -> None:
+    """Delete the project's recorded FiftyOne dataset in the background (starting it can take seconds)."""
 
     def run() -> None:
         from activelabel import fiftyone_bridge
