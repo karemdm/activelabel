@@ -144,7 +144,8 @@
     box.appendChild(node);
     if (ms) setTimeout(() => node.remove(), ms);
   }
-  const toastError = (err) => toast(`${t('common.error')} ${err && err.message ? err.message : err}`, 'error', 10000);
+  /* the red toast with its icon already says it is an error: no "Error:" in front of the server's own words */
+  const toastError = (err) => toast(String(err && err.message ? err.message : err), 'error', 10000);
 
   /** Click handler for a button that starts something: the button stays disabled until the request settles,
    *  so a double click cannot start it twice. `stillBusy` says when it must stay disabled after that
@@ -173,7 +174,14 @@
 
   // ---------------------------------------------------------------- API
   function detailText(detail) {
-    if (Array.isArray(detail)) return detail.map((d) => (d && d.msg) || JSON.stringify(d)).join('; ');
+    /* validation errors (HTTP 422): "field: problem", one per entry */
+    if (Array.isArray(detail)) {
+      return detail.map((d) => {
+        if (!d || !d.msg) return JSON.stringify(d);
+        const field = (Array.isArray(d.loc) ? d.loc : []).filter((x) => !['body', 'query', 'path'].includes(x) && typeof x === 'string').join(' › ');
+        return field ? `${field}: ${d.msg}` : String(d.msg);
+      }).join('; ');
+    }
     if (detail && typeof detail === 'object') return JSON.stringify(detail);
     return String(detail);
   }
@@ -371,6 +379,7 @@
   function choiceDialog({ title, text, choices }) {
     return new Promise((resolve) => {
       const dlg = el('dialog', { class: 'dialog wide', 'aria-label': title });
+      const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'));
       let value = null;
       add(dlg, el('div', { class: 'dialog-body' },
         el('h2', null, title),
@@ -378,10 +387,11 @@
         el('ul', { class: 'choices' }, ...choices.map((c) => el('li', null,
           el('button', { type: 'button', class: `btn ${c.danger ? 'danger-outline' : c.primary ? 'primary' : ''}`, onclick: () => { value = c.value; dlg.close(); } }, c.label),
           c.help ? el('span', { class: 'muted' }, c.help) : null))),
-        el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+        el('div', { class: 'form-actions' }, cancelBtn)));
       dlg.addEventListener('close', () => { dlg.remove(); resolve(value); });
       document.body.appendChild(dlg);
       dlg.showModal();
+      cancelBtn.focus();  // Enter must never pick an answer (some are destructive)
     });
   }
 
@@ -395,6 +405,7 @@
         okBtn.disabled = true;
         input.addEventListener('input', () => { okBtn.disabled = input.value !== requireText; });
       }
+      const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel'));
       const dlg = el('dialog', { class: 'dialog', 'aria-label': title },
         el('form', { method: 'dialog', class: 'dialog-body' },
           el('h2', null, title),
@@ -402,11 +413,11 @@
           input,
           el('div', { class: 'form-actions' },
             okBtn,
-            el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel')))));
+            cancelBtn)));
       dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
       document.body.appendChild(dlg);
       dlg.showModal();
-      (input || okBtn).focus();
+      (input || (danger ? cancelBtn : okBtn)).focus();  // a destructive answer is never the one Enter gives
     });
   }
 
@@ -660,7 +671,7 @@
             el('h3', null, t('lightbox.issues')),
             (img.issues || []).length
               ? el('p', { class: 'thumb-tags' }, ...img.issues.map((x) => el('span', { class: `tag tag-${x}`, title: tr(`issue.${x}.help`, '') }, issueTag(x))))
-              : el('p', { class: 'muted' }, t('lightbox.no_issues')),
+              : el('p', { class: 'muted' }, t(metrics.length ? 'lightbox.no_issues' : 'lightbox.not_analyzed')),
             metrics.length ? el('h3', null, t('lightbox.metrics')) : null,
             metrics.length
               ? el('dl', { class: 'facts compact' }, ...metrics.map(([k, v]) => el('div', null, el('dt', null, tr(`metric.${k}`, k)), el('dd', null, nf1.format(v)))))
@@ -726,7 +737,7 @@
     const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
     const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
     const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
-    const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: t('annotate.secret_placeholder'), 'aria-describedby': 'tool-secret-help' });
+    const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: entry.configured ? '••••••••' : null, 'aria-describedby': 'tool-secret-help' });
     const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
     const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
     const testBtn = el('button', { type: 'button', class: 'btn' }, t('annotate.test'));
@@ -902,9 +913,12 @@
     }
 
     function showMissing() {
+      clearTimeout(ctx.pollTimer);
+      ctx.pollTimer = null;
+      ctx.gone = true;
       fill(root, el('div', { class: 'empty card' },
-        el('h1', null, t('notfound.title')),
-        el('p', null, t('notfound.text')),
+        el('h1', null, t('project.gone_title')),
+        el('p', null, t('project.gone_text')),
         el('a', { class: 'btn primary', href: '/' }, t('notfound.back'))));
     }
 
@@ -1038,7 +1052,9 @@
 
     function showTab(step, scrollToPanel = false) {
       ctx.tab = step;
-      history.replaceState(null, '', `#${step}`);
+      /* a step the person opens is a history entry (Back goes to the previous step); the first one and redraws are not */
+      if (location.hash !== `#${step}`) history[ctx.shown ? 'pushState' : 'replaceState'](null, '', `#${step}`);
+      ctx.shown = true;
       const noImages = step !== 'images' && !hasImages();
       const noDataset = step === 'training' && !noImages && !ctx.datasetCount;
       const gated = noImages || noDataset;
@@ -2117,7 +2133,7 @@
         const back = () => { vid.busy = false; vid.xhr = null; vUp.hidden = true; vDrop.hidden = !!vid.video; };
         xhr.upload.addEventListener('progress', (e) => { if (e.lengthComputable) draw(e.loaded, e.total); });
         xhr.addEventListener('abort', back);
-        xhr.addEventListener('error', () => { back(); toast(`${t('common.error')} ${t('common.network_error')}`, 'error', 10000); });
+        xhr.addEventListener('error', () => { back(); toast(t('common.network_error'), 'error', 10000); });
         xhr.addEventListener('load', () => {
           let data = null;
           try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
@@ -2702,16 +2718,17 @@
         const check = remote ? el('input', { type: 'checkbox', id: 'close-remote' }) : null;
         const ok = await new Promise((resolve) => {
           const okBtn = el('button', { type: 'submit', value: 'ok', class: 'btn danger' }, t('annotate.close_confirm'));
+          const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel'));
           const dlg = el('dialog', { class: 'dialog', 'aria-label': t('annotate.close_title') },
             el('form', { method: 'dialog', class: 'dialog-body' },
               el('h2', null, t('annotate.close_title')),
               el('p', null, t('annotate.close_text')),
               remote ? el('label', { class: 'radio-row', for: 'close-remote' }, check, el('span', null, t('annotate.close_remote', { tool: toolName(s.tool) }))) : null,
-              el('div', { class: 'form-actions' }, okBtn, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel')))));
+              el('div', { class: 'form-actions' }, okBtn, cancelBtn)));
           dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
           document.body.appendChild(dlg);
           dlg.showModal();
-          okBtn.focus();
+          cancelBtn.focus();
         });
         if (!ok) return;
         try {
@@ -3094,8 +3111,8 @@
             el('h3', null, t('ann.report_title')),
             el('p', { class: 'task-line' }, el('span', { class: 'badge' }, tr(`format.${report.format}`, report.format || '?')), ' ', taskLine),
             el('dl', { class: 'facts' },
-              el('div', null, el('dt', null, t('ann.matched')), el('dd', null, tn('ann.images_matched', counts.images_matched || 0))),
-              el('div', null, el('dt', null, t('ann.unlabeled')), el('dd', null, tn('ann.images_without_labels', counts.images_without_labels || 0))),
+              el('div', null, el('dt', null, t('ann.matched')), el('dd', null, num(counts.images_matched || 0))),
+              el('div', null, el('dt', null, t('ann.unlabeled')), el('dd', null, num(counts.images_without_labels || 0))),
               el('div', null, el('dt', null, t('ann.labels')), el('dd', null, num(counts.labels_total || 0)))),
             report.unmatched && report.unmatched.count
               ? el('p', { class: 'muted' }, tn('ann.unmatched', report.unmatched.count))
@@ -3126,7 +3143,7 @@
             return;
           }
           const summary = await api('POST', `/projects/${projectId}/annotations/${report.token}/apply`, { json: { action, mode } });
-          renderSummary(summary || {});
+          renderSummary(summary || {}, report);
           await refreshProject();
           loadGt();
         } catch (err) {
@@ -3136,7 +3153,7 @@
         if (button) button.blur();
       }
 
-      function renderSummary(s) {
+      function renderSummary(s, report) {
         /* what the person needs to know, in plain words; zero counts of optional facts are left out */
         const always = ['images_imported', 'labels_imported'];
         const optional = ['images_kept', 'converted', 'classes_added', 'problems'];
@@ -3146,7 +3163,9 @@
           .map((k) => el('div', null, el('dt', null, t(`summary.${k}`)), el('dd', null, num(count(s[k])))));
         fill(reportBox, el('div', { class: 'card report-card' },
           el('p', { class: 'report-line ok' }, icon('check'), el('strong', null, t('ann.applied'))),
-          lines.length ? el('dl', { class: 'facts' }, ...lines) : null));
+          lines.length ? el('dl', { class: 'facts' }, ...lines) : null,
+          /* the problems of the check stay in view: the summary counts them and points here */
+          (report.problems || []).length ? el('ul', { class: 'plain problems' }, ...report.problems.map(problemRow)) : null));
       }
 
       async function loadGt() {
@@ -3402,14 +3421,14 @@
         if (view === 'active') {
           buttons.push(
             el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all')),
-            el('button', { type: 'button', class: 'btn', 'data-act': 'suggested', onclick: selectSuggested }, t('cur.select_suggested')));
+            el('button', { type: 'button', class: 'btn', 'data-act': 'suggested', disabled: !analyzed(), 'aria-describedby': analyzed() ? null : 'cur-suggested-hint', onclick: selectSuggested }, t('cur.select_suggested')));
           if (n) {
             buttons.push(
               el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
               el('button', { type: 'button', class: 'btn primary', 'data-act': 'exclude', onclick: exclude }, t('cur.exclude')));
           }
         } else {
-          buttons.push(el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all')));
+          buttons.push(el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all_excluded')));
           if (n) {
             buttons.push(
               el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
@@ -3417,7 +3436,9 @@
               el('button', { type: 'button', class: 'btn danger-outline', 'data-act': 'delete', onclick: remove }, t('cur.delete')));
           }
         }
-        const hint = n ? null : el('span', { class: 'muted cur-select-hint' }, t(view === 'active' ? 'cur.select_hint' : 'cur.select_hint_excluded'));
+        const needsAnalysis = view === 'active' && !analyzed();  // "suggested" comes from the analysis
+        const hint = n && !needsAnalysis ? null : el('span', { class: 'muted cur-select-hint', id: needsAnalysis ? 'cur-suggested-hint' : null },
+          t(needsAnalysis ? 'cur.suggested_needs_analysis' : view === 'active' ? 'cur.select_hint' : 'cur.select_hint_excluded'));
         redraw(toolbar, ...buttons, hint, countText);
       }
 
@@ -3687,7 +3708,7 @@
       try {
         data = await api('GET', `/projects/${projectId}/jobs`);
       } catch (err) {
-        if (err.status === 404) return;
+        if (err.status === 404) { showMissing(); return; }  // the project was deleted (maybe in another tab)
         if (!ctx.pollFailing) toastError(err);
         ctx.pollFailing = true;
         ctx.pollTimer = setTimeout(pollJobs, 5000);
@@ -3849,7 +3870,8 @@
         const o = v.options || {};
         if (o.kfold) return t('ds.kfold_short', { k: o.kfold });
         const s = o.split || {};
-        return [s.train, s.val, s.test].filter((x) => x != null).join(' / ');
+        /* what was asked for; the real sizes are in the bar and the legend below (groups can make them differ) */
+        return t('ds.split_asked', { split: [s.train, s.val, s.test].filter((x) => x != null).join(' / ') });
       }
 
       function versionCard(v) {
@@ -4020,7 +4042,7 @@
 
         // ---- live preview
         const previewBox = el('div', { class: 'ds-preview', 'aria-live': 'polite' });
-        const showMsg = (text, cl = 'muted') => fill(previewBox, el('p', { class: cl }, text));
+        const showMsg = (text, cl = 'muted') => fill(previewBox, el('p', { class: cl, role: cl === 'ds-error' ? 'alert' : null }, text));
 
         function renderPreview(d) {
           const items = partItems(normSizes(d), d.options);
@@ -4066,9 +4088,13 @@
           const mine = ++token;
           try {
             const d = await api('POST', `/projects/${projectId}/datasets/preview`, { json: opts.body });
-            if (mine === token) renderPreview(d);
+            if (mine !== token) return;
+            create.disabled = false;
+            renderPreview(d);
           } catch (err) {
-            if (mine === token) showMsg(err.message || String(err), 'ds-error');
+            if (mine !== token) return;
+            create.disabled = true;  // a version the server refuses to preview cannot be created
+            showMsg(err.message || String(err), 'ds-error');
           }
         }
         function changed() {
@@ -4433,7 +4459,7 @@
 
         // data
         const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
-          [`v${v.version}`, fmtDate(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
+          [`v${v.version}`, fmtDate(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
         const foldSel = sel('tr-fold');
         const foldField = el('div', { class: 'field', hidden: true }, el('label', { for: 'tr-fold' }, t('tr.fold')), foldSel);
         function drawFolds() {
@@ -5299,10 +5325,8 @@
         if (s === sig) return;
         sig = s;
         if (!models.length) {
-          fill(box, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty')),
-            el('div', { class: 'md-empty-actions' },
-              el('a', { class: 'btn', href: '#training' }, t('md.go_training')),
-              el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')))));
+          /* the two ways to get a model are the buttons of the step's header: not repeated here */
+          fill(box, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty'))));
           return;
         }
         refocus(() => fill(box, ...[
@@ -5365,6 +5389,8 @@
       ctx.panels.training.count();
       ctx.panels.models.count();
     });
+    /* back on this tab after a while: the project may have been deleted elsewhere (nothing polls while idle) */
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !ctx.gone) refreshProject(); });
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
       const step = location.hash.replace('#', '');

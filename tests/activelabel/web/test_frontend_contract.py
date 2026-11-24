@@ -66,3 +66,22 @@ def test_a_missing_comparison_is_the_only_stale_one(tmp_path):
     assert client.post("/api/projects/1/sync/cvat/unknown/apply", json={}).status_code == 404
     assert "err.status === 404) st.error = 'stale'" in JS
     assert "err.status === 409) st.error = 'stale'" not in JS
+
+
+def test_destructive_dialogs_start_on_cancel():
+    """Enter must not confirm a deletion: dialogs with a destructive answer focus Cancel first."""
+    assert "(input || (danger ? cancelBtn : okBtn)).focus()" in JS
+    assert "cancelBtn.focus();  // Enter must never pick an answer" in JS
+    assert "okBtn.focus()" not in JS
+
+
+def test_steps_are_history_entries_and_errors_have_no_prefix():
+    assert "history[ctx.shown ? 'pushState' : 'replaceState']" in JS
+    assert "toast(String(err && err.message ? err.message : err), 'error', 10000)" in JS
+    assert "t('common.error')} ${err" not in JS
+
+
+def test_a_project_deleted_elsewhere_is_reported():
+    """The jobs poll answers 404 for a deleted project: the page says so instead of staying silent."""
+    assert re.search(r"err\.status === 404\) \{ showMissing\(\)", JS)
+    assert "project.gone_title" in JS
