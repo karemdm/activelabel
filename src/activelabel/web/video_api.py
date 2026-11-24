@@ -53,11 +53,29 @@ class VideoTask(Selection):
 
 
 def _videos(state: AppState, project_id: int) -> VideoStore:
+    """The video store of a project.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The video store of the project.
+    """
     state.project(project_id)
     return VideoStore(state.store.dir(project_id))
 
 
 def _find(videos: VideoStore, video_id: str) -> VideoInfo:
+    """A video by id, or HTTP 404.
+
+    Args:
+        videos: The video store.
+        video_id: Id of the video.
+
+    Returns:
+        The video.
+    """
     try:
         return videos.get(video_id)
     except KeyError:
@@ -65,6 +83,15 @@ def _find(videos: VideoStore, video_id: str) -> VideoInfo:
 
 
 def _select(info: VideoInfo, body: Selection) -> tuple[int, int, int]:
+    """The frame range a selection means, or HTTP 400 when it is wrong.
+
+    Args:
+        info: The video.
+        body: The selection (start, stop, step or seconds).
+
+    Returns:
+        ``(start, stop, step)`` frame numbers.
+    """
     try:
         return resolve_selection(info, body.start, body.stop, body.step, body.every_seconds)
     except ValueError as exc:
@@ -78,6 +105,14 @@ def upload_video(
     """Store one video (streamed to disk, hashed while written) and read its properties.
 
     The request has exactly one ``file`` part; a second one is refused (400 ``one_file_only``).
+
+    Args:
+        project_id: Id of the project.
+        files: The uploaded files.
+        state: The shared state of the application.
+
+    Returns:
+        The video with its properties.
     """
     if len(files) != 1:
         raise ApiError(400, "one_file_only", "Send one video per request.")
@@ -111,13 +146,30 @@ def upload_video(
 
 @router.get("/projects/{project_id}/videos")
 def list_videos(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Videos of the project."""
+    """Videos of the project.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{videos}``.
+    """
     return {"videos": [v.public() for v in _videos(state, project_id).list()]}
 
 
 @router.delete("/projects/{project_id}/videos/{video_id}")
 def delete_video(project_id: int, video_id: str, state: AppState = STATE) -> dict[str, str]:
-    """Delete a video file, only when no task uses it."""
+    """Delete a video file, only when no task uses it.
+
+    Args:
+        project_id: Id of the project.
+        video_id: Id of the video.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted: video_id}``.
+    """
     videos = _videos(state, project_id)
     _find(videos, video_id)
     if any(j.kind == "video_task" for j in state.jobs.active(project_id)):
@@ -141,7 +193,18 @@ def video_frame(
     w: Annotated[int, Query(ge=16, le=4096)] = 320,
     state: AppState = STATE,
 ) -> Response:
-    """JPEG of one frame (preview strip)."""
+    """JPEG of one frame (preview strip).
+
+    Args:
+        project_id: Id of the project.
+        video_id: Id of the video.
+        n: Frame number (0-based).
+        w: Width of the image, in pixels.
+        state: The shared state of the application.
+
+    Returns:
+        The frame as a JPEG.
+    """
     videos = _videos(state, project_id)
     info = _find(videos, video_id)
     if n >= info.frames:
@@ -160,7 +223,17 @@ def video_frame(
 
 @router.post("/projects/{project_id}/videos/{video_id}/plan")
 def video_plan(project_id: int, video_id: str, body: Selection, state: AppState = STATE) -> dict[str, int]:
-    """How many frames a selection gives (no extraction)."""
+    """How many frames a selection gives (no extraction).
+
+    Args:
+        project_id: Id of the project.
+        video_id: Id of the video.
+        body: The selection.
+        state: The shared state of the application.
+
+    Returns:
+        ``{frames}``: how many frames the selection gives.
+    """
     info = _find(_videos(state, project_id), video_id)
     return plan(*_select(info, body))
 
@@ -235,7 +308,16 @@ def _video_task_job(
 
 @router.post("/projects/{project_id}/tasks/from-video")
 def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -> dict[str, Any]:
-    """Create a (closed) task with the selected frames of a video, as a background job."""
+    """Create a (closed) task with the selected frames of a video, as a background job.
+
+    Args:
+        project_id: Id of the project.
+        body: The video, the selection, the task name and the job size.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     videos = _videos(state, project_id)
     info = _find(videos, body.video)
     start, stop, step = _select(info, body)

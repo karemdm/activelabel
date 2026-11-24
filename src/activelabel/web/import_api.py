@@ -38,12 +38,29 @@ class ImportBody(BaseModel):
 
 
 def _importer(tool: str) -> ModuleType:
+    """The importer of a tool, or HTTP 404.
+
+    Args:
+        tool: Name of the tool.
+
+    Returns:
+        The importer module of the tool.
+    """
     if tool not in IMPORTERS:
         raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat).", tool=tool)
     return IMPORTERS[tool]
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
+    """The saved settings of a tool, or HTTP 400 when it is not configured.
+
+    Args:
+        state: The shared state of the application.
+        tool: Name of the tool.
+
+    Returns:
+        The saved settings of the tool, when it is configured.
+    """
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
         raise ApiError(400, "tool_not_configured", f"Configure {tool} first", tool=tool)
@@ -52,7 +69,16 @@ def _settings(state: AppState, tool: str) -> ToolSettings:
 
 @router.get("/import/{tool}/projects")
 def list_remote(tool: str, search: str = "", state: AppState = STATE) -> dict[str, Any]:
-    """Projects (and CVAT tasks outside projects) that can be imported, newest first."""
+    """Projects (and CVAT tasks outside projects) that can be imported, newest first.
+
+    Args:
+        tool: Name of the remote tool (``cvat``).
+        search: Text to search in the names.
+        state: The shared state of the application.
+
+    Returns:
+        ``{items}``: what can be imported.
+    """
     importer = _importer(tool)
     settings = _settings(state, tool)
     try:
@@ -107,7 +133,15 @@ def _import_job(
 
 @router.post("/import")
 def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
-    """Import a remote project as a new project (job ``import_project``, project id 0)."""
+    """Import a remote project as a new project (job ``import_project``, project id 0).
+
+    Args:
+        body: The request body.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     importer = _importer(body.tool)
     if body.kind not in KINDS[body.tool]:
         raise HTTPException(400, f"kind must be one of: {', '.join(KINDS[body.tool])}.")

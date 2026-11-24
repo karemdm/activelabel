@@ -49,24 +49,57 @@ class SendBody(BaseModel):
 
 # -- dataset access (replaced in tests, FiftyOne is slow to start) --------------
 def prepare_dataset(project: Project, state: AppState) -> Any:
-    """Refresh the project's FiftyOne dataset from the project and return it."""
+    """Refresh the project's FiftyOne dataset from the project and return it.
+
+    Args:
+        project: The project to refresh the dataset of.
+        state: The shared state of the application.
+
+    Returns:
+        The FiftyOne dataset of the project.
+    """
     manifest = state.manifest(project.id)
     return fiftyone_bridge.sync_dataset(project, manifest, load_annotations(state.store.dir(project.id)))
 
 
 def open_dataset(project: Project, state: AppState) -> Any:
-    """The project's FiftyOne dataset (None when it does not exist)."""
+    """The project's FiftyOne dataset (None when it does not exist).
+
+    Args:
+        project: The project.
+        state: The shared state of the application.
+
+    Returns:
+        The FiftyOne dataset, or ``None`` when the project has none.
+    """
     return fiftyone_bridge.existing_dataset(state.store.dir(project.id), project.id)
 
 
 # -- helpers ------------------------------------------------------------------
 def _tool_name(tool: str) -> str:
+    """The name of a known annotation tool, or HTTP 404.
+
+    Args:
+        tool: Name of the tool.
+
+    Returns:
+        The same name, when it is a known annotation tool.
+    """
     if tool not in TOOLS:
         raise ApiError(404, "tool_unknown", f"Unknown annotation tool '{tool}'.", tool=tool)
     return tool
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
+    """The saved settings of a tool, or HTTP 400 when it is not configured.
+
+    Args:
+        state: The shared state of the application.
+        tool: Name of the tool.
+
+    Returns:
+        The saved settings of the tool, when it is configured.
+    """
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
         raise ApiError(
@@ -76,6 +109,14 @@ def _settings(state: AppState, tool: str) -> ToolSettings:
 
 
 def _tool(name: str) -> Any:
+    """The adapter of a tool, or HTTP 400 when it cannot be created.
+
+    Args:
+        name: Name of the tool.
+
+    Returns:
+        The tool adapter.
+    """
     try:
         return get_tool(name)
     except ToolError as exc:
@@ -84,6 +125,12 @@ def _tool(name: str) -> Any:
 
 def _session_tool(name: str) -> Any:
     """The tool of an edit session.
+
+    Args:
+        name: Name of the tool of the session.
+
+    Returns:
+        The tool adapter.
 
     Raises:
         ApiError: ``tool_unsupported`` (400) for a session of a tool that has no edit sessions any more
@@ -100,6 +147,14 @@ def _session_tool(name: str) -> Any:
 
 
 def _remote(tool: str) -> Any:
+    """The remote project adapter of a tool, or HTTP 400 when it cannot be created.
+
+    Args:
+        tool: Name of the remote tool.
+
+    Returns:
+        The remote project adapter of the tool.
+    """
     try:
         return get_remote(tool)
     except ToolError as exc:
@@ -107,6 +162,16 @@ def _remote(tool: str) -> Any:
 
 
 def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any]:
+    """A session of the project, or HTTP 404.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+
+    Returns:
+        The session record.
+    """
     state.project(project_id)
     try:
         return sessions.get(state.store.dir(project_id), session_id)
@@ -117,26 +182,60 @@ def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any
 
 
 def _local_hashes(project_dir: Path, image_ids: list[str]) -> dict[str, str]:
-    """Hash of the local labels of each image (to notice later that they changed)."""
+    """Hash of the local labels of each image (to notice later that they changed).
+
+    Args:
+        project_dir: Folder of the project.
+        image_ids: The images to hash the labels of.
+
+    Returns:
+        Hash of the local labels of each image, by image id.
+    """
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}
     return {i: label_hash(images.get(i, [])) for i in image_ids}
 
 
 def _pulled_file(state: AppState, project_id: int, session_id: str) -> Path:
+    """Where the annotations read back for a session are kept.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+
+    Returns:
+        Path of the file that holds the annotations read back for the session.
+    """
     return sessions.session_dir(state.store.dir(project_id), session_id) / "pulled.json"
 
 
 # -- tools --------------------------------------------------------------------
 @router.get("/annotation-tools")
 def list_tools(state: AppState = STATE) -> list[dict[str, Any]]:
-    """Every tool with its settings (no secrets)."""
+    """Every tool with its settings (no secrets).
+
+    Args:
+        state: The shared state of the application.
+
+    Returns:
+        Every tool with its settings, without secrets.
+    """
     return [credentials.public_view(credentials.load_settings(state.settings.workspace, t)) for t in TOOLS]
 
 
 @router.put("/annotation-tools/{tool}")
 def save_tool(tool: str, body: ToolBody, state: AppState = STATE) -> dict[str, Any]:
-    """Save URL and user (and the secret, in the system keyring, when given)."""
+    """Save URL and user (and the secret, in the system keyring, when given).
+
+    Args:
+        tool: Name of the annotation tool.
+        body: The URL, user and (optionally) the new secret.
+        state: The shared state of the application.
+
+    Returns:
+        The settings of the tool, without the secret.
+    """
     _tool_name(tool)
     if tool != "fiftyone" and not body.url.strip():
         raise ApiError(400, "url_required", "Give the URL of the tool.")
@@ -151,7 +250,15 @@ def save_tool(tool: str, body: ToolBody, state: AppState = STATE) -> dict[str, A
 
 @router.post("/annotation-tools/{tool}/test")
 def test_tool(tool: str, state: AppState = STATE) -> dict[str, Any]:
-    """Check the connection and login."""
+    """Check the connection and login.
+
+    Args:
+        tool: Name of the annotation tool.
+        state: The shared state of the application.
+
+    Returns:
+        ``{ok, message}``: whether the connection and login worked, and a readable text.
+    """
     _tool_name(tool)
     settings = _settings(state, tool)
     try:
@@ -163,7 +270,15 @@ def test_tool(tool: str, state: AppState = STATE) -> dict[str, Any]:
 
 @router.delete("/annotation-tools/{tool}")
 def forget_tool(tool: str, state: AppState = STATE) -> dict[str, bool]:
-    """Forget the settings and the secret of a tool."""
+    """Forget the settings and the secret of a tool.
+
+    Args:
+        tool: Name of the annotation tool.
+        state: The shared state of the application.
+
+    Returns:
+        ``{removed: true}``.
+    """
     _tool_name(tool)
     credentials.forget(state.settings.workspace, tool)
     return {"removed": True}
@@ -172,7 +287,15 @@ def forget_tool(tool: str, state: AppState = STATE) -> dict[str, bool]:
 # -- sessions -----------------------------------------------------------------
 @router.get("/projects/{project_id}/annotate")
 def list_sessions(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Annotation sessions of a project, newest first."""
+    """Annotation sessions of a project, newest first.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{sessions}``: the sessions of the project, newest first.
+    """
     state.project(project_id)
     return {"sessions": [sessions.public(s) for s in sessions.list_sessions(state.store.dir(project_id))]}
 
@@ -222,7 +345,16 @@ def _send_job(
 
 @router.post("/projects/{project_id}/annotate")
 def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, Any]:
-    """Send images to a tool (job; result ``{session, links}``)."""
+    """Send images to a tool (job; result ``{session, links}``).
+
+    Args:
+        project_id: Id of the project.
+        body: The tool, the scope and the images or issue to send.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     project = state.project(project_id)
     _tool_name(body.tool)
     tool = _session_tool(body.tool)
@@ -288,7 +420,16 @@ def _pull_job(
 
 @router.post("/projects/{project_id}/annotate/{session_id}/pull")
 def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, Any]:
-    """Read the annotations back and summarise the changes (job; result ``{session, diff}``)."""
+    """Read the annotations back and summarise the changes (job; result ``{session, diff}``).
+
+    Args:
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     session = _session(state, project_id, session_id)
     if session["status"] in (sessions.APPLIED, sessions.DISCARDED):
         raise ApiError(
@@ -307,7 +448,16 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
 
 @router.post("/projects/{project_id}/annotate/{session_id}/apply")
 def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, Any]:
-    """Make the pulled annotations the ground truth of the session images."""
+    """Make the pulled annotations the ground truth of the session images.
+
+    Args:
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+        state: The shared state of the application.
+
+    Returns:
+        ``{applied}``: the counts of what was applied.
+    """
     session = _session(state, project_id, session_id)
     state.busy(project_id)
     try:
@@ -344,7 +494,16 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/discard")
 def discard_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, bool]:
-    """Throw away the pulled annotations (the project does not change)."""
+    """Throw away the pulled annotations (the project does not change).
+
+    Args:
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+        state: The shared state of the application.
+
+    Returns:
+        ``{discarded: true}``.
+    """
     session = _session(state, project_id, session_id)
     if session["status"] == sessions.APPLIED:
         raise ApiError(
@@ -360,6 +519,14 @@ def close_session(project_id: int, session_id: str, state: AppState = STATE) -> 
 
     A session of a tool that has no edit sessions any more (an old workspace may still hold one) is only
     forgotten: no tool is contacted.
+
+    Args:
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+        state: The shared state of the application.
+
+    Returns:
+        ``{closed: true}``.
     """
     session = _session(state, project_id, session_id)
     state.busy(project_id)

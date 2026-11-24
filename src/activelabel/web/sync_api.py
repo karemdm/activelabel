@@ -42,12 +42,29 @@ class ApplyBody(BaseModel):
 
 
 def _tool(tool: str) -> str:
+    """The name of a tool that can be synchronised, or HTTP 404.
+
+    Args:
+        tool: Name of the tool.
+
+    Returns:
+        The same name, when the tool can be synchronised.
+    """
     if tool not in SYNC_TOOLS:
         raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat).", tool=tool)
     return tool
 
 
 def _settings(state: AppState, tool: str) -> ToolSettings:
+    """The saved settings of a tool, or HTTP 400 when it is not configured.
+
+    Args:
+        state: The shared state of the application.
+        tool: Name of the tool.
+
+    Returns:
+        The saved settings of the tool, when it is configured.
+    """
     settings = credentials.load_settings(state.settings.workspace, tool)
     if not credentials.is_configured(settings):
         raise ApiError(
@@ -57,6 +74,14 @@ def _settings(state: AppState, tool: str) -> ToolSettings:
 
 
 def _remote(tool: str) -> RemoteProject:
+    """The remote project adapter of a tool, or HTTP 400 when it cannot be created.
+
+    Args:
+        tool: Name of the tool.
+
+    Returns:
+        The remote project adapter of the tool.
+    """
     try:
         return get_remote(tool)
     except ToolError as exc:
@@ -68,6 +93,12 @@ def cvat_audit(state: AppState = STATE) -> dict[str, Any]:
     """Read-only list of the CVAT tasks per project of the configured server (nothing is changed).
 
     The tasks in no project come grouped by name pattern; a project linked to one of ours says which.
+
+    Args:
+        state: The shared state of the application.
+
+    Returns:
+        ``{url, ...}``: the CVAT tasks per project and the loose ones, grouped.
     """
     settings = _settings(state, "cvat")
     try:
@@ -90,6 +121,13 @@ def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
     A link written for a tool that cannot be synchronised any more (an old workspace) is listed with
     ``supported: false``: it can only be unlinked.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{links}``.
     """
     state.project(project_id)
     found = links.load_links(state.store.dir(project_id))
@@ -105,6 +143,14 @@ def unlink(project_id: int, tool: str, state: AppState = STATE) -> dict[str, boo
     """Forget the link with a tool (the remote project is not touched). Refused (409) while a job runs.
 
     Any link can be forgotten, also one of a tool that cannot be synchronised any more.
+
+    Args:
+        project_id: Id of the project.
+        tool: Name of the remote tool (``cvat``).
+        state: The shared state of the application.
+
+    Returns:
+        ``{unlinked: true}``.
     """
     state.project(project_id)
     state.busy(project_id)  # a running comparison or sync could write the link again
@@ -156,7 +202,17 @@ def _plan_job(
 
 @router.post("/projects/{project_id}/sync/{tool}")
 def plan(project_id: int, tool: str, body: PlanBody | None = None, state: AppState = STATE) -> dict[str, Any]:
-    """Compare the project with its remote project (job ``sync_plan``; result: the plan)."""
+    """Compare the project with its remote project (job ``sync_plan``; result: the plan).
+
+    Args:
+        project_id: Id of the project.
+        tool: Name of the remote tool (``cvat``).
+        body: Direction, scope, task, job and whether to create the remote project.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     state.project(project_id)
     _tool(tool)
     body = body or PlanBody()
@@ -219,7 +275,18 @@ def _apply_job(
 def apply(
     project_id: int, tool: str, plan_id: str, body: ApplyBody | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Carry out a comparison (job ``sync_apply``; result: counts)."""
+    """Carry out a comparison (job ``sync_apply``; result: counts).
+
+    Args:
+        project_id: Id of the project.
+        tool: Name of the remote tool (``cvat``).
+        plan_id: Id of the saved comparison.
+        body: The resolutions, the default choice and whether to delete tasks.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     state.project(project_id)
     _tool(tool)
     if engine.load_plan(state.store.dir(project_id), plan_id) is None:
