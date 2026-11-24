@@ -14,7 +14,7 @@ from typing import Any, Protocol
 from activelabel.labels import Label
 from activelabel.projects import Project
 
-TOOLS = ("fiftyone", "cvat", "labelstudio")
+TOOLS = ("fiftyone", "cvat")
 GROUND_TRUTH = "ground_truth"
 
 

@@ -26,8 +26,7 @@ field in the labels; the core stays as it is.
 Fine-tuning (LoRA/QLoRA or full) on text or image+text data. This needs:
 
 - new data types: text, conversations, image+text pairs;
-- an annotation tool for text (CVAT does not annotate text; Label Studio does — it is switched off in the
-  interface for now, but its code stays);
+- an annotation tool for text (CVAT does not annotate text; the tool is still to be chosen);
 - new metrics: perplexity, ROUGE/BLEU, exact match, evaluation by a judge model;
 - in practice a GPU, and a check of its memory before a model can be chosen.
 
@@ -74,4 +73,4 @@ Fine-tuning (LoRA/QLoRA or full) on text or image+text data. This needs:
 3. Zero-shot pre-annotation with an open-vocabulary detector.
 4. Label check with a VLM in Curation.
 5. Natural-language search.
-6. Text projects with Label Studio (annotation) and LoRA fine-tuning.
+6. Text projects (with a text annotation tool to be chosen) and LoRA fine-tuning.

@@ -63,12 +63,12 @@ src/activelabel/
   preannotate.py         pre-annotation rules and run records
   fiftyone_bridge.py     the project's FiftyOne dataset, saved views, exclusions
   images/                manifest (images.json), ingest (uploads, zip, thumbnails), video (frames)
-  annotations/           importers per format (coco, yolo, xmlformats, labelstudio, videoformats...),
+  annotations/           importers per format (coco, yolo, xmlformats, videoformats...),
                          staging, validation, conversion between project types
   curation/              measures (quality), issues and thresholds, summary
   annotate/              edit sessions: tools (fiftyone), credentials, diff
   sync/                  three-way sync engine, links, remote adapter (cvat)
-  importing/             import a whole project from CVAT or Label Studio
+  importing/             import a whole project from CVAT
   training/              catalog, config, runs, models, public_models, environment, runner, workers/
   i18n/                  en.json, pt.json
   web/                   app.py, state.py, one *_api.py router per area, pages.py,
@@ -158,7 +158,7 @@ flowchart TB
 
 - `tests/activelabel/web/conftest.py` and `tests/helpers/api_client.py` build an app with a temporary
   workspace; use them for endpoint tests rather than starting a server. `tests/helpers/` also has fakes
-  for CVAT/Label Studio (`sync_fakes.py`, `import_fakes.py`), the training runner (`training_fakes.py`)
+  for CVAT (`sync_fakes.py`, `import_fakes.py`), the training runner (`training_fakes.py`)
   and builders for images, videos and annotation files.
 - Tests that need FiftyOne are marked `integration` and are left out of the fast run.
 - For interface changes, run your own server on a free port and a scratch workspace, and click through

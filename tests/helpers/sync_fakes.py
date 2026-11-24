@@ -33,7 +33,7 @@ def box(name="cat", x=0.1, y=0.1, w=0.3, h=0.3) -> Label:
 class FakeRemote:
     """Remote projects kept in memory: ``projects[id] = {name, items: {key: RemoteItem}, classes}``.
 
-    By default a flat list of items (``supports_tasks`` False, like Label Studio). With ``tasks=True``
+    By default a flat list of items (``supports_tasks`` False). With ``tasks=True``
     it behaves like CVAT: tasks with jobs (``task_meta[rid][task_id]``), deleted frames hidden from
     ``items()``, ``frame()`` bytes, ``add_task`` / ``set_frames`` / ``delete_task``.
     """
