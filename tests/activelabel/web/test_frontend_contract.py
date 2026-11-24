@@ -146,3 +146,10 @@ def test_the_import_report_replaces_the_drop_zone_and_offers_other_files_when_no
     """The report is seen first; with nothing usable the way on is another file, not only Discard."""
     assert "drop.hidden = true" in JS and "drop.hidden = false" in JS
     assert "ann.choose_other" in JS and "ann.nothing_usable" in JS
+
+
+def test_the_project_form_has_two_columns_and_the_cards_show_coverage():
+    """New and edit project share the two-column form; a project card shows annotation coverage as a bar."""
+    template = (SRC / "web" / "templates" / "new_project.html").read_text(encoding="utf-8")
+    assert 'class="form-cols"' in template and "form-cols" in JS and ".form-cols" in CSS
+    assert "project.coverage" in JS

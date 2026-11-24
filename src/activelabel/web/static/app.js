@@ -478,8 +478,9 @@
         p.description ? el('p', { class: 'project-desc' }, p.description) : null,
         el('dl', { class: 'facts' },
           el('div', null, el('dt', null, t('project.images')), el('dd', null, `${tn('status.images_active', c.active || 0)}${c.excluded ? ` · ${tn('status.excluded', c.excluded)}` : ''}`)),
-          el('div', null, el('dt', null, t('project.annotations')), el('dd', null, annotationStatus(c))),
-          el('div', null, el('dt', null, t('project.created')), el('dd', null, fmtDate(p.created))))));
+          el('div', null, el('dt', null, t('project.annotations')), el('dd', null, annotationStatus(c)))),
+        c.active > 0 ? progressBar(Math.min(c.annotated || 0, c.active), c.active, t('project.coverage', { done: num(c.annotated || 0), total: num(c.active) })) : null,
+        el('p', { class: 'muted project-created' }, `${t('project.created')} ${fmtDate(p.created)}`)));
   }
 
   // ---------------------------------------------------------------- page: new project
@@ -1119,10 +1120,12 @@
       const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('project.edit') },
         el('form', { class: 'dialog-body form', method: 'dialog' },
           el('h2', null, t('project.edit')),
-          el('div', { class: 'field' }, el('label', { for: 'e-name' }, t('field.name')), nameInput),
-          el('div', { class: 'field' }, el('label', { for: 'e-desc' }, t('field.description')), descInput),
-          el('fieldset', { class: 'field' }, el('legend', null, t('field.task')), picker.node),
-          el('div', { class: 'field' }, el('label', { for: 'e-classes' }, t('field.classes')), chips.node),
+          el('div', { class: 'form-cols' },
+            el('div', null,
+              el('div', { class: 'field' }, el('label', { for: 'e-name' }, t('field.name')), nameInput),
+              el('div', { class: 'field' }, el('label', { for: 'e-desc' }, t('field.description')), descInput),
+              el('div', { class: 'field' }, el('label', { for: 'e-classes' }, t('field.classes')), chips.node)),
+            el('fieldset', { class: 'field' }, el('legend', null, t('field.task')), picker.node)),
           el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
       dlg.querySelector('form').addEventListener('submit', async (e) => {
         e.preventDefault();

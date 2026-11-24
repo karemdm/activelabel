@@ -150,7 +150,13 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .class-list { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.4rem 0 0; min-width: 0; }
 
 /* ---- project list ---- */
-.project-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-4); }
+.project-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-4); }
+.project-grid:has(> li:only-child) { grid-template-columns: minmax(min(100%, 340px), 560px); }
+.project-card .progress { margin-top: var(--space-3); }
+.project-created { margin: var(--space-2) 0 0; font-size: var(--font-sm); }
+/* the project form (new and edit): the text fields on one side, the kind of work on the other */
+.form-cols { display: grid; gap: 0 var(--space-5); }
+@media (min-width: 900px) { .form-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
 .project-card { display: block; color: var(--text); text-decoration: none; height: 100%; }
 .project-card:hover { border-color: var(--primary); }
 .project-card h2 { margin: 0; overflow-wrap: anywhere; }
