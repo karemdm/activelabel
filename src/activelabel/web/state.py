@@ -53,7 +53,10 @@ class AppState:
         (use it before deleting the project or its images).
         """
         if self.jobs.active(project_id):
-            raise HTTPException(409, "Wait for the running task to finish, or cancel it, and try again.")
+            raise HTTPException(
+                409,
+                "A job of this project is still running: wait for it to finish, or cancel it, and try again.",
+            )
         if training and self.runner.has_active(project_id):
             raise HTTPException(
                 409,

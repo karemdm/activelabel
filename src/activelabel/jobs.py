@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from activelabel.storage import now
+from activelabel.textcheck import message_of
 
 QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
 FINISHED = (DONE, FAILED, CANCELLED)
@@ -29,12 +30,13 @@ def readable_error(exc: BaseException) -> str:
     """
     name = type(exc).__name__
     detail = f"{name}: {exc}"
-    if name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in str(exc):
+    message = message_of(exc)
+    if name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in message:
         return (
             "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel "
             f"(another program using FiftyOne may be holding it). Details: {detail}"
         )
-    return str(exc) or "The task failed (no details were given)."
+    return message or "The job failed (no details were given)."
 
 
 class Cancelled(Exception):

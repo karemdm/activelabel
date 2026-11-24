@@ -92,3 +92,13 @@ def test_error_message_has_no_class_name_but_traceback_keeps_it():
     job = wait(jobs.submit(1, "demo", lambda progress: int("x")))
     assert job.status == FAILED and "ValueError" not in job.error and "invalid literal" in job.error
     assert "ValueError" in job.result["traceback"]
+
+
+def test_error_text_has_no_quotes_from_a_key_error():
+    from activelabel.jobs import readable_error
+    from activelabel.textcheck import message_of
+
+    assert readable_error(KeyError("The image is gone")) == "The image is gone"
+    assert message_of(ValueError("A project named 'x'")) == "A project named 'x'"
+    assert message_of(KeyError(7)) == "7"
+    assert readable_error(RuntimeError()) == "The job failed (no details were given)."

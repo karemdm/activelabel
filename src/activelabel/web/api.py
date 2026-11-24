@@ -35,11 +35,13 @@ from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
+from activelabel.textcheck import message_of
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 MAX_PAGE = 500
+JOB_GONE = "This job no longer exists (the list of finished jobs was cleared or the server restarted)."
 UPLOADS = Annotated[list[UploadFile], File()]
 
 
@@ -88,7 +90,7 @@ class ImageIds(BaseModel):
 
 # -- helpers ------------------------------------------------------------------
 def _bad_request(exc: Exception) -> HTTPException:
-    return HTTPException(400, str(exc).strip("'\""))
+    return HTTPException(400, message_of(exc))
 
 
 def project_overview(state: AppState, project: Project) -> dict[str, Any]:
@@ -572,7 +574,7 @@ def get_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
     try:
         return state.jobs.get(job_id).as_dict()
     except KeyError:
-        raise HTTPException(404, "This task no longer exists.") from None
+        raise HTTPException(404, JOB_GONE) from None
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -581,7 +583,7 @@ def cancel_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
     try:
         job: Job = state.jobs.cancel(job_id)
     except KeyError:
-        raise HTTPException(404, "This task no longer exists.") from None
+        raise HTTPException(404, JOB_GONE) from None
     return job.as_dict()
 
 
