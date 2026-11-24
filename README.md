@@ -30,7 +30,8 @@ Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Engineering overvi
 
 **Names in the interface.** This page and the other documents quote the English interface. The
 Portuguese interface has the same screens; its names are given once in parentheses where they are not
-obvious (for example *Gallery* (*Galeria*)), and the full list is in
+obvious (for example *Gallery* (*Galeria*)). *Task*, *Job* and *Fold* are the same word in both languages,
+as in CVAT. The full list is in
 [`src/activelabel/i18n/pt.json`](src/activelabel/i18n/pt.json).
 
 ## Install
@@ -62,7 +63,8 @@ The service has no login: keep the default host `127.0.0.1` unless you are on a 
 segmentation or keypoints). The project number is automatic. Classes are optional; they can
 come from the annotation files. A project that already exists in CVAT or Label Studio can
 be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
-bar with the six steps. (In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
+bar with the six steps; each step shows a marker (done, needs attention, in progress) and its status.
+(In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
 project is its *type*.)
 
 ### Data
@@ -73,7 +75,8 @@ project is its *type*.)
    Files are stored unchanged (the kind of an image is decided by its content, not its extension),
    identical images are added once and unreadable files are listed with the reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs:
-   - *Summary* (*Resumo*): what the project has (annotated, to review, classes).
+   - *Summary* (*Resumo*): what the project has, as tiles (images annotated, annotations, classes with
+     annotations, to review) and the top classes, with a search and *Show all*.
    - *Pre-annotate* (*Pré-anotar*): a saved model, or a public pretrained one (COCO), suggests
      labels for the images of a task; see [docs/PREANNOTATE.md](docs/PREANNOTATE.md).
    - *CVAT*: link the project to CVAT and synchronise annotations in both directions with
@@ -84,7 +87,8 @@ project is its *type*.)
    - *Import annotations* (*Importar anotações*): drop annotation files (or a .zip). The format is
      detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or
      video XML, MOT, Label Studio JSON, class folders), the files are matched with the images and a
-     report shows what was found and any problem. Nothing is imported until you choose *Import*,
+     report (which takes the place of the drop zone) shows what was found and any problem. Labels that do
+     not have the shape of the project's type are reported and left out. Nothing is imported until you choose *Import*,
      *Change the type to {task} and import*, *Convert to {task} and import* (for example outlines to
      boxes) or *Discard*; when the project already has annotations you also choose *Merge* or
      *Replace*. Files made for a whole video go to a video task by frame number
@@ -97,7 +101,7 @@ project is its *type*.)
    aspect ratio, grayscale, near duplicate) show the flagged images; *Select suggested* picks the
    ones that are probably worth excluding; select and *Exclude selected* (reversible, *Excluded*
    tab, *Restore selected*) or *Delete permanently* (asks first). The limits of each issue can be
-   changed under *Advanced: thresholds* without measuring again, and *Reset analysis* forgets the
+   changed under *Thresholds* without measuring again, and *Reset analysis* forgets the
    measures, flags and near-duplicate groups (images, exclusions and annotations stay).
    *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
    be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
@@ -107,7 +111,9 @@ project is its *type*.)
 
 4. **Data split** freezes a *dataset version*: train, validation and test parts (or K folds
    plus a test part) that keep frames of one video and near duplicates together, balanced by
-   class; see [docs/DATASETS.md](docs/DATASETS.md).
+   class; labels a model could not use are left out with a warning, and a version whose training or
+   validation part would be empty is refused; each version card has *Train with this version*; see
+   [docs/DATASETS.md](docs/DATASETS.md).
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
    fine-tuning or from scratch; single run, grid search or all folds) with live curves and
    evaluation on the test part. Classification, detection, semantic segmentation, instance

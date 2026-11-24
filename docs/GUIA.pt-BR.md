@@ -25,7 +25,8 @@ flowchart LR
   R -- "nova divisão, novo treino" --> D
 ```
 
-Os nomes de botões e abas citados aqui são os da interface em português. Os documentos em inglês
+Os nomes de botões e abas citados aqui são os da interface em português. *Task*, *Job* e *Fold* são
+a mesma palavra nos dois idiomas, como no CVAT. Os documentos em inglês
 (README, `docs/`) citam a interface em inglês.
 
 ## Instalar
@@ -58,7 +59,8 @@ Na lista de projetos, *Novo projeto*: nome, descrição e **tipo** (classificaç
 segmentação ou pontos-chave). O número do projeto é automático. As classes são opcionais;
 podem vir dos arquivos de anotação. Um projeto que já existe no CVAT ou no Label Studio pode
 ser importado em vez de criado (veja [IMPORT.md](IMPORT.md), em inglês). A página do projeto
-mostra uma barra compacta com os seis passos, em dois grupos.
+mostra uma barra compacta com os seis passos, em dois grupos; cada passo tem um marcador (feito,
+pede atenção, em andamento) e o seu estado.
 
 No ActiveLabel, *task* é um pacote de imagens, como no CVAT; o tipo do projeto é o que a
 interface chama de *Tipo*.
@@ -76,7 +78,8 @@ interface chama de *Tipo*.
 
 **2. Anotações** (opcional). Cinco abas:
 
-- *Resumo*: o que o projeto já tem (anotadas, a revisar, classes).
+- *Resumo*: o que o projeto já tem, em blocos (imagens anotadas, anotações, classes com anotação,
+  a revisar) e as classes mais frequentes, com busca e *Ver todas*.
 - *Pré-anotar*: um modelo salvo (ou um modelo público) sugere anotações para as imagens de uma
   task (veja o fim deste guia e [PREANNOTATE.md](PREANNOTATE.md)).
 - *CVAT*: sincroniza as anotações com o CVAT nos dois sentidos. *Comparar com o CVAT* mostra o
@@ -90,7 +93,8 @@ interface chama de *Tipo*.
 - *Importar anotações*: solte os arquivos de anotação (ou um .zip). O formato é detectado
   (COCO JSON, YOLO txt com `data.yaml`/`classes.txt`, Pascal VOC XML, XML do CVAT para
   imagens ou vídeo, MOT, JSON do Label Studio, pastas de classes), os arquivos são casados
-  com as imagens e um relatório mostra o que foi encontrado e os problemas. Nada é importado
+  com as imagens e um relatório (que ocupa o lugar da área de soltar) mostra o que foi encontrado e os
+  problemas. Rótulos sem a forma do tipo do projeto são avisados e ficam de fora. Nada é importado
   até você escolher: *Importar*, *Mudar o tipo para {tipo} e importar* (quando as anotações
   são de outro tipo), *Converter para {tipo} e importar* (por exemplo contornos em caixas) ou
   *Descartar*. Se o projeto já tem anotações, escolha também *Mesclar* ou *Substituir*.
@@ -105,7 +109,7 @@ perceptual de cada imagem. Os filtros por problema (borradas, escuras, claras, b
 pequenas, proporção estranha, tons de cinza, quase duplicatas) mostram as imagens apontadas;
 *Selecionar sugeridas* marca as que provavelmente vale excluir. Selecione e use *Excluir
 selecionadas* (reversível: aba *Excluídas*, botão *Restaurar selecionadas*) ou *Apagar
-definitivamente* (pede confirmação). Os limites de cada problema ficam em *Avançado: limites* e
+definitivamente* (pede confirmação). Os limites de cada problema ficam em *Limites* e
 mudam sem medir de novo; *Zerar análise* esquece as medidas, os problemas apontados e os grupos
 de quase duplicatas (imagens, exclusões e anotações ficam). *Abrir no FiftyOne* abre o mesmo
 filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *Trazer exclusões
@@ -117,7 +121,9 @@ do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no env
 (ou K dobras mais uma parte de teste). Quadros do mesmo vídeo e quase duplicadas ficam juntos,
 e as classes são distribuídas de forma equilibrada. Escolha as tasks, as porcentagens (números
 que somam 100; para treinar é preciso ter validação), imagens de fundo, modo de vídeos e a
-semente; a prévia mostra os avisos antes de salvar. Detalhes: [DATASETS.md](DATASETS.md).
+semente; a prévia mostra os avisos antes de salvar. Rótulos que o modelo não conseguiria usar ficam de
+fora, com aviso, e uma versão cujo treino ou validação ficaria vazio é recusada. Cada versão tem
+*Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md).
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
