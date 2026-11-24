@@ -1,6 +1,6 @@
 # ActiveLabel — training and models
 
-Steps **5 · Treinamento** (training) and **6 · Modelos** (models) of a project. A training run uses one
+Steps **5 · Training** (*Treinamento*) and **6 · Models** (*Modelos*) of a project. A training run uses one
 dataset version (docs/DATASETS.md), so it is always known which images and labels it saw; its
 configuration is saved as YAML so it can be reproduced, on this or any other machine.
 
@@ -33,11 +33,11 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (**planned, not available**) | YOLOv8 / YOLO11 n s m l | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
-| Segmentation (instance) | torchvision / ultralytics (YOLO planned) | Mask R-CNN; YOLOv8/11-seg | torch, torchvision / ultralytics |
+| Segmentation (instance) | torchvision / ultralytics (YOLO planned) | Mask R-CNN ResNet-50 FPN (trainable now); YOLOv8/11-seg (planned) | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics (YOLO planned) | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
-YOLO/Ultralytics models are listed in the catalogue, but the runner refuses to train them ("comes
-later"); the screen is meant to hide them until they work.
+YOLO/Ultralytics models are listed in the catalogue returned by the API, but the screen hides them
+and the API refuses to create a run with one (400, "Training YOLO models is not available yet").
 
 The catalogue is data (`training/catalog.py`): each model lists its family, packages, input size,
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds
@@ -99,7 +99,9 @@ For a grid / all-folds run, `run.json` lists `children` (`id`, `combo`, `fold`, 
 adds `ranking` (`rank`, `combo`, `values`, `children`, `scores`, `mean`, `std`, `complete`),
 `best_combo`, `best_child`, `best_value`, `folds` and `metric`.
 
-*Reproduce* starts a new run with the same `config.yaml`.
+*Repeat* (*Reproduzir*) starts a new run with the same `config.yaml` (409 when the file of the run is
+missing or damaged). A run whose `config.yaml` cannot be read still appears in the list, with a
+`config_error` instead of its configuration, and can be deleted.
 
 **Cancel** kills the worker process: the run gets the status `cancelled` and keeps its partial curves
 (`metrics.jsonl`) and its log, but not usable results, and it cannot be saved as a model (only a
@@ -108,7 +110,7 @@ that was running when ActiveLabel stopped ends as failed (`interrupted`); queued
 
 ## Models (step 6)
 
-A finished run is **saved as a model** (button *Salvar como modelo* on the run): `<project>/models/m<N>/`
+A finished run is **saved as a model** (button *Save as model* (*Salvar como modelo*) on the run): `<project>/models/m<N>/`
 holds its best weights (`best.pt`), `config.yaml`, `results.json` and a card, `model.json` (run and
 best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
 the order of the network's outputs, device and package versions, size, note, exports). Numbers are
@@ -116,14 +118,18 @@ never reused, a run is saved at most once, and saving removes the run's `last.pt
 weights to keep: the PyTorch weights always, and also ONNX (classification and semantic
 segmentation), which is then queued right after saving.
 
-- **Public models**: *Adicionar modelo público* adds a pretrained torchvision model (COCO) without
-  local training, with a mapping from its categories to the project's classes; only to pre-annotate.
-  See docs/PREANNOTATE.md (Public models).
-- **Current model**: one model of the project is marked current (`models/current.json`); the first
+- **Public models**: *Add a public model* (*Adicionar modelo público*) adds a pretrained torchvision
+  model (COCO) without local training, with a mapping from its categories to the project's classes;
+  only to pre-annotate. It has no weights stored here, so it has no download and no ONNX export (the
+  API answers 404 and 400). See docs/PREANNOTATE.md (Public models).
+- **Current model**: one model of the project is marked current (`models/current.json`, button *Make
+  current*); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
 - **Comparison**: the screen lists the models and compares them in a table (every validation and
   test metric, the main per-class metric, size), highlighting the best value of each row.
+- **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
+  pre-annotation that uses it is queued or running.
 - **Downloads**: the PyTorch weights (`.pt`, a dict with `state_dict`, `classes`, `model`, `family`,
   `image_size` and, for classification and segmentation, `mean`/`std`).
 - **ONNX export** (classification and semantic segmentation): queued with the training runs (one heavy
@@ -145,7 +151,7 @@ segmentation), which is then queued right after saving.
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
 | GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
 | GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
-| POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | |
+| POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | cancel (a queued or running run) / new run with the same configuration |
 | DELETE | `/api/projects/{id}/runs/{n}` | after confirmation |
 | GET/POST | `/api/projects/{id}/models` | list (with results and the current model) / save a run (`{run, note}`) |
 | GET | `/api/projects/{id}/models/public-catalog` | public pretrained models for the project type, with a suggested mapping |
@@ -156,9 +162,14 @@ segmentation), which is then queued right after saving.
 
 ## Status
 
-Done: catalogue, training environment, runner, classification, detection, semantic segmentation and
-keypoints (torchvision), grid search and all folds, the step 5 screen (Treinamento), and step 6
+Done: catalogue, training environment, runner, classification, detection, semantic segmentation,
+instance segmentation (Mask R-CNN) and keypoints (torchvision), grid search and all folds, the step 5 screen (Treinamento), and step 6
 (Modelos) with save, current model, comparison, download and ONNX export.
 
-Not yet: YOLO / Ultralytics models (training them is refused), instance segmentation in pre-annotation,
-and regression.
+Not yet: YOLO / Ultralytics models (training them is refused), semantic and instance segmentation in
+pre-annotation (and ONNX for instance, detection and keypoint models), and regression.
+
+## Image orientation
+
+The workers apply the EXIF orientation of each photo when they load it (training, evaluation and
+pre-annotation), so a photo stored rotated is seen upright, as in the gallery and in the annotation tools.
