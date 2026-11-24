@@ -674,6 +674,13 @@ class TrainingRunner:
                 raise RunnerError(
                     f"This model makes {kind} labels, but the project is now {project.task.value}."
                 )
+            model_classes = list(card.get("classes") or [])
+            removed = [c for c in model_classes if c not in project.classes]
+            if model_classes and len(removed) == len(model_classes):
+                raise RunnerError(
+                    "None of the classes of this model is in the project (any more): "
+                    f"{', '.join(removed[:5])}."
+                )
             expected_points, have_points = (
                 card.get("num_keypoints"),
                 preannotate.project_keypoints(project_dir),
@@ -761,8 +768,11 @@ class TrainingRunner:
                     "The project's type or classes changed while the pre-annotation was running: "
                     "nothing was written. Run it again."
                 )
-            counts = preannotate.apply_predictions(project_dir, now_project, predictions, str(run["scope"]))
+            counts: dict[str, Any] = dict(
+                preannotate.apply_predictions(project_dir, now_project, predictions, str(run["scope"]))
+            )
             counts["unreadable"] = len(unreadable)
+            counts["removed_classes"] = removed  # classes of the model the project does not have
             runs.update(number, status=DONE, finished=now(), phase="", done=len(items), counts=counts)
         except Cancelled:
             runs.update(number, status=CANCELLED, finished=now(), phase="")

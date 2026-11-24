@@ -16,6 +16,7 @@ from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, 
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.models import ModelStore
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
+from activelabel.web.errors import ApiError
 from activelabel.web.state import AppState, get_state
 
 LOG = logging.getLogger(__name__)
@@ -84,6 +85,15 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
     if version.get("incomplete"):
         raise HTTPException(
             400, "Some images of this dataset version were deleted from the project: make a new version."
+        )
+    gone = [c for c in version["classes"] if c not in project.classes]
+    if gone:  # the version is frozen: the way out is a new version, not a model with classes nobody can use
+        raise ApiError(
+            400,
+            "dataset_classes_removed",
+            f"This dataset version has classes the project no longer has ({', '.join(gone[:5])}): "
+            "make a new version.",
+            classes=gone,
         )
     if not version.get("folds") and not (version.get("sizes") or {}).get("train"):
         raise HTTPException(400, "The training part of this dataset version has no images: make another one.")
