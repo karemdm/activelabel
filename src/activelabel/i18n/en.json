@@ -330,6 +330,7 @@
   "new.name_ph": "e.g. Weld defects — line 3",
   "new.description_ph": "e.g. Find cracks and porosity in weld images from line 3; images from the 2026 inspections.",
   "classes.less": "Show less",
+  "classes.see_all": "See all",
   "gate.need_images": "Add images in step 1 first.",
   "gate.go_images": "Go to Images",
   "grid.range": "{from}–{to} of {total}",

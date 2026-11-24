@@ -330,6 +330,7 @@
   "new.name_ph": "ex.: Defeitos de solda — linha 3",
   "new.description_ph": "ex.: Encontrar trincas e porosidade em imagens de solda da linha 3; imagens das inspeções de 2026.",
   "classes.less": "Mostrar menos",
+  "classes.see_all": "Ver todas",
   "gate.need_images": "Adicione imagens na etapa 1 primeiro.",
   "gate.go_images": "Ir para Imagens",
   "grid.range": "{from}–{to} de {total}",

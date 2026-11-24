@@ -368,6 +368,30 @@
     return box;
   }
 
+  /* The classes of the project on one line of the page header: the first ones that fit, and "see all" for the rest. */
+  function classLine(classes) {
+    const chip = (c) => el('span', { class: 'chip static' }, c);
+    const open = (e) => {
+      const list = el('ul', { class: 'chips' }, ...classes.map((c) => el('li', null, chip(c))));
+      const search = el('input', { type: 'search', placeholder: t('ann.classes_search'), 'aria-label': t('ann.classes_search'),
+        oninput: (ev) => {
+          const q = ev.target.value.trim().toLowerCase();
+          fill(list, ...classes.filter((c) => c.toLowerCase().includes(q)).map((c) => el('li', null, chip(c))));
+        } });
+      const dlg = el('dialog', { class: 'dialog', 'aria-label': `${t('field.classes')} (${num(classes.length)})` },
+        el('div', { class: 'dialog-body' }, el('h2', null, `${t('field.classes')} (${num(classes.length)})`),
+          classes.length > 12 ? el('div', { class: 'field' }, search) : null, list,
+          el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.close')))));
+      dlg.addEventListener('close', () => { dlg.remove(); e.target.focus(); });
+      document.body.appendChild(dlg);
+      openModal(dlg);
+    };
+    return el('div', { class: 'class-line' },
+      el('span', { class: 'muted class-line-label' }, `${t('field.classes')} (${num(classes.length)})`),
+      el('span', { class: 'class-line-chips' }, ...classes.map(chip)),
+      classes.length > 3 ? el('button', { type: 'button', class: 'btn small', onclick: open }, t('classes.see_all')) : null);
+  }
+
   function progressBar(done, total, label) {
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     const bar = el('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct), 'aria-label': label || t('common.progress') },
@@ -952,7 +976,7 @@
             taskBadge(p.task),
             ctx.links.length ? ctx.links.map(linkBadge) : originBadge(p.origin)),
           p.description ? el('p', { class: 'muted' }, p.description) : null,
-          (p.classes || []).length ? classList(p.classes) : null),
+          (p.classes || []).length ? classLine(p.classes) : null),
         el('div', { class: 'project-head-actions' },
           el('button', { type: 'button', class: 'btn', onclick: openEdit }, t('project.edit')),
           el('button', { type: 'button', class: 'btn danger-outline', onclick: openDelete }, t('project.delete'))));
