@@ -1,4 +1,4 @@
-"""HTTP API of synchronisation with CVAT and Label Studio (see docs/SYNC.md)."""
+"""HTTP API of synchronisation with CVAT (see docs/SYNC.md)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
-SYNC_TOOLS = ("cvat", "labelstudio")
+SYNC_TOOLS = ("cvat",)
 
 
 class PlanBody(BaseModel):
@@ -42,7 +42,7 @@ class ApplyBody(BaseModel):
 
 def _tool(tool: str) -> str:
     if tool not in SYNC_TOOLS:
-        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat or labelstudio).", tool=tool)
+        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat).", tool=tool)
     return tool
 
 
@@ -85,17 +85,27 @@ def cvat_audit(state: AppState = STATE) -> dict[str, Any]:
 
 @router.get("/projects/{project_id}/links")
 def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Links of a project with remote projects."""
+    """Links of a project with remote projects.
+
+    A link written for a tool that cannot be synchronised any more (an old workspace) is listed with
+    ``supported: false``: it can only be unlinked.
+    """
     state.project(project_id)
     found = links.load_links(state.store.dir(project_id))
-    return {"links": [links.public_view(tool, link) for tool, link in found.items()]}
+    return {
+        "links": [
+            {**links.public_view(tool, link), "supported": tool in SYNC_TOOLS} for tool, link in found.items()
+        ]
+    }
 
 
 @router.delete("/projects/{project_id}/links/{tool}")
 def unlink(project_id: int, tool: str, state: AppState = STATE) -> dict[str, bool]:
-    """Forget the link with a tool (the remote project is not touched). Refused (409) while a job runs."""
+    """Forget the link with a tool (the remote project is not touched). Refused (409) while a job runs.
+
+    Any link can be forgotten, also one of a tool that cannot be synchronised any more.
+    """
     state.project(project_id)
-    _tool(tool)
     state.busy(project_id)  # a running comparison or sync could write the link again
     if not links.remove_link(state.store.dir(project_id), tool):
         raise ApiError(404, "not_linked", f"This project is not linked to {tool}.", tool=tool)

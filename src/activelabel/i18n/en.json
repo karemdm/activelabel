@@ -517,6 +517,7 @@
   "import.back": "Back to the list",
   "import.more_classes": "+{n}",
   "sync.remote_project": "Project in {tool}",
+  "sync.link_unsupported": "This link is to a tool that is no longer supported, so it cannot be synchronised. You can unlink it; nothing is changed in {tool}.",
   "sync.last": "Last synchronised",
   "sync.never": "never",
   "sync.run": "Synchronise",

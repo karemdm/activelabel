@@ -66,8 +66,8 @@ src/activelabel/
   annotations/           importers per format (coco, yolo, xmlformats, labelstudio, videoformats...),
                          staging, validation, conversion between project types
   curation/              measures (quality), issues and thresholds, summary
-  annotate/              edit sessions: tools (fiftyone, labelstudio), credentials, diff
-  sync/                  three-way sync engine, links, remote adapters (cvat, labelstudio)
+  annotate/              edit sessions: tools (fiftyone), credentials, diff
+  sync/                  three-way sync engine, links, remote adapter (cvat)
   importing/             import a whole project from CVAT or Label Studio
   training/              catalog, config, runs, models, public_models, environment, runner, workers/
   i18n/                  en.json, pt.json
