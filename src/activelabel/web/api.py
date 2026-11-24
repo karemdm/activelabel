@@ -92,7 +92,15 @@ class ImageIds(BaseModel):
 
 # -- helpers ------------------------------------------------------------------
 def _unreadable(reason: str, file: str = "") -> ApiError:
-    """HTTP 400: an annotation file could not be read (``file`` and the parser's ``reason``)."""
+    """HTTP 400: an annotation file could not be read (``file`` and the parser's ``reason``).
+
+    Args:
+        reason: The message of the parser.
+        file: Name of the file that could not be read.
+
+    Returns:
+        The HTTP 400 error to raise (code ``annotation_unreadable``).
+    """
     where = f"{file}: " if file else ""
     return ApiError(
         400,
@@ -104,7 +112,15 @@ def _unreadable(reason: str, file: str = "") -> ApiError:
 
 
 def project_overview(state: AppState, project: Project) -> dict[str, Any]:
-    """Project with counts and the status of each step (what the stepper shows)."""
+    """Project with counts and the status of each step (what the stepper shows).
+
+    Args:
+        state: The shared state of the application.
+        project: The project.
+
+    Returns:
+        The project with its origin, counts and the status of each step.
+    """
     project_dir = state.store.dir(project.id)
     records = Manifest(project_dir).all()
     active = [r for r in records if r.status == ACTIVE]
@@ -147,6 +163,15 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
 
 
 def _image_item(record: ImageRecord, labels: int) -> dict[str, Any]:
+    """An image record as the image list shows it.
+
+    Args:
+        record: The image record.
+        labels: How many labels the image has.
+
+    Returns:
+        The image as the interface lists it (without its file path).
+    """
     item = record.as_dict()
     item.pop("file", None)
     item["labels"] = labels
@@ -160,6 +185,12 @@ def list_projects(state: AppState = STATE) -> list[dict[str, Any]]:
 
     A project with a damaged file is still listed, with ``damaged`` (a readable message) and empty counts,
     so one bad file does not hide the others.
+
+    Args:
+        state: The shared state of the application.
+
+    Returns:
+        The overview of every project, newest first.
     """
     items = [_safe_overview(state, p) for p in state.store.list()]
     items += [_damaged_overview(i, message) for i, message in state.store.damaged().items()]
@@ -167,7 +198,16 @@ def list_projects(state: AppState = STATE) -> list[dict[str, Any]]:
 
 
 def _damaged_overview(project_id: int, message: str, project: Project | None = None) -> dict[str, Any]:
-    """Stand-in for a project that cannot be read: right shape, empty counts, ``damaged`` set."""
+    """Stand-in for a project that cannot be read: right shape, empty counts, ``damaged`` set.
+
+    Args:
+        project_id: Id of the project.
+        message: The readable message about the damaged file.
+        project: The project, when it could still be read.
+
+    Returns:
+        A project overview with empty counts and ``damaged`` set.
+    """
     base = (
         project.as_dict()
         if project
@@ -200,6 +240,15 @@ def _damaged_overview(project_id: int, message: str, project: Project | None = N
 
 
 def _safe_overview(state: AppState, project: Project) -> dict[str, Any]:
+    """The overview of a project, even when one of its files is damaged.
+
+    Args:
+        state: The shared state of the application.
+        project: The project.
+
+    Returns:
+        The overview, or a stand-in with ``damaged`` set when a file of the project cannot be read.
+    """
     try:
         return project_overview(state, project)
     except DamagedFile as exc:
@@ -208,7 +257,15 @@ def _safe_overview(state: AppState, project: Project) -> dict[str, Any]:
 
 @router.post("/projects")
 def create_project(body: NewProject, state: AppState = STATE) -> dict[str, Any]:
-    """Create a project (the id is automatic)."""
+    """Create a project (the id is automatic).
+
+    Args:
+        body: Name, description, task and classes of the new project.
+        state: The shared state of the application.
+
+    Returns:
+        The project (see :func:`project_overview`).
+    """
     try:
         project = state.store.create(body.name, body.description, body.task, body.classes)
     except DamagedFile:
@@ -220,17 +277,40 @@ def create_project(body: NewProject, state: AppState = STATE) -> dict[str, Any]:
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """One project with counts and step status."""
+    """One project with counts and step status.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        The project (see :func:`project_overview`).
+    """
     return project_overview(state, state.project(project_id))
 
 
 def _counts(annotations: AnnotationSet) -> tuple[int, int]:
-    """Images with labels and labels of a ground truth."""
+    """Images with labels and labels of a ground truth.
+
+    Args:
+        annotations: The ground truth.
+
+    Returns:
+        ``(images with labels, labels)``.
+    """
     return sum(1 for v in annotations.images.values() if v), sum(len(v) for v in annotations.images.values())
 
 
 def _classes_used(annotations: AnnotationSet, keep: set[str]) -> dict[str, dict[str, Any]]:
-    """Classes of the ground truth that are not in ``keep`` (lower case): name -> labels and image ids."""
+    """Classes of the ground truth that are not in ``keep`` (lower case): name -> labels and image ids.
+
+    Args:
+        annotations: The ground truth.
+        keep: Class names to keep (lower case).
+
+    Returns:
+        The other classes the labels use, each with its label count and image ids.
+    """
     used: dict[str, dict[str, Any]] = {}
     for image_id, labels in annotations.images.items():
         for lb in labels:
@@ -242,13 +322,25 @@ def _classes_used(annotations: AnnotationSet, keep: set[str]) -> dict[str, dict[
 
 
 def _backup_annotations(project_dir: Path) -> None:
-    """Copy annotations.json to annotations.<timestamp>.bak.json."""
+    """Copy annotations.json to annotations.<timestamp>.bak.json.
+
+    Args:
+        project_dir: Folder of the project.
+    """
     stamp = time.strftime("%Y%m%dT%H%M%S")
     shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
 
 
 def _with_classes(annotations: AnnotationSet, project: Project) -> AnnotationSet:
-    """The ground truth with the class list of the project (so ``class_names`` never lags behind)."""
+    """The ground truth with the class list of the project (so ``class_names`` never lags behind).
+
+    Args:
+        annotations: The ground truth.
+        project: The project (the class list to use).
+
+    Returns:
+        The ground truth with the class list of the project.
+    """
     annotations.classes = list(project.classes)
     return annotations
 
@@ -269,6 +361,14 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
     training, ONNX export and pre-annotation of the project (HTTP 409 ``busy_training``): they read both.
     It holds the annotations lock from reading
     ``annotations.json`` to writing it (backup included), so no other writer is lost.
+
+    Args:
+        project_id: Id of the project.
+        body: The fields to change (name, description, task, classes and what to do with the annotations).
+        state: The shared state of the application.
+
+    Returns:
+        The project (see :func:`project_overview`).
     """
     project = state.project(project_id)
     changes_labels = (body.task is not None and body.task is not project.task) or (
@@ -280,6 +380,16 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
 
 
 def _update_project_locked(project_id: int, body: ProjectChanges, state: AppState) -> dict[str, Any]:
+    """Change a project while the annotations lock is held (see :func:`update_project`).
+
+    Args:
+        project_id: Id of the project.
+        body: The fields to change.
+        state: The shared state of the application.
+
+    Returns:
+        The project (see :func:`project_overview`).
+    """
     project = state.project(project_id)
     changes = body.model_dump(exclude_none=True, exclude={"annotations", "classes_action"})
     project_dir = state.store.dir(project_id)
@@ -383,6 +493,14 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     """Delete a project with all its files. The name must be typed again.
 
     FiftyOne is only touched when the project has a recorded dataset (``fiftyone.json``).
+
+    Args:
+        project_id: Id of the project.
+        body: The project name, typed again to confirm.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted: project_id}``.
     """
     project = state.project(project_id)
     if body.confirm_name.strip() != project.name:
@@ -414,14 +532,31 @@ def drop_fiftyone_dataset(project_dir: Path, project_id: int, recorded: str) -> 
 
 # -- images -------------------------------------------------------------------
 def ingest_uploads(manifest: Manifest, files: list[UploadFile]) -> tuple[dict[str, Any], list[str]]:
-    """Store uploaded files with the ingest code; returns the report and the ids actually added, in order."""
+    """Store uploaded files with the ingest code; returns the report and the ids actually added, in order.
+
+    Args:
+        manifest: The image manifest of the project.
+        files: The uploaded files.
+
+    Returns:
+        ``(report, ids)``: the ingest report and the ids actually added, in order.
+    """
     report = ingest_files(manifest, [(f.filename or "image", f.file) for f in files])
     return report.as_dict(), report.ids
 
 
 @router.post("/projects/{project_id}/images")
 def upload_images(project_id: int, files: UPLOADS, state: AppState = STATE) -> dict[str, Any]:
-    """Add uploaded images and .zip archives as a new task (the interface sends them in chunks)."""
+    """Add uploaded images and .zip archives as a new task (the interface sends them in chunks).
+
+    Args:
+        project_id: Id of the project.
+        files: The uploaded files.
+        state: The shared state of the application.
+
+    Returns:
+        The ingest report.
+    """
     manifest = state.manifest(project_id)
     tasks = TaskStore(state.store.dir(project_id))
     with tasks.locked():  # ingest and registration are atomic
@@ -462,6 +597,14 @@ def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) 
     """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT) as a new task, as a job.
 
     A folder that is off limits or missing is refused at once (HTTP 400).
+
+    Args:
+        project_id: Id of the project.
+        body: The folder to import.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
     """
     manifest = state.manifest(project_id)
     root = state.settings.import_root
@@ -493,6 +636,23 @@ def list_images(
 
     With ``task`` the items are in task order; ``job`` (1-based) needs ``task``. ``dataset`` keeps the
     images of a dataset version, of one ``part`` (train, val, test) or ``fold`` (0-based).
+
+    Args:
+        project_id: Id of the project.
+        status: ``active``, ``excluded`` or ``all``.
+        issue: Keep the images flagged with this issue.
+        ids: Comma-separated image ids to keep.
+        task: Keep the images of this task.
+        job: Keep the images of this job (1-based; needs ``task``).
+        dataset: Keep the images of this dataset version.
+        part: With ``dataset``: ``train``, ``val`` or ``test``.
+        fold: With ``dataset``: keep this fold (0-based).
+        offset: Items to skip.
+        limit: Items to return.
+        state: The shared state of the application.
+
+    Returns:
+        ``{total, items}``: how many images match and the requested page.
     """
     manifest = state.manifest(project_id)
     records = manifest.all()
@@ -549,6 +709,16 @@ def list_images(
 
 
 def _record(state: AppState, project_id: int, image_id: str) -> tuple[Any, ImageRecord]:
+    """The manifest and the record of an image, or HTTP 404.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        image_id: Id of the image.
+
+    Returns:
+        ``(manifest, record)`` of the image.
+    """
     manifest = state.manifest(project_id)
     try:
         return manifest, manifest.get(image_id)
@@ -558,40 +728,94 @@ def _record(state: AppState, project_id: int, image_id: str) -> tuple[Any, Image
 
 @router.get("/projects/{project_id}/images/{image_id}/thumb")
 def image_thumb(project_id: int, image_id: str, state: AppState = STATE) -> FileResponse:
-    """Thumbnail (JPEG, made on first request)."""
+    """Thumbnail (JPEG, made on first request).
+
+    Args:
+        project_id: Id of the project.
+        image_id: Id of the image.
+        state: The shared state of the application.
+
+    Returns:
+        The thumbnail as a JPEG file response.
+    """
     manifest, record = _record(state, project_id, image_id)
     return FileResponse(thumbnail(manifest, record), headers={"Cache-Control": "max-age=86400"})
 
 
 @router.get("/projects/{project_id}/images/{image_id}/file")
 def image_file(project_id: int, image_id: str, state: AppState = STATE) -> FileResponse:
-    """The original file."""
+    """The original file.
+
+    Args:
+        project_id: Id of the project.
+        image_id: Id of the image.
+        state: The shared state of the application.
+
+    Returns:
+        The original file.
+    """
     manifest, record = _record(state, project_id, image_id)
     return FileResponse(manifest.file_path(record), filename=Path(record.name).name)
 
 
 @router.post("/projects/{project_id}/images/exclude")
 def exclude_images(project_id: int, body: ImageIds, state: AppState = STATE) -> dict[str, int]:
-    """Leave images out of the project (reversible)."""
+    """Leave images out of the project (reversible).
+
+    Args:
+        project_id: Id of the project.
+        body: The image ids and the reason.
+        state: The shared state of the application.
+
+    Returns:
+        ``{changed}``: how many images changed.
+    """
     return {"changed": state.manifest(project_id).set_status(body.ids, EXCLUDED, body.reason)}
 
 
 @router.post("/projects/{project_id}/images/restore")
 def restore_images(project_id: int, body: ImageIds, state: AppState = STATE) -> dict[str, int]:
-    """Bring excluded images back."""
+    """Bring excluded images back.
+
+    Args:
+        project_id: Id of the project.
+        body: The image ids.
+        state: The shared state of the application.
+
+    Returns:
+        ``{changed}``: how many images changed.
+    """
     return {"changed": state.manifest(project_id).set_status(body.ids, ACTIVE)}
 
 
 @router.post("/projects/{project_id}/images/delete")
 def delete_images(project_id: int, body: ImageIds, state: AppState = STATE) -> dict[str, int]:
-    """Delete images and their files for good (also their annotations and thumbnails)."""
+    """Delete images and their files for good (also their annotations and thumbnails).
+
+    Args:
+        project_id: Id of the project.
+        body: The image ids and the confirmation.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted}``: how many images were deleted.
+    """
     if not body.confirm:
         raise ApiError(400, "confirm_required", "Deleting cannot be undone: confirm it first.")
     return {"deleted": delete_image_files(state, project_id, body.ids)}
 
 
 def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
-    """Delete images for good: files, thumbnails, annotations and their place in a task."""
+    """Delete images for good: files, thumbnails, annotations and their place in a task.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        ids: The images to delete.
+
+    Returns:
+        How many images were deleted.
+    """
     state.busy(project_id, training=True)
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
@@ -616,21 +840,45 @@ def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
 # -- jobs -----------------------------------------------------------------------
 @router.get("/projects/{project_id}/jobs")
 def project_jobs(project_id: int, state: AppState = STATE) -> list[dict[str, Any]]:
-    """Running and recent jobs of a project, newest first."""
+    """Running and recent jobs of a project, newest first.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        The jobs of the project, newest first.
+    """
     state.project(project_id)
     return [j.as_dict() for j in state.jobs.list(project_id)]
 
 
 @router.delete("/projects/{project_id}/jobs")
 def clear_jobs(project_id: int, state: AppState = STATE) -> dict[str, int]:
-    """Remove the finished jobs of a project from the list (running ones stay)."""
+    """Remove the finished jobs of a project from the list (running ones stay).
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{removed}``: how many finished jobs were removed from the list.
+    """
     state.project(project_id)
     return {"removed": state.jobs.clear(project_id)}
 
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
-    """One job, of any project (including imports, which belong to project 0)."""
+    """One job, of any project (including imports, which belong to project 0).
+
+    Args:
+        job_id: Id of the job.
+        state: The shared state of the application.
+
+    Returns:
+        The job.
+    """
     try:
         return state.jobs.get(job_id).as_dict()
     except KeyError:
@@ -639,7 +887,15 @@ def get_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
 
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, state: AppState = STATE) -> dict[str, Any]:
-    """Ask a job to stop."""
+    """Ask a job to stop.
+
+    Args:
+        job_id: Id of the job.
+        state: The shared state of the application.
+
+    Returns:
+        The job, asked to stop.
+    """
     try:
         job: Job = state.jobs.cancel(job_id)
     except KeyError:
@@ -670,6 +926,17 @@ def check_annotations(
     ``class_name`` names the objects of MOT files that come without a labels file. When the files cannot be
     imported at all (``can_import`` false) they are not kept: the report still comes back, and discarding
     its token is harmless.
+
+    Args:
+        project_id: Id of the project.
+        files: The uploaded files.
+        task: Id of the video task the files belong to, when they are for a video.
+        class_name: Name of the class of the objects, for formats without class names.
+        state: The shared state of the application.
+
+    Returns:
+        The report of what is in the files, with the ``token`` that identifies them and whether the
+        project already has annotations.
     """
     project = state.project(project_id)
     manifest = state.manifest_with_images(project_id)
@@ -732,7 +999,17 @@ def check_annotations(
 def apply_annotations(
     project_id: int, token: str, body: ApplyAnnotations, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Import (or discard) staged annotation files as the user decided."""
+    """Import (or discard) staged annotation files as the user decided.
+
+    Args:
+        project_id: Id of the project.
+        token: Token of the staged files.
+        body: What to do (action and mode).
+        state: The shared state of the application.
+
+    Returns:
+        The counts of what was imported.
+    """
     manifest = state.manifest(project_id)
     state.busy(project_id)
     try:
@@ -745,7 +1022,16 @@ def apply_annotations(
 
 @router.delete("/projects/{project_id}/annotations/{token}")
 def discard_annotations(project_id: int, token: str, state: AppState = STATE) -> dict[str, bool]:
-    """Throw away staged annotation files."""
+    """Throw away staged annotation files.
+
+    Args:
+        project_id: Id of the project.
+        token: Token of the staged files.
+        state: The shared state of the application.
+
+    Returns:
+        ``{discarded: true}``.
+    """
     state.project(project_id)
     try:
         ann.discard_staged(state.store.dir(project_id), token)
@@ -756,7 +1042,15 @@ def discard_annotations(project_id: int, token: str, state: AppState = STATE) ->
 
 @router.get("/projects/{project_id}/annotations")
 def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """What the project ground truth has: task, classes, labels per class."""
+    """What the project ground truth has: task, classes, labels per class.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        The task, classes and counts of the ground truth, or ``{loaded: false}``.
+    """
     project = state.project(project_id)
     ground_truth = load_annotations(state.store.dir(project_id))
     if ground_truth is None:
@@ -795,6 +1089,15 @@ class Analyze(BaseModel):
 
 
 def _curation(state: AppState, project_id: int) -> dict[str, Any]:
+    """The curation summary of a project with its thresholds and duplicates.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The curation summary with the thresholds, their defaults and the duplicates.
+    """
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
     return {
@@ -827,7 +1130,16 @@ def _analyze_job(
 
 @router.post("/projects/{project_id}/curation/analyze")
 def analyze(project_id: int, body: Analyze | None = None, state: AppState = STATE) -> dict[str, Any]:
-    """Measure the images and flag issues, as a job (it can be cancelled)."""
+    """Measure the images and flag issues, as a job (it can be cancelled).
+
+    Args:
+        project_id: Id of the project.
+        body: Whether to measure every image again.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     manifest = state.manifest_with_images(project_id)
     project_dir = state.store.dir(project_id)
     recompute = bool(body and body.recompute)
@@ -837,7 +1149,15 @@ def analyze(project_id: int, body: Analyze | None = None, state: AppState = STAT
 
 @router.delete("/projects/{project_id}/curation")
 def reset_curation(project_id: int, state: AppState = STATE) -> dict[str, int]:
-    """Forget the analysis (measures, issues, hashes, duplicates); thresholds stay."""
+    """Forget the analysis (measures, issues, hashes, duplicates); thresholds stay.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{reset}``: how many images were reset.
+    """
     manifest = state.manifest(project_id)
     state.busy(project_id)
     return {"reset": issues.reset_curation(manifest)}
@@ -845,13 +1165,30 @@ def reset_curation(project_id: int, state: AppState = STATE) -> dict[str, int]:
 
 @router.get("/projects/{project_id}/curation")
 def curation_overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Counts per issue, ids per issue, histograms and thresholds."""
+    """Counts per issue, ids per issue, histograms and thresholds.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        The curation summary (see :func:`_curation`).
+    """
     return _curation(state, project_id)
 
 
 @router.put("/projects/{project_id}/curation/thresholds")
 def set_thresholds(project_id: int, body: dict[str, float], state: AppState = STATE) -> dict[str, Any]:
-    """Change thresholds and flag the images again (no new measuring)."""
+    """Change thresholds and flag the images again (no new measuring).
+
+    Args:
+        project_id: Id of the project.
+        body: The thresholds to change.
+        state: The shared state of the application.
+
+    Returns:
+        The curation summary (see :func:`_curation`).
+    """
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
     current = asdict(issues.load_thresholds(project_dir))
@@ -874,7 +1211,15 @@ def set_thresholds(project_id: int, body: dict[str, float], state: AppState = ST
 
 @router.get("/projects/{project_id}/curation/suggested")
 def suggested(project_id: int, state: AppState = STATE) -> dict[str, list[str]]:
-    """Images that are probably worth excluding (never excluded automatically)."""
+    """Images that are probably worth excluding (never excluded automatically).
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{ids}``: the images that are probably worth excluding.
+    """
     return {"ids": curation_summary.suggest_exclusions(state.manifest(project_id))}
 
 
@@ -924,7 +1269,16 @@ def _open_fiftyone_job(
 def open_fiftyone(
     project_id: int, body: OpenFiftyOne | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Refresh the project's FiftyOne dataset and open the App (job; returns the URL as its result)."""
+    """Refresh the project's FiftyOne dataset and open the App (job; returns the URL as its result).
+
+    Args:
+        project_id: Id of the project.
+        body: The view, task and job to open.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job (id and state); its result is read from the job when it finishes.
+    """
     project = state.project(project_id)
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
@@ -942,7 +1296,15 @@ def open_fiftyone(
 
 @router.post("/projects/{project_id}/fiftyone/pull-exclusions")
 def pull_exclusions(project_id: int, state: AppState = STATE) -> dict[str, int]:
-    """Exclude the images tagged ``exclude`` in the FiftyOne App."""
+    """Exclude the images tagged ``exclude`` in the FiftyOne App.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{excluded}``: how many images were excluded.
+    """
     state.project(project_id)
     manifest = state.manifest(project_id)
     dataset = fiftyone_bridge.existing_dataset(state.store.dir(project_id), project_id)
