@@ -128,6 +128,8 @@ segmentation), which is then queued right after saving.
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
 - **Comparison**: the screen lists the models and compares them in a table (every validation and
   test metric, the main per-class metric, size), highlighting the best value of each row.
+- A saved model whose architecture this version no longer offers is listed as *unavailable*
+  (*indisponível*) and cannot pre-annotate (it can still be deleted).
 - **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
   pre-annotation that uses it is queued or running.
 - **Downloads**: the PyTorch weights (`.pt`, a dict with `state_dict`, `classes`, `model`, `family`,

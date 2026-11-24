@@ -56,7 +56,7 @@ Set in the interface: the *Settings* (*Ajustes*) button on the tool card, or *Se
 (*Configurar o CVAT*) in the *CVAT* tab. URL and username are stored in
 `<workspace>/tools.json`; the password / token **only** in the system keyring (service
 `activelabel`, key `<tool>:<url>`). They are never written to a file, never returned by the API
-and never logged. *Test connection* checks them.
+and never logged. *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login.
 
 ## HTTP API
 

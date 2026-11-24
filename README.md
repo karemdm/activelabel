@@ -124,7 +124,7 @@ project is its *type*.)
 ### Activities
 
 Background jobs (analysis, uploads, synchronisation, training, export, pre-annotation) appear
-in a small card in the bottom-right corner of the project page, with progress, *Cancel* and
+in a small card in the bottom-right corner of the project page, with progress, *Stop* (*Parar*) and
 *See result*. It can be minimised or closed; finished activities stay in its history. Only one
 heavy process (training, export or pre-annotation) runs at a time; the others wait in a queue.
 
