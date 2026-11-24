@@ -125,7 +125,7 @@ def test_dynamic_translation_keys_exist():
     wanted += [f"metric.{m}" for m in ("brightness", "contrast", "sharpness")]
     wanted += [f"reason.{r}" for r in ("corrupt", "unsupported", "too_small")]
     wanted += [f"format.{f}" for f in ("coco", "yolo", "voc", "cvat", "labelstudio", "folders")]
-    wanted += [f"import.tool.{x}.help" for x in ("cvat", "labelstudio")]
+    wanted += ["import.tool.cvat.help"]
     wanted += [f"import.kind.{x}" for x in ("project", "task")]
     wanted += ["jobmsg.listing", "jobmsg.Downloading images", "jobmsg.Reading annotations"]
     wanted += ["jobmsg.Creating the project", "job.kind.import_project"]

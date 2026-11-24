@@ -62,7 +62,7 @@ host padrão `127.0.0.1`, a não ser numa rede confiável.
 
 Na lista de projetos, *Novo projeto*: nome, descrição e **tipo** (classificação, detecção,
 segmentação ou pontos-chave). O número do projeto é automático. As classes são opcionais;
-podem vir dos arquivos de anotação. Um projeto que já existe no CVAT ou no Label Studio pode
+podem vir dos arquivos de anotação. Um projeto que já existe no CVAT pode
 ser importado em vez de criado (veja [IMPORT.md](IMPORT.md), em inglês). A página do projeto
 mostra uma barra compacta com os seis passos, em dois grupos; cada passo tem um marcador (feito,
 pede atenção, em andamento) e o seu estado.
@@ -105,9 +105,6 @@ interface chama de *Tipo*.
   *Descartar*. Se o projeto já tem anotações, escolha também *Mesclar* ou *Substituir*.
   Anotações feitas para um vídeo inteiro vão para uma task de vídeo, casadas pelo número do
   quadro ([VIDEO.md](VIDEO.md)).
-
-O Label Studio está desligado na interface por enquanto: só a importação de um projeto dele
-está disponível.
 
 **3. Curadoria.** *Analisar imagens* mede brilho, contraste, nitidez, tamanho e um hash
 perceptual de cada imagem. Os filtros por problema (borradas, escuras, claras, baixo contraste,

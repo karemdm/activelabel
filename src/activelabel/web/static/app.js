@@ -5557,7 +5557,7 @@
   // ---------------------------------------------------------------- page: import a project
   function initImport() {
     const root = document.getElementById('import-root');
-    const SOURCES = ['cvat', 'labelstudio'];
+    const SOURCES = ['cvat'];
     const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null };
     const ready = (tool) => !!(state.tools[tool] && state.tools[tool].configured);
 
@@ -5856,8 +5856,7 @@
     }
 
     drawSource();
-    const first = new URLSearchParams(location.search).get('tool');
-    loadTools().then(() => { if (SOURCES.includes(first)) choose(first); });
+    loadTools().then(() => choose('cvat'));
   }
 
   // ---------------------------------------------------------------- start
