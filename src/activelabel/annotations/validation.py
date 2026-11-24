@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from activelabel.annotations.context import bbox_of_points
 from activelabel.annotations.models import MAX_EXAMPLES, PROBLEMS, ParseResult, Problem, ValidationReport
 from activelabel.labels import KEYPOINTS_COUNT_MISMATCH, NO_GEOMETRY, Label, task_of, validate_labels
 from activelabel.projects import Project
@@ -96,8 +97,6 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
 
 def to_detection(label: Label) -> Label | None:
     """Box-only version of a label (its box, or the box of its polygons or visible keypoints)."""
-    from activelabel.annotations.context import bbox_of_points
-
     bbox = label.bbox
     if bbox is None and label.polygons:
         bbox = bbox_of_points(p for ring in label.polygons for p in ring)

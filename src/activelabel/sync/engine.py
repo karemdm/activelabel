@@ -24,6 +24,7 @@ from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
+from activelabel.images.video import VideoStore, probe
 from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
@@ -968,8 +969,6 @@ def _video_of(project_dir: Path, task: ImageTask) -> tuple[Path, dict[str, Any]]
     source = task.source or {}
     if not source.get("video"):
         return None
-    from activelabel.images.video import VideoStore
-
     store = VideoStore(project_dir)
     try:
         info = store.get(str(source["video"]))
@@ -1095,8 +1094,6 @@ def _attach_video(
     probe problem, selection that does not fit) the task stays as images, with a warning when a video
     was expected.
     """
-    from activelabel.images.video import VideoStore, probe
-
     name = str(spec.get("name") or spec["remote_task"])
     folder = Path(tempfile.mkdtemp(prefix="activelabel-video-"))
     try:

@@ -2,6 +2,7 @@ import pytest
 from ann_helpers import make_manifest, write
 
 from activelabel.annotations import detect_format, folder_classes, parse
+from activelabel.annotations.yolo import is_names_file
 from activelabel.labels import task_of
 from activelabel.tasks import Task
 
@@ -249,7 +250,6 @@ def test_a_label_file_called_labels_txt_is_not_a_names_file(env):
     write(folder, "data.yaml", "names: [cat]\n")
     write(folder, "classes.txt", "cat\n")
     write(folder, "a.txt", "0 0.5 0.5 0.2 0.2\n")
-    from activelabel.annotations.yolo import is_names_file
 
     assert is_names_file(folder / "classes.txt")
     write(folder, "labels.txt", "0 0.5 0.5 0.2 0.2\n")

@@ -2,8 +2,10 @@ import json
 
 import pytest
 
+from activelabel.annotate import credentials
 from activelabel.annotate import credentials as cred
 from activelabel.annotate.base import ToolError
+from activelabel.errors import CodedError
 
 
 def test_secret_only_in_keyring(tmp_path, fake_keyring):
@@ -65,11 +67,6 @@ def test_forget(tmp_path, fake_keyring):
 
 
 def test_tool_urls_must_be_http(tmp_path, monkeypatch):
-    import pytest
-
-    from activelabel.annotate import credentials
-    from activelabel.errors import CodedError
-
     for bad in ("file:///etc/passwd", "ftp://host", "javascript:alert(1)", "cvat.local", "http://"):
         with pytest.raises(CodedError) as info:
             credentials.save_settings(tmp_path, "cvat", bad, "u", None)

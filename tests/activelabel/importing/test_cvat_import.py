@@ -1,18 +1,23 @@
 import threading
 from pathlib import Path
 
+import fiftyone as fo
 import pytest
 import requests
+from fiftyone.utils import cvat as fouc
 from import_fakes import FakeResp, FakeSession, make_images
+from sync_fakes import FakeRemote, box
 
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import Manifest
 from activelabel.importing import cvat_import as ci
 from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Cancelled, Job, Progress
-from activelabel.labels import load_annotations
+from activelabel.labels import Label, load_annotations
 from activelabel.projects import ProjectStore
+from activelabel.sync import engine, links, registry
 from activelabel.tasks import Task
+from activelabel.tasks_store import TaskStore, jobs
 
 BASE = "http://cvat.local"
 SETTINGS = ToolSettings("cvat", BASE, "user", "pw-secret")
@@ -279,8 +284,6 @@ def test_cancel_while_reading_annotations(cvat, tmp_path, monkeypatch):
 @pytest.mark.integration
 def test_real_fiftyone_dataset(cvat, tmp_path, monkeypatch):
     """The real temporary dataset, with ``import_annotations`` replaced by a function that fills it."""
-    import fiftyone as fo
-    from fiftyone.utils import cvat as fouc
 
     made = []
 
@@ -316,9 +319,6 @@ def test_real_fiftyone_dataset(cvat, tmp_path, monkeypatch):
 @pytest.fixture
 def tasks_remote(cvat, monkeypatch):
     """A CVAT-like in-memory remote (id 1): task A (4 frames, job size 2, 2 boxes) and task B (1 frame)."""
-    from sync_fakes import FakeRemote, box
-
-    from activelabel.sync import registry
 
     fake = FakeRemote("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
@@ -329,15 +329,10 @@ def tasks_remote(cvat, monkeypatch):
 
 
 def local_tasks(store, result):
-    from activelabel.tasks_store import TaskStore
-
     return TaskStore(store.dir(result["project_id"])).load()
 
 
 def test_import_project_keeps_tasks_jobs_and_link(tasks_remote, tmp_path):
-    from activelabel.sync import engine, links, registry
-    from activelabel.tasks_store import jobs
-
     store = ProjectStore(tmp_path / "projects")
     result = run(store, tmp_path, kind="project", remote_id="1")
     assert result["linked"] is True and result["tasks"] == 2
@@ -369,8 +364,6 @@ def test_import_project_keeps_tasks_jobs_and_link(tasks_remote, tmp_path):
 
 
 def test_import_one_task_of_a_project(tasks_remote, tmp_path):
-    from activelabel.sync import links
-
     store = ProjectStore(tmp_path / "projects")
     result = run(store, tmp_path, kind="task", remote_id="11")
     assert result["tasks"] == 1 and result["images_added"] == 1 and result["classes"] == ["bus"]
@@ -385,8 +378,6 @@ def test_import_one_task_of_a_project(tasks_remote, tmp_path):
 
 
 def test_import_project_infers_task_from_polygons(tasks_remote, tmp_path):
-    from activelabel.labels import Label
-
     ring = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.6]]
     tasks_remote.new_task(
         "1", "t3", [("c0.png", [Label("tree", bbox=[0.1, 0.1, 0.4, 0.5], polygons=[ring])])] * 1, None, "12"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import io
 import re
+import zipfile
 from typing import Any
 
 import pytest
@@ -15,7 +17,7 @@ from activelabel.importing import cvat_import
 from activelabel.labels import Label
 from activelabel.projects import Project
 from activelabel.sync import cvat_remote, links
-from activelabel.sync.cvat_remote import CvatRemote
+from activelabel.sync.cvat_remote import CvatRemote, _meta_frames, _without_ids
 from activelabel.tasks import Task
 
 SETTINGS = ToolSettings("cvat", "https://cvat.test/", "ana", "s3cret-pw")
@@ -502,8 +504,6 @@ def test_missing_credentials() -> None:
 
 
 def test_put_body_has_no_ids():
-    from activelabel.sync.cvat_remote import _without_ids
-
     track = {"id": 7, "label_id": 1, "shapes": [{"id": 9, "frame": 0}], "elements": [{"id": 3, "shapes": []}]}
     clean = _without_ids(track)
     assert "id" not in clean and "id" not in clean["shapes"][0] and "id" not in clean["elements"][0]
@@ -670,8 +670,6 @@ def test_labels_hash_and_same_labels_use_track() -> None:
 
 
 def test_video_task_meta_lists_every_frame():
-    from activelabel.sync.cvat_remote import _meta_frames
-
     meta = {
         "size": 3,
         "start_frame": 30,
@@ -693,9 +691,6 @@ def test_video_task_meta_lists_every_frame():
 
 
 def video_task(cvat: FakeCvat, zip_names: list[str]) -> int:
-    import io
-    import zipfile
-
     pid, _ = seeded(cvat)
     tid = cvat.add_task(pid, [])
     cvat.tasks[tid]["frames"] = [{"name": "clip.mp4", "width": 64, "height": 48}]

@@ -1,14 +1,17 @@
 """Synchronisation with a CVAT-like remote that has tasks, jobs and deleted frames (docs/TASKS.md)."""
 
+import copy
+import tempfile
 from pathlib import Path
 
 import pytest
+from make_video import make_video
 from sync_fakes import SETTINGS, FakeRemote, box, make_project, progress
 
 from activelabel.annotate.base import ToolError
 from activelabel.images.manifest import Manifest
 from activelabel.images.video import VideoStore
-from activelabel.labels import AnnotationSet, load_annotations, save_annotations
+from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.storage import write_json
 from activelabel.sync import engine, links
 from activelabel.tasks_store import ImageTask, TaskStore
@@ -343,8 +346,6 @@ def _remote_video_task(env, count=3, **mark):
 
 
 def test_remote_video_task_is_imported_with_its_video(synced, monkeypatch):
-    import tempfile
-
     env = synced
     made = []
     real = tempfile.mkdtemp
@@ -453,8 +454,6 @@ def test_deleted_frame_of_a_remote_task_keeps_its_position(synced):
 
 
 def test_video_of_a_task_without_its_video_falls_back_to_images(tmp_path):
-    from activelabel.tasks_store import ImageTask
-
     plain = ImageTask(1, "Images", "2026-01-01T00:00:00+00:00")
     gone = ImageTask(2, "Clip", "2026-01-01T00:00:00+00:00", source={"video": "0" * 16, "stop": 9, "step": 1})
     assert engine._video_of(tmp_path, plain) is None
@@ -477,9 +476,6 @@ def test_task_deleted_in_the_tool_excludes_its_images_here(synced):
 
 def test_tracked_frames_are_read_again_after_a_push(synced, monkeypatch):
     """Writing a tracked object makes CVAT renumber the track and re-interpolate its neighbours."""
-    import copy
-
-    from activelabel.labels import AnnotationSet, Label, save_annotations
 
     env = synced
     tracked = [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3], track=7)]
@@ -557,11 +553,6 @@ def test_unknown_direction(synced):
 
 
 def test_video_is_sent_under_its_original_name(tmp_path):
-    from make_video import make_video
-
-    from activelabel.images.video import VideoStore
-    from activelabel.tasks_store import ImageTask
-
     store = VideoStore(tmp_path)
     store.folder.mkdir(parents=True, exist_ok=True)
     tmp = make_video(store.folder / "upload.mp4", frames=30)

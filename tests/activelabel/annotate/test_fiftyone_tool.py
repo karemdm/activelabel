@@ -6,7 +6,7 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate import fiftyone_tool as ft
-from activelabel.annotate.base import ToolSettings
+from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
 from activelabel.images.manifest import ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
@@ -63,8 +63,6 @@ def test_send_edit_pull_close(tmp_path, project):
 
 
 def test_tools_say_so_when_the_project_was_never_opened_in_fiftyone():
-    from activelabel.annotate.base import ToolError
-
     tool, settings = get_tool("fiftyone"), ToolSettings("fiftyone")
     project = Project(1, "t", "", Task.DETECTION, ["cat"])
     with pytest.raises(ToolError, match="Open the project in FiftyOne"):

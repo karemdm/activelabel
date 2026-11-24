@@ -4,6 +4,8 @@ import pytest
 from fiftyone import core  # noqa: F401
 
 from activelabel.annotate.fo_labels import labels_and_notes, labels_from_fo
+from activelabel.fiftyone_bridge import _ground_truth
+from activelabel.labels import Label
 from activelabel.tasks import Task
 
 
@@ -62,18 +64,12 @@ def test_track_is_the_fiftyone_index():
 
 
 def test_track_round_trip_through_fiftyone():
-    from activelabel.fiftyone_bridge import _ground_truth
-    from activelabel.labels import Label
-
     labels = [Label("a", bbox=[0.1, 0.1, 0.2, 0.2], track=9)]
     back = labels_from_fo(_ground_truth(Task.DETECTION, labels), Task.DETECTION)
     assert back[0].track == 9
 
 
 def test_keypoint_visibility_and_pose_box_survive_a_round_trip():
-    from activelabel.fiftyone_bridge import _ground_truth
-    from activelabel.labels import Label
-
     pose = Label(
         "person",
         bbox=[0.1, 0.1, 0.6, 0.8],  # the pose box is larger than the points
