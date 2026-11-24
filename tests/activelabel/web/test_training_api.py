@@ -3,6 +3,7 @@ from sample_images import make_image
 
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
+from activelabel.training import environment
 from activelabel.training.runs import RunStore
 
 RUNS = "/api/projects/1/runs"
@@ -100,7 +101,6 @@ def test_cancel_queued_run_and_unknown(tmp_path):
 
 
 def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
-    from activelabel.training import environment
 
     client, state = _setup(tmp_path)
     run = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).json()
@@ -206,3 +206,14 @@ def test_a_version_with_classes_the_project_lost_cannot_train(tmp_path):
     assert refused.json()["params"]["classes"] == ["b"]
     state.store.update(1, classes=["a", "b", "c"])  # a class that was only added is fine
     assert client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).status_code == 200
+
+
+def test_reading_the_environment_writes_nothing(tmp_path, monkeypatch):
+    """GET /training/environment only reads: no env.json appears, even for a folder outside the workspace."""
+    monkeypatch.setattr(environment, "IS_WINDOWS", True)
+    monkeypatch.setattr(environment, "MAX_PATH_LENGTH", 0)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu", lambda self: None)
+    client, state = make_client(tmp_path)
+    assert client.get("/api/training/environment").status_code == 200
+    assert not (state.settings.workspace / "training").exists()

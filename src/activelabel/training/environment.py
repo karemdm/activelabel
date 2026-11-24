@@ -257,18 +257,23 @@ class TrainingEnvironment:
 
     @property
     def path(self) -> Path:
-        """Folder of the environment; stable once chosen (recorded in ``env.json`` when not the default)."""
+        """Folder of the environment; stable once chosen (recorded in ``env.json`` when it is made).
+
+        The record is written only for a folder that is not the default one; reading the path never writes.
+        """
         try:
             recorded = json.loads(self.record.read_text(encoding="utf-8")).get("path")
             if recorded:
                 return Path(recorded)
         except (OSError, ValueError, AttributeError):
             pass
-        chosen = self._default_dir()
-        if chosen != self.training_dir / "env":
+        return self._default_dir()
+
+    def _remember_location(self) -> None:
+        """Record a folder that is not the default one, so it stays the same when the rule changes."""
+        if self.path != self.training_dir / "env":
             self.training_dir.mkdir(parents=True, exist_ok=True)
-            self.record.write_text(json.dumps({"path": str(chosen)}), encoding="utf-8")
-        return chosen
+            self.record.write_text(json.dumps({"path": str(self.path)}), encoding="utf-8")
 
     def python(self) -> Path:
         """Python executable of the environment (may not exist yet)."""
@@ -330,6 +335,7 @@ class TrainingEnvironment:
         if self.exists():
             return
         step("train_env_create")
+        self._remember_location()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():  # left by an earlier failure, or a venv without pip
             remove_tree(self.path)

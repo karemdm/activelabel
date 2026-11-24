@@ -50,7 +50,13 @@ def test_long_windows_path_uses_localappdata_and_is_recorded(tmp_path, monkeypat
     digest = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:8]
     expected = tmp_path / "local" / "activelabel" / f"train-{digest}"
     assert env.path == expected
-    assert json.loads(env.record.read_text())["path"] == str(expected)
+    assert not env.record.exists()  # reading the location does not write to the disk
+    monkeypatch.setattr(envmod, "capture", lambda cmd, timeout=30: (0, "{}"))
+    monkeypatch.setattr(envmod, "run_logged", Recorder(env))
+    env.create(nothing, lambda step: None)
+    assert json.loads(env.record.read_text())["path"] == str(
+        expected
+    )  # it is recorded when the environment is made
     assert env.python() == expected / "Scripts" / "python.exe"
     # stable: the record wins even if the default rule would change
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "other"))
