@@ -3978,10 +3978,15 @@
         }
         if (code === 'part_empty') return short ? t('ds.b_part_empty', { part }) : t('ds.w_part_empty', { part });
         if (code === 'few_images') return short ? t('ds.b_few_images', { part }) : t('ds.w_few_images', { part });
+        if (code === 'labels_without_geometry' || code === 'multiple_classes' || code === 'keypoints_count_mismatch') {
+          const vars = { n: num(w.count || 0), expected: num(w.expected || 0) };
+          return short ? tn(`ds.b_${code}`, w.count || 0, vars) : tn(`ds.w_${code}`, w.count || 0, vars);
+        }
         if (/drift|group/.test(code)) {
           const total = totalOf(items);
           const real = items.map((x) => pctOf(x.n, total)).join('/');
-          return short ? t('ds.b_group_drift', { real }) : t('ds.w_group_drift', { real });
+          const why = w.cause === 'duplicates' ? '_duplicates' : '';  // a group of near duplicates, not a video
+          return short ? t('ds.b_group_drift', { real }) : t(`ds.w_group_drift${why}`, { real });
         }
         if (/dup|curation/.test(code)) return short ? t('ds.b_duplicates') : t('ds.w_duplicates');
         return tr(`ds.w_${code}`, code);
@@ -3997,7 +4002,10 @@
       }
 
       /* warnings go into a few groups: one line says how many, the list opens on demand */
-      const WARN_GROUP = { class_missing: 'classes', classes_missing: 'classes', part_empty: 'size', few_images: 'size' };
+      const WARN_GROUP = {
+        class_missing: 'classes', classes_missing: 'classes', part_empty: 'size', few_images: 'size',
+        labels_without_geometry: 'labels', multiple_classes: 'labels', keypoints_count_mismatch: 'labels',
+      };
       const warnGroup = (w) => WARN_GROUP[w.code] || (/drift|group/.test(String(w.code)) ? 'balance' : 'other');
       function warnSummary(list) {
         const count = new Map();
