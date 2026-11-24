@@ -1025,7 +1025,7 @@
   "md.delete": "Excluir modelo",
   "md.delete_aria": "Excluir o modelo m{n}",
   "md.delete_title": "Excluir o modelo m{n}?",
-  "md.delete_text": "Os pesos e as exportações dele são apagados. O treino de origem continua em Treinamento.",
+  "md.delete_text": "Os pesos e as exportações dele são apagados. O treino de origem continua em Treinamento, mas, sem os pesos, não poderá ser salvo como modelo de novo.",
   "md.deleted": "Modelo m{n} excluído.",
   "md.compare": "Comparação",
   "md.compare_help": "Cada coluna é um modelo; o melhor valor de cada linha fica em destaque.",
@@ -1345,5 +1345,8 @@
   "ds.delete_used_title": "Excluir a versão v{n} mesmo assim?",
   "ds.delete_used_text": "Os treinos {runs} usaram esta versão e não poderão ser repetidos depois que ela for excluída. Os modelos salvos continuam funcionando.",
   "ds.delete_used_confirm": "Excluir mesmo assim",
-  "pre.none_supported": "Nenhum dos modelos salvos pode pré-anotar este projeto: é preciso um modelo que gere o mesmo tipo de rótulo do projeto (a família YOLO ainda não é aceita)."
+  "pre.none_supported": "Nenhum dos modelos salvos pode pré-anotar este projeto: é preciso um modelo que gere o mesmo tipo de rótulo do projeto (a família YOLO ainda não é aceita).",
+  "md.delete_text_current": "Este é o modelo atual do projeto: depois de excluí-lo, o projeto fica sem modelo atual.",
+  "md.no_weights": "Os pesos deste treino foram junto com o modelo excluído, por isso ele não pode ser salvo como modelo de novo. Para ter um modelo, treine outra vez.",
+  "md.delete_text_public": "O modelo e as exportações dele são apagados do projeto. Você pode adicioná-lo de novo pela lista de modelos públicos."
 }
