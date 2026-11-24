@@ -16,8 +16,8 @@ project ── task 1 ── job 1, job 2, …
   with every image of the task. Example: 100 images, 10 per job → jobs 1–10.
 
 Names in the interface: *Task* and *Job* in every language (as in CVAT). The project's annotation
-kind (classification, detection…) is called **Type**, and the card of background processing (bottom-right
-corner of the project page) is called **Activities**. In the code, `Project.task` (the type) and `activelabel.jobs` (background
+kind (classification, detection…) is called **Type** (*Tipo*), and the card of background processing (bottom-right
+corner of the project page) is called **Activities** (*Atividades*). In the code, `Project.task` (the type) and `activelabel.jobs` (background
 processing) keep their names; the new concepts live in `activelabel.tasks_store` (`ImageTask`,
 `TaskJob`) to avoid confusion.
 
@@ -28,14 +28,19 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 ```json
 {"next_id": 3,
  "tasks": [
-   {"id": 1, "name": "Task 1", "created": "<iso>", "job_size": 10, "images": ["<image id>", "…"]},
-   {"id": 2, "name": "Field trip", "created": "<iso>", "job_size": null, "images": ["…"]}
+   {"id": 1, "name": "Task 1", "created": "<iso>", "job_size": 10, "open": false, "source": null,
+    "images": ["<image id>", "…"]},
+   {"id": 2, "name": "Field trip", "created": "<iso>", "job_size": null, "open": false,
+    "source": {"video": "<video id>", "start": 0, "stop": 8999, "step": 30, "fps": 30.0},
+    "images": ["…"]}
  ]}
 ```
 
 - Every image of the project (active or excluded) is in exactly one task; `images` keeps the order
   of the upload (the order of the files in the upload, as in CVAT).
 - Jobs are not stored: job *k* (1-based) of a task is `images[(k-1)*job_size : k*job_size]`.
+- `open` is true while a chunked upload may still append images (see below); `source` is set for a
+  task made from a video (docs/VIDEO.md) and `null` otherwise.
 - Ids are never reused; a deleted task's id is not given again.
 - **Migration**: a project without `tasks.json` that has images gets one task, `"Task 1"`, with
   every image in manifest order and `job_size: null`. Done on first read, then saved.
@@ -48,13 +53,14 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/api/projects/{id}/tasks` | | `{tasks: [task view]}` |
-| POST | `/api/projects/{id}/tasks` | multipart: `name`, `job_size` (optional), `files` | `{task: task view, report: <upload report>}` |
+| POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <id>"), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
-| PATCH | `/api/projects/{id}/tasks/{tid}` | `{name}` | task view |
+| PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task; reopening is refused) | task view |
+| POST | `/api/projects/{id}/tasks/from-video` | see docs/VIDEO.md | job (the task is created closed) |
 | DELETE | `/api/projects/{id}/tasks/{tid}` | `{confirm: true}` | `{deleted: n images}` |
 
-Task view: `{id, name, created, job_size, images, active, annotated, jobs: [{n, first, last,
-images, active, annotated}], remote?: {...}}` (`first`/`last`: 1-based positions in the task;
+Task view: `{id, name, created, job_size, open, source, images, active, annotated, jobs: [{n, first,
+last, images, active, annotated}], remote?: {...}}` (`first`/`last`: 1-based positions in the task;
 `remote` only when the project is linked to CVAT, see below).
 
 Chunked upload: the browser sends big uploads in chunks. The first chunk creates the task
@@ -63,8 +69,7 @@ task is `open` (`"open": true` in tasks.json until the browser calls `PATCH …/
 `{open: false}`, or the next task is created). Once closed, the images of a task are fixed.
 
 `GET /api/projects/{id}/images` gains `task` and `job` query parameters (filter). The existing
-`POST /api/projects/{id}/images` (upload) creates a new task named after the upload time, for
-compatibility.
+`POST /api/projects/{id}/images` (upload) creates a new task named "Task <id>", for compatibility.
 
 ## CVAT mirror
 
@@ -124,11 +129,12 @@ project with that one task, linked to the task's project in CVAT when it has one
 
 ## Interface
 
-- **Images** step, tab *Tasks e jobs*: the project's tasks as cards (name, images, annotated, jobs).
-  *New task*: name, images per job (optional), files, folder or video (docs/VIDEO.md). A task card
-  lists its jobs (images 1–10, 11–20…; CVAT state when linked) and opens the tab *Galeria*
-  filtered on the task or job; *Galeria* also has task and job filters of its own.
+- **Images** step, tab *Tasks and jobs* (*Tasks e jobs*): the project's tasks as cards (name, images,
+  annotated, jobs). *New task*: name, images per job (optional), files, folder or video (docs/VIDEO.md).
+  A task card lists its jobs (images 1–10, 11–20…; CVAT state when linked) and opens the tab *Gallery*
+  (*Galeria*) filtered on the task or job; *Gallery* also has task and job filters of its own.
 - **Annotations** step, tabs *CVAT* and *FiftyOne*: tool + scope (project / task / job). For CVAT the
-  button is *Synchronise with CVAT* (plan, review, apply); for FiftyOne the session works as in
+  button is *Compare with CVAT* (*Comparar com o CVAT*): it makes the plan, you review it, and *Apply
+  synchronisation* (*Aplicar a sincronização*) carries it out; for FiftyOne the session works as in
   docs/ANNOTATION.md, limited to the scope.
 - Wherever images can be chosen (curation, annotate), the task and job filters are available.
