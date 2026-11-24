@@ -64,7 +64,7 @@ def build(tmp_path):
     alpha = ImageTask(1, "Alpha", "2026-01-01T00:00:00", 2, e.ids[:5])
     beta = ImageTask(2, "Beta", "2026-01-01T00:00:01", None, e.ids[5:])
     write_json(e.dir / "tasks.json", {"next_id": 3, "tasks": [alpha.as_dict(), beta.as_dict()]})
-    e.remote = FakeRemote("cvat", tasks=True)
+    e.remote = FakeRemote("cvat")
     e.rid = ""
     e.key = lambda index: links.get_link(e.dir, "cvat")["items"][e.ids[index]]["key"]
     return e

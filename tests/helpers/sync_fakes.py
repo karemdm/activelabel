@@ -33,14 +33,12 @@ def box(name="cat", x=0.1, y=0.1, w=0.3, h=0.3) -> Label:
 class FakeRemote:
     """Remote projects kept in memory: ``projects[id] = {name, items: {key: RemoteItem}, classes}``.
 
-    By default a flat list of items (``supports_tasks`` False). With ``tasks=True``
-    it behaves like CVAT: tasks with jobs (``task_meta[rid][task_id]``), deleted frames hidden from
+    It behaves like CVAT: tasks with jobs (``task_meta[rid][task_id]``), deleted frames hidden from
     ``items()``, ``frame()`` bytes, ``add_task`` / ``set_frames`` / ``delete_task``.
     """
 
-    def __init__(self, tool="cvat", tasks=False):
+    def __init__(self, tool="cvat"):
         self.tool = tool
-        self.supports_tasks = tasks
         self.task_meta: dict[str, dict[str, dict]] = {}
         self.frame_bytes: dict[tuple[str, int], bytes] = {}
         self.videos: dict[str, dict] = {}
@@ -79,6 +77,12 @@ class FakeRemote:
     def put(self, rid, file_name, labels, key=None) -> str:
         items = self.projects[rid]["items"]
         key = key or f"t{len(items) + 1}:0"
+        task, _, frame = key.partition(":")
+        meta = self.task_meta.setdefault(rid, {}).setdefault(
+            task, {"name": f"Task {task}", "job_size": None, "deleted": set(), "size": 0}
+        )
+        meta["size"] = max(meta["size"], int(frame or 0) + 1)
+        self.frame_bytes.setdefault((task, int(frame or 0)), self._png())
         items[key] = RemoteItem(key, file_name, 64, 48, copy.deepcopy(list(labels)))
         return key
 
@@ -167,8 +171,6 @@ class FakeRemote:
 
     def tasks(self, settings, remote_id):
         self._check()
-        if not self.supports_tasks:
-            return []
         out = []
         for tid, meta in self.task_meta[remote_id].items():
             size = meta["size"]

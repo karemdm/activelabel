@@ -320,7 +320,7 @@ def tasks_remote(cvat, monkeypatch):
 
     from activelabel.sync import registry
 
-    fake = FakeRemote("cvat", tasks=True)
+    fake = FakeRemote("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
     fake.seed("Street", classes=("car",))
     fake.new_task("1", "t1", [(f"a{i}.png", [box("car")] if i < 2 else []) for i in range(4)], 2, "10")

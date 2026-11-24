@@ -475,7 +475,6 @@ class CvatRemote:
     """A CVAT project, through the REST API."""
 
     tool = "cvat"
-    supports_tasks = True  # tasks/jobs mirror the project's (docs/TASKS.md)
 
     # -- tasks, frames --
     def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:

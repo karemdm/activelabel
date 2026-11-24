@@ -1,9 +1,7 @@
 import pytest
-from sample_images import make_image
 from sync_fakes import SETTINGS, FakeRemote, box, make_project, progress
 
 from activelabel.annotate import diff as diffing
-from activelabel.images.ingest import ingest_folder
 from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
 from activelabel.sync import engine, links
@@ -163,44 +161,6 @@ def test_invalid_choice_is_refused(env):
         apply(env, p["plan_id"], default="maybe")
 
 
-def test_add_images_not_in_remote(env, tmp_path):
-    folder = tmp_path / "more"
-    make_image(folder / "new.png", seed=99, fmt="PNG")
-    ingest_folder(Manifest(env.dir), folder, folder)
-    new_id = next(r.id for r in Manifest(env.dir).all() if r.name == "new.png")
-    annotations = load_annotations(env.dir)
-    annotations.images[new_id] = [box("dog")]
-    save_annotations(env.dir, annotations)
-    p = plan(env)
-    assert p["add"] == 1 and p["diff_push"]["added"] == 1
-    result = apply(env, p["plan_id"])
-    assert result["added"] == 1
-    assert env.remote.labels(env.rid, "new.png")[0].label == "dog"
-    item = links.get_link(env.dir, "cvat")["items"][new_id]
-    assert item["key"] == env.remote.key_of(env.rid, "new.png")
-    assert plan(env)["add"] == 0
-
-
-def test_remote_only_is_reported_not_imported(env):
-    env.remote.put(env.rid, "extra1.png", CAT)
-    env.remote.put(env.rid, "extra2.png", CAT)
-    p = plan(env)
-    assert p["remote_only"] == {"count": 2, "examples": ["extra1.png", "extra2.png"]}
-    assert (p["pull"], p["push"], p["add"]) == (0, 0, 0)
-    apply(env, p["plan_id"])
-    assert len(Manifest(env.dir).all()) == 3
-
-
-def test_excluded_images_are_ignored(env):
-    Manifest(env.dir).set_status([env.ids[0]], "excluded", "test")
-    set_local(env, 0, CAT2)
-    set_remote(env, "img0.png", CAT3)
-    p = plan(env)
-    assert (p["pull"], p["push"], p["add"], p["conflicts"], p["unchanged"]) == (0, 0, 0, [], 3)
-    # a local removal is not sent to a flat remote (no deleted frames): the image counts as unchanged
-    assert p["remove_remote"] == 0 and p["remote_only"]["count"] == 0
-
-
 def test_excluded_image_missing_remotely_is_not_added(env):
     # linked images whose remote item disappeared are now removed locally (remove_local), not re-added;
     # the excluded one is removed on both sides (unchanged)
@@ -208,13 +168,6 @@ def test_excluded_image_missing_remotely_is_not_added(env):
     Manifest(env.dir).set_status([env.ids[0]], "excluded", "test")
     p = plan(env)
     assert (p["add"], p["remove_local"], p["unchanged"]) == (0, 2, 1)
-
-
-def test_unlinked_excluded_image_is_not_added(tmp_path):
-    e = build(tmp_path, 3, {})
-    e.rid = e.remote.seed("Pets remote").id
-    Manifest(e.dir).set_status([e.ids[0]], "excluded", "test")
-    assert plan(e, remote_id=e.rid)["add"] == 2
 
 
 def test_refuses_when_remote_changed_after_plan(env):
@@ -296,8 +249,8 @@ def test_create_remote_on_apply_only(tmp_path):
     with pytest.raises(engine.SyncError, match="no remote project"):
         plan(e)
     p = plan(e, create=True)
-    assert p["create"] is True and p["add"] == 2 and e.remote.projects == {}
-    assert apply(e, p["plan_id"])["added"] == 2
+    assert p["create"] is True and [t["images"] for t in p["tasks_create"]] == [2] and e.remote.projects == {}
+    assert apply(e, p["plan_id"])["tasks_created"] == 1
     (rid,) = e.remote.projects
     assert e.remote.projects[rid]["name"] == f"ActiveLabel {e.project.id} - Pets"
     assert links.get_link(e.dir, "cvat")["remote_id"] == rid

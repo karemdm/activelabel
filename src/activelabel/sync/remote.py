@@ -91,22 +91,20 @@ class RemoteProject(Protocol):
         """Every image of the remote project (or of these remote tasks) with its current labels."""
         ...
 
-    supports_tasks: bool  # tasks/jobs, deleted frames (CVAT); False: a remote with one flat list of items
-
     def set_frames(self, settings: ToolSettings, task_id: str, delete: list[int], restore: list[int]) -> None:
-        """Mark frames of a remote task deleted / not deleted (only when ``supports_tasks``)."""
+        """Mark frames of a remote task deleted / not deleted."""
         ...
 
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
-        """Delete a remote task (only when ``supports_tasks``)."""
+        """Delete a remote task."""
         ...
 
     def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
-        """``(file name, deleted)`` of every frame of a remote task, in order (``supports_tasks`` only)."""
+        """``(file name, deleted)`` of every frame of a remote task, in order."""
         ...
 
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
-        """The image of one frame of a remote task (only when ``supports_tasks``)."""
+        """The image of one frame of a remote task."""
         ...
 
     def video_source(
