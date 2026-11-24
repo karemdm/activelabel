@@ -376,6 +376,11 @@
   }
 
   /** A question with several answers; resolves with the chosen value, or null when cancelled. */
+  /* An empty list says what is missing and puts the action in the same place; the header button is hidden then. */
+  function emptyState(iconName, text, ...actions) {
+    return el('div', { class: 'ds-empty' }, icon(iconName, 28), el('p', { class: 'muted' }, text), actions.length ? el('div', { class: 'ds-empty-actions' }, ...actions) : null);
+  }
+
   /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
      in view while the body scrolls). The X is added here so no dialog forgets it. */
   function openModal(dlg) {
@@ -1090,7 +1095,7 @@
       /* a step the person opens is a history entry (Back goes to the previous step); the first one and redraws are not */
       if (location.hash !== `#${step}`) history[ctx.shown ? 'pushState' : 'replaceState'](null, '', `#${step}`);
       ctx.shown = true;
-      const noImages = step !== 'images' && !hasImages();
+      const noImages = step !== 'images' && step !== 'models' && !hasImages();
       const noDataset = step === 'training' && !noImages && !ctx.datasetCount;
       const gated = noImages || noDataset;
       for (const s of STEPS) ctx.panels[s].node.hidden = gated || s !== step;
@@ -3996,9 +4001,11 @@
       }
 
       function draw() {
+        newBtn.hidden = !versions.length;
         fill(listBox, versions.length
           ? el('ul', { class: 'ds-cards' }, ...versions.map(versionCard))
-          : el('div', { class: 'ds-empty' }, icon('images', 28), el('p', { class: 'muted' }, t('ds.empty'))));
+          : emptyState('images', t('ds.empty'),
+            el('button', { type: 'button', class: 'btn primary', onclick: once(() => openNew(newBtn)) }, icon('plus', 16), t('ds.new'))));
       }
 
       async function load() {
@@ -4412,9 +4419,11 @@
 
       function draw() {
         const ul = listBox.querySelector('ul.tr-cards');
+        newBtn.hidden = !runs.length;
         if (!runs.length) {
           cards.clear();
-          fill(listBox, el('div', { class: 'ds-empty' }, icon('chart', 28), el('p', { class: 'muted' }, t('tr.empty'))));
+          fill(listBox, emptyState('chart', t('tr.empty'),
+            el('button', { type: 'button', class: 'btn primary', onclick: once(() => openNew(newBtn)) }, icon('plus', 16), t('tr.new'))));
           return;
         }
         const list = ul || el('ul', { class: 'tr-cards' });
@@ -5438,10 +5447,13 @@
         if (s === sig) return;
         sig = s;
         if (!models.length) {
-          /* the two ways to get a model are the buttons of the step's header: not repeated here */
-          fill(box, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty'))));
+          mdActions.hidden = true;  // the two ways to get a model are offered in the empty state instead
+          fill(box, emptyState('star', t('md.empty'),
+            el('button', { type: 'button', class: 'btn primary', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
+            el('a', { class: 'btn', href: '#training' }, t('md.go_training'))));
           return;
         }
+        mdActions.hidden = false;
         refocus(() => fill(box, ...[
           el('ul', { class: 'tr-cards' }, ...models.map(card)),
           compareBlock(),
@@ -5463,12 +5475,13 @@
         if (!node.hidden && models.some(busy)) timer = setTimeout(() => load(true), 2000);
       }
 
+      const mdActions = el('div', { class: 'md-head-actions' },
+        el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
+        el('a', { class: 'btn', href: '#training' }, t('md.go_training')));
       add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-models' }, t('step.models')), el('p', { class: 'muted' }, t('md.intro'))),
-          el('div', { class: 'md-head-actions' },
-            el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
-            el('a', { class: 'btn', href: '#training' }, t('md.go_training')))),
+          mdActions),
         announcer,
         box);
       panel.mount = () => load();

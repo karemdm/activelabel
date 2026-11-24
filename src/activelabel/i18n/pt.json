@@ -966,7 +966,7 @@
   "status.models_other": "{n} modelos",
   "status.current_model": "atual: m{n}",
   "md.intro": "Os melhores treinos salvos como versões de modelo, e modelos públicos já treinados. O modelo atual é o usado a seguir.",
-  "md.empty": "Nenhum modelo salvo ainda. Em Treinamento, salve um treino concluído como modelo.",
+  "md.empty": "Nenhum modelo ainda. Salve um treino concluído como modelo ou adicione um modelo público.",
   "md.go_training": "Ir para Treinamento",
   "md.save": "Salvar como modelo",
   "md.save_title": "Salvar o treino #{n} como modelo",
