@@ -175,6 +175,11 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .project-head-main { min-width: 0; flex: 1 1 320px; }
 .project-title-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .project-title-row h1 { margin: 0; overflow-wrap: anywhere; }
+.class-line { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); min-width: 0; }
+.class-line-label { flex: none; }
+.class-line-chips { display: flex; flex-wrap: nowrap; gap: var(--space-1); overflow: hidden; min-width: 0; flex: 1 1 auto; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
+.class-line-chips .chip { flex: none; white-space: nowrap; }
+.class-line .btn { flex: none; }
 .project-head-actions { display: flex; gap: var(--space-2); align-items: flex-start; }
 
 /* project: one full-width bar with the steps in groups (data | model), above the current step */
