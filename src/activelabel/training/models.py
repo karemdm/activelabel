@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
+from activelabel.errors import CodedError
 from activelabel.storage import now, read_json, write_json
 from activelabel.training.catalog import get_model
 from activelabel.training.runs import DONE, RunStore
@@ -37,8 +38,8 @@ class ModelNotFound(KeyError):
     """No model with this number."""
 
 
-class ModelError(ValueError):
-    """A readable reason why a model cannot be saved or changed."""
+class ModelError(CodedError):
+    """A readable reason why a model cannot be saved or changed (with a code, see ``CodedError``)."""
 
 
 class ModelStore:
@@ -83,13 +84,17 @@ class ModelStore:
         runs = RunStore(self.project_dir)
         run = runs.get(run_number)
         if run["status"] != DONE:
-            raise ModelError("Only a finished training run can be saved as a model.")
+            raise ModelError("run_not_finished", "Only a finished training run can be saved as a model.")
         run_dir = runs.path(run_number)
         for existing in self.list():
             if existing.get("run") == run_number:
-                raise ModelError(f"This training run is already saved as model m{existing['number']}.")
+                raise ModelError(
+                    "run_already_saved",
+                    f"This training run is already saved as model m{existing['number']}.",
+                    model=existing["number"],
+                )
         if not (run_dir / WEIGHTS).exists():
-            raise ModelError("This training run has no weights to save.")
+            raise ModelError("run_no_weights", "This training run has no weights to save.")
         config = runs.config(run_number)
         results = runs.results(run_number) or {}
         spec = get_model(config.model)
@@ -100,14 +105,19 @@ class ModelStore:
                 classes = list(DatasetStore(self.project_dir).read(config.dataset)["classes"])
             except (DatasetNotFound, KeyError):
                 raise ModelError(
-                    "The data split version of this run was deleted and the run has no list of classes."
+                    "run_dataset_deleted",
+                    "The data split version of this run was deleted and the run has no list of classes.",
                 ) from None
         classes = list(classes)
         points = self._keypoints_of(spec, config.dataset)
         with self._lock:
             for existing in self.list():
                 if existing.get("run") == run_number:
-                    raise ModelError(f"This training run is already saved as model m{existing['number']}.")
+                    raise ModelError(
+                        "run_already_saved",
+                        f"This training run is already saved as model m{existing['number']}.",
+                        model=existing["number"],
+                    )
             counter_file = self.dir / "counter.json"
             counter = int((read_json(counter_file, {}) or {}).get("next", 1))
             number = max([counter, *[n + 1 for n in self._numbers()]])
@@ -174,16 +184,26 @@ class ModelStore:
 
         model = get_public(public_id)
         if model is None:
-            raise ModelError("This public model does not exist.")
+            raise ModelError("public_model_not_found", "This public model does not exist.")
         mapping = {str(k): str(v) for k, v in (mapping or {}).items() if v}
         if not mapping:
-            raise ModelError("Map at least one of the model's categories to a class of the project.")
+            raise ModelError(
+                "mapping_empty", "Map at least one of the model's categories to a class of the project."
+            )
         unknown = sorted(set(mapping) - set(model.classes()))
         if unknown:
-            raise ModelError(f"The model has no category named {', '.join(unknown)}.")
+            raise ModelError(
+                "mapping_unknown_category",
+                f"The model has no category named {', '.join(unknown)}.",
+                categories=unknown,
+            )
         missing = sorted(set(mapping.values()) - set(project_classes))
         if missing:
-            raise ModelError(f"The project has no class named {', '.join(missing)}.")
+            raise ModelError(
+                "mapping_unknown_class",
+                f"The project has no class named {', '.join(missing)}.",
+                classes=missing,
+            )
         with self._lock:
             counter_file = self.dir / "counter.json"
             counter = int((read_json(counter_file, {}) or {}).get("next", 1))
@@ -303,7 +323,7 @@ class ModelStore:
             if any(
                 (e or {}).get("status") in ("queued", "running") for e in (card.get("exports") or {}).values()
             ):
-                raise ModelError("An export of this model is running: wait for it to end.")
+                raise ModelError("export_running", "An export of this model is running: wait for it to end.")
             # renamed first: if a file is in use the rename fails and the model stays as it was
             trash = self.dir / f".deleting-m{number}"
             shutil.rmtree(trash, ignore_errors=True)

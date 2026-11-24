@@ -414,11 +414,16 @@ class TrainingRunner:
             ModelError: unknown format.
         """
         if fmt not in FORMATS:
-            raise ModelError(f"The format must be one of: {', '.join(FORMATS)}.")
+            raise ModelError(
+                "format_invalid", f"The format must be one of: {', '.join(FORMATS)}.", choices=list(FORMATS)
+            )
         store = ModelStore(self._project_dir(project_id))
         card = store.get(number)
         if card.get("source") == "public":
-            raise ModelError("A public model has no weights here to export (they are downloaded when used).")
+            raise ModelError(
+                "public_model_no_export",
+                "A public model has no weights here to export (they are downloaded when used).",
+            )
         if ((card.get("exports") or {}).get(fmt) or {}).get("status") in (QUEUED, RUNNING):
             return card
         card = store.set_export(number, fmt, status=QUEUED, error="", message="", requested=now())
