@@ -1132,3 +1132,16 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   .hists { flex-wrap: nowrap; gap: var(--space-2); }
   .hist { flex: 1 1 0; }
 }
+
+/* #341: run, version and model cards share the whole row (auto-fit: two cards no longer leave a third of
+   the width empty); on a phone the delete button sits beside the first action instead of on a line alone */
+.tr-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.ds-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+@media (max-width: 480px) {
+  .tr-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .tr-actions > * { grid-column: 1; }
+  .tr-actions > .tr-del { grid-column: 2; grid-row: 1; margin-left: 0; }
+  .ds-card { position: relative; }
+  .ds-card-head { padding-right: 3.25rem; }
+  .ds-del { position: absolute; top: var(--space-3); right: var(--space-3); }
+}

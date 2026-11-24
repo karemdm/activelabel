@@ -119,3 +119,14 @@ def test_curation_histograms_fill_the_row_and_limits_show_their_state():
     )
     assert re.search(r"\.th-grid \.field\.inline \{[^}]*justify-content: flex-end", block)
     assert "'aria-controls': 'cur-limits'" in JS
+
+
+def test_cards_use_the_whole_row_and_delete_is_not_alone_on_a_phone():
+    """#341 items 4 and 5."""
+    block = CSS[CSS.index("/* #341:") :]
+    assert re.search(
+        r"\.tr-cards \{ grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 340px\)", block
+    )
+    assert re.search(r"\.ds-cards \{ grid-template-columns: repeat\(auto-fit,", block)
+    assert re.search(r"\.tr-actions > \.tr-del \{ grid-column: 2; grid-row: 1;", block)
+    assert re.search(r"\.ds-del \{ position: absolute;", block)
