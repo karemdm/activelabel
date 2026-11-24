@@ -117,6 +117,24 @@ def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: False)
     body = client.get("/api/training/environment").json()
     assert body == {"exists": False, "packages": {}, "gpu": None}
+    first = client.get("/api/training/environment", params={"model": "resnet18"}).json()
+    assert first["install_needed"] is True and {"torch", "torchvision", "pillow"} <= set(first["missing"])
+    assert client.get("/api/training/environment", params={"model": "nope"}).status_code == 404
+    monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: True)
+    monkeypatch.setattr(
+        environment.TrainingEnvironment, "installed", lambda self: {"torch": "2", "pillow": "1"}
+    )
+    some = client.get("/api/training/environment", params={"model": "resnet18"}).json()
+    assert some["missing"] == ["torchvision", "numpy"] and some["install_needed"] is True
+    monkeypatch.setattr(
+        environment.TrainingEnvironment,
+        "installed",
+        lambda self: dict.fromkeys(["torch", "torchvision", "pillow", "numpy"], "1"),
+    )
+    assert (
+        client.get("/api/training/environment", params={"model": "resnet18"}).json()["install_needed"]
+        is False
+    )
 
 
 def test_a_damaged_run_does_not_hide_the_others(tmp_path):
