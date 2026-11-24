@@ -31,6 +31,14 @@ _LOCKS_GUARD = threading.Lock()
 
 
 def _lock_for(path: Path) -> threading.RLock:
+    """One lock per folder, shared by every store object of the same project.
+
+    Args:
+        path: folder to lock.
+
+    Returns:
+        The reentrant lock of that (resolved) folder.
+    """
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
@@ -47,27 +55,59 @@ class ModelStore:
     """Saved models of one project."""
 
     def __init__(self, project_dir: Path) -> None:
+        """Open the models of a project.
+
+        Args:
+            project_dir: folder of the project (the models are in ``models/`` inside it).
+        """
         self.project_dir = project_dir
         self.dir = project_dir / "models"
         self._lock = _lock_for(self.dir)
 
     def path(self, number: int) -> Path:
-        """Folder of a model."""
+        """Folder of a model.
+
+        Args:
+            number: number of the model.
+
+        Returns:
+            ``models/m<number>`` (it may not exist).
+        """
         return self.dir / f"m{number}"
 
     def _numbers(self) -> builtins.list[int]:
+        """Numbers of the model folders, oldest first.
+
+        Returns:
+            The numbers found in ``models/`` (empty when the folder does not exist).
+        """
         if not self.dir.exists():
             return []
         return sorted(int(p.name[1:]) for p in self.dir.glob("m*") if p.is_dir() and p.name[1:].isdigit())
 
     def _require(self, number: int) -> Path:
+        """Folder of a model that exists.
+
+        Args:
+            number: number of the model.
+
+        Returns:
+            The folder of the model.
+
+        Raises:
+            ModelNotFound: the model has no ``model.json``.
+        """
         folder = self.path(number)
         if not (folder / "model.json").exists():
             raise ModelNotFound(number)
         return folder
 
     def current(self) -> int | None:
-        """Number of the current model, or ``None``."""
+        """Number of the current model, or ``None``.
+
+        Returns:
+            The number recorded in ``current.json`` when that model still exists, otherwise ``None``.
+        """
         value = (read_json(self.dir / "current.json", {}) or {}).get("model")
         return value if isinstance(value, int) and (self.path(value) / "model.json").exists() else None
 
@@ -78,9 +118,17 @@ class ModelStore:
         curves, results and log), and ``last.pt`` is removed. The first model of a project becomes the
         current one.
 
+        Args:
+            run_number: number of the finished run.
+            note: free text kept on the card.
+
+        Returns:
+            The card of the new model.
+
         Raises:
             RunNotFound: unknown run.
-            ModelError: the run is not finished, has no weights, or is already saved.
+            ModelError: the run is not finished, has no weights, is already saved, or has no list of
+                classes and its dataset version was deleted.
         """
         runs = RunStore(self.project_dir)
         run = runs.get(run_number)
@@ -157,7 +205,16 @@ class ModelStore:
         return self.get(number)
 
     def _keypoints_of(self, spec: Any, dataset: int) -> int | None:
-        """Points per object a pose model was trained with (read from its dataset version's labels)."""
+        """Points per object a pose model was trained with (read from its dataset version's labels).
+
+        Args:
+            spec: catalogue entry of the model, or ``None``.
+            dataset: number of the dataset version.
+
+        Returns:
+            The common number of points, or ``None`` when the model is not a pose model, the version is
+            gone, or the labels have no common count.
+        """
         if spec is None or spec.task_kind != "keypoints":
             return None
         try:
@@ -175,7 +232,10 @@ class ModelStore:
             public_id: id in training.public_models.
             mapping: public category → project class; categories not in it are ignored.
             project_classes: the project's classes (every target of the mapping must be one).
-            note: free text.
+            note: free text (at most 500 characters are kept).
+
+        Returns:
+            The card of the new model.
 
         Raises:
             ModelError: unknown public model, an empty mapping, or a category or class that does not
@@ -236,6 +296,12 @@ class ModelStore:
     def get(self, number: int) -> dict[str, Any]:
         """The card of a model, with ``current``.
 
+        Args:
+            number: number of the model.
+
+        Returns:
+            The card, with ``current`` telling whether it is the current model.
+
         Raises:
             ModelNotFound: unknown number.
         """
@@ -244,11 +310,25 @@ class ModelStore:
         return card
 
     def results(self, number: int) -> dict[str, Any]:
-        """``results.json`` of a model (the run's results when it was saved)."""
+        """``results.json`` of a model (the run's results when it was saved).
+
+        Args:
+            number: number of the model.
+
+        Returns:
+            The results (empty when the file is missing or empty).
+
+        Raises:
+            ModelNotFound: unknown number.
+        """
         return dict(read_json(self._require(number) / "results.json", {}) or {})
 
     def list(self) -> builtins.list[dict[str, Any]]:
-        """Cards of every model, newest first."""
+        """Cards of every model, newest first.
+
+        Returns:
+            One card per model, each with ``current``.
+        """
         current = self.current()
         out = []
         for n in reversed(self._numbers()):
@@ -259,6 +339,13 @@ class ModelStore:
 
     def update(self, number: int, **fields: Any) -> dict[str, Any]:
         """Change fields of ``model.json`` (``number``, ``created`` and ``run`` stay).
+
+        Args:
+            number: number of the model.
+            **fields: fields to set; ``number``, ``created``, ``run`` and ``current`` are ignored.
+
+        Returns:
+            The card after the change.
 
         Raises:
             ModelNotFound: unknown number.
@@ -272,6 +359,14 @@ class ModelStore:
 
     def set_export(self, number: int, fmt: str, **fields: Any) -> dict[str, Any]:
         """Change the state of one export (``status``, ``error``, ``size``…).
+
+        Args:
+            number: number of the model.
+            fmt: export format.
+            **fields: fields merged into the export's state.
+
+        Returns:
+            The card after the change.
 
         Raises:
             ModelNotFound: unknown number.
@@ -288,6 +383,9 @@ class ModelStore:
     def set_current(self, number: int | None) -> None:
         """Mark a model as the current one (``None``: no current model).
 
+        Args:
+            number: number of the model, or ``None``.
+
         Raises:
             ModelNotFound: unknown number.
         """
@@ -298,6 +396,13 @@ class ModelStore:
 
     def file(self, number: int, name: str) -> Path:
         """Path of the weights (``best.pt``) or of an export file of a model.
+
+        Args:
+            number: number of the model.
+            name: file name (the weights or one of ``EXPORT_FILES``).
+
+        Returns:
+            The path of the existing file.
 
         Raises:
             ModelNotFound: unknown model, or the file does not exist.
@@ -311,6 +416,9 @@ class ModelStore:
 
     def delete(self, number: int) -> None:
         """Remove a model and its files (its number is not reused; a current model stops being current).
+
+        Args:
+            number: number of the model.
 
         Raises:
             ModelNotFound: unknown number.

@@ -55,12 +55,23 @@ class SpecError(ValueError):
 
 
 def emit(event: str, **fields: Any) -> None:
-    """Print one event line."""
+    """Print one event line.
+
+    Args:
+        event: Event name (``log``, ``progress``, ``epoch``, ``done`` or ``error``).
+        **fields: Extra fields of the JSON object.
+    """
     print(json.dumps({"event": event, **fields}), flush=True)
 
 
 def load_spec(path: str | Path) -> dict[str, Any]:
     """Read and check ``spec.json``.
+
+    Args:
+        path: Path of the spec file.
+
+    Returns:
+        The spec as a dict.
 
     Raises:
         SpecError: missing keys, an unsupported task, family, start or metric, or no images.
@@ -92,6 +103,13 @@ def augmentation_plan(preset: str, task: str) -> dict[str, float | bool]:
 
     The flip is off for keypoints: which points swap places (left/right) is unknown.
 
+    Args:
+        preset: Augmentation preset (``none``, ``light``, ``standard`` or ``strong``).
+        task: ``detection``, ``instance`` or ``keypoints``.
+
+    Returns:
+        ``{"flip": bool, "jitter": float}``: whether to flip horizontally and the colour jitter amount.
+
     Raises:
         SpecError: unknown preset.
     """
@@ -102,7 +120,15 @@ def augmentation_plan(preset: str, task: str) -> dict[str, float | bool]:
 
 
 def warmup_factor(step: int, steps: int) -> float:
-    """Learning rate factor for step ``step`` (1-based) of the first epoch: a short linear ramp."""
+    """Learning rate factor for step ``step`` (1-based) of the first epoch: a short linear ramp.
+
+    Args:
+        step: The batch about to run (from 1).
+        steps: Batches in the epoch.
+
+    Returns:
+        The factor, from 0.001 up to 1.0 (1.0 once the ramp is over or the epoch is too short).
+    """
     length = min(WARMUP_STEPS, steps - 1)
     if length <= 0 or step > length:
         return 1.0
@@ -110,7 +136,16 @@ def warmup_factor(step: int, steps: int) -> float:
 
 
 def polygon_mask(polygons: list[list[list[float]]] | None, width: int, height: int) -> Array:
-    """``(height, width)`` uint8 mask, 1 inside the rings (relative points), drawn with PIL."""
+    """``(height, width)`` uint8 mask, 1 inside the rings (relative points), drawn with PIL.
+
+    Args:
+        polygons: Rings of relative ``[x, y]`` points (``None`` or empty gives an empty mask).
+        width: Mask width in pixels.
+        height: Mask height in pixels.
+
+    Returns:
+        The mask array.
+    """
     image = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(image)
     for ring in polygons or []:
@@ -121,7 +156,17 @@ def polygon_mask(polygons: list[list[list[float]]] | None, width: int, height: i
 
 
 def keypoints_array(keypoints: list[list[float]] | None, count: int, width: int, height: int) -> Array:
-    """``(count, 3)`` array of absolute ``[x, y, visibility]``; missing points are ``[0, 0, 0]``."""
+    """``(count, 3)`` array of absolute ``[x, y, visibility]``; missing points are ``[0, 0, 0]``.
+
+    Args:
+        keypoints: Relative ``[x, y]`` or ``[x, y, visibility]`` points (visibility defaults to 2).
+        count: Number of points per object.
+        width: Image width in pixels.
+        height: Image height in pixels.
+
+    Returns:
+        The float32 array.
+    """
     out = np.zeros((count, 3), dtype=np.float32)
     for i, point in enumerate((keypoints or [])[:count]):
         visibility = point[2] if len(point) > 2 else 2
@@ -133,7 +178,13 @@ def keypoints_array(keypoints: list[list[float]] | None, count: int, width: int,
 def object_box(obj: dict[str, Any], width: int, height: int) -> list[float] | None:
     """Absolute ``[x1, y1, x2, y2]`` of an object (its box, else the extent of polygons or points).
 
-    Returns None when the box has no area (less than one pixel on a side).
+    Args:
+        obj: Spec object with a relative ``bbox``, ``polygons`` or ``keypoints``.
+        width: Image width in pixels.
+        height: Image height in pixels.
+
+    Returns:
+        The box clipped to the image, or None when it has no area (less than one pixel on a side).
     """
     box: list[float] | None = None
     if obj.get("bbox"):
@@ -167,6 +218,16 @@ def build_target(
 
     ``boxes`` (N, 4) xyxy in pixels, ``labels`` (N,) = class + 1 and, by task,
     ``masks`` (N, H, W) uint8 or ``keypoints`` (N, K, 3).
+
+    Args:
+        item: Spec item with its ``objects``.
+        width: Image width in pixels.
+        height: Image height in pixels.
+        task: ``detection``, ``instance`` or ``keypoints``.
+        num_keypoints: Points per object (used by the ``keypoints`` task).
+
+    Returns:
+        The target dict of numpy arrays; objects without a usable box are left out.
     """
     boxes: list[list[float]] = []
     labels: list[int] = []
@@ -201,7 +262,15 @@ def build_target(
 
 
 def flip_target(target: dict[str, Array], width: int) -> dict[str, Array]:
-    """Horizontal flip of boxes and masks (keypoints are never flipped)."""
+    """Horizontal flip of boxes and masks (keypoints are never flipped).
+
+    Args:
+        target: Target from ``build_target``.
+        width: Image width in pixels.
+
+    Returns:
+        A new target with the flipped ``boxes`` and, when present, ``masks``.
+    """
     out = dict(target)
     boxes = target["boxes"].copy()
     boxes[:, [0, 2]] = width - target["boxes"][:, [2, 0]]
@@ -212,7 +281,15 @@ def flip_target(target: dict[str, Array], width: int) -> dict[str, Array]:
 
 
 def box_iou(a: Array, b: Array) -> Array:
-    """``(len(a), len(b))`` IoU of xyxy boxes."""
+    """``(len(a), len(b))`` IoU of xyxy boxes.
+
+    Args:
+        a: Boxes ``[x1, y1, x2, y2]``.
+        b: Boxes ``[x1, y1, x2, y2]``.
+
+    Returns:
+        The IoU matrix.
+    """
     a = np.asarray(a, dtype=np.float64).reshape(-1, 4)
     b = np.asarray(b, dtype=np.float64).reshape(-1, 4)
     if not len(a) or not len(b):
@@ -228,7 +305,15 @@ def box_iou(a: Array, b: Array) -> Array:
 
 
 def mask_iou(a: Array, b: Array) -> Array:
-    """``(len(a), len(b))`` IoU of masks of shape (N, H, W) (any value above 0 counts as inside)."""
+    """``(len(a), len(b))`` IoU of masks of shape (N, H, W) (any value above 0 counts as inside).
+
+    Args:
+        a: Masks of shape (N, H, W).
+        b: Masks of shape (M, H, W), same H and W as ``a``.
+
+    Returns:
+        The IoU matrix.
+    """
     fa = (np.asarray(a) > 0).reshape(len(a), -1).astype(np.float32)
     fb = (np.asarray(b) > 0).reshape(len(b), -1).astype(np.float32)
     if not len(fa) or not len(fb):
@@ -245,6 +330,9 @@ def average_precision(scores: Array, hits: Array, n_gt: int) -> float:
         scores: confidence of every detection.
         hits: whether each detection matched an object (true positive).
         n_gt: objects of the class in the ground truth.
+
+    Returns:
+        The AP, 0..1 (0.0 without ground truth or detections).
     """
     if n_gt == 0 or len(scores) == 0:
         return 0.0
@@ -269,6 +357,12 @@ class APAccumulator:
     """
 
     def __init__(self, n_classes: int, thresholds: Array = IOU_THRESHOLDS) -> None:
+        """Start empty.
+
+        Args:
+            n_classes: Number of classes (0-based indices below it are counted).
+            thresholds: IoU thresholds to average over.
+        """
         self.n_classes = n_classes
         self.thresholds = [float(t) for t in thresholds]
         self._records: list[list[tuple[Array, Array]]] = [[] for _ in range(n_classes)]
@@ -277,8 +371,11 @@ class APAccumulator:
     def add(self, scores: Array, labels: Array, gt_labels: Array, ious: Array) -> None:
         """Add one image.
 
-        Takes detection scores and 0-based classes, ground-truth classes and the
-        ``(detections, ground truth)`` IoU matrix (of boxes or of masks).
+        Args:
+            scores: Confidence of each detection.
+            labels: 0-based class of each detection.
+            gt_labels: 0-based class of each ground-truth object.
+            ious: ``(detections, ground truth)`` IoU matrix (of boxes or of masks).
         """
         scores, labels, gt_labels = np.asarray(scores), np.asarray(labels), np.asarray(gt_labels)
         ious = np.asarray(ious).reshape(len(labels), len(gt_labels))
@@ -291,6 +388,15 @@ class APAccumulator:
                 self._records[c].append((scores[pred], ious[np.ix_(pred, truth)]))
 
     def _hits(self, c: int, threshold: float) -> tuple[Array, Array]:
+        """Scores and true-positive flags of class ``c`` at an IoU ``threshold`` (greedy matching).
+
+        Args:
+            c: 0-based class index.
+            threshold: Lowest IoU for a detection to match a ground-truth object.
+
+        Returns:
+            ``(scores, hits)`` of the class's detections, each image's detections sorted by score.
+        """
         all_scores: list[Array] = []
         all_hits: list[Array] = []
         for scores, ious in self._records[c]:
@@ -311,7 +417,14 @@ class APAccumulator:
         return np.concatenate(all_scores), np.concatenate(all_hits)
 
     def summary(self, names: list[str]) -> dict[str, Any]:
-        """``{"map50", "map50_95", "per_class": {name: {"ap50", "ap50_95", "support"}}}``."""
+        """``{"map50", "map50_95", "per_class": {name: {"ap50", "ap50_95", "support"}}}``.
+
+        Args:
+            names: Class names, in the order of the class indices.
+
+        Returns:
+            The mean AP over the classes that have ground truth, and the AP of each of them.
+        """
         per_class: dict[str, dict[str, float]] = {}
         for c, name in enumerate(names[: self.n_classes]):
             if self._n_gt[c] == 0:
@@ -335,7 +448,19 @@ def match_pairs(
     gt_labels: Array,
     threshold: float = 0.5,
 ) -> list[tuple[int, int]]:
-    """Greedy ``(prediction, ground truth)`` pairs of the same class with IoU at least ``threshold``."""
+    """Greedy ``(prediction, ground truth)`` pairs of the same class with IoU at least ``threshold``.
+
+    Args:
+        pred_boxes: Predicted boxes, xyxy.
+        pred_scores: Confidence of each prediction (higher scores pick first).
+        pred_labels: Class of each prediction.
+        gt_boxes: Ground-truth boxes, xyxy.
+        gt_labels: Class of each ground-truth object.
+        threshold: Lowest IoU for a pair.
+
+    Returns:
+        The ``(prediction index, ground-truth index)`` pairs.
+    """
     ious = box_iou(pred_boxes, gt_boxes)
     used: set[int] = set()
     pairs = []
@@ -358,6 +483,14 @@ def oks_matrix(pred: Array, gt: Array, areas: Array) -> Array:
     ``s**2`` of each ground-truth object (its box area). Every point has the same tolerance
     ``sigma = 1 / K`` (COCO's per-point values exist only for the 17 body points); only the ground
     truth's labelled points count. An object without labelled points matches nothing (OKS 0).
+
+    Args:
+        pred: Predicted keypoints, ``(N, K, 3)``.
+        gt: Ground-truth keypoints, ``(M, K, 3)``.
+        areas: Box area of each ground-truth object.
+
+    Returns:
+        The ``(N, M)`` OKS matrix.
     """
     pred, gt = np.asarray(pred, dtype=np.float64), np.asarray(gt, dtype=np.float64)
     if not len(pred) or not len(gt):
@@ -379,6 +512,15 @@ def pck_counts(
 
     A labelled point is correct when the matching prediction (same class, box IoU of 0.5) has it
     within ``alpha`` times the longer side of the ground-truth box; unmatched objects count as wrong.
+
+    Args:
+        pred: Predictions of the image: ``boxes``, ``scores``, ``labels`` and ``keypoints``.
+        gt: Ground truth of the image: ``boxes``, ``labels`` and ``keypoints``.
+        min_score: Predictions below this score are ignored.
+        alpha: Fraction of the longer box side allowed as distance.
+
+    Returns:
+        ``(correct, total)`` counts of labelled points.
     """
     gt_kps = gt["keypoints"]
     visible = gt_kps[..., 2] > 0
@@ -397,7 +539,14 @@ def pck_counts(
 
 
 def split_note(spec: dict[str, Any]) -> str:
-    """One-line description of the data, for the log."""
+    """One-line description of the data, for the log.
+
+    Args:
+        spec: The job spec (``parts``, ``classes`` and optionally ``fold``).
+
+    Returns:
+        The sentence with image counts per part, the fold, the classes and the training objects.
+    """
     parts = spec["parts"]
     sizes = ", ".join(f"{k} {len(v)}" for k, v in parts.items())
     objects = sum(len(i.get("objects", [])) for i in parts["train"])
@@ -415,13 +564,35 @@ class DetectionDataset:
     def __init__(
         self, items: list[dict[str, Any]], task: str, num_keypoints: int, flip: bool, jitter: float
     ) -> None:
+        """Keep the items and the augmentation settings.
+
+        Args:
+            items: The images of one part (``path`` and ``objects`` each).
+            task: ``detection``, ``instance`` or ``keypoints``.
+            num_keypoints: Points per object (0 when the task has none).
+            flip: Flip horizontally half of the time.
+            jitter: Brightness and contrast jitter amount (0 for none).
+        """
         self.items, self.task, self.num_keypoints = items, task, num_keypoints
         self.flip, self.jitter = flip, jitter
 
     def __len__(self) -> int:
+        """Number of images.
+
+        Returns:
+            The number of items in the part.
+        """
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, dict[str, Any]]:
+        """The image tensor and the target tensors at ``index``.
+
+        Args:
+            index: Position in the part.
+
+        Returns:
+            ``(image tensor 0..1, target dict of tensors)``, after the optional jitter and flip.
+        """
         with Image.open(self.items[index]["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
             image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
@@ -438,12 +609,26 @@ class DetectionDataset:
 
 
 def collate(batch: list[Any]) -> tuple[Any, ...]:
-    """Detection batches are lists (images differ in size)."""
+    """Detection batches are lists (images differ in size).
+
+    Args:
+        batch: The ``(image, target)`` pairs of a batch.
+
+    Returns:
+        ``(images, targets)`` as tuples.
+    """
     return tuple(zip(*batch, strict=True))
 
 
 def pick_device(torch: Any) -> str:
-    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``."""
+    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``.
+
+    Args:
+        torch: The torch module.
+
+    Returns:
+        The device name.
+    """
     if torch.cuda.is_available():
         return "cuda"
     mps = getattr(torch.backends, "mps", None)
@@ -453,7 +638,12 @@ def pick_device(torch: Any) -> str:
 
 
 def seed_everything(seed: int, torch: Any) -> None:
-    """Seed Python, numpy and torch."""
+    """Seed Python, numpy and torch.
+
+    Args:
+        seed: The seed.
+        torch: The torch module.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -462,6 +652,19 @@ def seed_everything(seed: int, torch: Any) -> None:
 
 
 def _new_conv(old: Any, out_channels: int, torch: Any, kernel: int, padding: int, prior: float | None) -> Any:
+    """A new convolution with the input channels of ``old``, small random weights and a prior-based bias.
+
+    Args:
+        old: The convolution it replaces (gives ``in_channels``).
+        out_channels: Output channels of the new layer.
+        torch: The torch module.
+        kernel: Kernel size.
+        padding: Padding.
+        prior: Expected foreground probability for the bias initialisation; ``None`` or 0 gives a zero bias.
+
+    Returns:
+        The new ``Conv2d``.
+    """
     conv = torch.nn.Conv2d(old.in_channels, out_channels, kernel, padding=padding)
     torch.nn.init.normal_(conv.weight, std=0.01)
     bias = -float(np.log((1 - prior) / prior)) if prior else 0.0
@@ -472,7 +675,15 @@ def _new_conv(old: Any, out_channels: int, torch: Any, kernel: int, padding: int
 def replace_heads(
     model: Any, model_id: str, classes_with_background: int, num_keypoints: int, torch: Any
 ) -> None:
-    """Replace the predictors of a COCO-pretrained model for this project's classes."""
+    """Replace the predictors of a COCO-pretrained model for this project's classes.
+
+    Args:
+        model: The torchvision detection model, changed in place.
+        model_id: The torchvision model name (picks the mask or keypoint predictor).
+        classes_with_background: Project classes plus the background.
+        num_keypoints: Points per object (for ``keypointrcnn`` models).
+        torch: The torch module.
+    """
     n = classes_with_background
     if hasattr(model, "roi_heads"):
         predictor = model.roi_heads.box_predictor
@@ -503,7 +714,12 @@ def replace_heads(
 
 
 def set_score_thresh(model: Any, value: float) -> None:
-    """Lowest score a detection needs to be returned."""
+    """Lowest score a detection needs to be returned.
+
+    Args:
+        model: The torchvision detection model, changed in place.
+        value: The score threshold.
+    """
     if hasattr(model, "roi_heads"):
         model.roi_heads.score_thresh = value
     else:
@@ -512,6 +728,13 @@ def set_score_thresh(model: Any, value: float) -> None:
 
 def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
     """The torchvision model with predictors for the project's classes (+ background).
+
+    Args:
+        spec: The job spec (``model``, ``classes``, ``start``, ``params`` and ``num_keypoints``).
+        pretrained: Start from COCO weights (downloads them when needed) instead of random ones.
+
+    Returns:
+        The model.
 
     Raises:
         SpecError: torchvision has no such detection model.
@@ -544,6 +767,17 @@ def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
 
     Heads only (transfer), backbone at a lower rate (fine-tuning) or everything (scratch).
     The backbone includes the feature pyramid.
+
+    Args:
+        spec: The job spec (``start`` and ``params``).
+        model: The detection model; in ``transfer`` mode its backbone is frozen.
+        torch: The torch module.
+
+    Returns:
+        The optimizer (SGD, Adam or AdamW as in ``params.optimizer``).
+
+    Raises:
+        SpecError: Nothing in the model is trainable.
     """
     p = spec["params"]
     lr, start = float(p["lr"]), spec["start"]
@@ -574,7 +808,16 @@ def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
 
 
 def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``."""
+    """Learning rate schedule, or ``None``.
+
+    Args:
+        spec: The job spec (``params.scheduler`` and ``params.epochs``).
+        optimizer: The optimizer to schedule.
+        torch: The torch module.
+
+    Returns:
+        A cosine or step scheduler, or ``None`` for a constant rate.
+    """
     name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
     if name == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -586,7 +829,23 @@ def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
 def train_epoch(
     model: Any, loader: Any, optimizer: Any, device: str, torch: Any, first: bool, on_step: Any = None
 ) -> float:
-    """One training pass; returns the mean of the summed model losses per image batch."""
+    """One training pass; returns the mean of the summed model losses per image batch.
+
+    Args:
+        model: The detection model in training mode.
+        loader: Data loader of ``(images, targets)`` batches.
+        optimizer: The optimizer.
+        device: Torch device name.
+        torch: The torch module.
+        first: Whether this is the first epoch (the learning rate warms up).
+        on_step: Called with ``(step, steps)`` after each batch (optional).
+
+    Returns:
+        The mean loss per batch.
+
+    Raises:
+        RuntimeError: The loss is not finite.
+    """
     base = [g["lr"] for g in optimizer.param_groups]
     total, count = 0.0, 0
     steps = len(loader)
@@ -613,7 +872,19 @@ def train_epoch(
 
 
 def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: Any) -> dict[str, Any]:
-    """Box mAP (plus mask mAP for instance; keypoint OKS mAP and PCK@0.1 for keypoints) of a loader."""
+    """Box mAP (plus mask mAP for instance; keypoint OKS mAP and PCK@0.1 for keypoints) of a loader.
+
+    Args:
+        model: The detection model (put in eval mode here).
+        loader: Data loader of ``(images, targets)`` batches.
+        spec: The job spec (``task`` and ``classes``).
+        device: Torch device name.
+        torch: The torch module.
+
+    Returns:
+        ``map50``, ``map50_95`` and ``per_class`` plus, by task, the ``mask_*`` or ``kp_*`` and
+        ``pck`` fields.
+    """
     task, classes = spec["task"], spec["classes"]
     boxes_ap = APAccumulator(len(classes))
     masks_ap = APAccumulator(len(classes)) if task == "instance" else None
@@ -658,7 +929,14 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
 
 
 def epoch_scores(result: dict[str, Any]) -> dict[str, float]:
-    """Metrics of an evaluation as the ``val_*`` fields of an ``epoch`` event."""
+    """Metrics of an evaluation as the ``val_*`` fields of an ``epoch`` event.
+
+    Args:
+        result: The dict returned by ``evaluate``.
+
+    Returns:
+        The ``val_`` prefixed scores.
+    """
     fields = {"val_map50": result["map50"], "val_map50_95": result["map50_95"]}
     for key in ("mask_map50", "mask_map50_95", "kp_map50", "kp_map50_95", "pck"):
         if key in result:
@@ -728,7 +1006,21 @@ def save_checkpoint(path: Path, model: Any, meta: dict[str, Any], epoch: int) ->
 
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
-    """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
+    """Train, keep the best epoch by the selection metric, evaluate the test part.
+
+    Writes ``best.pt``, ``last.pt`` and ``results.json`` to ``output_dir``.
+
+    Args:
+        spec: The checked job spec.
+
+    Returns:
+        The results: ``metric``, ``best_epoch``, ``epochs_run``, ``stopped_early``, ``val`` and
+        ``test`` (``None`` without a test part).
+
+    Raises:
+        SpecError: A model or preset the worker cannot use.
+        RuntimeError: The loss is not finite.
+    """
     p, classes, metric, task = spec["params"], spec["classes"], spec["metric"], spec["task"]
     out = Path(spec["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
@@ -821,7 +1113,14 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: Command line; ``argv[1]`` is the path of the spec JSON file.
+
+    Returns:
+        Process exit code: 0 on success, 1 after an ``error`` event.
+    """
     try:
         spec = load_spec(argv[1])
         results = train(spec)

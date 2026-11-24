@@ -53,12 +53,23 @@ class SpecError(ValueError):
 
 
 def emit(event: str, **fields: Any) -> None:
-    """Print one event line."""
+    """Print one event line.
+
+    Args:
+        event: Event name (``log``, ``warning``, ``progress``, ``epoch``, ``done`` or ``error``).
+        **fields: Extra fields of the JSON object.
+    """
     print(json.dumps({"event": event, **fields}), flush=True)
 
 
 def load_spec(path: str | Path) -> dict[str, Any]:
     """Read and check ``spec.json``.
+
+    Args:
+        path: Path of the spec file.
+
+    Returns:
+        The spec as a dict.
 
     Raises:
         SpecError: missing keys, an unsupported task or model, no images or a fold ``"all"``.
@@ -90,6 +101,13 @@ def load_spec(path: str | Path) -> dict[str, Any]:
 def class_id(label: Any, classes: list[str]) -> int:
     """Mask value of an object: its class index + 1 (0 is the background).
 
+    Args:
+        label: Class name, or index into ``classes``.
+        classes: The project's classes (without the background).
+
+    Returns:
+        The mask value, from 1.
+
     Raises:
         SpecError: unknown class.
     """
@@ -104,11 +122,26 @@ def class_id(label: Any, classes: list[str]) -> int:
 
 
 def _has_polygons(obj: dict[str, Any]) -> bool:
+    """Whether ``obj`` has at least one ring with three or more points.
+
+    Args:
+        obj: Spec object with optional ``polygons``.
+
+    Returns:
+        True when it has a usable polygon.
+    """
     return any(len(ring) >= 3 for ring in obj.get("polygons") or [])
 
 
 def count_box_only(parts: dict[str, list[dict[str, Any]]]) -> int:
-    """Objects that have a box but no polygon (they are drawn as filled rectangles)."""
+    """Objects that have a box but no polygon (they are drawn as filled rectangles).
+
+    Args:
+        parts: The spec parts: image items by part name.
+
+    Returns:
+        The number of such objects over all parts.
+    """
     return sum(
         1
         for items in parts.values()
@@ -123,6 +156,18 @@ def rasterize_mask(objects: list[dict[str, Any]], width: int, height: int, class
 
     Every ring of an object is filled with its class (rings are not treated as holes). An object
     without a usable polygon is drawn as its filled bounding box; one with neither is skipped.
+
+    Args:
+        objects: Spec objects (``label``, ``polygons`` and ``bbox``, relative coordinates).
+        width: Image width in pixels.
+        height: Image height in pixels.
+        classes: The project's classes (without the background).
+
+    Returns:
+        The PIL ``L`` mask.
+
+    Raises:
+        SpecError: An object has an unknown class.
     """
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
@@ -143,6 +188,13 @@ def rasterize_mask(objects: list[dict[str, Any]], width: int, height: int, class
 def augmentation_plan(preset: str) -> dict[str, Any]:
     """Settings of a training augmentation preset (applied to image and mask together).
 
+    Args:
+        preset: Augmentation preset (``none``, ``light``, ``standard`` or ``strong``).
+
+    Returns:
+        A dict with ``crop`` (smallest area share), ``hflip`` and ``vflip`` (probabilities),
+        ``rotate`` (largest angle in degrees) and ``jitter`` (colour amount).
+
     Raises:
         SpecError: unknown preset.
     """
@@ -160,7 +212,17 @@ def augmentation_plan(preset: str) -> dict[str, Any]:
 def random_crop_box(
     width: int, height: int, min_scale: float, rng: Any = random
 ) -> tuple[int, int, int, int]:
-    """Random crop ``(left, top, right, bottom)`` covering ``min_scale..1`` of the area."""
+    """Random crop ``(left, top, right, bottom)`` covering ``min_scale..1`` of the area.
+
+    Args:
+        width: Image width in pixels.
+        height: Image height in pixels.
+        min_scale: Smallest share of the area (1.0 or more keeps the whole image).
+        rng: Random source with ``uniform`` and ``randint`` (the ``random`` module by default).
+
+    Returns:
+        The crop box in pixels.
+    """
     if min_scale >= 1.0:
         return 0, 0, width, height
     area = rng.uniform(min_scale, 1.0) * width * height
@@ -172,14 +234,37 @@ def random_crop_box(
 
 
 def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
-    """Image (bilinear) and mask (nearest) resized to ``size`` x ``size``."""
+    """Image (bilinear) and mask (nearest) resized to ``size`` x ``size``.
+
+    Args:
+        image: PIL image.
+        mask: PIL class mask.
+        size: Side of the square, in pixels.
+
+    Returns:
+        ``(image, mask)`` resized.
+    """
     return image.resize((size, size), Image.Resampling.BILINEAR), mask.resize(
         (size, size), Image.Resampling.NEAREST
     )
 
 
 def augment_pair(image: Any, mask: Any, preset: str, size: int, rng: Any = random) -> tuple[Any, Any]:
-    """Training augmentation applied consistently to image and mask, output ``size`` x ``size``."""
+    """Training augmentation applied consistently to image and mask, output ``size`` x ``size``.
+
+    Args:
+        image: PIL image.
+        mask: PIL class mask of the same size.
+        preset: Augmentation preset (see ``augmentation_plan``).
+        size: Side of the output square, in pixels.
+        rng: Random source with ``uniform``, ``randint`` and ``random`` (the ``random`` module by default).
+
+    Returns:
+        ``(image, mask)`` augmented.
+
+    Raises:
+        SpecError: Unknown preset.
+    """
     plan = augmentation_plan(preset)
     if plan["rotate"]:
         angle = rng.uniform(-plan["rotate"], plan["rotate"])
@@ -205,11 +290,29 @@ def augment_pair(image: Any, mask: Any, preset: str, size: int, rng: Any = rando
 
 
 def _ratio(a: float, b: float) -> float:
+    """``a / b``, or 0.0 when ``b`` is zero.
+
+    Args:
+        a: Numerator.
+        b: Denominator.
+
+    Returns:
+        The quotient, or 0.0.
+    """
     return a / b if b else 0.0
 
 
 def confusion_from_lists(truth: list[int], predicted: list[int], n: int) -> list[list[int]]:
-    """``matrix[true][predicted]`` pixel counts over ``n`` values (0 = background)."""
+    """``matrix[true][predicted]`` pixel counts over ``n`` values (0 = background).
+
+    Args:
+        truth: True mask value of each pixel.
+        predicted: Predicted mask value of each pixel.
+        n: Number of values (classes plus the background).
+
+    Returns:
+        The ``n`` by ``n`` matrix of counts.
+    """
     matrix = [[0] * n for _ in range(n)]
     for t, p in zip(truth, predicted, strict=True):
         matrix[t][p] += 1
@@ -217,7 +320,15 @@ def confusion_from_lists(truth: list[int], predicted: list[int], n: int) -> list
 
 
 def class_scores(matrix: list[list[int]], index: int) -> tuple[float, float, int, int]:
-    """IoU, Dice, true pixels and predicted pixels of one class."""
+    """IoU, Dice, true pixels and predicted pixels of one class.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``).
+        index: Mask value of the class (0 is the background).
+
+    Returns:
+        ``(iou, dice, support, predicted)``.
+    """
     tp = matrix[index][index]
     support = sum(matrix[index])
     predicted = sum(row[index] for row in matrix)
@@ -225,7 +336,14 @@ def class_scores(matrix: list[list[int]], index: int) -> tuple[float, float, int
 
 
 def mean_scores(matrix: list[list[int]]) -> tuple[float, float]:
-    """Mean IoU and Dice over the object classes (not the background) present in truth or prediction."""
+    """Mean IoU and Dice over the object classes (not the background) present in truth or prediction.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``) with the background at index 0.
+
+    Returns:
+        ``(mean IoU, mean Dice)``.
+    """
     ious, dices = [], []
     for i in range(1, len(matrix)):
         iou, dice, support, predicted = class_scores(matrix, i)
@@ -236,7 +354,14 @@ def mean_scores(matrix: list[list[int]]) -> tuple[float, float]:
 
 
 def pixel_accuracy(matrix: list[list[int]]) -> float:
-    """Share of correctly classified pixels (background included)."""
+    """Share of correctly classified pixels (background included).
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``).
+
+    Returns:
+        The pixel accuracy, 0..1.
+    """
     return _ratio(sum(matrix[i][i] for i in range(len(matrix))), sum(map(sum, matrix)))
 
 
@@ -245,6 +370,14 @@ def evaluation(matrix: list[list[int]], classes: list[str]) -> dict[str, Any]:
 
     ``classes`` are the project classes; the matrix has the background as index 0 before them.
     The background is reported (``background_iou``, ``per_class``) but not in the means.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``) with the background at index 0.
+        classes: The project's classes (without the background).
+
+    Returns:
+        A dict with ``miou``, ``dice``, ``pixel_accuracy``, ``background_iou``, ``per_class``,
+        ``confusion_matrix`` and ``classes`` (the background first).
     """
     names = [BACKGROUND, *classes]
     miou, dice = mean_scores(matrix)
@@ -264,7 +397,14 @@ def evaluation(matrix: list[list[int]], classes: list[str]) -> dict[str, Any]:
 
 
 def split_folds_note(spec: dict[str, Any]) -> str:
-    """One-line description of the data, for the log."""
+    """One-line description of the data, for the log.
+
+    Args:
+        spec: The job spec (``parts``, ``classes`` and optionally ``fold``).
+
+    Returns:
+        The sentence with image counts per part, the fold and the number of classes.
+    """
     sizes = ", ".join(f"{k} {len(v)}" for k, v in spec["parts"].items())
     fold = f", fold {spec['fold']}" if spec.get("fold") is not None else ""
     return f"Images: {sizes}{fold}. Classes: {len(spec['classes'])} + background."
@@ -276,15 +416,36 @@ class SegmentationDataset:
     def __init__(
         self, items: list[dict[str, Any]], classes: list[str], size: int, preset: str | None
     ) -> None:
+        """Keep the items and the settings.
+
+        Args:
+            items: The images of one part (``path`` and ``objects`` each).
+            classes: The project's classes (without the background).
+            size: Side of the square the images are resized to.
+            preset: Augmentation preset; ``None`` only resizes (evaluation).
+        """
         self.items = items
         self.classes = classes
         self.size = size
         self.preset = preset  # None = evaluation (resize only)
 
     def __len__(self) -> int:
+        """Number of images.
+
+        Returns:
+            The number of items in the part.
+        """
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, Any]:
+        """The normalised image and its class mask at ``index``.
+
+        Args:
+            index: Position in the part.
+
+        Returns:
+            ``(image tensor 3 x size x size, int64 mask tensor size x size)``.
+        """
         item = self.items[index]
         with Image.open(item["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
@@ -306,7 +467,14 @@ class SegmentationDataset:
 
 
 def pick_device(torch: Any) -> str:
-    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``."""
+    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``.
+
+    Args:
+        torch: The torch module.
+
+    Returns:
+        The device name.
+    """
     if torch.cuda.is_available():
         return "cuda"
     mps = getattr(torch.backends, "mps", None)
@@ -316,7 +484,12 @@ def pick_device(torch: Any) -> str:
 
 
 def seed_everything(seed: int, torch: Any) -> None:
-    """Seed Python, numpy and torch."""
+    """Seed Python, numpy and torch.
+
+    Args:
+        seed: The seed.
+        torch: The torch module.
+    """
     random.seed(seed)
     numpy.random.seed(seed)
     torch.manual_seed(seed)
@@ -326,6 +499,13 @@ def seed_everything(seed: int, torch: Any) -> None:
 
 def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
     """The model with a new final layer for the classes + background (also in the aux classifier).
+
+    Args:
+        spec: The job spec (``model`` and ``classes``).
+        pretrained: Start from pretrained weights (downloads them when needed) instead of random ones.
+
+    Returns:
+        The model.
 
     Raises:
         SpecError: unknown model.
@@ -351,13 +531,29 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
 
 
 def head_modules(model: Any) -> list[Any]:
-    """The parts that are not the backbone: the classifier and the aux classifier when present."""
+    """The parts that are not the backbone: the classifier and the aux classifier when present.
+
+    Args:
+        model: The segmentation model.
+
+    Returns:
+        The head modules.
+    """
     aux = getattr(model, "aux_classifier", None)
     return [model.classifier] + ([aux] if aux is not None else [])
 
 
 def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
-    """Optimizer for the start mode: head only, backbone at a lower rate, or everything."""
+    """Optimizer for the start mode: head only, backbone at a lower rate, or everything.
+
+    Args:
+        spec: The job spec (``start`` and ``params``).
+        model: The network; in ``transfer`` mode its parameters are frozen except the heads.
+        torch: The torch module.
+
+    Returns:
+        The optimizer (SGD, Adam or AdamW as in ``params.optimizer``).
+    """
     p = spec["params"]
     lr, start = float(p["lr"]), spec["start"]
     head_params = [x for module in head_modules(model) for x in module.parameters()]
@@ -386,7 +582,16 @@ def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
 
 
 def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``."""
+    """Learning rate schedule, or ``None``.
+
+    Args:
+        spec: The job spec (``params.scheduler`` and ``params.epochs``).
+        optimizer: The optimizer to schedule.
+        torch: The torch module.
+
+    Returns:
+        A cosine or step scheduler, or ``None`` for a constant rate.
+    """
     name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
     if name == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -396,7 +601,16 @@ def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
 
 
 def segmentation_loss(output: Any, masks: Any, loss_fn: Any) -> Any:
-    """Cross-entropy of the main output plus ``AUX_WEIGHT`` times that of the aux output, if any."""
+    """Cross-entropy of the main output plus ``AUX_WEIGHT`` times that of the aux output, if any.
+
+    Args:
+        output: The model output dict (``out`` and optionally ``aux``).
+        masks: Class masks (N x H x W).
+        loss_fn: Loss function ``(logits, masks)``.
+
+    Returns:
+        The loss tensor.
+    """
     loss = loss_fn(output["out"], masks)
     if "aux" in output:
         loss = loss + AUX_WEIGHT * loss_fn(output["aux"], masks)
@@ -413,7 +627,21 @@ def run_epoch(
     optimizer: Any = None,
     on_step: ProgressFn = None,
 ) -> tuple[float, list[list[int]]]:
-    """One pass over a loader. Trains when ``optimizer`` is given. Returns loss and confusion matrix."""
+    """One pass over a loader. Trains when ``optimizer`` is given.
+
+    Args:
+        model: The network.
+        loader: Data loader of ``(images, masks)`` batches.
+        device: Torch device name.
+        torch: The torch module.
+        loss_fn: Loss function ``(logits, masks)``.
+        n_classes: Number of mask values (classes plus the background).
+        optimizer: The optimizer; ``None`` evaluates without gradients.
+        on_step: Called with ``(step, steps)`` after each batch (optional).
+
+    Returns:
+        ``(mean loss per image, confusion matrix[true][predicted] of pixel counts)``.
+    """
     training = optimizer is not None
     total, count = 0.0, 0
     matrix = torch.zeros(n_classes * n_classes, dtype=torch.long, device=device)
@@ -496,7 +724,20 @@ def save_checkpoint(path: Path, model: Any, meta: dict[str, Any], epoch: int) ->
 
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
-    """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
+    """Train, keep the best epoch by the selection metric, evaluate the test part.
+
+    Writes ``best.pt``, ``last.pt`` and ``results.json`` to ``output_dir``.
+
+    Args:
+        spec: The checked job spec.
+
+    Returns:
+        The results: ``metric``, ``best_epoch``, ``epochs_run``, ``stopped_early``, ``val`` and
+        ``test`` (``None`` without a test part).
+
+    Raises:
+        SpecError: An unknown model, class or preset.
+    """
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
     n_classes = len(classes) + 1
     out = Path(spec["output_dir"])
@@ -604,7 +845,14 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: Command line; ``argv[1]`` is the path of the spec JSON file.
+
+    Returns:
+        Process exit code: 0 on success, 1 after an ``error`` event.
+    """
     try:
         spec = load_spec(argv[1])
         results = train(spec)

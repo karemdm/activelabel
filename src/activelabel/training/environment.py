@@ -66,22 +66,48 @@ class GpuInfo:
     cuda: str | None  # "12.4"; None when the output does not say
 
     def as_dict(self) -> dict[str, Any]:
-        """Plain data for the API and run.json."""
+        """Plain data for the API and run.json.
+
+        Returns:
+            ``name``, ``driver`` and ``cuda`` as a dict.
+        """
         return {"name": self.name, "driver": self.driver, "cuda": self.cuda}
 
 
 def normalize(name: str) -> str:
-    """Distribution name as pip compares it (case and ``-_.`` are the same)."""
+    """Distribution name as pip compares it (case and ``-_.`` are the same).
+
+    Args:
+        name: distribution name.
+
+    Returns:
+        The lower-case name with each run of ``-``, ``_`` or ``.`` replaced by ``-``.
+    """
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def requirement_name(requirement: str) -> str:
-    """Name part of a requirement such as ``timm>=1.0`` or ``torch[extra]==2``."""
+    """Name part of a requirement such as ``timm>=1.0`` or ``torch[extra]==2``.
+
+    Args:
+        requirement: a pip requirement string.
+
+    Returns:
+        The distribution name (the stripped text when no name is found).
+    """
     match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
     return match.group(1) if match else requirement.strip()
 
 
 def _is_torch(requirement: str) -> bool:
+    """Whether a requirement is one of the PyTorch packages (``TORCH_PACKAGES``).
+
+    Args:
+        requirement: a pip requirement string.
+
+    Returns:
+        ``True`` for torch or torchvision.
+    """
     return normalize(requirement_name(requirement)) in TORCH_PACKAGES
 
 
@@ -90,11 +116,24 @@ def _is_torch(requirement: str) -> bool:
 
 
 def _no_window_flags() -> int:
+    """Process creation flags that hide the console window on Windows (0 elsewhere).
+
+    Returns:
+        The flags for ``subprocess``.
+    """
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WINDOWS else 0
 
 
 def capture(cmd: list[str], timeout: float = 30) -> tuple[int, str]:
-    """Run a short command and return (exit code, stdout); (-1, "") when it cannot run."""
+    """Run a short command and return (exit code, stdout); (-1, "") when it cannot run.
+
+    Args:
+        cmd: command line.
+        timeout: seconds before the command is given up.
+
+    Returns:
+        The exit code and the standard output (``(-1, "")`` on an OS error or a timeout).
+    """
     try:
         done = subprocess.run(
             cmd,
@@ -113,7 +152,13 @@ LOG = logging.getLogger(__name__)
 
 
 def _clear_readonly(function: Callable[[str], Any], path: str, *_: Any) -> None:
-    """``rmtree`` error handler: clear the read-only flag and retry once (never raises)."""
+    """``rmtree`` error handler: clear the read-only flag and retry once (never raises).
+
+    Args:
+        function: the function that failed.
+        path: path it failed on.
+        *_: the exception information given by ``rmtree`` (ignored).
+    """
     try:
         os.chmod(path, stat.S_IWRITE)
         function(path)
@@ -122,7 +167,11 @@ def _clear_readonly(function: Callable[[str], Any], path: str, *_: Any) -> None:
 
 
 def remove_tree(path: Path) -> None:
-    """Remove a folder or file as well as possible, retrying; never raises (a leftover is cleaned later)."""
+    """Remove a folder or file as well as possible, retrying; never raises (a leftover is cleaned later).
+
+    Args:
+        path: folder or file to remove (a symbolic link is unlinked, not followed).
+    """
     try:
         for _ in range(5):
             if path.is_dir() and not path.is_symlink():
@@ -141,7 +190,11 @@ def remove_tree(path: Path) -> None:
 
 
 def kill_tree(proc: subprocess.Popen[str]) -> None:
-    """Kill a process and everything it started (pip starts build subprocesses)."""
+    """Kill a process and everything it started (pip starts build subprocesses).
+
+    Args:
+        proc: the process to kill; it is waited for.
+    """
     victims: list[Any] = []
     try:
         parent = psutil.Process(proc.pid)
@@ -161,7 +214,17 @@ def kill_tree(proc: subprocess.Popen[str]) -> None:
 
 
 def run_logged(cmd: list[str], log: Path, check: CheckFn, poll: float = 0.5) -> int:
-    """Run ``cmd`` appending its output to ``log``; poll ``check`` and kill the process tree if it raises."""
+    """Run ``cmd`` appending its output to ``log``; poll ``check`` and kill the process tree if it raises.
+
+    Args:
+        cmd: command line.
+        log: file that receives the command and its output.
+        check: function called every ``poll`` seconds; it raises to cancel.
+        poll: seconds between calls to ``check``.
+
+    Returns:
+        The exit code of the process.
+    """
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf-8", errors="replace") as out:
         out.write(f"\n$ {' '.join(cmd)}\n")
@@ -190,7 +253,15 @@ def run_logged(cmd: list[str], log: Path, check: CheckFn, poll: float = 0.5) -> 
 
 
 def parse_nvidia_smi(query_output: str, plain_output: str = "") -> GpuInfo | None:
-    """Parse the CSV query (``name, driver``) and, when given, the CUDA version of the plain output."""
+    """Parse the CSV query (``name, driver``) and, when given, the CUDA version of the plain output.
+
+    Args:
+        query_output: output of ``nvidia-smi --query-gpu=name,driver_version --format=csv,noheader``.
+        plain_output: output of a plain ``nvidia-smi`` (where ``CUDA Version`` appears).
+
+    Returns:
+        The first GPU found, or ``None`` when no line has a name and a driver.
+    """
     for line in query_output.splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 2 and parts[0]:
@@ -200,7 +271,14 @@ def parse_nvidia_smi(query_output: str, plain_output: str = "") -> GpuInfo | Non
 
 
 def cuda_tag(cuda_version: str | None) -> str | None:
-    """Newest PyTorch CUDA build (``cu124``...) not above the driver's CUDA version, or None."""
+    """Newest PyTorch CUDA build (``cu124``...) not above the driver's CUDA version, or None.
+
+    Args:
+        cuda_version: CUDA version of the driver (``"12.4"``), or ``None``.
+
+    Returns:
+        A tag of ``CUDA_TAGS``, or ``None`` when the version is missing or older than all of them.
+    """
     match = re.match(r"(\d+)\.(\d+)", cuda_version or "")
     if not match:
         return None
@@ -215,7 +293,18 @@ def cuda_tag(cuda_version: str | None) -> str | None:
 def pip_commands(
     python: Path, packages: Iterable[str], gpu: GpuInfo | None, platform_name: str | None = None
 ) -> list[list[str]]:
-    """The ``pip install`` commands for ``packages``: PyTorch from its own index, the rest from PyPI."""
+    """The ``pip install`` commands for ``packages``: PyTorch from its own index, the rest from PyPI.
+
+    Args:
+        python: Python executable of the environment.
+        packages: requirements to install.
+        gpu: the NVIDIA GPU, or ``None`` (PyTorch then comes from the CPU index).
+        platform_name: ``sys.platform`` value; on ``darwin`` PyTorch comes from PyPI. Defaults to the
+            current platform.
+
+    Returns:
+        One command for the PyTorch packages (if any) and one for the others (if any).
+    """
     platform_name = platform_name or sys.platform
     packages = list(packages)
     base = [str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-input"]
@@ -240,6 +329,11 @@ class TrainingEnvironment:
     """The training environment of a workspace."""
 
     def __init__(self, workspace: Path | str) -> None:
+        """Locate the environment of a workspace; nothing is created yet.
+
+        Args:
+            workspace: folder of the app's data (the record and log live in ``training/`` inside it).
+        """
         self.workspace = Path(workspace)
         self.training_dir = self.workspace / "training"
         self.record = self.training_dir / "env.json"
@@ -248,6 +342,12 @@ class TrainingEnvironment:
     # -- location --------------------------------------------------------
 
     def _default_dir(self) -> Path:
+        """Folder to use when none is recorded: inside the workspace, or a short path on Windows.
+
+        Returns:
+            ``training/env`` in the workspace, or (on Windows, when that path is too long) a folder in
+            ``%LOCALAPPDATA%`` named after a hash of the workspace.
+        """
         preferred = self.training_dir / "env"
         if not IS_WINDOWS or len(str(preferred)) <= MAX_PATH_LENGTH:
             return preferred
@@ -276,13 +376,21 @@ class TrainingEnvironment:
             self.record.write_text(json.dumps({"path": str(self.path)}), encoding="utf-8")
 
     def python(self) -> Path:
-        """Python executable of the environment (may not exist yet)."""
+        """Python executable of the environment (may not exist yet).
+
+        Returns:
+            The path of ``python`` inside the environment folder.
+        """
         if IS_WINDOWS:
             return self.path / "Scripts" / "python.exe"
         return self.path / "bin" / "python"
 
     def exists(self) -> bool:
-        """Whether the environment has been created and works (a venv without pip does not count)."""
+        """Whether the environment has been created and works (a venv without pip does not count).
+
+        Returns:
+            ``True`` when its Python runs ``pip --version`` successfully.
+        """
         python = self.python()
         if not python.exists():
             return False
@@ -292,7 +400,11 @@ class TrainingEnvironment:
     # -- detection -------------------------------------------------------
 
     def gpu(self) -> GpuInfo | None:
-        """The NVIDIA GPU, found with ``nvidia-smi`` (no torch needed); None when absent or failing."""
+        """The NVIDIA GPU, found with ``nvidia-smi`` (no torch needed); None when absent or failing.
+
+        Returns:
+            The GPU, or ``None``.
+        """
         code, out = capture(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
         if code != 0 or parse_nvidia_smi(out) is None:
             return None
@@ -301,11 +413,19 @@ class TrainingEnvironment:
 
     @staticmethod
     def mps_hint() -> bool:
-        """Apple silicon: PyTorch can use the GPU (MPS) with the plain PyPI build, nothing special."""
+        """Apple silicon: PyTorch can use the GPU (MPS) with the plain PyPI build, nothing special.
+
+        Returns:
+            ``True`` on macOS with an ARM processor.
+        """
         return sys.platform == "darwin" and platform.machine() == "arm64"
 
     def installed(self) -> dict[str, str]:
-        """``{distribution name: version}`` in the environment; empty when it does not exist."""
+        """``{distribution name: version}`` in the environment; empty when it does not exist.
+
+        Returns:
+            Distribution name to version (empty when the environment is missing or cannot be read).
+        """
         if not self.exists():
             return {}
         code, out = capture([str(self.python()), "-c", _DUMP_SCRIPT], timeout=120)
@@ -318,19 +438,41 @@ class TrainingEnvironment:
         return {str(k): str(v) for k, v in data.items()}
 
     def missing(self, packages: Iterable[str]) -> list[str]:
-        """The requirements whose distribution is not installed."""
+        """The requirements whose distribution is not installed.
+
+        Args:
+            packages: requirements to check.
+
+        Returns:
+            The requirements (as given) that are not installed.
+        """
         have = {normalize(n) for n in self.installed()}
         return [p for p in packages if normalize(requirement_name(p)) not in have]
 
     # -- changes ---------------------------------------------------------
 
     def _fail(self, what: str) -> TrainingEnvError:
+        """Build the error for a failed step, pointing to the install log.
+
+        Args:
+            what: what failed.
+
+        Returns:
+            The error to raise.
+        """
         return TrainingEnvError(f"{what}. Details in {self.log}")
 
     def create(self, check: CheckFn, step: StepFn) -> None:
         """Create the virtual environment when it is missing (or broken: no Python or no pip).
 
         A creation that is cancelled or fails does not leave a half-made folder behind.
+
+        Args:
+            check: function called while the command runs; it raises to cancel.
+            step: function that receives the step code (``train_env_create``).
+
+        Raises:
+            TrainingEnvError: the environment could not be created.
         """
         if self.exists():
             return
@@ -350,7 +492,16 @@ class TrainingEnvironment:
             raise self._fail("Could not create the training environment")
 
     def ensure(self, packages: Iterable[str], check: CheckFn, step: StepFn) -> None:
-        """Create the environment if needed and install the missing packages."""
+        """Create the environment if needed and install the missing packages.
+
+        Args:
+            packages: requirements the environment must have.
+            check: function called while commands run; it raises to cancel.
+            step: function that receives the step code (``train_env_install:<packages>``).
+
+        Raises:
+            TrainingEnvError: the environment could not be created or a package could not be installed.
+        """
         self.create(check, step)
         todo = self.missing(list(packages))
         if not todo:
@@ -363,7 +514,11 @@ class TrainingEnvironment:
                 raise self._fail(f"Could not install {', '.join(todo)}")
 
     def device_info(self) -> dict[str, Any]:
-        """Torch version, CUDA and MPS availability and device name (for run.json); empty without torch."""
+        """Torch version, CUDA and MPS availability and device name (for run.json); empty without torch.
+
+        Returns:
+            The device data as a dict (empty without torch or when it cannot be read).
+        """
         if "torch" not in {normalize(n) for n in self.installed()}:
             return {}
         code, out = capture([str(self.python()), "-c", _DEVICE_SCRIPT], timeout=120)

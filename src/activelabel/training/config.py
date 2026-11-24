@@ -52,7 +52,11 @@ class RunConfig:
     dataset_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Plain dict in a stable key order (params and grid sorted by name)."""
+        """Plain dict in a stable key order (params and grid sorted by name).
+
+        Returns:
+            The options as a dict.
+        """
         return {
             "dataset": self.dataset,
             "dataset_fingerprint": self.dataset_fingerprint,
@@ -68,6 +72,12 @@ class RunConfig:
     @classmethod
     def from_dict(cls, data: Any) -> RunConfig:
         """Build from a dict (API body or YAML).
+
+        Args:
+            data: the options (only the keys of ``KEYS`` are allowed).
+
+        Returns:
+            The configuration (not yet checked against the catalogue: see ``validate``).
 
         Raises:
             ConfigError: not a mapping, unknown key (for example a device or a path), or a missing
@@ -106,12 +116,22 @@ class RunConfig:
         )
 
     def to_yaml(self) -> str:
-        """The ``config.yaml`` text."""
+        """The ``config.yaml`` text.
+
+        Returns:
+            The configuration as YAML.
+        """
         return yaml.safe_dump(self.to_dict(), sort_keys=False, allow_unicode=True)
 
     @classmethod
     def from_yaml(cls, text: str) -> RunConfig:
         """Inverse of :meth:`to_yaml`.
+
+        Args:
+            text: the ``config.yaml`` text.
+
+        Returns:
+            The configuration.
 
         Raises:
             ConfigError: invalid YAML or content.
@@ -122,11 +142,25 @@ class RunConfig:
             raise ConfigError("config_invalid_yaml", "The configuration is not valid YAML.") from None
 
     def grid_size(self) -> int:
-        """How many runs the grid makes (1 without a grid)."""
+        """How many runs the grid makes (1 without a grid).
+
+        Returns:
+            The product of the lengths of the grid lists (folds not counted).
+        """
         return math.prod(len(v) for v in self.grid.values()) if self.grid else 1
 
     def effective_params(self, model: ModelSpec | None = None) -> dict[str, Any]:
-        """Every parameter of the model (catalogue default unless set here), ``start`` included."""
+        """Every parameter of the model (catalogue default unless set here), ``start`` included.
+
+        Args:
+            model: catalogue entry; by default the one named by ``self.model``.
+
+        Returns:
+            Parameter name to value.
+
+        Raises:
+            ConfigError: the model is unknown.
+        """
         spec = model or get_model(self.model)
         if spec is None:
             raise ConfigError("model_unknown", f"Unknown model '{self.model}'.", model=self.model)
@@ -136,7 +170,11 @@ class RunConfig:
         return values
 
     def is_composite(self) -> bool:
-        """True for a grid search or a run over every fold: it trains several children."""
+        """True for a grid search or a run over every fold: it trains several children.
+
+        Returns:
+            Whether the run has children.
+        """
         return self.mode == "grid" or self.fold == "all"
 
     def children(self, folds: int) -> list[RunConfig]:
@@ -144,6 +182,12 @@ class RunConfig:
 
         Ordered by grid combination, then fold (``folds`` children per combination when the fold is
         ``"all"``; one otherwise).
+
+        Args:
+            folds: number of folds of the dataset version (used when the fold is ``"all"``).
+
+        Returns:
+            The single-mode configurations, each with one fold.
         """
         fold_list: list[int | str | None] = list(range(folds)) if self.fold == "all" else [self.fold]
         return [replace(c, fold=f, mode="single", grid={}) for c in self.expand() for f in fold_list]
@@ -153,6 +197,9 @@ class RunConfig:
 
         Grid names are taken sorted; the first name changes slowest (``itertools.product``).
         Without a grid it returns this configuration alone.
+
+        Returns:
+            The configurations, one per combination.
         """
         if not self.grid:
             return [self]
@@ -287,6 +334,19 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
 
 
 def _check_one(model: ModelSpec, name: str, value: Any) -> Any:
+    """Check one value of a hyperparameter against the model's parameter spec.
+
+    Args:
+        model: catalogue entry.
+        name: name of the hyperparameter.
+        value: the value to check.
+
+    Returns:
+        The value in its right Python type.
+
+    Raises:
+        ConfigError: the model has no such hyperparameter, or the value is not valid for it.
+    """
     spec = model.param(name)
     if spec is None:
         raise ConfigError(
@@ -299,6 +359,18 @@ def _check_one(model: ModelSpec, name: str, value: Any) -> Any:
 
 
 def _check_values(model: ModelSpec, values: dict[str, Any]) -> dict[str, Any]:
+    """Check every fixed hyperparameter of a configuration.
+
+    Args:
+        model: catalogue entry.
+        values: hyperparameter name to value (``start`` is not allowed here).
+
+    Returns:
+        The checked values.
+
+    Raises:
+        ConfigError: ``start`` is among the values, or a value is not valid.
+    """
     out = {}
     for name, value in values.items():
         if name == "start":

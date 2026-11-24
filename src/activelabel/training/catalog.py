@@ -56,6 +56,12 @@ class ParamSpec:
     def check(self, value: Any) -> Any:
         """Validate ``value`` and return it in the right Python type.
 
+        Args:
+            value: the value to check (a ``bool``, a choice or a number, according to ``kind``).
+
+        Returns:
+            The value as a ``bool``, a choice, an ``int`` or a ``float``.
+
         Raises:
             CodedError: with a readable message.
         """
@@ -95,7 +101,11 @@ class ParamSpec:
         return value
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The parameter as a dict (``choices`` as a list).
+        """
         return {
             "name": self.name,
             "kind": self.kind,
@@ -139,7 +149,11 @@ class ModelSpec:
     defaults: dict[str, Any] = field(default_factory=dict)
 
     def param_specs(self) -> list[ParamSpec]:
-        """Common parameters (with this model's defaults) followed by the model's own."""
+        """Common parameters (with this model's defaults) followed by the model's own.
+
+        Returns:
+            The parameter specs (the ``image_size`` default is the model's ``image_size``).
+        """
         out = []
         for spec in COMMON_PARAMS:
             default = (
@@ -149,15 +163,30 @@ class ModelSpec:
         return out + list(self.params)
 
     def param(self, name: str) -> ParamSpec | None:
-        """One parameter by name (common or model-specific)."""
+        """One parameter by name (common or model-specific).
+
+        Args:
+            name: name of the parameter.
+
+        Returns:
+            The parameter spec with this model's default, or ``None`` when there is none with that name.
+        """
         return next((p for p in self.param_specs() if p.name == name), None)
 
     def default_metric(self) -> str:
-        """Default selection metric of this model's kind of task."""
+        """Default selection metric of this model's kind of task.
+
+        Returns:
+            The metric name (for example ``accuracy``).
+        """
         return METRICS[self.task_kind][1]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form, with the effective parameter specs and selection metrics."""
+        """JSON-ready form, with the effective parameter specs and selection metrics.
+
+        Returns:
+            The model as a dict, with ``params``, ``metrics`` and ``default_metric``.
+        """
         metrics, default = METRICS[self.task_kind]
         return {
             "id": self.id,
@@ -245,7 +274,18 @@ _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005
 def _classifier(
     id_: str, label: str, family: str, size: int = 224, defaults: dict[str, Any] | None = None
 ) -> ModelSpec:
-    """One image classifier of the catalogue (from torchvision or timm)."""
+    """One image classifier of the catalogue (from torchvision or timm).
+
+    Args:
+        id_: model id.
+        label: name shown to people.
+        family: ``torchvision`` or ``timm`` (decides the packages).
+        size: default input size in pixels.
+        defaults: replacements for the default of common parameters.
+
+    Returns:
+        The model spec, with the ``label_smoothing`` parameter.
+    """
     packages = _TV if family == "torchvision" else _TIMM
     return ModelSpec(
         id_,
@@ -261,6 +301,11 @@ def _classifier(
 
 
 def _classification() -> list[ModelSpec]:
+    """The image classifiers of the catalogue.
+
+    Returns:
+        The classifier model specs.
+    """
     m = _classifier
     return [
         m("resnet18", "ResNet-18", "torchvision"),
@@ -275,11 +320,29 @@ def _classification() -> list[ModelSpec]:
 
 
 def _tv(id_: str, label: str, ptype: str, kind: str, size: int, defaults: dict[str, Any]) -> ModelSpec:
+    """One torchvision model that is not a classifier (detection, segmentation or pose).
+
+    Args:
+        id_: model id.
+        label: name shown to people.
+        ptype: project type that offers it.
+        kind: kind of task (``detection``, ``semantic``, ``instance`` or ``keypoints``).
+        size: default input size in pixels.
+        defaults: replacements for the default of common parameters.
+
+    Returns:
+        The model spec; the object kinds also get ``trainable_backbone_layers`` and ``score_thresh``.
+    """
     extra = (_TRAINABLE_LAYERS, _SCORE_THRESH) if kind in ("detection", "instance", "keypoints") else ()
     return ModelSpec(id_, label, (ptype,), "torchvision", kind, _TV, size, params=extra, defaults=defaults)
 
 
 def _torchvision_models() -> list[ModelSpec]:
+    """The torchvision detection, segmentation and pose models of the catalogue.
+
+    Returns:
+        The model specs.
+    """
     det, seg = "detection", "segmentation"
     return [
         _tv("fasterrcnn_resnet50_fpn", "Faster R-CNN ResNet-50 FPN", det, det, 640, _TV_DET),
@@ -304,6 +367,11 @@ def _torchvision_models() -> list[ModelSpec]:
 
 
 def _yolo_models() -> list[ModelSpec]:
+    """The Ultralytics YOLOv8 and YOLO11 models (detection, segmentation and pose; sizes n, s, m, l).
+
+    Returns:
+        The model specs.
+    """
     out = []
     variants = (
         ("", "detection", "detection"),
@@ -335,10 +403,24 @@ _BY_ID = {m.id: m for m in MODELS}
 
 
 def get_model(model_id: str) -> ModelSpec | None:
-    """One model by id, or ``None``."""
+    """One model by id, or ``None``.
+
+    Args:
+        model_id: id of the model.
+
+    Returns:
+        The model spec, or ``None`` when the id is unknown.
+    """
     return _BY_ID.get(model_id)
 
 
 def models_for(project_type: str | None = None) -> list[ModelSpec]:
-    """Models a project of this type offers (every model without a type)."""
+    """Models a project of this type offers (every model without a type).
+
+    Args:
+        project_type: project type, or ``None`` for every model.
+
+    Returns:
+        The matching model specs, in catalogue order.
+    """
     return [m for m in MODELS if project_type is None or project_type in m.types]
