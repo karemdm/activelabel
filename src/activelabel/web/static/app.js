@@ -3102,6 +3102,7 @@
           renderValidation(report);
         } catch (err) {
           fill(reportBox);
+          drop.hidden = false;
           toastError(err);
         } finally {
           busy = false;
@@ -3109,6 +3110,7 @@
       }
 
       function renderValidation(report) {
+        drop.hidden = true;  // the report takes its place; "choose other files" is in the report
         const found = report.inferred_task;
         const proj = ctx.project.task;
         const counts = report.counts || {};
@@ -3132,6 +3134,8 @@
         };
         const options = (report.options || []).filter((o) => optionMeta[o]);
         const needsMode = (o) => o !== 'discard' && hasExisting;
+        const nothing = !(counts.labels_total > 0);  // nothing the project could use: the way on is another file
+        const other = el('button', { type: 'button', class: `btn${nothing ? ' primary' : ' small'}`, 'data-action': 'other', onclick: () => fileInput.click() }, t('ann.choose_other'));
 
         const modeBox = el('fieldset', { class: 'mode-box' },
           el('legend', null, t('ann.mode_title')),
@@ -3141,6 +3145,7 @@
               el('span', null, el('strong', null, t(`ann.mode_${m}`)), el('span', { class: 'muted' }, ` — ${t(`ann.mode_${m}.help`)}`)))));
 
         const optionList = el('ul', { class: 'options' },
+          nothing ? el('li', null, other, el('span', { class: 'muted' }, t('ann.nothing_usable'))) : null,
           ...options.map((o) => {
             const meta = optionMeta[o];
             return el('li', null,
@@ -3150,17 +3155,17 @@
 
         fill(reportBox,
           el('div', { class: 'card report-card' },
-            el('h3', null, t('ann.report_title')),
+            el('div', { class: 'row-between' }, el('h3', null, t('ann.report_title')), nothing ? null : other),
             el('p', { class: 'task-line' }, el('span', { class: 'badge' }, tr(`format.${report.format}`, report.format || '?')), ' ', taskLine),
-            el('dl', { class: 'facts' },
+            nothing ? null : el('dl', { class: 'facts' },
               el('div', null, el('dt', null, t('ann.matched')), el('dd', null, num(counts.images_matched || 0))),
               el('div', null, el('dt', null, t('ann.unlabeled')), el('dd', null, num(counts.images_without_labels || 0))),
               el('div', null, el('dt', null, t('ann.labels')), el('dd', null, num(counts.labels_total || 0)))),
             report.unmatched && report.unmatched.count
               ? el('p', { class: 'muted' }, tn('ann.unmatched', report.unmatched.count))
               : null,
-            el('h4', null, t('ann.classes_found')),
-            classes.length
+            nothing ? null : el('h4', null, t('ann.classes_found')),
+            nothing ? null : classes.length
               ? el('ul', { class: 'chips static' }, ...classes.map((c) => el('li', { class: `chip static${fresh.has(c) ? ' is-new' : ''}` },
                   el('span', null, c),
                   perClass[c] != null ? el('span', { class: 'count' }, num(perClass[c])) : null,
@@ -3182,10 +3187,12 @@
           if (action === 'discard') {
             await api('DELETE', `/projects/${projectId}/annotations/${report.token}`);
             fill(reportBox, el('p', { class: 'report-line ok' }, icon('check'), t('ann.discarded')));
+            drop.hidden = false;
             return;
           }
           const summary = await api('POST', `/projects/${projectId}/annotations/${report.token}/apply`, { json: { action, mode } });
           renderSummary(summary || {}, report);
+          drop.hidden = false;
           await refreshProject();
           loadGt();
         } catch (err) {

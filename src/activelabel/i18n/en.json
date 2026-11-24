@@ -116,6 +116,8 @@
   "ann.drop_title": "Drop annotation files or a .zip here",
   "ann.drop_help": "The format is detected on its own and the names are matched with the images of the chosen task.",
   "ann.choose": "Choose files",
+  "ann.choose_other": "Choose other files",
+  "ann.nothing_usable": "Nothing in these files can be imported. Choose others or discard.",
   "ann.checking": "Checking the files…",
   "ann.report_title": "What we found",
   "ann.task_none": "No usable labels were found.",
