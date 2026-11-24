@@ -1205,5 +1205,11 @@
   "error.task_change_annotations": "Mudar o tipo do projeto afeta as anotações existentes: escolha o que fazer com elas.",
   "error.classes_in_use": "Algumas classes removidas ainda têm anotações: confirme a remoção.",
   "error.unknown_thresholds": "Limites desconhecidos: {names}.",
-  "error.type_invalid": "O tipo deve ser um de: {choices}."
+  "error.type_invalid": "O tipo deve ser um de: {choices}.",
+  "error.annotation_format_unknown": "O formato das anotações não foi reconhecido. Aceitos: COCO JSON, YOLO txt (com data.yaml ou classes.txt), Pascal VOC XML, CVAT para imagens ou vídeo XML, Label Studio JSON e MOT txt.",
+  "error.annotation_unreadable": "Não foi possível ler as anotações de {file}: {reason}",
+  "error.annotations_not_convertible": "As anotações de {from_task} não podem ser convertidas para {to_task}.",
+  "error.video_task_required": "Este arquivo é de um vídeo: escolha a task de vídeo a que ele pertence (nenhuma ou várias foram encontradas).",
+  "error.fiftyone_not_opened": "Abra o projeto no FiftyOne primeiro, marque imagens com 'exclude' e tente de novo.",
+  "error.staging_not_found": "Esta importação não existe mais: envie os arquivos de novo."
 }
