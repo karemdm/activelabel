@@ -1116,3 +1116,19 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
    name stays in the title. */
 .thumb-name { direction: rtl; text-align: left; }
 .thumb-name::before, .thumb-name::after { content: "\200E"; }
+
+/* #340 (Curation): the histograms share the whole width (the legend spanning every grid column kept the
+   empty columns, so three histograms used a third of the row); the thresholds line up their fields at the
+   bottom whatever the label length; the Limits button shows when it is open. */
+.hists { display: flex; flex-wrap: wrap; }
+.hist { flex: 1 1 240px; min-width: 0; }
+.hist-legend { flex-basis: 100%; }
+.th-grid { align-items: stretch; }
+.th-grid .field.inline { display: flex; flex-direction: column; justify-content: flex-end; }
+.btn[aria-controls="cur-limits"]::after { content: ""; width: 0.45em; height: 0.45em; margin-left: 0.15rem; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-0.15em) rotate(45deg); transition: transform var(--area-fade); }
+.btn[aria-controls="cur-limits"][aria-expanded="true"] { background: var(--area-soft); border-color: var(--area); }
+.btn[aria-controls="cur-limits"][aria-expanded="true"]::after { transform: translateY(0.1em) rotate(-135deg); }
+@media (max-width: 760px) {
+  .hists { flex-wrap: nowrap; gap: var(--space-2); }
+  .hist { flex: 1 1 0; }
+}
