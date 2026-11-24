@@ -189,3 +189,22 @@ def test_scopes_and_delete_tasks_through_the_api(env):
     done = apply(env, review["result"]["plan_id"], delete_tasks=True)
     assert done["result"]["tasks_deleted"] == 1
     assert env.remote.tasks(None, remote_id) == []
+
+
+def test_unlinking_is_refused_while_a_job_runs(env):
+    import threading
+
+    links.save_link(
+        env.state.store.dir(env.pid), "cvat", links.new_link("http://remote", env.rid, "Pets remote")
+    )
+    release = threading.Event()
+    env.state.jobs.submit(env.pid, "sync_apply", lambda progress: release.wait(10) and None)
+    busy = env.client.delete(f"/api/projects/{env.pid}/links/cvat")
+    assert busy.status_code == 409 and busy.json()["code"] == "busy"
+    assert links.get_link(env.state.store.dir(env.pid), "cvat") is not None
+    release.set()
+    for _ in range(100):
+        if not env.state.jobs.active(env.pid):
+            break
+        time.sleep(0.05)
+    assert env.client.delete(f"/api/projects/{env.pid}/links/cvat").status_code == 200

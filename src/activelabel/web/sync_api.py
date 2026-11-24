@@ -72,9 +72,10 @@ def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
 @router.delete("/projects/{project_id}/links/{tool}")
 def unlink(project_id: int, tool: str, state: AppState = STATE) -> dict[str, bool]:
-    """Forget the link with a tool (the remote project is not touched)."""
+    """Forget the link with a tool (the remote project is not touched). Refused (409) while a job runs."""
     state.project(project_id)
     _tool(tool)
+    state.busy(project_id)  # a running comparison or sync could write the link again
     if not links.remove_link(state.store.dir(project_id), tool):
         raise ApiError(404, "not_linked", f"This project is not linked to {tool}.", tool=tool)
     return {"unlinked": True}
