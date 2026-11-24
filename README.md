@@ -10,20 +10,25 @@ training.
 
 ```mermaid
 flowchart LR
-  subgraph Data
+  subgraph G1["Data"]
     direction LR
-    A["1 Images"] --> B["2 Annotations<br/>(optional)"] --> C["3 Curation"]
+    A["1 Images"] --> B["2 Annotations"] --> C["3 Curation"]
   end
-  subgraph Model
+  subgraph G2["Model"]
     direction LR
     D["4 Data split"] --> E["5 Training"] --> F["6 Models"]
   end
+  subgraph G3["Improve the model"]
+    direction LR
+    N["New images"] --> P["Pre-annotate"] --> R["Review"]
+  end
   C --> D
-  F -- "current model" --> P["Pre-annotate<br/>(step 2)"]
-  N["New images<br/>(step 1, new task)"] --> P
-  P --> R["Review in CVAT or FiftyOne,<br/>or accept as they are"]
-  R -- "new split, new training" --> D
+  F --> P
+  R --> D
 ```
+
+The current model pre-annotates new images, a person reviews them, and the reviewed images go into a new
+split and a new training (the arrows from *6 Models* to *Pre-annotate*, and from *Review* to *4 Data split*).
 
 Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Engineering overview with diagrams:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
