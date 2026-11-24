@@ -55,7 +55,7 @@ class AppState:
         if self.jobs.active(project_id):
             raise HTTPException(
                 409,
-                "A job of this project is still running: wait for it to finish, or cancel it, and try again.",
+                "An activity of this project is still running: wait for it or cancel it, then try again.",
             )
         if training and self.runner.has_active(project_id):
             raise HTTPException(

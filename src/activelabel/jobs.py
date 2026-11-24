@@ -36,7 +36,7 @@ def readable_error(exc: BaseException) -> str:
             "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel "
             f"(another program using FiftyOne may be holding it). Details: {detail}"
         )
-    return message or "The job failed (no details were given)."
+    return message or "The activity failed (no details were given)."
 
 
 class Cancelled(Exception):

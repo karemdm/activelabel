@@ -101,4 +101,4 @@ def test_error_text_has_no_quotes_from_a_key_error():
     assert readable_error(KeyError("The image is gone")) == "The image is gone"
     assert message_of(ValueError("A project named 'x'")) == "A project named 'x'"
     assert message_of(KeyError(7)) == "7"
-    assert readable_error(RuntimeError()) == "The job failed (no details were given)."
+    assert readable_error(RuntimeError()) == "The activity failed (no details were given)."

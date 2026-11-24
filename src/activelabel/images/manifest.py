@@ -66,7 +66,8 @@ class ImageRecord:
         added: ISO time (UTC).
         status: ``active`` or ``excluded`` (left out of annotation and training).
         metrics: curation measures (brightness, contrast, sharpness, ...).
-        issues: curation flags (dark, blurry, duplicate, ...).
+        issues: curation flags (dark, bright, low_contrast, blurry, small, odd_aspect, grayscale,
+            near_duplicate).
         phash: perceptual hash (hex) for near duplicates, empty until measured.
         excluded_reason: why it was excluded (free text or an issue name).
         video: id of the source video for a frame extracted from a video (docs/VIDEO.md), else empty.
