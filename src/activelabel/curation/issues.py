@@ -133,11 +133,22 @@ def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> l
         return i
 
     values = np.array([int(h, 16) for h in hashes], dtype=np.uint64)
-    for i in range(len(ids) - 1):
-        xor = values[i + 1 :] ^ values[i]
-        bits = np.unpackbits(xor.view(np.uint8).reshape(-1, 8), axis=1).sum(axis=1)
-        for offset in np.nonzero(bits <= max_distance)[0]:
-            parent[find(i)] = find(i + 1 + int(offset))
+    # Pigeonhole: two 64-bit hashes that differ in at most d bits agree entirely on at least one of
+    # d + 1 chunks, so only hashes sharing a chunk value are compared (not every pair).
+    chunks = max_distance + 1
+    edges = np.linspace(0, 64, chunks + 1).astype(int)
+    for low, high in zip(edges[:-1], edges[1:], strict=True):
+        key = (values >> np.uint64(low)) & np.uint64((1 << (high - low)) - 1)
+        order = np.argsort(key, kind="stable")
+        sorted_keys = key[order]
+        starts = np.flatnonzero(np.r_[True, sorted_keys[1:] != sorted_keys[:-1]])
+        for begin, end in zip(starts, np.r_[starts[1:], len(order)], strict=True):
+            bucket = order[begin:end]
+            for n in range(len(bucket) - 1):
+                xor = values[bucket[n + 1 :]] ^ values[bucket[n]]
+                bits = np.unpackbits(xor.view(np.uint8).reshape(-1, 8), axis=1).sum(axis=1)
+                for offset in np.nonzero(bits <= max_distance)[0]:
+                    parent[find(int(bucket[n]))] = find(int(bucket[n + 1 + offset]))
     groups: dict[int, list[str]] = {}
     for i, image_id in enumerate(ids):
         groups.setdefault(find(i), []).append(image_id)
@@ -155,9 +166,10 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
 
     Near duplicates are grouped by perceptual hash; in each group the image with the largest
     resolution (then the sharpest) is kept unflagged and the others get ``near_duplicate``.
-    Which image each one repeats is saved in ``curation.json`` (``duplicate_of``). Exact
-    duplicates cannot exist (ids are content hashes). Excluded and unmeasured images are
-    neither flagged nor counted.
+    Which image each one repeats is saved in ``curation.json`` (``duplicate_of``). The same
+    file cannot be stored twice (ids are content hashes), but identical video frames can (their ids
+    are salted): they are near duplicates at distance 0. Excluded and unmeasured images are neither
+    flagged nor counted.
 
     Args:
         manifest: images of the project.

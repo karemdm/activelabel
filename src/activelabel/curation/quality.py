@@ -26,7 +26,8 @@ from activelabel.jobs import Progress
 
 MAX_SIDE = 512
 GRAYSCALE_TOLERANCE = 2.0  # mean channel difference (0..255) below which an image counts as gray
-BATCH = 64
+BATCH = 64  # images measured between two progress reports
+SAVE_EVERY = 1024  # images measured between two writes of the manifest (it is rewritten whole)
 
 _HASH_SIZE = 32
 _DCT = np.array(
@@ -57,6 +58,8 @@ def measure_file(path: Path) -> tuple[dict[str, float], str]:
 
     Raises:
         OSError: the file cannot be read as an image.
+        ValueError: the image is damaged or has an unsupported mode.
+        Image.DecompressionBombError: the image has an absurd number of pixels.
     """
     with Image.open(path) as image:
         image.draft("RGB", (MAX_SIDE * 2, MAX_SIDE * 2))
@@ -84,10 +87,11 @@ def measure_file(path: Path) -> tuple[dict[str, float], str]:
 def measure_images(
     manifest: Manifest, progress: Progress | None = None, recompute: bool = False, workers: int = 4
 ) -> int:
-    """Measure active images that have no metrics yet (all of them with ``recompute``).
+    """Measure active images that have no metrics or no perceptual hash yet (all with ``recompute``).
 
-    Results are saved every few images, so a cancelled run keeps what it measured. Files that
-    cannot be read are skipped (they stay unmeasured).
+    Results are saved every ``SAVE_EVERY`` images and when the run ends or is cancelled, so a
+    cancelled run keeps what it measured. Files that cannot be read (damaged, or too large to be
+    safe) are skipped and stay unmeasured.
 
     Args:
         manifest: images of the project.
@@ -109,19 +113,31 @@ def measure_images(
     def work(record: ImageRecord) -> tuple[str, dict[str, Any] | None]:
         try:
             metrics, phash = measure_file(manifest.file_path(record))
-        except (OSError, ValueError):
+        except (OSError, ValueError, Image.DecompressionBombError):
             return record.id, None
         return record.id, {"metrics": metrics, "phash": phash}
 
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="activelabel-measure") as pool:
-        for start in range(0, len(todo), BATCH):
-            if progress:
-                progress.check()
-            chunk = todo[start : start + BATCH]
-            results = list(pool.map(work, chunk))
-            changes = {image_id: values for image_id, values in results if values is not None}
-            manifest.update(changes)
-            measured += len(changes)
-            if progress:
-                progress.update(done=min(start + BATCH, len(todo)))
+    pending: dict[str, dict[str, Any]] = {}
+
+    def save() -> None:
+        if pending:
+            manifest.update(pending)
+            pending.clear()
+
+    try:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="activelabel-measure") as pool:
+            for start in range(0, len(todo), BATCH):
+                if progress:
+                    progress.check()
+                chunk = todo[start : start + BATCH]
+                for image_id, values in pool.map(work, chunk):
+                    if values is not None:
+                        pending[image_id] = values
+                        measured += 1
+                if len(pending) >= SAVE_EVERY:
+                    save()
+                if progress:
+                    progress.update(done=min(start + BATCH, len(todo)))
+    finally:
+        save()
     return measured
