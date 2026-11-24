@@ -24,7 +24,11 @@ from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
-SYNC_TOOLS = ("cvat", "labelstudio")
+SESSION_TOOLS = (
+    "fiftyone",
+    "labelstudio",
+)  # tools that open edit sessions (CVAT is reviewed through the sync)
+SYNC_TOOLS = ("labelstudio",)
 STATE = Depends(get_state)
 
 
@@ -91,6 +95,31 @@ def _tool(name: str) -> Any:
         raise HTTPException(400, str(exc)) from exc
 
 
+def _session_tool(name: str) -> Any:
+    """The tool of an edit session.
+
+    Raises:
+        ApiError: ``tool_unsupported`` (400) for a session of a tool that has no edit sessions any more
+            (CVAT: workspaces made before that may still hold such sessions; they can only be closed).
+    """
+    if name not in SESSION_TOOLS:
+        raise ApiError(
+            400,
+            "tool_unsupported",
+            f"Sessions of '{name}' are no longer supported: close this session. "
+            "Review in CVAT goes through the synchronisation of the CVAT tab.",
+            tool=name,
+        )
+    return _tool(name)
+
+
+def _remote(tool: str) -> Any:
+    try:
+        return get_remote(tool)
+    except ToolError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any]:
     state.project(project_id)
     try:
@@ -140,7 +169,8 @@ def test_tool(tool: str, state: AppState = STATE) -> dict[str, Any]:
     _tool_name(tool)
     settings = _settings(state, tool)
     try:
-        return {"ok": True, "message": _tool(tool).check(settings)}
+        checker = _remote(tool) if tool == "cvat" else _tool(tool)
+        return {"ok": True, "message": checker.check(settings)}
     except ToolError as exc:
         return {"ok": False, "message": str(exc)}
 
@@ -165,7 +195,8 @@ def list_sessions(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, Any]:
     """Send images to a tool (job; result ``{session, links}``)."""
     project = state.project(project_id)
-    tool = _tool(_tool_name(body.tool))
+    _tool_name(body.tool)
+    tool = _session_tool(body.tool)
     if body.scope not in sessions.SCOPES:
         raise ApiError(
             400,
@@ -236,7 +267,7 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
         )
     state.busy(project_id)
     project = state.project(project_id)
-    tool = _tool(session["tool"])
+    tool = _session_tool(session["tool"])
     settings = _settings(state, session["tool"])
     project_dir = state.store.dir(project_id)
     image_ids: list[str] = session["image_ids"]
@@ -314,17 +345,23 @@ def discard_session(project_id: int, session_id: str, state: AppState = STATE) -
 def close_session(
     project_id: int, session_id: str, body: CloseBody | None = None, state: AppState = STATE
 ) -> dict[str, bool]:
-    """Forget a session (and delete the remote tasks when asked)."""
+    """Forget a session (and delete the remote tasks when asked).
+
+    A session of a tool that has no edit sessions any more (an old CVAT one) is only forgotten: the
+    remote is never touched.
+    """
     session = _session(state, project_id, session_id)
     state.busy(project_id)
     project = state.project(project_id)
-    tool = _tool(session["tool"])
     settings = credentials.load_settings(state.settings.workspace, session["tool"])
     delete_remote = bool(body and body.delete_remote)
-    try:
-        tool.close(open_dataset(project, state), settings, session.get("ref", {}), delete_remote)
-    except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    if session["tool"] in SESSION_TOOLS:
+        try:
+            _tool(session["tool"]).close(
+                open_dataset(project, state), settings, session.get("ref", {}), delete_remote
+            )
+        except ToolError as exc:
+            raise HTTPException(400, str(exc)) from exc
     sessions.close(state.store.dir(project_id), session_id)
     if delete_remote and session["tool"] in SYNC_TOOLS:
         _drop_link_if_gone(state, project_id, session["tool"], settings)

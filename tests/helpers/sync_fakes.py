@@ -52,6 +52,10 @@ class FakeRemote:
         self.fail = ""
         self._n = 1
 
+    def check(self, settings):
+        self._check()
+        return f"connected to {settings.url}"
+
     # -- test helpers
     def seed(self, name, files=(), classes=("cat",)) -> RemoteInfo:
         rid = str(self._n)

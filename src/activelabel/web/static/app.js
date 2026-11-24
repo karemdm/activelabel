@@ -751,6 +751,8 @@
   /* Label Studio is paused: its tool card is hidden; existing links and sessions are still shown */
   const LABEL_STUDIO_ENABLED = false;
   const EDIT_TOOLS = LABEL_STUDIO_ENABLED ? ['fiftyone', 'labelstudio'] : ['fiftyone'];
+  /* tools that still run edit sessions; a session of another one (CVAT, in an old workspace) can only be closed */
+  const SESSION_TOOLS = ['fiftyone', 'labelstudio'];
   const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
   const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
   const statusText = (status) => tr(`job.status.${status}`, status);
@@ -2727,7 +2729,8 @@
         const scopeText = s.scope === 'issue' && s.issue
           ? t('annotate.scope_issue_named', { issue: issueName(s.issue) })
           : tr(`annotate.scope.${s.scope}`, s.scope || '');
-        const live = s.status === 'open' || s.status === 'pulled';
+        const legacy = !SESSION_TOOLS.includes(tool);
+        const live = !legacy && (s.status === 'open' || s.status === 'pulled');
         const act = (label, cls, fn) => {
           const b = el('button', { type: 'button', class: `btn ${cls}` }, label);
           b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (err) { b.disabled = false; toastError(err); } });
@@ -2742,7 +2745,7 @@
             await jobStarted(job);
           }));
         }
-        if (s.status === 'pulled' && s.diff) {
+        if (!legacy && s.status === 'pulled' && s.diff) {
           const apply = act(t('annotate.apply'), 'primary', async () => {
             const r = await api('POST', `/projects/${projectId}/annotate/${sid}/apply`);
             const a = (r && r.applied) || {};
@@ -2775,13 +2778,14 @@
             ? el('p', { class: 'session-links' }, ...links.map((l) => el('a', { class: 'btn small', href: l.url, target: '_blank', rel: 'noopener' },
                 links.length === 1 ? t('annotate.open_in', { tool: toolName(tool) }) : l.label || t('annotate.open_in', { tool: toolName(tool) }), icon('external', 14))))
             : null,
-          s.status === 'open' ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
+          legacy ? el('p', { class: 'muted' }, t('annotate.legacy_note', { tool: toolName(tool) })) : null,
+          s.status === 'open' && !legacy ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
           diffShown ? diffView(projectId, s.diff) : null,
           el('div', { class: 'session-actions' }, ...buttons));
       }
 
       async function closeSession(s) {
-        const remote = s.tool === 'cvat' || s.tool === 'labelstudio';
+        const remote = s.tool === 'labelstudio';
         const check = remote ? el('input', { type: 'checkbox', id: 'close-remote' }) : null;
         const ok = await new Promise((resolve) => {
           const okBtn = el('button', { type: 'submit', value: 'ok', class: 'btn danger' }, t('annotate.close_confirm'));

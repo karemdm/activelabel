@@ -12,7 +12,7 @@ from activelabel.web import annotate_api
 
 
 class FakeTool:
-    name = "cvat"
+    name = "fiftyone"
 
     def __init__(self):
         self.pulled: dict[str, list[Label]] = {}
@@ -40,7 +40,7 @@ class FakeTool:
 def env(tmp_path, monkeypatch):
     client, state = make_client(tmp_path)
     tool = FakeTool()
-    monkeypatch.setitem(registry.OVERRIDES, "cvat", tool)
+    monkeypatch.setitem(registry.OVERRIDES, "fiftyone", tool)
     monkeypatch.setattr(annotate_api, "prepare_dataset", lambda project, state: SimpleNamespace())
     monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: SimpleNamespace())
     body = {"name": "p", "task": "detection", "classes": ["cat"]}
@@ -72,10 +72,10 @@ def configure(env):
 
 
 def start(env, **body):
-    return env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "cvat", **body})
+    return env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "fiftyone", **body})
 
 
-def test_tools_settings_never_return_secret(env):
+def test_tools_settings_never_return_secret(env, remotes):
     assert "pw-123" not in str(configure(env))
     tools = env.client.get("/api/annotation-tools").json()
     assert [t["tool"] for t in tools] == ["fiftyone", "cvat", "labelstudio"]
@@ -83,7 +83,7 @@ def test_tools_settings_never_return_secret(env):
     assert "pw-123" not in (env.state.settings.workspace / "tools.json").read_text()
     ok = env.client.post("/api/annotation-tools/cvat/test").json()
     assert ok == {"ok": True, "message": "connected to http://cvat"}
-    env.tool.fail = "Bad login."
+    remotes["cvat"].fail = "Bad login."
     assert env.client.post("/api/annotation-tools/cvat/test").json() == {"ok": False, "message": "Bad login."}
     assert env.client.delete("/api/annotation-tools/cvat").json() == {"removed": True}
     after = next(t for t in env.client.get("/api/annotation-tools").json() if t["tool"] == "cvat")
@@ -92,18 +92,13 @@ def test_tools_settings_never_return_secret(env):
     assert env.client.put("/api/annotation-tools/nope", json={}).status_code == 404
 
 
-def test_send_requires_configuration_and_selection(env):
-    r = start(env, scope="all")
-    assert r.status_code == 400
-    assert r.json()["detail"] == "Configure cvat first (URL, user, password/token)."
-    configure(env)
+def test_send_requires_a_selection(env):
     r = start(env, scope="selected", ids=["zz"])
     assert r.status_code == 400 and "No images" in r.json()["detail"]
-    assert env.client.post("/api/projects/99/annotate", json={"tool": "cvat"}).status_code == 404
+    assert env.client.post("/api/projects/99/annotate", json={"tool": "fiftyone"}).status_code == 404
 
 
 def test_full_flow(env):
-    configure(env)
     job = wait(env, start(env, scope="all").json())
     assert job["status"] == "done", job
     session = job["result"]["session"]
@@ -143,7 +138,6 @@ def test_full_flow(env):
 
 
 def test_discard_and_tool_errors(env):
-    configure(env)
     env.tool.fail = "Cannot reach the server."
     job = wait(env, start(env).json())
     assert job["status"] == "failed" and "Cannot reach the server." in job["error"]
@@ -156,7 +150,6 @@ def test_discard_and_tool_errors(env):
 
 
 def _pulled_session(env):
-    configure(env)
     session = wait(env, start(env, scope="all").json())["result"]["session"]
     base = f"/api/projects/{env.pid}/annotate/{session['id']}"
     env.tool.pulled = {env.ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])]}
@@ -182,9 +175,11 @@ def test_apply_refused_when_local_labels_changed_since_pull(env):
     assert env.client.post(f"{base}/apply").status_code == 200
 
 
-def test_link_after_send_failure_is_a_warning(env, monkeypatch):
-    configure(env)
-    monkeypatch.setattr(annotate_api, "SYNC_TOOLS", ("cvat",))
+def test_link_after_send_failure_is_a_warning(env, monkeypatch, remotes):
+    from activelabel.sync import registry as sync_registry
+
+    monkeypatch.setitem(sync_registry.OVERRIDES, "fiftyone", remotes["cvat"])
+    monkeypatch.setattr(annotate_api, "SYNC_TOOLS", ("fiftyone",))
 
     def boom(*args, **kwargs):
         raise RuntimeError("link broke")
@@ -194,3 +189,37 @@ def test_link_after_send_failure_is_a_warning(env, monkeypatch):
     job = wait(env, start(env, scope="all").json())
     assert job["status"] == "done", job
     assert "link broke" in job["result"]["warning"] and job["result"]["session"]["status"] == "open"
+
+
+def _legacy_cvat_session(env):
+    """A session an old workspace may hold: made when ActiveLabel could still review through CVAT."""
+    from activelabel.annotate import sessions
+
+    return sessions.create(
+        env.state.store.dir(env.pid),
+        "cvat",
+        "all",
+        env.ids,
+        [{"label": "Task", "url": "http://cvat/tasks/1"}],
+        {"anno_key": "al_old"},
+    )
+
+
+def test_cvat_is_not_a_session_tool_any_more(env):
+    r = start(env)
+    assert r.status_code == 200  # the fiftyone fake still works
+    r = env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "cvat"})
+    assert r.status_code == 400 and r.json()["code"] == "tool_unsupported"
+    assert env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "nope"}).status_code == 404
+
+
+def test_old_cvat_session_is_listed_and_closed_without_touching_the_remote(env, remotes):
+    old = _legacy_cvat_session(env)
+    listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
+    assert [x["id"] for x in listed] == [old["id"]] and listed[0]["tool"] == "cvat"
+    base = f"/api/projects/{env.pid}/annotate/{old['id']}"
+    assert env.client.post(f"{base}/pull").json()["code"] == "tool_unsupported"
+    r = env.client.request("DELETE", base, json={"delete_remote": True})
+    assert r.status_code == 200 and r.json() == {"closed": True}
+    assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
+    assert not env.tool.closed and not remotes["cvat"].calls  # nothing was sent to a server
