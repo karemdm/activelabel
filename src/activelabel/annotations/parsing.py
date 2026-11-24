@@ -32,6 +32,14 @@ VIDEO_ONLY = ("cvatvideo", "mot")  # formats that only make sense for a video ta
 
 
 def _json_format(path: Path) -> str | None:
+    """Format of a JSON file.
+
+    Args:
+        path: the file.
+
+    Returns:
+        ``"coco"`` when it looks like COCO, else None (also when it cannot be read).
+    """
     try:
         data: Any = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
@@ -42,6 +50,14 @@ def _json_format(path: Path) -> str | None:
 
 
 def _xml_format(path: Path) -> str | None:
+    """Format of an XML file, from its root element.
+
+    Args:
+        path: the file.
+
+    Returns:
+        ``"cvatvideo"``, ``"voc"`` or ``"cvat"``, else None (also when it cannot be read).
+    """
     try:
         for _event, element in ET.iterparse(str(path), events=("start",)):
             if element.tag == "annotations" and is_cvat_video(path):
@@ -53,7 +69,14 @@ def _xml_format(path: Path) -> str | None:
 
 
 def _yolo_part(path: Path) -> str | None:
-    """Return labels for a label txt, names for data.yaml or classes files, None when unrelated."""
+    """Return labels for a label txt, names for data.yaml or classes files, None when unrelated.
+
+    Args:
+        path: the file.
+
+    Returns:
+        ``"labels"``, ``"names"`` or ``"mot"``, or None when it is unrelated.
+    """
     suffix = path.suffix.lower()
     try:
         if suffix in (".yaml", ".yml"):
@@ -113,6 +136,12 @@ def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
 
     Used to say what is wrong when :func:`detect_format` finds no format: a cut-off file is not "an
     unknown format".
+
+    Args:
+        files: the staged files.
+
+    Returns:
+        ``(file name, parser message)`` of the first malformed file, or None.
     """
     for path in files:
         suffix = path.suffix.lower()

@@ -20,6 +20,12 @@ UNSUPPORTED_SHAPES = {"polyline", "ellipse", "mask", "cuboid"}
 def read_xml(path: Path) -> ET.Element:
     """Parse an XML file (entity definitions are refused).
 
+    Args:
+        path: the XML file.
+
+    Returns:
+        The root element.
+
     Raises:
         ValueError: unreadable, malformed or using entities.
     """
@@ -36,11 +42,29 @@ def read_xml(path: Path) -> ET.Element:
 
 
 def _text(node: ET.Element, tag: str) -> str:
+    """Stripped text of a child element.
+
+    Args:
+        node: parent element.
+        tag: tag of the child.
+
+    Returns:
+        The text, or an empty string when the child or its text is missing.
+    """
     child = node.find(tag)
     return (child.text or "").strip() if child is not None and child.text else ""
 
 
 def _f(value: str | None, default: float = 0.0) -> float:
+    """Convert a text to a number.
+
+    Args:
+        value: text; None or empty means no value.
+        default: result for no value.
+
+    Returns:
+        The number, ``default`` for no value, or NaN when the text is not a number.
+    """
     try:
         return float(value) if value not in (None, "") else default
     except ValueError:
@@ -48,12 +72,29 @@ def _f(value: str | None, default: float = 0.0) -> float:
 
 
 def _size(ctx: ParseContext, rec: ImageRecord, width: float, height: float, name: str) -> tuple[float, float]:
+    """Size of an image as declared in the file.
+
+    Args:
+        ctx: parse context that records ``size_mismatch``.
+        rec: the stored image.
+        width: declared width.
+        height: declared height.
+        name: image name, shown as the example of the problem.
+
+    Returns:
+        ``(width, height)`` as ``declared_size`` gives it.
+    """
     return declared_size(ctx, rec, width, height, name)
 
 
 # -- Pascal VOC ----------------------------------------------------------------
 def parse_voc(ctx: ParseContext, files: list[Path]) -> None:
-    """Read VOC XML files (one per image) into ``ctx``."""
+    """Read VOC XML files (one per image) into ``ctx``.
+
+    Args:
+        ctx: parse context; receives the labels, files read and problems.
+        files: staged files; only ``.xml`` files are read.
+    """
     for path in files:
         if path.suffix.lower() != ".xml":
             continue
@@ -91,6 +132,14 @@ def parse_voc(ctx: ParseContext, files: list[Path]) -> None:
 
 # -- CVAT ----------------------------------------------------------------------
 def _points(text: str) -> list[tuple[float, float]]:
+    """Points of a CVAT ``points`` attribute.
+
+    Args:
+        text: points as ``x,y;x,y;...``.
+
+    Returns:
+        The ``(x, y)`` points in pixels (NaN for a value that is not a number).
+    """
     pts = []
     for pair in text.split(";"):
         if pair.strip():
@@ -100,7 +149,12 @@ def _points(text: str) -> list[tuple[float, float]]:
 
 
 def parse_cvat(ctx: ParseContext, files: list[Path]) -> None:
-    """Read CVAT for images 1.1 XML files into ``ctx``."""
+    """Read CVAT for images 1.1 XML files into ``ctx``.
+
+    Args:
+        ctx: parse context; receives the classes, labels, files read and problems.
+        files: staged files; only ``.xml`` files are read.
+    """
     for path in files:
         if path.suffix.lower() != ".xml":
             continue
@@ -129,6 +183,19 @@ def parse_cvat(ctx: ParseContext, files: list[Path]) -> None:
 
 
 def _shape(ctx: ParseContext, shape: ET.Element, width: float, height: float, where: str) -> Label | None:
+    """Label for one CVAT shape, or None when it cannot be used.
+
+    Args:
+        ctx: parse context that records the problems found.
+        shape: the element (``box``, ``polygon``, ``points``, ``skeleton`` or ``tag``); its ``label``
+            attribute is the class.
+        width: image width in pixels.
+        height: image height in pixels.
+        where: text shown as the example of any problem.
+
+    Returns:
+        A label with relative geometry, or None.
+    """
     kind, name = shape.tag, shape.get("label") or ""
     if kind in UNSUPPORTED_SHAPES:
         ctx.problem("unsupported_shape", f"{where}: {kind}")
@@ -168,6 +235,20 @@ def _pose(
     height: float,
     where: str,
 ) -> Label | None:
+    """Label for a pose from its points.
+
+    Args:
+        ctx: parse context that records the problems found.
+        name: class name.
+        triples: ``(x, y, visibility)`` per point, in pixels.
+        width: image width in pixels.
+        height: image height in pixels.
+        where: text shown as the example of any problem.
+
+    Returns:
+        A label with the relative keypoints and the box around the visible ones, or None when a point is
+        unusable or there are none.
+    """
     points = []
     for x, y, v in triples:
         pt = ctx.point(x, y, v, width, height, where)

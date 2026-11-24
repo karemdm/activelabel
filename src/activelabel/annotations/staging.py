@@ -25,6 +25,12 @@ _TOKEN = re.compile(r"^[0-9a-f]{16}$")
 def _safe_rel(name: str) -> PurePosixPath:
     """Relative path of an upload name.
 
+    Args:
+        name: file name as uploaded; a backslash is read as ``/``.
+
+    Returns:
+        The relative path without empty or ``.`` parts.
+
     Raises:
         ValueError: absolute, drive or ``..`` paths.
     """
@@ -36,6 +42,16 @@ def _safe_rel(name: str) -> PurePosixPath:
 
 
 def _copy(src: IO[bytes], dest: Path, budget: list[int]) -> None:
+    """Copy a stream to a file, counting the bytes against a budget.
+
+    Args:
+        src: readable binary stream.
+        dest: file to write; its folders are created.
+        budget: one-item list with the bytes still allowed; reduced by what is copied.
+
+    Raises:
+        ValueError: the budget is used up.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("wb") as out:
         while chunk := src.read(1 << 20):
@@ -46,12 +62,24 @@ def _copy(src: IO[bytes], dest: Path, budget: list[int]) -> None:
 
 
 def _check_token(token: str) -> None:
+    """Check the shape of a staging token.
+
+    Args:
+        token: the token to check.
+
+    Raises:
+        ValueError: the token is not 16 lowercase hex digits.
+    """
     if not _TOKEN.match(token):
         raise ValueError("Invalid staging token.")
 
 
 def cleanup(project_dir: Path) -> None:
-    """Remove staging folders (and their target files) not touched for 24 hours."""
+    """Remove staging folders (and their target files) not touched for 24 hours.
+
+    Args:
+        project_dir: the project's folder.
+    """
     root = project_dir / STAGING
     if not root.exists():
         return
@@ -69,7 +97,20 @@ def cleanup(project_dir: Path) -> None:
 
 
 def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list[PurePosixPath]) -> int:
-    """Extract the annotation files of a zip; the paths of its images are appended to ``images``."""
+    """Extract the annotation files of a zip; the paths of its images are appended to ``images``.
+
+    Args:
+        handle: the uploaded zip.
+        target: staging folder that receives the annotation files.
+        budget: one-item list with the bytes still allowed; reduced by what is saved.
+        images: list that receives the paths of the images found in the zip.
+
+    Returns:
+        How many annotation files were saved.
+
+    Raises:
+        ValueError: invalid zip, unsafe path or too large.
+    """
     saved = 0
     with tempfile.TemporaryFile() as tmp:
         shutil.copyfileobj(handle, tmp)
@@ -147,6 +188,13 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
 def load_staged(project_dir: Path, token: str) -> list[Path]:
     """Files of a staging folder, sorted.
 
+    Args:
+        project_dir: the project's folder.
+        token: the staging token.
+
+    Returns:
+        The files of the staging folder, sorted.
+
     Raises:
         ValueError: invalid token.
         FileNotFoundError: the staging does not exist (discarded or expired).
@@ -159,17 +207,40 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
 
 
 def _target_file(project_dir: Path, token: str) -> Path:
+    """Path of the file that remembers the video task of a staging.
+
+    Args:
+        project_dir: the project's folder.
+        token: the staging token.
+
+    Returns:
+        The path ``staging/<token>.target.json``.
+    """
     _check_token(token)
     return project_dir / STAGING / f"{token}.target.json"
 
 
 def set_target(project_dir: Path, token: str, target: dict[str, Any]) -> None:
-    """Remember the video task (``{"task": id, "class_name": ...}``) the staged files were checked against."""
+    """Remember the video task (``{"task": id, "class_name": ...}``) the staged files were checked against.
+
+    Args:
+        project_dir: the project's folder.
+        token: the staging token.
+        target: the video task as ``{"task": id, "class_name": ...}``.
+    """
     _target_file(project_dir, token).write_text(json.dumps(target), encoding="utf-8")
 
 
 def get_target(project_dir: Path, token: str) -> dict[str, Any] | None:
-    """The video task remembered by :func:`set_target`, or None."""
+    """The video task remembered by :func:`set_target`, or None.
+
+    Args:
+        project_dir: the project's folder.
+        token: the staging token.
+
+    Returns:
+        The remembered video task, or None when none was set or the file is unreadable.
+    """
     path = _target_file(project_dir, token)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -179,7 +250,12 @@ def get_target(project_dir: Path, token: str) -> dict[str, Any] | None:
 
 
 def discard_staged(project_dir: Path, token: str) -> None:
-    """Delete a staging folder (no error when it is already gone)."""
+    """Delete a staging folder (no error when it is already gone).
+
+    Args:
+        project_dir: the project's folder.
+        token: the staging token.
+    """
     _check_token(token)
     shutil.rmtree(project_dir / STAGING / token, ignore_errors=True)
     _target_file(project_dir, token).unlink(missing_ok=True)

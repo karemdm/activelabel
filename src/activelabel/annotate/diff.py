@@ -31,6 +31,14 @@ MAX_PROBLEM_EXAMPLES = 5
 
 # -- geometry -------------------------------------------------------------------
 def _box(label: Label) -> list[float] | None:
+    """Bounding box of a label, taken from its box, polygons or visible keypoints.
+
+    Args:
+        label: the label.
+
+    Returns:
+        ``[x, y, w, h]``, or None when the label has no geometry.
+    """
     if label.bbox:
         return label.bbox
     points: list[list[float]] = []
@@ -45,6 +53,15 @@ def _box(label: Label) -> list[float] | None:
 
 
 def _iou(a: list[float], b: list[float]) -> float:
+    """Intersection over union of two boxes.
+
+    Args:
+        a: first box ``[x, y, w, h]``.
+        b: second box ``[x, y, w, h]``.
+
+    Returns:
+        A value from 0 to 1 (two empty boxes at the same place count as 1).
+    """
     ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
     iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
     inter = ix * iy
@@ -55,6 +72,15 @@ def _iou(a: list[float], b: list[float]) -> float:
 
 
 def _similarity(a: Label, b: Label) -> float:
+    """How alike two labels are: keypoint distance for poses, box overlap for the rest.
+
+    Args:
+        a: first label.
+        b: second label.
+
+    Returns:
+        A value from 0 (unrelated) to 1 (same place).
+    """
     if a.keypoints and b.keypoints:
         if len(a.keypoints) != len(b.keypoints):
             return 0.0
@@ -71,6 +97,15 @@ def _similarity(a: Label, b: Label) -> float:
 
 
 def _moved(a: Label, b: Label) -> bool:
+    """Whether the geometry of two matched labels differs by more than :data:`TOLERANCE`.
+
+    Args:
+        a: the old label.
+        b: the new label.
+
+    Returns:
+        True when keypoints, polygons or box moved (or keypoint visibility changed).
+    """
     if a.keypoints and b.keypoints:
         for p, q in zip(a.keypoints, b.keypoints, strict=True):
             if (p[2] > 0) != (q[2] > 0):
@@ -102,11 +137,25 @@ class ImageChanges:
     edited: list[Label] = field(default_factory=list)  # the new version of each edited label
 
     def __bool__(self) -> bool:
+        """Whether anything changed.
+
+        Returns:
+            True when there is an added, removed or edited label.
+        """
         return bool(self.added or self.removed or self.edited)
 
 
 def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChanges:
-    """Match old and new labels of one image and sort them into added, removed and edited."""
+    """Match old and new labels of one image and sort them into added, removed and edited.
+
+    Args:
+        task: task of the project (classification compares only the first label).
+        old: the labels in the project.
+        new: the labels brought back from the tool.
+
+    Returns:
+        The added, removed and edited labels (edited ones in their new version).
+    """
     changes = ImageChanges()
     if task is Task.CLASSIFICATION:
         before, after = old[:1], new[:1]
@@ -144,6 +193,10 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
 def clean_labels(project: Project, labels: list[Label]) -> tuple[list[Label], dict[str, int]]:
     """Labels that fit the project: class names match the class list ignoring case, geometry present.
 
+    Args:
+        project: the project (task and class list).
+        labels: labels brought back from the tool.
+
     Returns:
         The usable labels and counts of what was dropped: ``no_geometry``, ``multiple_classes``.
     """
@@ -179,7 +232,13 @@ class _Tally:
     problems: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def problem(self, code: str, image_id: str, count: int = 1) -> None:
-        """Count a problem and keep the name of the image as an example (a few per code)."""
+        """Count a problem and keep the name of the image as an example (a few per code).
+
+        Args:
+            code: the problem code (a key of ``_MESSAGES``).
+            image_id: id of the image where it happened.
+            count: how many times to count it.
+        """
         entry = self.problems.setdefault(code, {"count": 0, "examples": []})
         entry["count"] += count
         name = self.names.get(image_id, image_id)
@@ -187,7 +246,12 @@ class _Tally:
             entry["examples"].append(name)
 
     def bump(self, label: Label, kind: str) -> None:
-        """Count a label as added, removed or edited under its class."""
+        """Count a label as added, removed or edited under its class.
+
+        Args:
+            label: the label.
+            kind: ``added``, ``removed`` or ``edited``.
+        """
         self.per_class.setdefault(label.label, {"added": 0, "removed": 0, "edited": 0})[kind] += 1
 
 
@@ -197,6 +261,17 @@ def _compare_all(
     new_labels: dict[str, list[Label]],
     project: Project,
 ) -> tuple[dict[str, Any], dict[str, list[Label]]]:
+    """Clean the new labels and compare them with the ground truth, image by image.
+
+    Args:
+        project_dir: the project folder.
+        image_ids: the images of the session.
+        new_labels: labels brought back from the tool, by image id.
+        project: the project (task and class list).
+
+    Returns:
+        The summary (see :func:`diff`) and the cleaned labels of each image present in ``new_labels``.
+    """
     annotations = load_annotations(project_dir)
     old_all = annotations.images if annotations else {}
     names = {r.id: r.name for r in Manifest(project_dir).all()}
@@ -258,6 +333,12 @@ def diff(
 ) -> dict[str, Any]:
     """Summary of the changes between the project ground truth and ``new_labels`` for these images.
 
+    Args:
+        project_dir: the project folder.
+        image_ids: the images of the session.
+        new_labels: labels brought back from the tool, by image id.
+        project: the project (task and class list).
+
     Returns:
         ``{images_changed, added, removed, edited, per_class, unknown_classes, problems, examples}``
         (see docs/ANNOTATION.md).
@@ -278,6 +359,13 @@ def apply(
     Unknown classes are added to the project. Labels without the geometry the task needs are skipped;
     classification keeps one class per image.
 
+    Args:
+        store: the project store (to read the project and add classes).
+        project_id: id of the project.
+        manifest: the images of the project; ids that are not in it are ignored.
+        image_ids: the images of the session.
+        new_labels: labels brought back from the tool, by image id.
+
     Returns:
         Counts: the diff counts plus ``images_updated``, ``new_classes``, ``skipped`` and ``backup``.
     """
@@ -297,6 +385,19 @@ def _apply_locked(
     ids: list[str],
     new_labels: dict[str, list[Label]],
 ) -> dict[str, Any]:
+    """Do the work of :func:`apply` while the annotations file is locked.
+
+    Args:
+        store: the project store (to add classes).
+        project_id: id of the project.
+        project: the project as read before the lock.
+        project_dir: the project folder.
+        ids: the images to update (already restricted to those of the manifest).
+        new_labels: labels brought back from the tool, by image id.
+
+    Returns:
+        The same counts as :func:`apply`.
+    """
     summary, cleaned = _compare_all(project_dir, ids, new_labels, project)
     annotations = load_annotations(project_dir)
     backup = ""

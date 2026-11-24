@@ -24,21 +24,50 @@ class SessionNotFound(KeyError):
 
 
 def _file(project_dir: Path) -> Path:
+    """Path of ``annotate.json`` in the project folder.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The path of the sessions file.
+    """
     return project_dir / "annotate.json"
 
 
 def session_dir(project_dir: Path, session_id: str) -> Path:
-    """Folder for the files of a session (pulled labels)."""
+    """Folder for the files of a session (pulled labels).
+
+    Args:
+        project_dir: the project folder.
+        session_id: id of the session.
+
+    Returns:
+        The folder path (not created here).
+    """
     return project_dir / "annotate" / session_id
 
 
 def new_id() -> str:
-    """A short unique session id."""
+    """A short unique session id.
+
+    Returns:
+        Eight hexadecimal characters.
+    """
     return uuid.uuid4().hex[:8]
 
 
 def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, issue: str = "") -> list[str]:
     """Ids of the images a session covers.
+
+    Args:
+        manifest: the images of the project (excluded ones are never chosen).
+        scope: one of :data:`SCOPES`.
+        ids: for scope ``selected``, the image ids to keep.
+        issue: for scope ``issue``, the quality issue the images must have.
+
+    Returns:
+        The ids of the chosen images, in manifest order.
 
     Raises:
         CodedError: unknown scope or nothing selected (message is readable).
@@ -74,11 +103,25 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
 
 
 def _load(project_dir: Path) -> list[dict[str, Any]]:
+    """Read the sessions file.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The sessions as stored (an empty list when there is no file).
+    """
     data = read_json(_file(project_dir), {"sessions": []}) or {}
     return list(data.get("sessions", []))
 
 
 def _save(project_dir: Path, sessions: list[dict[str, Any]]) -> None:
+    """Write the sessions file.
+
+    Args:
+        project_dir: the project folder.
+        sessions: all the sessions to keep.
+    """
     write_json(_file(project_dir), {"sessions": sessions})
 
 
@@ -92,6 +135,18 @@ def create(
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """Record a new open session.
+
+    Args:
+        project_dir: the project folder.
+        tool: name of the annotation tool.
+        scope: how the images were chosen (see :data:`SCOPES`).
+        image_ids: ids of the images of the session.
+        links: links to open in the tool (``{"label", "url"}``).
+        ref: the tool's own reference of the session.
+        session_id: id to use; a new one is made when None.
+
+    Returns:
+        The new session.
 
     Raises:
         ValueError: no images.
@@ -115,12 +170,26 @@ def create(
 
 
 def list_sessions(project_dir: Path) -> list[dict[str, Any]]:
-    """Sessions, newest first."""
+    """Sessions, newest first.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The sessions ordered by creation time, newest first.
+    """
     return sorted(_load(project_dir), key=lambda s: s["created"], reverse=True)
 
 
 def get(project_dir: Path, session_id: str) -> dict[str, Any]:
     """One session.
+
+    Args:
+        project_dir: the project folder.
+        session_id: id of the session.
+
+    Returns:
+        The session.
 
     Raises:
         SessionNotFound: unknown id.
@@ -133,6 +202,14 @@ def get(project_dir: Path, session_id: str) -> dict[str, Any]:
 
 def update(project_dir: Path, session_id: str, **fields: Any) -> dict[str, Any]:
     """Change fields of a session (status, diff, ...).
+
+    Args:
+        project_dir: the project folder.
+        session_id: id of the session.
+        **fields: the fields to set; they replace the stored values.
+
+    Returns:
+        The session after the change.
 
     Raises:
         SessionNotFound: unknown id.
@@ -149,6 +226,10 @@ def update(project_dir: Path, session_id: str, **fields: Any) -> dict[str, Any]:
 
 def close(project_dir: Path, session_id: str) -> None:
     """Forget a session and its files.
+
+    Args:
+        project_dir: the project folder.
+        session_id: id of the session.
 
     Raises:
         SessionNotFound: unknown id.
@@ -167,6 +248,12 @@ def protected_images(project_dir: Path) -> set[str]:
 
     Their ``ground_truth`` in the FiftyOne dataset may hold edits not yet brought back, so refreshing
     the dataset must not overwrite it.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The image ids.
     """
     return {
         i
@@ -177,5 +264,12 @@ def protected_images(project_dir: Path) -> set[str]:
 
 
 def public(session: dict[str, Any]) -> dict[str, Any]:
-    """Session as the API returns it (no image ids, label hashes or private tool reference)."""
+    """Session as the API returns it (no image ids, label hashes or private tool reference).
+
+    Args:
+        session: a stored session.
+
+    Returns:
+        A copy of the session without ``image_ids``, ``ref`` and ``base``.
+    """
     return {k: v for k, v in session.items() if k not in ("image_ids", "ref", "base")}

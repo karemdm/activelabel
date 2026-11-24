@@ -13,12 +13,24 @@ RECORD_FILE = "fiftyone.json"
 
 
 def recorded_name(project_dir: Path) -> str | None:
-    """Dataset name recorded for a project, or None when it has none yet."""
+    """Dataset name recorded for a project, or None when it has none yet.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The recorded name, or None.
+    """
     data = read_json(project_dir / RECORD_FILE)
     name = data.get("dataset") if isinstance(data, dict) else None
     return name if isinstance(name, str) and name else None
 
 
 def record_name(project_dir: Path, name: str) -> None:
-    """Remember the dataset name of a project."""
+    """Remember the dataset name of a project.
+
+    Args:
+        project_dir: the project folder.
+        name: the FiftyOne dataset name.
+    """
     write_json(project_dir / RECORD_FILE, {"dataset": name})

@@ -15,7 +15,14 @@ from activelabel.labels import Label
 
 
 def parse_coco(ctx: ParseContext, files: list[Path]) -> None:
-    """Read COCO files into ``ctx``."""
+    """Read COCO files into ``ctx``.
+
+    Args:
+        ctx: parse context; receives the classes, the labels, the names of the files read (``ctx.files``) and
+            the problems.
+        files: staged files; only ``.json`` files are read, and one that is not a COCO file is reported as
+            ``invalid_file``.
+    """
     for path in files:
         if path.suffix.lower() != ".json":
             continue
@@ -31,6 +38,13 @@ def parse_coco(ctx: ParseContext, files: list[Path]) -> None:
 
 
 def _parse_one(ctx: ParseContext, data: dict[str, Any]) -> None:
+    """Read one decoded COCO document into ``ctx``: classes, image entries, then annotations.
+
+    Args:
+        ctx: parse context; images are matched by ``file_name`` and claimed, labels are added to it.
+        data: the decoded COCO JSON: an object with ``images`` and optional ``categories`` and
+            ``annotations``.
+    """
     cats: dict[Any, dict[str, Any]] = {}
     for cat in data.get("categories") or []:
         cats[cat["id"]] = cat
@@ -61,6 +75,21 @@ def _annotation(
     height: float,
     where: str,
 ) -> Label | None:
+    """Label for one COCO annotation, or None when it cannot be used.
+
+    Args:
+        ctx: parse context that records the problems found.
+        ann: the COCO annotation: ``category_id``, ``bbox`` (``[x, y, w, h]`` in pixels), ``segmentation`` and
+            ``keypoints``.
+        cats: the file's categories by id.
+        width: width in pixels of the image, to make coordinates relative.
+        height: height in pixels of the image, to make coordinates relative.
+        where: image name, shown as the example of any problem.
+
+    Returns:
+        A label with relative (0..1) geometry; the box comes from ``bbox`` or else from the polygons. None
+        when the category is unknown, the annotation is malformed or has no usable geometry.
+    """
     cat = cats.get(ann.get("category_id"))
     if cat is None:
         ctx.problem("unknown_class_id", f"{where}: category {ann.get('category_id')}")
@@ -88,6 +117,20 @@ def _annotation(
 def _polygons(
     ctx: ParseContext, seg: Any, width: float, height: float, where: str
 ) -> list[list[list[float]]] | None:
+    """Relative polygon rings of a COCO ``segmentation`` value.
+
+    Args:
+        ctx: parse context that records the problems found.
+        seg: the ``segmentation`` value: a list of flat rings ``[x1, y1, x2, y2, ...]``, one flat ring, or an
+            RLE dict.
+        width: width in pixels of the image.
+        height: height in pixels of the image.
+        where: image name, shown as the example of any problem.
+
+    Returns:
+        The rings as lists of relative ``[x, y]`` points, or None when there are no usable ones (an RLE mask
+        is reported as ``rle_bbox_only``).
+    """
     if isinstance(seg, dict):  # RLE
         ctx.problem("rle_bbox_only", where)
         return None
@@ -106,6 +149,22 @@ def _polygons(
 def _keypoints(
     ctx: ParseContext, flat: Any, cat: dict[str, Any], width: float, height: float, where: str
 ) -> list[list[float]] | None:
+    """Relative keypoints of a COCO ``keypoints`` value.
+
+    Args:
+        ctx: parse context that records the problems found.
+        flat: flat list ``[x1, y1, v1, x2, y2, v2, ...]`` with pixel coordinates and visibility.
+        cat: the category of the object; its ``keypoints`` list gives the expected number of points.
+        width: width in pixels of the image.
+        height: height in pixels of the image.
+        where: image name, shown as the example of any problem.
+
+    Returns:
+        Relative ``[x, y, v]`` per point, or None when there are none or a point is unusable.
+
+    Raises:
+        ValueError: the list is not made of x, y, v triples.
+    """
     if not flat:
         return None
     if len(flat) % 3:

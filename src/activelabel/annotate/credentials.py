@@ -25,19 +25,53 @@ _lock = threading.RLock()
 
 
 def _file(workspace: Path) -> Path:
+    """Path of ``tools.json`` in the workspace.
+
+    Args:
+        workspace: the workspace folder.
+
+    Returns:
+        The path of the settings file.
+    """
     return workspace / "tools.json"
 
 
 def _key(tool: str, url: str) -> str:
+    """Name under which the secret is kept in the keyring.
+
+    Args:
+        tool: name of the tool.
+        url: URL of the tool.
+
+    Returns:
+        ``<tool>:<url>``.
+    """
     return f"{tool}:{url}"
 
 
 def _check_tool(tool: str) -> None:
+    """Refuse a tool name that is not one of :data:`TOOLS`.
+
+    Args:
+        tool: name of the tool.
+
+    Raises:
+        ToolError: unknown tool.
+    """
     if tool not in TOOLS:
         raise ToolError(f"Unknown annotation tool: {tool}")
 
 
 def _get_secret(tool: str, url: str) -> str:
+    """Secret of a tool from the keyring.
+
+    Args:
+        tool: name of the tool.
+        url: URL of the tool.
+
+    Returns:
+        The secret, or an empty string when there is none, the URL is empty or no keyring works.
+    """
     if not url:
         return ""
     try:
@@ -47,7 +81,18 @@ def _get_secret(tool: str, url: str) -> str:
 
 
 def load_settings(workspace: Path, tool: str) -> ToolSettings:
-    """Settings of a tool, with the secret from the keyring when present."""
+    """Settings of a tool, with the secret from the keyring when present.
+
+    Args:
+        workspace: the workspace folder holding ``tools.json``.
+        tool: name of the tool.
+
+    Returns:
+        The settings (empty URL and user when nothing was saved).
+
+    Raises:
+        ToolError: unknown tool.
+    """
     _check_tool(tool)
     entry = (read_json(_file(workspace), {}) or {}).get(tool, {})
     url, username = str(entry.get("url", "")), str(entry.get("username", ""))
@@ -56,6 +101,9 @@ def load_settings(workspace: Path, tool: str) -> ToolSettings:
 
 def check_url(url: str) -> None:
     """Refuse a tool URL that is not ``http://`` or ``https://`` with a server name (empty is allowed).
+
+    Args:
+        url: the URL typed by the user.
 
     Raises:
         CodedError: ``url_invalid``.
@@ -71,6 +119,16 @@ def check_url(url: str) -> None:
 
 def save_settings(workspace: Path, tool: str, url: str, username: str, secret: str | None) -> ToolSettings:
     """Save URL and user to ``tools.json`` and, when given, the secret to the keyring.
+
+    Args:
+        workspace: the workspace folder holding ``tools.json``.
+        tool: name of the tool.
+        url: URL of the tool (trimmed, trailing ``/`` removed).
+        username: user name (trimmed).
+        secret: password or API token for the keyring; None or empty keeps the stored one.
+
+    Returns:
+        The settings as saved, with the secret from the keyring.
 
     Raises:
         ToolError: unknown tool or the keyring is not usable.
@@ -94,7 +152,18 @@ def save_settings(workspace: Path, tool: str, url: str, username: str, secret: s
 
 
 def forget(workspace: Path, tool: str) -> bool:
-    """Remove the settings of a tool and its secret. Returns whether anything was removed."""
+    """Remove the settings of a tool and its secret.
+
+    Args:
+        workspace: the workspace folder holding ``tools.json``.
+        tool: name of the tool.
+
+    Returns:
+        Whether anything was removed.
+
+    Raises:
+        ToolError: unknown tool.
+    """
     _check_tool(tool)
     with _lock:
         data: dict[str, Any] = read_json(_file(workspace), {}) or {}
@@ -113,7 +182,14 @@ def forget(workspace: Path, tool: str) -> bool:
 
 
 def is_configured(settings: ToolSettings) -> bool:
-    """Whether the tool has what it needs to be used."""
+    """Whether the tool has what it needs to be used.
+
+    Args:
+        settings: settings of the tool.
+
+    Returns:
+        True when the tool needs nothing (FiftyOne) or has a URL, a secret and, for CVAT, a user.
+    """
     if settings.tool == "fiftyone":
         return True
     if not settings.url or not settings.secret:
@@ -122,7 +198,14 @@ def is_configured(settings: ToolSettings) -> bool:
 
 
 def public_view(settings: ToolSettings) -> dict[str, Any]:
-    """What the API shows: no secret."""
+    """What the API shows: no secret.
+
+    Args:
+        settings: settings of the tool.
+
+    Returns:
+        Tool name, whether it is configured, URL, user and the list of fields it needs.
+    """
     return {
         "tool": settings.tool,
         "configured": is_configured(settings),

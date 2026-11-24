@@ -35,12 +35,27 @@ TRACK_SHAPES = {"box", "polygon", "points"}
 
 
 def trailing_frame(name: str) -> int | None:
-    """Integer at the end of a file name without extension (``video_120.txt`` -> 120), else None."""
+    """Integer at the end of a file name without extension (``video_120.txt`` -> 120), else None.
+
+    Args:
+        name: file name; only its stem is read.
+
+    Returns:
+        The number, or None when there is none.
+    """
     match = TRAILING_NUMBER.search(Path(name).stem)
     return int(match.group(1)) if match else None
 
 
 def _int(value: Any) -> int | None:
+    """Whole number held by a value.
+
+    Args:
+        value: a number or text.
+
+    Returns:
+        The value as int, or None when it is not a finite whole number.
+    """
     try:
         number = float(value)
         return int(number) if number == int(number) else None
@@ -49,7 +64,13 @@ def _int(value: Any) -> int | None:
 
 
 def _cover(ctx: ParseContext, first: int | None, last: int | None) -> None:
-    """Give every task image between the first and the last annotated frame an entry (maybe empty)."""
+    """Give every task image between the first and the last annotated frame an entry (maybe empty).
+
+    Args:
+        ctx: parse context; its target's images get the empty entries.
+        first: first annotated frame; None does nothing.
+        last: last annotated frame; None does nothing.
+    """
     if ctx.target is None or first is None or last is None:
         return
     for frame, rec in ctx.target.frames.items():
@@ -59,7 +80,14 @@ def _cover(ctx: ParseContext, first: int | None, last: int | None) -> None:
 
 # -- CVAT for video 1.1 --------------------------------------------------------------
 def is_cvat_video(path: Path) -> bool:
-    """True for a CVAT XML that has ``<track>`` elements."""
+    """True for a CVAT XML that has ``<track>`` elements.
+
+    Args:
+        path: the file.
+
+    Returns:
+        True when it is a CVAT XML with ``<track>`` elements.
+    """
     try:
         return path.suffix.lower() == ".xml" and read_xml(path).find("track") is not None
     except ValueError:
@@ -67,6 +95,14 @@ def is_cvat_video(path: Path) -> bool:
 
 
 def _filter_step(text: str) -> int:
+    """Step of a CVAT ``frame_filter`` text such as ``step=15``.
+
+    Args:
+        text: the text; may be empty.
+
+    Returns:
+        The step, 1 when there is none.
+    """
     match = re.search(r"step\s*=\s*(\d+)", text or "")
     return max(1, int(match.group(1))) if match else 1
 
@@ -76,6 +112,15 @@ def _task_numbered(root: ET.Element, start: int, step: int, last: int | None) ->
 
     CVAT's export uses video frame numbers: they all lie on ``start + k * step``. Otherwise they are
     task frames.
+
+    Args:
+        root: root of the CVAT video file.
+        start: first video frame of the task.
+        step: the task takes one frame every ``step`` frames.
+        last: last video frame of the task; None when unknown.
+
+    Returns:
+        True when the numbers are task frames, False when they are video frames.
     """
     numbers = [
         n
@@ -92,7 +137,12 @@ def _task_numbered(root: ET.Element, start: int, step: int, last: int | None) ->
 
 
 def parse_cvat_video(ctx: ParseContext, files: list[Path]) -> None:
-    """Read CVAT for video 1.1 XML files into ``ctx``."""
+    """Read CVAT for video 1.1 XML files into ``ctx``.
+
+    Args:
+        ctx: parse context; receives the classes, labels (tracks keep their id), files read and problems.
+        files: staged files; only ``.xml`` files are read.
+    """
     for path in files:
         if path.suffix.lower() != ".xml":
             continue
@@ -119,7 +169,15 @@ class _Grid:
     last: int | None = None
 
     def frame(self, ctx: ParseContext, value: Any) -> int | None:
-        """Video frame of a number in the file; None (and a problem) when it is not a frame number."""
+        """Video frame of a number in the file; None (and a problem) when it is not a frame number.
+
+        Args:
+            ctx: parse context that records the problem.
+            value: frame number as written in the file.
+
+        Returns:
+            The video frame index, or None when the value is not a frame number.
+        """
         number = _int(value)
         if number is None or number < 0:
             ctx.problem("invalid_annotation", f"frame {value}")
@@ -127,13 +185,29 @@ class _Grid:
         return self.start + number * self.step if self.relative else number
 
     def size(self, rec_width: int, rec_height: int) -> tuple[float, float]:
-        """The size written in the file, else the stored size of the image."""
+        """The size written in the file, else the stored size of the image.
+
+        Args:
+            rec_width: stored width of the image.
+            rec_height: stored height of the image.
+
+        Returns:
+            ``(width, height)`` in pixels.
+        """
         if self.width > 0 and self.height > 0:
             return self.width, self.height
         return float(rec_width), float(rec_height)
 
 
 def _read_grid(root: ET.Element) -> _Grid:
+    """Read the frame numbering and size from the ``meta/task`` of a CVAT video file.
+
+    Args:
+        root: root of the CVAT video file.
+
+    Returns:
+        The numbering and size the file declares.
+    """
     task = root.find("meta/task")
     grid = _Grid()
     if task is not None:
@@ -151,6 +225,12 @@ def _read_grid(root: ET.Element) -> _Grid:
 
 
 def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
+    """Read the classes, tracks and per-frame shapes of one CVAT video file into ``ctx``.
+
+    Args:
+        ctx: parse context; receives classes and labels (tracked shapes keep their track id).
+        root: root of the CVAT video file.
+    """
     grid = _read_grid(root)
     for labels in root.iter("labels"):
         for declared in labels.findall("label"):
@@ -202,7 +282,14 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
 
 # -- MOT ------------------------------------------------------------------------------
 def is_mot_text(text: str) -> bool:
-    """True when every non-blank line is comma separated numbers with at least frame, id and a box."""
+    """True when every non-blank line is comma separated numbers with at least frame, id and a box.
+
+    Args:
+        text: content of a txt file.
+
+    Returns:
+        True when it looks like MOT.
+    """
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return False
@@ -220,7 +307,13 @@ def is_mot_text(text: str) -> bool:
 
 
 def parse_mot(ctx: ParseContext, files: list[Path]) -> None:
-    """Read MOT ``gt.txt`` / ``det.txt`` files; class ids are 1-based, names come from a labels file."""
+    """Read MOT ``gt.txt`` / ``det.txt`` files; class ids are 1-based, names come from a labels file.
+
+    Args:
+        ctx: parse context; its target is required. Receives labels with their track id, files read and
+            problems.
+        files: staged files; names files give the classes, other ``.txt`` files with MOT lines are read.
+    """
     names, _ = load_names(ctx, files)
     assert ctx.target is not None
     seen: list[int] = []
@@ -265,7 +358,12 @@ def parse_mot(ctx: ParseContext, files: list[Path]) -> None:
 
 # -- YOLO per frame -----------------------------------------------------------------------
 def parse_yolo_frames(ctx: ParseContext, files: list[Path]) -> None:
-    """Read YOLO txt files named ``<anything><frame>.txt`` (the number is the video frame)."""
+    """Read YOLO txt files named ``<anything><frame>.txt`` (the number is the video frame).
+
+    Args:
+        ctx: parse context; its target is required. Receives labels, files read and problems.
+        files: staged files: label ``.txt`` files and the files with class names.
+    """
     names, kpt = load_names(ctx, files)
     missing: set[int] = set()
     for path in files:
@@ -299,6 +397,14 @@ def parse_yolo_frames(ctx: ParseContext, files: list[Path]) -> None:
 
 # -- COCO with frames --------------------------------------------------------------------
 def _coco_frame(image: dict[str, Any]) -> int | None:
+    """Video frame of a COCO image entry.
+
+    Args:
+        image: the entry from ``images``.
+
+    Returns:
+        The frame number, or None when there is none.
+    """
     for key in ("frame_id", "frame_index", "frame"):
         if image.get(key) is not None:
             return _int(image[key])
@@ -306,7 +412,13 @@ def _coco_frame(image: dict[str, Any]) -> int | None:
 
 
 def parse_coco_frames(ctx: ParseContext, files: list[Path]) -> None:
-    """Read COCO files whose images are frames of the video (``frame_id`` or a number in ``file_name``)."""
+    """Read COCO files whose images are frames of the video (``frame_id`` or a number in ``file_name``).
+
+    Args:
+        ctx: parse context; its target is required. Receives labels with their track id, files read and
+            problems.
+        files: staged files; only ``.json`` files are read.
+    """
     for path in files:
         if path.suffix.lower() != ".json":
             continue
@@ -322,7 +434,15 @@ def parse_coco_frames(ctx: ParseContext, files: list[Path]) -> None:
 
 
 def _own_video(ctx: ParseContext, data: dict[str, Any]) -> Any:
-    """``video_id`` of this task's video when the file has several videos (matched by name), else None."""
+    """``video_id`` of this task's video when the file has several videos (matched by name), else None.
+
+    Args:
+        ctx: parse context; its target gives the video name.
+        data: the decoded COCO JSON.
+
+    Returns:
+        The video id, or None when the file has a single video or none matches.
+    """
     ids = {im.get("video_id") for im in data["images"] if im.get("video_id") is not None}
     if len(ids) < 2 or ctx.target is None:
         return None
@@ -335,6 +455,12 @@ def _own_video(ctx: ParseContext, data: dict[str, Any]) -> Any:
 
 
 def _read_coco_frames(ctx: ParseContext, data: dict[str, Any]) -> None:
+    """Read one decoded COCO document whose images are frames into ``ctx``.
+
+    Args:
+        ctx: parse context; receives classes and labels (with ``track_id`` as track).
+        data: the decoded COCO JSON.
+    """
     cats: dict[Any, dict[str, Any]] = {}
     for cat in data.get("categories") or []:
         cats[cat["id"]] = cat

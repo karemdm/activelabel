@@ -15,7 +15,14 @@ EPS = 1e-6
 
 
 def norm_name(name: str) -> str:
-    """Name with ``/`` separators and no leading ``./`` or ``/``."""
+    """Name with ``/`` separators and no leading ``./`` or ``/``.
+
+    Args:
+        name: a file name or relative path as written in an annotation file.
+
+    Returns:
+        The name with ``/`` separators, without leading ``./`` or ``/``.
+    """
     n = name.replace("\\", "/").strip()
     while n.startswith("./"):
         n = n[2:]
@@ -23,7 +30,14 @@ def norm_name(name: str) -> str:
 
 
 def stem_parts(name: str) -> list[str]:
-    """Path parts of a name without the extension of the last part."""
+    """Path parts of a name without the extension of the last part.
+
+    Args:
+        name: a file name or relative path.
+
+    Returns:
+        The path parts, the last one without its extension.
+    """
     parts = [p for p in norm_name(name).split("/") if p]
     if parts and "." in parts[-1]:
         parts[-1] = parts[-1].rsplit(".", 1)[0]
@@ -31,7 +45,14 @@ def stem_parts(name: str) -> list[str]:
 
 
 def bbox_of_points(points: Iterable[Sequence[float]]) -> list[float] | None:
-    """``[x, y, w, h]`` around points (relative); None when there are none or the box is empty."""
+    """``[x, y, w, h]`` around points (relative); None when there are none or the box is empty.
+
+    Args:
+        points: points with ``x`` and ``y`` first (relative coordinates); other values are ignored.
+
+    Returns:
+        ``[x, y, w, h]`` around the points, or None.
+    """
     pts = list(points)
     if not pts:
         return None
@@ -49,6 +70,16 @@ def declared_size(
 
     A missing, non-numeric, non-finite or non-positive value means "not declared": the stored size
     is used. A declared size that differs from the stored one is reported (``size_mismatch``).
+
+    Args:
+        ctx: parse context that records ``size_mismatch``.
+        rec: the stored image.
+        width: width as read from the file (may be missing or not a number).
+        height: height as read from the file (may be missing or not a number).
+        name: image name, shown as the example of the problem.
+
+    Returns:
+        ``(width, height)`` in pixels: the declared size, or the stored size when none is declared.
     """
     try:
         w, h = float(width), float(height)  # type: ignore[arg-type]
@@ -78,6 +109,13 @@ class ParseContext:
     """Collects labels, classes and problems while a format parser runs."""
 
     def __init__(self, fmt: str, images: list[ImageRecord], target: VideoTarget | None = None) -> None:
+        """Index the images by name and start empty results.
+
+        Args:
+            fmt: annotation format name, copied to the result.
+            images: image records the annotations are matched to.
+            target: the video task, for the formats that match by frame number; None for images.
+        """
         self.fmt = fmt
         self.images = images
         self.target = target
@@ -106,19 +144,38 @@ class ParseContext:
 
     # -- problems and classes ------------------------------------------------
     def problem(self, code: str, example: str | None = None, n: int = 1) -> None:
-        """Record a problem (aggregated by code)."""
+        """Record a problem (aggregated by code).
+
+        Args:
+            code: key of ``PROBLEMS``.
+            example: text shown as an example (up to 5 distinct ones are kept); None for none.
+            n: how many occurrences to count.
+        """
         level, message = PROBLEMS[code]
         prob = self._problems.setdefault(code, Problem(level, code, message))
         prob.add(example, n)
 
     def add_class(self, name: str) -> None:
-        """Remember a class name (first seen first)."""
+        """Remember a class name (first seen first).
+
+        Args:
+            name: class name.
+        """
         if name not in self._class_seen:
             self._class_seen.add(name)
             self.classes.append(name)
 
     # -- image lookup ----------------------------------------------------------
     def _find(self, name: str) -> tuple[ImageRecord | None, bool]:
+        """Look a name up in the image indexes.
+
+        Args:
+            name: image name to find.
+
+        Returns:
+            ``(record, ambiguous)``: the record when exactly one image matches at the first level that finds
+            any, ``(None, True)`` when that level finds several, ``(None, False)`` when none matches.
+        """
         n = norm_name(name)
         base = n.rsplit("/", 1)[-1].lower()
         for index, key in ((self._exact, n), (self._lower, n.lower()), (self._base, base)):
@@ -133,6 +190,13 @@ class ParseContext:
         For each name the lookup tries the exact relative name, then the same ignoring case, then the file
         name alone ignoring case; a lookup that finds several images is ambiguous and counts as no match.
         Records an unmatched or ambiguous problem when no name matches.
+
+        Args:
+            names: candidate names, tried in order.
+            example: text shown in the problem when nothing matches; the first name when None.
+
+        Returns:
+            The matching image record, or None.
         """
         ambiguous = False
         for name in names:
@@ -148,7 +212,15 @@ class ParseContext:
         return None
 
     def match_stem(self, parts: list[str], example: str) -> ImageRecord | None:
-        """Image for a label file path without extension (YOLO): ``labels/`` -> ``images/`` and suffixes."""
+        """Image for a label file path without extension (YOLO): ``labels/`` -> ``images/`` and suffixes.
+
+        Args:
+            parts: path parts of the label file without extension (see ``stem_parts``).
+            example: label file name, shown in the problem when nothing matches.
+
+        Returns:
+            The matching image record, or None.
+        """
         swapped = list(parts)
         for i in range(len(swapped) - 2, -1, -1):
             if swapped[i].lower() == "labels":
@@ -170,21 +242,42 @@ class ParseContext:
         return None
 
     def unmatch(self, name: str) -> None:
-        """Count an annotation entry without an image."""
+        """Count an annotation entry without an image.
+
+        Args:
+            name: entry name; up to 20 distinct ones are kept as examples.
+        """
         self.unmatched_count += 1
         if len(self.unmatched) < MAX_UNMATCHED_EXAMPLES and name not in self.unmatched:
             self.unmatched.append(name)
         self.problem("unmatched_entries", name)
 
     def at_frame(self, frame: int, example: str | None = None, n: int = 1) -> ImageRecord | None:
-        """Image of the video task at this frame; an unused frame is counted (``n`` labels) and skipped."""
+        """Image of the video task at this frame; an unused frame is counted (``n`` labels) and skipped.
+
+        Args:
+            frame: video frame index.
+            example: text shown in the problem; ``frame <n>`` when None.
+            n: how many labels are lost when the frame is not used.
+
+        Returns:
+            The image record of that frame, or None.
+        """
         rec = self.target.frames.get(frame) if self.target else None
         if rec is None:
             self.problem("frames_not_in_task", example or f"frame {frame}", n)
         return rec
 
     def claim(self, rec: ImageRecord, example: str | None = None) -> bool:
-        """Start an entry for an image; False (and a problem) when it already has one."""
+        """Start an entry for an image; False (and a problem) when it already has one.
+
+        Args:
+            rec: the image the entry is for.
+            example: text shown in the problem; the image name when None.
+
+        Returns:
+            True when the entry was started, False when the image already had one.
+        """
         if rec.id in self._claimed:
             self.problem("duplicate_image_entry", example or rec.name)
             return False
@@ -193,7 +286,12 @@ class ParseContext:
         return True
 
     def add_label(self, rec: ImageRecord, label: Label) -> None:
-        """Add a label to an image and remember its class."""
+        """Add a label to an image and remember its class.
+
+        Args:
+            rec: the image the label belongs to.
+            label: the label, with relative geometry.
+        """
         self.labels.setdefault(rec.id, []).append(label)
         self.add_class(label.label)
 
@@ -204,6 +302,18 @@ class ParseContext:
         """Relative ``[x, y, w, h]`` from absolute values (use width=height=1 for relative input).
 
         Small overflow is clipped (and reported); boxes without area are dropped.
+
+        Args:
+            x: left edge.
+            y: top edge.
+            w: box width.
+            h: box height.
+            width: image width in the unit of x and w.
+            height: image height in the unit of y and h.
+            where: image name, shown as the example of any problem.
+
+        Returns:
+            The relative ``[x, y, w, h]``, or None when the numbers are unusable or the box has no area.
         """
         if not all(math.isfinite(v) for v in (x, y, w, h)) or width <= 0 or height <= 0:
             self.problem("invalid_annotation", where)
@@ -223,7 +333,17 @@ class ParseContext:
     def ring(
         self, points: Sequence[Sequence[float]], width: float, height: float, where: str
     ) -> list[Point] | None:
-        """Relative polygon ring from absolute points; None (with a problem) when unusable."""
+        """Relative polygon ring from absolute points; None (with a problem) when unusable.
+
+        Args:
+            points: polygon ``(x, y)`` points in absolute units.
+            width: image width.
+            height: image height.
+            where: image name, shown as the example of any problem.
+
+        Returns:
+            The relative ``[x, y]`` points, or None.
+        """
         if len(points) < 3:
             self.problem("polygon_too_few_points", where)
             return None
@@ -235,14 +355,30 @@ class ParseContext:
     def point(
         self, x: float, y: float, v: float, width: float, height: float, where: str
     ) -> list[float] | None:
-        """Relative keypoint ``[x, y, v]``; None when the numbers are not finite."""
+        """Relative keypoint ``[x, y, v]``; None when the numbers are not finite.
+
+        Args:
+            x: horizontal position.
+            y: vertical position.
+            v: visibility (0 not labelled, 1 hidden, 2 visible); the integer part is kept.
+            width: image width in the unit of x.
+            height: image height in the unit of y.
+            where: image name, shown as the example of any problem.
+
+        Returns:
+            The relative ``[x, y, v]``, or None when a number is not finite.
+        """
         if not all(math.isfinite(t) for t in (x, y, v)) or width <= 0 or height <= 0:
             self.problem("invalid_annotation", where)
             return None
         return [clamp01(x / width), clamp01(y / height), float(int(v))]
 
     def result(self) -> ParseResult:
-        """Final result of the run."""
+        """Final result of the run.
+
+        Returns:
+            A ``ParseResult`` with everything collected so far.
+        """
         return ParseResult(
             format=self.fmt,
             labels=self.labels,

@@ -41,12 +41,23 @@ class VideoTarget:
     class_name: str = DEFAULT_CLASS
 
     def images(self) -> list[ImageRecord]:
-        """Images of the task in frame order."""
+        """Images of the task in frame order.
+
+        Returns:
+            The images of the task sorted by video frame.
+        """
         return [self.frames[f] for f in sorted(self.frames)]
 
 
 def video_tasks(project_dir: Path) -> list[ImageTask]:
-    """Tasks made from a video."""
+    """Tasks made from a video.
+
+    Args:
+        project_dir: the project's folder.
+
+    Returns:
+        The tasks that were made from a video.
+    """
     return [t for t in TaskStore(project_dir).load() if t.source and t.source.get("video")]
 
 
@@ -54,6 +65,15 @@ def build_target(
     project_dir: Path, manifest: Manifest, task_id: int | None, class_name: str = ""
 ) -> VideoTarget | None:
     """Target for a video task; with ``task_id`` None, the only video task of the project (else None).
+
+    Args:
+        project_dir: the project's folder.
+        manifest: the project's images.
+        task_id: id of the video task; None for the project's only video task.
+        class_name: class for formats without class names; blank means ``object``.
+
+    Returns:
+        The target, or None when ``task_id`` is None and the project has not exactly one video task.
 
     Raises:
         ValueError: the task does not exist or is not made from a video.

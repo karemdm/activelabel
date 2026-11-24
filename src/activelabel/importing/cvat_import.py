@@ -57,6 +57,14 @@ class _Http:
     """Minimal CVAT REST client (basic auth). Failures become readable :class:`ToolError` messages."""
 
     def __init__(self, settings: ToolSettings) -> None:
+        """Prepare a session against the CVAT server.
+
+        Args:
+            settings: Server address, username and password of CVAT.
+
+        Raises:
+            ToolError: the address, username or password is missing, or the address is not http(s).
+        """
         if not settings.url or not settings.username or not settings.secret:
             raise ToolError("CVAT needs the server address, the username and the password.")
         self.url = settings.url.strip().rstrip("/")
@@ -66,7 +74,20 @@ class _Http:
         self._auth = (settings.username, settings.secret)
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """GET a JSON document of the API."""
+        """GET a JSON document of the API.
+
+        Args:
+            path: Path of the endpoint, starting with ``/api``.
+            params: Query parameters, or None.
+
+        Returns:
+            The decoded JSON body.
+
+        Raises:
+            RemoteNotFound: CVAT answered 404.
+            ToolError: the server is unreachable, the login is refused, CVAT is rate limiting or failing,
+                or the answer is not JSON.
+        """
         try:
             r = self._http.get(f"{self.url}{path}", params=params, auth=self._auth, timeout=TIMEOUT)
         except requests.RequestException:
@@ -85,7 +106,16 @@ class _Http:
             raise ToolError(f"{self.url} did not answer as the CVAT API: check the address.") from None
 
     def paged(self, path: str, params: dict[str, Any], limit: int) -> list[dict[str, Any]]:
-        """Items of a paginated list, up to ``limit``."""
+        """Items of a paginated list, up to ``limit``.
+
+        Args:
+            path: Path of the list endpoint.
+            params: Query parameters (the page is added).
+            limit: Most items to return.
+
+        Returns:
+            The items of the pages read, at most ``limit``.
+        """
         out: list[dict[str, Any]] = []
         page = 1
         while len(out) < limit:
@@ -100,7 +130,15 @@ class _Http:
         return out[:limit]
 
     def label_names(self, item: dict[str, Any], param: str) -> list[str]:
-        """Label names of a project/task (inline list, or fetched through ``/api/labels``)."""
+        """Label names of a project/task (inline list, or fetched through ``/api/labels``).
+
+        Args:
+            item: The project or task as CVAT returns it.
+            param: Filter of ``/api/labels`` that selects it (``project_id`` or ``task_id``).
+
+        Returns:
+            The distinct top-level label names, in order (empty when they cannot be read).
+        """
         labels = item.get("labels")
         try:
             if not isinstance(labels, list):
@@ -114,12 +152,28 @@ class _Http:
 
 
 def _has_status(low: str, code: int) -> bool:
-    """Whether the text names an HTTP status as a number of its own (not inside an id or a path)."""
+    """Whether the text names an HTTP status as a number of its own (not inside an id or a path).
+
+    Args:
+        low: The lower-cased error text.
+        code: The HTTP status code to look for.
+
+    Returns:
+        True when ``code`` appears as a separate number.
+    """
     return re.search(rf"(?<![\w/.-]){code}(?![\w.-])", low) is not None
 
 
 def explain(err: Exception, url: str = "") -> ToolError:
-    """Turn CVAT / FiftyOne / network errors into a readable :class:`ToolError`."""
+    """Turn CVAT / FiftyOne / network errors into a readable :class:`ToolError`.
+
+    Args:
+        err: The error that was raised.
+        url: Address of the server, added to the message when given.
+
+    Returns:
+        ``err`` itself when it already is a ToolError, else a ToolError with a readable message.
+    """
     if isinstance(err, ToolError):
         return err
     text = str(err)
@@ -147,11 +201,23 @@ def explain(err: Exception, url: str = "") -> ToolError:
 
 
 def _created(item: dict[str, Any]) -> str:
+    """Creation date of a remote project or task.
+
+    Args:
+        item: The project or task as CVAT returns it.
+
+    Returns:
+        Its ``created_date`` (or ``created_at``), or an empty text.
+    """
     return str(item.get("created_date") or item.get("created_at") or "")
 
 
 def list_remote(settings: ToolSettings, search: str = "") -> list[dict[str, Any]]:
     """Projects, and tasks that are in no project, newest first (at most 200).
+
+    Args:
+        settings: Connection settings of CVAT.
+        search: Text the name must contain (ignoring case); empty lists everything.
 
     Returns:
         ``[{id, kind, name, images, created, classes}]``; ``images`` of a project is the sum of the
@@ -188,6 +254,14 @@ def list_remote(settings: ToolSettings, search: str = "") -> list[dict[str, Any]
 def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str, Any]:
     """Name and labels of one remote project or task (a task also says its ``project_id``, or None).
 
+    Args:
+        settings: Connection settings of CVAT.
+        kind: ``project`` or ``task``.
+        remote_id: Id of the project or task (digits).
+
+    Returns:
+        ``{name, classes}``, plus ``project_id`` (text or None) for a task.
+
     Raises:
         RemoteNotFound: it does not exist.
         ToolError: bad login, unreachable server or a malformed id.
@@ -210,6 +284,14 @@ def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str,
 
 # -- FiftyOne side (replaced in unit tests) ---------------------------------------
 def _is_label_field(field: Any) -> bool:
+    """Whether a FiftyOne field holds labels that can be imported.
+
+    Args:
+        field: A field of the FiftyOne dataset schema.
+
+    Returns:
+        True when its document type is one of ``LABEL_CLASSES``.
+    """
     doc = getattr(field, "document_type", None)
     return getattr(doc, "__name__", "") in LABEL_CLASSES
 
@@ -218,6 +300,18 @@ def _download(settings: ToolSettings, kind: str, remote_id: str, data_dir: Path)
     """Download images and annotations with FiftyOne into ``data_dir``; read them back.
 
     The temporary FiftyOne dataset is deleted before returning.
+
+    Args:
+        settings: Connection settings of CVAT.
+        kind: ``project`` or ``task``.
+        remote_id: Id of the project or task.
+        data_dir: Folder the images are downloaded into.
+
+    Returns:
+        One entry per downloaded image, with its file and the values of its label fields.
+
+    Raises:
+        ToolError: the download failed (the error is turned into a readable message).
     """
     where: dict[str, Any] = (
         {"project_id": int(remote_id)} if kind == "project" else {"task_ids": [int(remote_id)]}
@@ -247,6 +341,14 @@ def _download(settings: ToolSettings, kind: str, remote_id: str, data_dir: Path)
 
 
 def _labels_of(values: list[Any]) -> list[Label]:
+    """Internal labels of the FiftyOne label values of one image.
+
+    Args:
+        values: The values of its label fields (None values are skipped).
+
+    Returns:
+        Every label, whatever its kind (the task is chosen later).
+    """
     out: list[Label] = []
     for value in values:
         if value is not None:
@@ -255,12 +357,30 @@ def _labels_of(values: list[Any]) -> list[Label]:
 
 
 def _tmp_dir(workspace: Path) -> Path:
+    """A new, unique temporary folder path for one import.
+
+    Args:
+        workspace: The workspace folder.
+
+    Returns:
+        ``<workspace>/tmp/import-<random>`` (not created).
+    """
     return workspace / "tmp" / f"import-{uuid.uuid4().hex[:10]}"
 
 
 def _walk_labels(
     samples: list[SampleLabels], manifest: Manifest, progress: Progress
 ) -> Iterator[tuple[str, list[Label]]]:
+    """Labels of the downloaded images that the project stored.
+
+    Args:
+        samples: The downloaded images with their label values.
+        manifest: Manifest of the new project (tells which images it holds).
+        progress: Progress handle, checked for cancellation at every image.
+
+    Yields:
+        ``(image id, labels)`` for each image file that exists and is in the project.
+    """
     known = manifest.load()
     for sample in samples:
         progress.check()
@@ -275,7 +395,17 @@ def _walk_labels(
 def _read_labels(
     remote: RemoteProject, settings: ToolSettings, rid: str, only: list[str] | None
 ) -> dict[str, list[Label]]:
-    """Labels per remote item key, to choose the task of the project (tags when there are no shapes)."""
+    """Labels per remote item key, to choose the task of the project (tags when there are no shapes).
+
+    Args:
+        remote: The CVAT adapter.
+        settings: Connection settings of CVAT.
+        rid: Id of the remote project.
+        only: Ids of the remote tasks to read, or None for all.
+
+    Returns:
+        ``{item key: labels}`` (the classification tags when the items have no shapes).
+    """
     found = remote.items(settings, rid, Task.DETECTION, only)
     labels = {it.key: list(it.labels) for it in found}
     if found and not any(labels.values()):
@@ -297,7 +427,26 @@ def _import_with_tasks(
     hint: Task,
     progress: Progress,
 ) -> dict[str, Any]:
-    """Import a CVAT project (or ``only`` some of its tasks) with the sync engine: tasks, jobs, link."""
+    """Import a CVAT project (or ``only`` some of its tasks) with the sync engine: tasks, jobs, link.
+
+    Args:
+        store: Projects of the workspace.
+        settings: Connection settings of CVAT.
+        origin: Where the project comes from.
+        rid: Id of the remote project.
+        only: Ids of the remote tasks to import, or None for the whole project.
+        declared: Class names the remote project declares.
+        name: Wanted name of the new project.
+        description: Description of the new project.
+        hint: Task used when there are no annotations.
+        progress: Progress handle of the job.
+
+    Returns:
+        The job result described in docs/IMPORT.md, with ``tasks`` and ``linked`` added.
+
+    Raises:
+        ToolError: CVAT returned no images.
+    """
     remote = get_remote("cvat")
     progress.update(message="Reading annotations")
     labels = _read_labels(remote, settings, rid, only)
@@ -368,6 +517,20 @@ def import_project(
     A project, or a task that belongs to one, goes through the synchronisation engine (one local task
     per CVAT task, linked, nothing left to do in the next sync); a task outside any project is
     downloaded with FiftyOne into a single local task.
+
+    Args:
+        store: Projects of the workspace.
+        settings: Connection settings of CVAT.
+        workspace: Workspace folder (temporary downloads go under it).
+        kind: ``project`` or ``task``.
+        remote_id: Id of the project or task in CVAT.
+        name: Wanted name of the new project (blank uses the remote name).
+        description: Description of the new project.
+        task: Task used when the remote data has no annotations.
+        progress: Progress handle of the job.
+
+    Returns:
+        The job result described in docs/IMPORT.md.
 
     Raises:
         ToolError: login, network or CVAT problems (readable message).
