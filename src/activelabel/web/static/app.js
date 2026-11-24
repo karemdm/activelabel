@@ -115,7 +115,14 @@
   const issueTag = (issue) => tr(`tag.${issue}`, issueName(issue));
   const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
-  // ---------------------------------------------------------------- toasts
+  // ---------------------------------------------------------------- dialogs and toasts
+  /** Closes every open dialog, except one that refuses to be cancelled (an upload in progress). */
+  function closeOpenDialogs() {
+    document.querySelectorAll('dialog[open]').forEach((dlg) => {
+      if (dlg.dispatchEvent(new Event('cancel', { cancelable: true }))) dlg.close();
+    });
+  }
+
   /** Where toasts go: the page's own box, or one inside the open modal dialog (a modal sits in the top layer
    *  above everything else, and makes the rest of the page inert, so a toast outside it would be unseen). */
   function toastBox() {
@@ -5683,7 +5690,9 @@
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
       const step = location.hash.replace('#', '');
-      if (STEPS.includes(step) && step !== ctx.tab) showTab(step);
+      if (!STEPS.includes(step) || step === ctx.tab) return;
+      closeOpenDialogs();  // a window of the step left must not stay on top of the new one
+      showTab(step);
     });
   }
 

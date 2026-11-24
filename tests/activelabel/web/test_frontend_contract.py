@@ -279,3 +279,10 @@ def test_the_portuguese_texts_keep_task_and_say_no_english_for_boxes():
     pt = (SRC / "i18n" / "pt.json").read_text(encoding="utf-8")
     assert "bounding box" not in pt.lower()
     assert not re.search(r"tarefa", pt, re.I)
+
+
+def test_changing_only_the_step_in_the_address_closes_the_open_windows():
+    """A hashchange to another step closes the open dialogs (an upload that cannot be cancelled stays)."""
+    handler = re.search(r"addEventListener\('hashchange', \(\) => \{.*?\n    \}\);", JS, re.S)
+    assert handler and "closeOpenDialogs();" in handler.group(0)
+    assert "dispatchEvent(new Event('cancel', { cancelable: true }))" in JS
