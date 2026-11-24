@@ -1303,5 +1303,19 @@
   "error.preannotation_not_found": "This pre-annotation does not exist.",
   "error.preannotation_running": "These images are already being pre-annotated.",
   "error.threshold_range": "The minimum confidence must be between 0.001 and 0.999.",
-  "error.scope_invalid": "The images must be one of: {scopes}."
+  "error.scope_invalid": "The images must be one of: {scopes}.",
+  "error.frame_out_of_range": "The video has {frames} frames (numbered from 0).",
+  "error.frame_unreadable": "This frame cannot be read.",
+  "error.one_file_only": "Send one video per request.",
+  "error.video_in_use": "A task uses this video: delete the task first.",
+  "error.video_no_frames": "The video has no frames or no frame rate.",
+  "error.video_not_enough_disk": "The frames need about {needed_mb} MB of free disk space and only {free_mb} MB are free: take fewer frames.",
+  "error.video_not_found": "This video does not exist.",
+  "error.video_range_invalid": "The range must satisfy 0 <= start <= end < {frames} (frames of the video).",
+  "error.video_seconds_range": "Seconds between frames must be greater than 0 and at most one day.",
+  "error.video_step_range": "Take one frame every 1 or more frames.",
+  "error.video_task_running": "A task is being made from a video: wait for it to finish, then delete.",
+  "error.video_too_many_frames": "This selection has {frames} frames (at most {max} per task): take one frame every few frames, or a shorter range.",
+  "error.video_type_unsupported": "Unsupported video type; use one of: {allowed}.",
+  "error.video_unreadable": "This file is not a video that can be read."
 }
