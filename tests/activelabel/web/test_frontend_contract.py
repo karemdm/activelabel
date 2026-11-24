@@ -1,0 +1,68 @@
+"""What the front end (app.js) relies on, checked without a JS runner: its own files and the API it reads."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from api_client import make_client, upload
+from sample_images import make_image
+
+from activelabel.web import pages
+
+STATIC = Path(pages.STATIC_DIR)
+SRC = STATIC.parents[1]
+JS = (STATIC / "app.js").read_text(encoding="utf-8")
+CSS = (STATIC / "app.css").read_text(encoding="utf-8")
+
+
+def test_the_page_does_not_patch_the_dom():
+    """Optional children are skipped by ``fill``/``add``/``el``, not by changing ``Element.prototype``."""
+    assert "Element.prototype" not in JS
+    assert ".replaceChildren(" not in re.sub(r"const fill = .*?\n  };", "", JS, flags=re.S)
+
+
+def test_toasts_are_shown_inside_an_open_dialog():
+    """A modal dialog hides everything behind it, so error toasts must be placed in it."""
+    assert "dialog:modal" in JS
+    assert re.search(r"function toastBox\(\)", JS)
+
+
+def test_unused_rules_are_gone():
+    assert ".annotate-box" not in CSS
+    assert not re.search(r"^\.center\b", CSS, re.M)
+
+
+def test_progress_message_shapes_match_what_the_server_writes():
+    """Messages with a tool name are matched by shape in app.js; each one the server writes must match."""
+    shapes = [re.compile(p) for p in re.findall(r"\[/(\^[^/]+\$)/, 'jobmsg\.\w+'\]", JS)]
+    assert len(shapes) == 5
+    written: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        written |= {
+            m.replace("{tool}", "cvat").replace("{body.tool}", "cvat").replace("{session['tool']}", "cvat")
+            for m in re.findall(r'progress\.update\(message=f"([^"]+)"', text)
+        }
+    assert {"Reading cvat", "Writing to cvat", "Sending to cvat", "Reading annotations from cvat"} <= written
+    for message in sorted(written):
+        assert any(s.match(message) for s in shapes), message
+
+
+def test_the_annotation_summary_has_the_fields_the_screen_reads(tmp_path):
+    """loadGt reads exactly these fields (it used to also try older names the API no longer sends)."""
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["cat"]})
+    assert upload(client, 1, [make_image(tmp_path / "in/a.png", seed=1)]).json()["added"] == 1
+    for field in ("labels_per_class", "labels_total", "images_annotated", "images_preannotated"):
+        assert re.search(rf"data\.{field}\b", JS), field
+    assert client.get("/api/projects/1/annotations").json() == {"loaded": False}
+
+
+def test_a_missing_comparison_is_the_only_stale_one(tmp_path):
+    """Applying an unknown comparison answers 404 (stale); 409 means a job is running, which is not stale."""
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification"})
+    assert client.post("/api/projects/1/sync/cvat/unknown/apply", json={}).status_code == 404
+    assert "err.status === 404) st.error = 'stale'" in JS
+    assert "err.status === 409) st.error = 'stale'" not in JS

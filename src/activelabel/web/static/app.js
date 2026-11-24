@@ -11,7 +11,6 @@
   const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
   const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate'];
   const CHUNK = 25;
-  const PAGE = 60;
   const SKIP_FILES = new Set(['.ds_store', 'thumbs.db']);
 
   // ---------------------------------------------------------------- helpers
@@ -20,16 +19,13 @@
   const t = (key, vars) => fmt(key in I18N ? I18N[key] : key, vars);
   /** Translation with a fallback text when the key is unknown (server-provided names). */
   const tr = (key, fallback, vars) => (key in I18N ? fmt(I18N[key], vars) : fallback);
-  /** Plural: uses key_one for 1 and key_other otherwise; {n} is the formatted number. */
+  const plurals = new Intl.PluralRules(LOCALE);
+  /** Plural: uses key_one or key_other by the language's own rule (in Portuguese 0 is singular); {n} is the formatted number. */
   const tn = (key, n, vars) => {
-    const suffix = n === 1 ? '_one' : '_other';
+    const suffix = plurals.select(n) === 'one' ? '_one' : '_other';
     return fmt(I18N[key + suffix] || key + suffix, { n: nf.format(n), ...vars });
   };
   const num = (n) => nf.format(Number(n) || 0);
-  const fmtTime = (iso) => {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
-  };
   const fmtDate = (iso) => {
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(LOCALE, { dateStyle: 'medium' });
@@ -118,7 +114,6 @@
   const issueName = (issue) => tr(`issue.${issue}`, issue);
   /* one image's tag (singular: "Blurry" / "Borrada") */
   const issueTag = (issue) => tr(`tag.${issue}`, issueName(issue));
-  const sameTask = (a, b) => a === b;
   const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
   // ---------------------------------------------------------------- toasts
@@ -703,6 +698,7 @@
   const EDIT_TOOLS = LABEL_STUDIO_ENABLED ? ['fiftyone', 'labelstudio'] : ['fiftyone'];
   const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
   const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
+  const statusText = (status) => tr(`job.status.${status}`, status);
   /* progress messages the server writes in English; the ones that carry a tool name are matched by shape */
   const JOB_MESSAGE_SHAPES = [
     [/^Listing (.+) data$/, 'jobmsg.listing'],
@@ -1442,7 +1438,7 @@
           errorBox,
           el('div', { class: 'session-actions' },
             nothing ? null : apply,
-            el('button', { type: 'button', class: 'btn', onclick: () => { ctx.syncDismissed.add(pid); draw(true); } }, nothing ? t('common.close') : t('common.cancel')),
+            el('button', { type: 'button', class: 'btn', onclick: () => { ctx.syncDismissed.add(pid); draw(true); } }, nothing ? t('common.close') : t('sync.discard')),
             hint));
         update();
         return card;
@@ -1628,7 +1624,12 @@
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
       }
 
-      const reasonText = (reason) => tr(`reason.${String(reason).toLowerCase().replace(/[^a-z]+/g, '_')}`, String(reason));
+      /* the server's rejection reasons are short English phrases; "too many entries (more than N)" carries a number */
+      const reasonText = (reason) => {
+        const text = String(reason);
+        const key = /^too many entries/i.test(text) ? 'too_many_entries' : text.toLowerCase().replace(/[^a-z]+/g, '_');
+        return tr(`reason.${key}`, text);
+      };
       const nameOf = (x) => (typeof x === 'string' ? x : (x && x.name) || '');
 
       function expandable(title, rows) {
@@ -2198,7 +2199,7 @@
         fill(vRun,
           el('div', { class: 'upload-line' },
             el('strong', null, t('video.creating')),
-            el('button', { type: 'button', class: 'btn small', onclick: async () => { try { await api('POST', `/jobs/${job.id}/cancel`); } catch (e) { toastError(e); } } }, t('common.cancel'))),
+            el('button', { type: 'button', class: 'btn small', onclick: async () => { try { await api('POST', `/jobs/${job.id}/cancel`); } catch (e) { toastError(e); } } }, t('jobs.stop'))),
           progressBar(job.done, job.total, t('video.creating')),
           job.message ? el('p', { class: 'muted job-msg' }, jobMessage(job)) : null);
       }
@@ -2913,7 +2914,7 @@
         return el('div', { class: 'pre-live' },
           el('span', { class: 'tr-dot', 'aria-hidden': 'true' }), el('span', null, text),
           run.status === 'running' ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null,
-          el('button', { type: 'button', class: 'btn small danger-outline', onclick: () => cancel(run) }, t('common.cancel')));
+          el('button', { type: 'button', class: 'btn small danger-outline', onclick: () => cancel(run) }, t('jobs.stop')));
       }
 
       function reviewBlock() {
@@ -3057,7 +3058,7 @@
 
         let taskLine;
         if (!found) taskLine = t('ann.task_none');
-        else if (sameTask(found, proj)) taskLine = t('ann.task_same', { task: taskName(found) });
+        else if (found === proj) taskLine = t('ann.task_same', { task: taskName(found) });
         else taskLine = t('ann.task_diff', { found: taskName(found), project: taskName(proj) });
 
         const classes = report.classes_found || [];
@@ -3158,11 +3159,9 @@
           return;
         }
         data = data || {};
-        let classes = data.classes || data.labels_per_class || data.per_class || [];
-        if (!Array.isArray(classes)) classes = Object.entries(classes).map(([name, count]) => ({ name, count }));
-        classes = classes.map((c) => (typeof c === 'string' ? { name: c, count: 0 } : c));
-        const labels = data.labels_total ?? data.labels ?? classes.reduce((a, c) => a + (c.count || 0), 0);
-        const images = data.images_annotated ?? data.images_with_labels ?? data.images ?? 0;
+        const classes = Object.entries(data.labels_per_class || {}).map(([name, count]) => ({ name, count }));
+        const labels = data.labels_total || 0;
+        const images = data.images_annotated || 0;
         const waitingReview = data.images_preannotated || 0;   // pre-annotations are counted apart until reviewed
         const waitingNote = waitingReview ? el('p', { class: 'report-line' }, icon('info'), tn('ann.to_review', waitingReview)) : null;
         if (!images && !labels) {
@@ -3518,7 +3517,6 @@
       }
       return tr(`job.kind.${kind}`, kind);
     };
-    const statusText = (status) => tr(`job.status.${status}`, status);
     const isActive = (job) => job.status === 'queued' || job.status === 'running';
 
     /* Runs, exports and pre-annotations stop through their own endpoint (it ends the process and marks the
@@ -3552,8 +3550,8 @@
         el('div', { class: 'job-top' },
           el('strong', null, kindText(job.kind, job)),
           el('span', { class: `status status-${job.status}` }, statusText(job.status)),
-          el('span', { class: 'muted small' }, fmtTime(job.finished || job.started || job.created)),
-          active && !RUN_KINDS.has(job.kind) ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('common.cancel')) : null,
+          el('span', { class: 'muted small' }, fmtDateTime(job.finished || job.started || job.created)),
+          active && !RUN_KINDS.has(job.kind) ? el('button', { type: 'button', class: 'btn small', onclick: () => cancelJob(job) }, t('jobs.stop')) : null,
           !active && job.status === 'done' && step === 'fiftyone' && url
             ? el('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, t('jobs.open'))
             : null,
@@ -4204,6 +4202,7 @@
       }
       function deviceOf(r) {
         const d = r.device || {};
+        /* hardware names (GPU, Apple GPU, CPU) are the same in every language: they stay as they are */
         if (d.cuda) return d.device_name || 'GPU';
         if (d.mps) return 'Apple GPU';
         return d.torch ? 'CPU' : '';
@@ -5379,7 +5378,6 @@
     const SOURCES = ['cvat', 'labelstudio'];
     const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null };
     const ready = (tool) => !!(state.tools[tool] && state.tools[tool].configured);
-    const statusLabelJob = (s) => tr(`job.status.${s}`, s);
 
     const sourceBox = el('section', { class: 'card import-source', 'aria-labelledby': 'h-source' });
     const listBox = el('section', { class: 'import-main', 'aria-live': 'polite' });
@@ -5614,7 +5612,7 @@
       } catch (err) {
         toastError(err);
         button.disabled = false;
-        button.textContent = t('common.cancel');
+        button.textContent = t('jobs.stop');
       }
     }
 
@@ -5635,14 +5633,14 @@
     function drawJob(job) {
       const name = state.job ? state.job.name : '';
       if (job.status === 'queued' || job.status === 'running') {
-        const cancelBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('common.cancel'));
+        const cancelBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('jobs.stop'));
         cancelBtn.addEventListener('click', () => cancel(cancelBtn));
         fill(jobBox,
           el('h2', null, t('import.progress_title', { name })),
           el('p', { class: 'muted' }, t('import.progress_help')),
           el('div', { class: 'job-progress' }, progressBar(job.done, job.total, t('import.progress_title', { name })),
             el('span', { class: 'muted' }, job.total ? `${num(job.done)} / ${num(job.total)}` : '')),
-          el('p', { class: 'job-msg', role: 'status' }, job.message ? jobMessage(job) : statusLabelJob(job.status)),
+          el('p', { class: 'job-msg', role: 'status' }, job.message ? jobMessage(job) : statusText(job.status)),
           el('div', { class: 'form-actions' }, cancelBtn));
         return;
       }
@@ -5652,7 +5650,7 @@
           el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
         return;
       }
-      drawFailed(job.error || statusLabelJob('failed'));
+      drawFailed(job.error || statusText('failed'));
     }
 
     function drawResult(r) {

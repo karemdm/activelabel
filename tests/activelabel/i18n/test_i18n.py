@@ -84,3 +84,87 @@ def test_every_key_the_screen_uses_exists():
     )
     assert len(used) > 100
     assert sorted(used - set(load("en"))) == []
+
+
+SRC = Path(i18n.__file__).parents[1]
+
+
+def test_every_plural_key_has_both_forms():
+    """``tn('key', n)`` reads ``key_one`` and ``key_other``: a missing form would show the raw key."""
+    js = (SRC / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    keys = set(re.findall(r"(?<![\w.])tn\(\s*'([A-Za-z0-9_.]+)'", js))
+    assert len(keys) > 20
+    en = load("en")
+    missing = [f"{k}{s}" for k in keys for s in ("_one", "_other") if f"{k}{s}" not in en]
+    assert missing == []
+
+
+def test_every_job_kind_the_server_starts_is_named():
+    """The activity bar names a job by ``job.kind.<kind>``: every kind submitted anywhere needs one."""
+    kinds: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        kinds |= set(re.findall(r"jobs\.submit\(\s*[\w.]+,\s*\"(\w+)\"", path.read_text(encoding="utf-8")))
+    assert {"training", "export", "preannotate", "video_task", "analyze"} <= kinds
+    for lang in ("en", "pt"):
+        messages = load(lang)
+        missing = [k for k in sorted(kinds) if f"job.kind.{k}" not in messages and k != "sync_plan"]
+        assert missing == [], lang
+
+
+def test_progress_messages_are_translated():
+    """Fixed progress messages the server writes are looked up as ``jobmsg.<text>``; the ones that carry a
+    tool name are matched by shape in app.js (``jobmsg.reading``, ``jobmsg.writing``...)."""
+    texts: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        texts |= set(re.findall(r"update\(.*message=\"([^\"{]+)\"", source))
+        texts |= set(re.findall(r"update\(\d+, \d+, \"([^\"{]+)\"", source))
+    texts.add("Cancelling…")  # written by the job queue itself
+    assert "Measuring images" in texts
+    for lang in ("en", "pt"):
+        messages = load(lang)
+        listed = {"Listing CVAT data", "Listing Label Studio data"}  # shape "Listing {tool} data"
+        missing = [m for m in sorted(texts - listed) if f"jobmsg.{m}" not in messages]
+        assert missing == [], lang
+    for key in (
+        "jobmsg.listing",
+        "jobmsg.reading",
+        "jobmsg.reading_annotations_from",
+        "jobmsg.writing",
+        "jobmsg.sending",
+    ):
+        assert "{tool}" in load("en")[key]
+
+
+def test_every_import_problem_code_has_a_text():
+    """Problems found while reading annotations are shown by ``problem.<code>``."""
+    codes: set[str] = set()
+    for path in (SRC / "importing").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        codes |= set(re.findall(r"_problem\(\s*\"(\w+)\"", source))
+        codes |= set(re.findall(r"Problem\(\s*\"\w+\",\s*\"(\w+)\"", source))
+    assert {"converted_to_box", "task_without_image", "images_missing", "dropped_other_kind"} <= codes
+    for lang in ("en", "pt"):
+        messages = load(lang)
+        assert [c for c in sorted(codes) if f"problem.{c}" not in messages] == [], lang
+
+
+def test_every_rejection_reason_has_a_text():
+    """Files refused on upload carry a short reason; the screen shows it as ``reason.<reason>``."""
+    source = (SRC / "images" / "ingest.py").read_text(encoding="utf-8")
+    reasons = set(re.findall(r"reject\([^,]+,\s*\"([a-z ]+)\"\)", source))
+    reasons |= {"too small"}
+    assert {"corrupt", "unsupported", "unsafe path", "archive is too large when expanded"} <= reasons
+    for lang in ("en", "pt"):
+        messages = load(lang)
+        missing = [r for r in sorted(reasons) if f"reason.{r.replace(' ', '_')}" not in messages]
+        assert missing == [], lang
+    assert "reason.too_many_entries" in load("en")  # "too many entries (more than N)" carries a number
+
+
+def test_session_scopes_have_a_label():
+    """A session shows its scope as ``annotate.scope.<scope>``."""
+    sessions = (SRC / "annotate" / "sessions.py").read_text(encoding="utf-8")
+    scopes = set(re.findall(r"scope == \"(\w+)\"", sessions))
+    assert {"all", "unlabeled", "selected", "preannotated", "issue"} <= scopes
+    assert [s for s in sorted(scopes) if f"annotate.scope.{s}" not in load("en")] == []
