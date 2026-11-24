@@ -1145,3 +1145,15 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   .ds-card-head { padding-right: 3.25rem; }
   .ds-del { position: absolute; top: var(--space-3); right: var(--space-3); }
 }
+
+/* #342: the four project types in a 2 x 2 grid (they wrapped 3 + 1); on a phone a compact card, the icon
+   beside the title; the main action of Annotations is the same size as the other buttons */
+.task-cards:not(.tool-cards) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 480px) {
+  .task-cards:not(.tool-cards) { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .task-cards:not(.tool-cards) .task-card { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-3); align-items: center; padding: 0.6rem 0.8rem; }
+  .task-cards:not(.tool-cards) .task-card > .icon { grid-row: span 2; }
+  .task-cards:not(.tool-cards) .task-card-help { font-size: var(--font-xs); }
+}
+.send-row .btn.big { min-height: 40px; font-size: inherit; padding: 0.4rem var(--space-4); }
+@media (max-width: 760px) { .send-row .btn.big { min-height: 44px; } }
