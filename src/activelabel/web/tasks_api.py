@@ -48,7 +48,16 @@ class DeleteTask(BaseModel):
 
 
 def task_view(task: ImageTask, active: set[str], annotated: set[str]) -> dict[str, Any]:
-    """A task for the interface: counts and its jobs (``first``/``last`` are 1-based positions)."""
+    """A task for the interface: counts and its jobs (``first``/``last`` are 1-based positions).
+
+    Args:
+        task: The task.
+        active: Ids of the active images.
+        annotated: Ids of the images with a reviewed label.
+
+    Returns:
+        The task with its counts and jobs.
+    """
     ids = set(task.images)
     return {
         "id": task.id,
@@ -75,7 +84,15 @@ def task_view(task: ImageTask, active: set[str], annotated: set[str]) -> dict[st
 
 
 def _sets(state: AppState, project_id: int) -> tuple[set[str], set[str]]:
-    """Ids of active images and of images with at least one reviewed label (pre-annotations wait)."""
+    """Ids of active images and of images with at least one reviewed label (pre-annotations wait).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        ``(active image ids, annotated image ids)``.
+    """
     project_dir = state.store.dir(project_id)
     active = {r.id for r in Manifest(project_dir).all() if r.status == ACTIVE}
     annotations = load_annotations(project_dir)
@@ -85,15 +102,43 @@ def _sets(state: AppState, project_id: int) -> tuple[set[str], set[str]]:
 
 
 def _view(state: AppState, project_id: int, task: ImageTask) -> dict[str, Any]:
+    """A task of the project as the interface shows it.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        task: The task.
+
+    Returns:
+        The task as the interface shows it.
+    """
     return task_view(task, *_sets(state, project_id))
 
 
 def _store(state: AppState, project_id: int) -> TaskStore:
+    """The task store of a project.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The task store of the project.
+    """
     state.project(project_id)
     return TaskStore(state.store.dir(project_id))
 
 
 def _find(store: TaskStore, task_id: int) -> ImageTask:
+    """A task by id, or HTTP 404.
+
+    Args:
+        store: The task store of the project.
+        task_id: Id of the task.
+
+    Returns:
+        The task.
+    """
     try:
         return store.get(task_id)
     except TaskNotFound:
@@ -102,7 +147,15 @@ def _find(store: TaskStore, task_id: int) -> ImageTask:
 
 @router.get("/projects/{project_id}/tasks")
 def list_tasks(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Every task of the project, in creation order."""
+    """Every task of the project, in creation order.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{tasks}`` in creation order.
+    """
     store = _store(state, project_id)
     active, annotated = _sets(state, project_id)
     views = [task_view(t, active, annotated) for t in store.load()]
@@ -125,6 +178,13 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     Read from CVAT at most once a minute per project; empty when the project is not linked, CVAT is
     not configured or cannot be reached (the task list must never fail or hang because of CVAT: any
     failure, and a wait longer than ``REMOTE_TIMEOUT``, is remembered for ``REMOTE_TTL`` seconds).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        ``{task id: {...}}``: the remote state of each linked task (empty when unknown).
     """
     link = links.get_link(state.store.dir(project_id), "cvat")
     tmap: dict[str, Any] = (link or {}).get("tasks") or {}
@@ -171,6 +231,12 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
 def _whole_number(text: str) -> int | None:
     """``text`` as an integer (None when empty).
 
+    Args:
+        text: The text to read.
+
+    Returns:
+        The number, or ``None`` when the text is empty.
+
     Raises:
         ValueError: not a whole number (readable message).
     """
@@ -196,6 +262,17 @@ def create_task(
     The task stays ``open`` (later chunks can be appended) until it is closed with PATCH, unless
     ``open`` is false; a task created closed with no image added is refused (HTTP 400). Name and
     images per job are checked before any image is stored.
+
+    Args:
+        project_id: Id of the project.
+        files: The uploaded files.
+        name: Name of the task.
+        job_size: Images per job, as text (empty for the default).
+        open: Keep the task open for later chunks.
+        state: The shared state of the application.
+
+    Returns:
+        ``{task, report}``.
     """
     manifest = state.manifest(project_id)
     store = TaskStore(state.store.dir(project_id))
@@ -220,7 +297,17 @@ def create_task(
 
 @router.post("/projects/{project_id}/tasks/{task_id}/images")
 def append_images(project_id: int, task_id: int, files: FILES, state: AppState = STATE) -> dict[str, Any]:
-    """Append uploaded images to an open task (a later chunk of the same upload)."""
+    """Append uploaded images to an open task (a later chunk of the same upload).
+
+    Args:
+        project_id: Id of the project.
+        task_id: Id of the task.
+        files: The uploaded files.
+        state: The shared state of the application.
+
+    Returns:
+        The ingest report.
+    """
     manifest = state.manifest(project_id)
     store = TaskStore(state.store.dir(project_id))
     with store.locked():  # nothing is stored unless the task exists and is open
@@ -237,6 +324,15 @@ def change_task(project_id: int, task_id: int, body: TaskChanges, state: AppStat
 
     Closing a task that holds no image (an upload that added nothing) removes it: the answer then has
     ``removed: true``.
+
+    Args:
+        project_id: Id of the project.
+        task_id: Id of the task.
+        body: The new name and/or ``open: false``.
+        state: The shared state of the application.
+
+    Returns:
+        The task (with ``removed: true`` when it was empty and got removed).
     """
     store = _store(state, project_id)
     with store.locked():
@@ -258,7 +354,17 @@ def change_task(project_id: int, task_id: int, body: TaskChanges, state: AppStat
 
 @router.delete("/projects/{project_id}/tasks/{task_id}")
 def delete_task(project_id: int, task_id: int, body: DeleteTask, state: AppState = STATE) -> dict[str, int]:
-    """Delete a task and its images (files, thumbnails, annotations). Needs ``confirm: true``."""
+    """Delete a task and its images (files, thumbnails, annotations). Needs ``confirm: true``.
+
+    Args:
+        project_id: Id of the project.
+        task_id: Id of the task.
+        body: The confirmation.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted}``: how many images were deleted.
+    """
     store = _store(state, project_id)
     with store.locked():
         task = _find(store, task_id)
