@@ -3224,18 +3224,41 @@
             el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
           return;
         }
-        const max = Math.max(1, ...classes.map((c) => c.count || 0));
+        const tile = (label, value, extra = '') => el('div', { class: `stat-tile${extra}` }, el('dd', null, num(value)), el('dt', null, label));
         fill(gtBox,
           el('h3', null, t('ann.current')),
-          el('p', { class: 'gt-summary' }, `${tn('status.annotated', images)} · ${tn('ann.labels_n', labels)}`),
+          el('dl', { class: 'stat-tiles' },
+            tile(t('ann.tile_images'), images), tile(t('ann.tile_labels'), labels), tile(t('ann.tile_classes'), classes.length),
+            waitingReview ? tile(t('ann.tile_review'), waitingReview, ' is-attention') : null),
           waitingNote,
-          classes.length
-            ? el('ul', { class: 'bars' }, ...classes.map((c) =>
-                el('li', null,
-                  el('span', { class: 'bar-label', title: c.name }, c.name),
-                  el('span', { class: 'bar-track' }, el('span', { class: 'bar-fill', style: `width:${Math.round(((c.count || 0) / max) * 100)}%` })),
-                  el('span', { class: 'bar-value' }, num(c.count || 0)))))
-            : el('span'));
+          classes.length ? classBars(classes) : el('span'));
+      }
+
+      /* the classes with their counts: the biggest few, a search and "see all" when there are many */
+      const BARS_SHOWN = 8;
+      const BARS_SEARCH_FROM = 12;
+      function classBars(classes) {
+        const max = Math.max(1, ...classes.map((c) => c.count || 0));
+        let all = false;
+        let query = '';
+        const list = el('ul', { class: 'bars' });
+        const more = el('button', { type: 'button', class: 'btn small', onclick: () => { all = !all; draw(); } });
+        const search = el('input', { type: 'search', class: 'bars-search', placeholder: t('ann.classes_search'), 'aria-label': t('ann.classes_search'), oninput: (e) => { query = e.target.value.trim().toLowerCase(); draw(); } });
+        search.hidden = classes.length <= BARS_SEARCH_FROM;
+        function draw() {
+          const found = query ? classes.filter((c) => c.name.toLowerCase().includes(query)) : classes;
+          const shown = query || all ? found : found.slice(0, BARS_SHOWN);
+          fill(list, ...shown.map((c) =>
+            el('li', null,
+              el('span', { class: 'bar-label', title: c.name }, c.name),
+              el('span', { class: 'bar-track' }, el('span', { class: 'bar-fill', style: `width:${Math.round(((c.count || 0) / max) * 100)}%` })),
+              el('span', { class: 'bar-value' }, num(c.count || 0)))),
+            found.length ? null : el('li', { class: 'muted' }, t('ann.no_classes')));
+          more.hidden = !!query || classes.length <= BARS_SHOWN;
+          more.textContent = all ? t('ann.show_less') : t('ann.show_all', { n: num(classes.length) });
+        }
+        draw();
+        return el('div', { class: 'class-bars' }, el('div', { class: 'row-between' }, el('h4', null, t('ann.classes_title')), search), list, more);
       }
 
       const pre = preannotateBlock({

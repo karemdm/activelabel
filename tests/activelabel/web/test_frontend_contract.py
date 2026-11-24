@@ -111,3 +111,8 @@ def test_the_step_bar_marks_each_step_and_keeps_the_current_one_in_view():
         assert f"step.state_{state}" in (SRC / "i18n" / "en.json").read_text(encoding="utf-8")
         assert f".step.is-{state}" in CSS
     assert "stepper.scrollLeft" in JS
+
+
+def test_the_class_counts_show_the_biggest_few_with_search_and_see_all():
+    """The annotation summary does not list every class: top rows, a search and a toggle."""
+    assert "BARS_SHOWN" in JS and "ann.show_all" in JS and "stat-tiles" in JS
