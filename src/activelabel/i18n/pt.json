@@ -166,7 +166,6 @@
   "format.yolo": "YOLO",
   "format.voc": "Pascal VOC",
   "format.cvat": "CVAT",
-  "format.labelstudio": "Label Studio",
   "format.folders": "Pastas de classes",
   "format.cvatvideo": "CVAT vídeo",
   "format.mot": "MOT",

@@ -1,1 +1,1 @@
-"""Annotation in external tools (FiftyOne, CVAT, Label Studio) with review before applying."""
+"""Annotation in FiftyOne with review before applying."""

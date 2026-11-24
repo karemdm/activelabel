@@ -153,6 +153,10 @@ def test_a_cut_off_json_is_reported_as_unreadable_not_as_unknown_format(tmp_path
     assert "instances.json" in body["detail"] and staged(state) == []
     other = client.post("/api/projects/1/annotations", files=[("files", ("x.json", b'{"a": 1}'))])
     assert other.json()["code"] == "annotation_format_unknown"
+    old = b'[{"id": 1, "data": {"image": "/data/upload/1/a-0.png"}, "annotations": [{"result": []}]}]'
+    r = client.post("/api/projects/1/annotations", files=[("files", ("export.json", old))])
+    assert r.status_code == 400 and r.json()["code"] == "annotation_format_unknown"
+    assert "Label Studio" not in r.json()["detail"] and staged(state) == []
 
 
 def coco_with(names, annotations):

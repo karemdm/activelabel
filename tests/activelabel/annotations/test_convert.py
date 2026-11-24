@@ -71,7 +71,7 @@ def test_most_frequent_class_wins():
 
 def test_several_classes_per_image_give_a_warning_for_classification():
     labels = {"a": [Label("cat"), Label("dog")], "b": [Label("cat")]}
-    result = ParseResult("labelstudio", labels, ["cat", "dog"], ["x.json"], 2)
+    result = ParseResult("coco", labels, ["cat", "dog"], ["x.json"], 2)
     report = validate(result, Project(1, "t", "", Task.CLASSIFICATION, []))
     assert report.task_matches and report.can_import
     assert [(p.level, p.code, p.count, p.examples) for p in report.problems] == [

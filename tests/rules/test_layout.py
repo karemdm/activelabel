@@ -26,7 +26,6 @@ BASELINE = {
     "annotations/context.py",
     "annotations/folders.py",
     "annotations/importer.py",
-    "annotations/labelstudio.py",
     "annotations/models.py",
     "annotations/parsing.py",
     "annotations/staging.py",

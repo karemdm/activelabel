@@ -2,7 +2,6 @@ import pytest
 from ann_helpers import make_manifest, write
 
 from activelabel.annotations import detect_format, folder_classes, parse
-from activelabel.annotations.labelstudio import image_candidates
 from activelabel.labels import task_of
 from activelabel.tasks import Task
 
@@ -163,50 +162,13 @@ def test_cvat(env):
     assert res.unmatched == ["zzz.png"] and "unsupported_shape" in {p.code for p in res.problems}
 
 
-def test_labelstudio(env):
-    folder, images, recs = env
-    box = {
-        "type": "rectanglelabels",
-        "original_width": 100,
-        "original_height": 50,
-        "value": {"x": 10, "y": 20, "width": 30, "height": 40, "rectanglelabels": ["cat"]},
-    }
-    poly = {
-        "type": "polygonlabels",
-        "value": {"points": [[0, 0], [50, 0], [50, 50]], "polygonlabels": ["dog"]},
-    }
-    kp1 = {"type": "keypointlabels", "value": {"x": 10, "y": 20, "keypointlabels": ["nose"]}}
-    kp2 = {"type": "keypointlabels", "value": {"x": 30, "y": 40, "keypointlabels": ["tail"]}}
-    choice = {"type": "choices", "value": {"choices": ["sunny"]}}
-    tasks = [
-        {
-            "id": 1,
-            "data": {"image": "/data/upload/1/1a2b3c4d-a.png"},
-            "annotations": [{"result": [box, poly, kp1, kp2]}],
-        },
-        {"id": 2, "data": {"image": "/data/local-files/?d=sub/c.png"}, "annotations": [{"result": [choice]}]},
-        {"id": 3, "data": {"image": "b.png"}, "annotations": [{"was_cancelled": True, "result": [box]}]},
-        {"id": 4, "data": {"image": "nope.png"}, "annotations": [{"result": [box]}]},
-    ]
+def test_label_studio_json_is_no_longer_recognised(env):
+    folder, images, _ = env
+    tasks = [{"id": 1, "data": {"image": "/data/upload/1/1a2b3c4d-a.png"}, "annotations": [{"result": []}]}]
     path = write(folder, "export.json", tasks)
-    assert detect_format([path]) == "labelstudio"
-    res = parse([path], "labelstudio", images)
-    labels = res.labels[recs["a.png"].id]
-    assert labels[0].bbox == pytest.approx([0.1, 0.2, 0.3, 0.4])
-    assert labels[1].polygons is not None
-    assert labels[2].keypoints == [[0.1, 0.2, 2.0], [0.3, 0.4, 2.0]] and res.keypoint_names == [
-        "nose",
-        "tail",
-    ]
-    assert res.labels[recs["sub/c.png"].id][0].label == "sunny"
-    assert recs["b.png"].id not in res.labels and res.unmatched == ["nope.png"]
-
-
-def test_labelstudio_image_candidates():
-    assert image_candidates("/data/upload/3/1a2b3c4d-my pic.jpg")[0] == "my pic.jpg"
-    assert image_candidates("/data/upload/3/1a2b3c4d-my%20pic.jpg?x=1")[0] == "my pic.jpg"
-    assert image_candidates("/data/local-files/?d=dir/x.jpg")[0] == "dir/x.jpg"
-    assert image_candidates("https://h/p/x.jpg?sig=1")[0] == "x.jpg"
+    assert detect_format([path]) is None
+    with pytest.raises(ValueError, match="Unknown annotation format"):
+        parse([path], "labelstudio", images)
 
 
 def test_folder_tree(tmp_path):
