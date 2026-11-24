@@ -351,11 +351,20 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 /* ---- jobs bar ---- */
 .jobs-bar { position: fixed; right: 1rem; bottom: 1rem; z-index: 30; width: min(420px, calc(100vw - 2rem)); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.6rem var(--space-3); max-height: min(45vh, 420px); overflow: auto; }
 .jobs-bar.min { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; overflow: visible; }
-.jobs-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+/* the card head: title and buttons on one line, the summary on its own line below (it was cut) */
+.jobs-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 0.2rem 0.4rem; margin-bottom: 0.4rem; }
 .jobs-head h2 { font-size: var(--font-sm); margin: 0; }
-.jobs-summary { font-size: var(--font-sm); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-head .btn.small { white-space: nowrap; }
+.jobs-summary { grid-row: 2; grid-column: 1 / -1; font-size: var(--font-sm); overflow-wrap: anywhere; }
 .jobs-pill { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--text); font: inherit; font-size: var(--font-sm); box-shadow: var(--shadow); cursor: pointer; }
-.jobs-pill:hover { border-color: var(--primary); }
+.jobs-pill:hover { border-color: var(--text); }
+/* a failure stays red (with its icon and word) until opened; a success fades out (JS then hides it) */
+.jobs-pill.is-failed { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); font-weight: 600; }
+.jobs-pill.is-done .icon { color: var(--ok); }
+.jobs-pill.fades { animation: jobs-fade 6s ease-in forwards; }
+@keyframes jobs-fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+/* the page leaves room at the bottom so the pill never covers the last row */
+.page:has(.jobs-bar:not([hidden])) { padding-bottom: 6rem; }
 .jobs-pill:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .jobs-bar > p { margin: 0; }
 .jobs { list-style: none; padding: 0; display: grid; gap: 0.4rem; }
@@ -421,10 +430,12 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 }
 @media (max-width: 480px) {
   .page { padding-left: var(--space-3); padding-right: var(--space-3); }
+  .jobs-bar { right: var(--space-2); left: var(--space-2); bottom: var(--space-2); width: auto; }
+  .jobs-pill { width: 100%; justify-content: center; }
   .panel { padding: 0.9rem; }
   .project-head-actions { width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } .step.is-busy .step-num { animation: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } .step.is-busy .step-num, .jobs-pill.fades { animation: none; } }
 
 .jobs-bar[hidden] { display: none; }
 
@@ -433,7 +444,6 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 .pager .btn.current { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .pager-size { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--font-sm); }
 .pager-size select { width: auto; }
-.jobs-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
 dialog .jobs.scroll-box { max-height: 60vh; }
 .small { font-size: var(--font-xs); }
 .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
