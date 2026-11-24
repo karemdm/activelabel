@@ -163,7 +163,7 @@ jobs:
     # Tests of the web interface: node:test + jsdom for the script's logic, Playwright (Chromium) for the main
     # path against a real server. Self-contained: nothing else in this file depends on it.
     name: ui (node + playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.52 has no Chromium build for newer Ubuntu images yet
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
