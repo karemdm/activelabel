@@ -158,3 +158,39 @@ jobs:
             echo "a training test was skipped for a missing package" >&2
             exit 1
           fi
+
+  ui:
+    # Tests of the web interface: node:test + jsdom for the script's logic, Playwright (Chromium) for the main
+    # path against a real server. Self-contained: nothing else in this file depends on it.
+    name: ui (node + playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the app
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install the Node tools
+        # no package-lock.json in the repository yet: npm install, with the exact versions pinned in package.json
+        run: npm install --no-audit --no-fund
+      - name: Unit tests (node:test + jsdom)
+        run: npm run test:js
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Smoke tests (Playwright, real server on port 8107)
+        run: npm run test:e2e
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
