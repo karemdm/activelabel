@@ -58,14 +58,11 @@ def prepare_dataset(project: Project, state: AppState) -> Any:
     return fiftyone_bridge.sync_dataset(project, manifest, load_annotations(state.store.dir(project.id)))
 
 
-def open_dataset(project: Project) -> Any:
+def open_dataset(project: Project, state: AppState) -> Any:
     """The project's FiftyOne dataset (None when it does not exist)."""
-    import fiftyone as fo
-
     from activelabel import fiftyone_bridge
 
-    name = fiftyone_bridge.dataset_name(project.id)
-    return fo.load_dataset(name) if fo.dataset_exists(name) else None
+    return fiftyone_bridge.existing_dataset(state.store.dir(project.id), project.id)
 
 
 # -- helpers ------------------------------------------------------------------
@@ -229,7 +226,7 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
 
     def run(progress: Progress) -> dict[str, Any]:
         progress.update(message=f"Reading annotations from {session['tool']}")
-        new_labels = tool.pull(open_dataset(project), image_ids, project, settings, session["ref"])
+        new_labels = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
         summary = diffing.diff(project_dir, image_ids, new_labels, project)
         write_json(
             _pulled_file(state, project_id, session_id),
@@ -302,7 +299,7 @@ def close_session(
     settings = credentials.load_settings(state.settings.workspace, session["tool"])
     delete_remote = bool(body and body.delete_remote)
     try:
-        tool.close(open_dataset(project), settings, session.get("ref", {}), delete_remote)
+        tool.close(open_dataset(project, state), settings, session.get("ref", {}), delete_remote)
     except ToolError as exc:
         raise HTTPException(400, str(exc)) from exc
     sessions.close(state.store.dir(project_id), session_id)

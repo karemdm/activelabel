@@ -5,6 +5,7 @@ import pytest
 from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
+from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def project(monkeypatch):
     unique = f"test-activelabel-{uuid.uuid4().hex[:8]}"
-    monkeypatch.setattr(bridge, "dataset_name", lambda pid: unique)
+    monkeypatch.setattr(bridge, "dataset_name", lambda project_dir, pid: unique)
     yield Project(1, "t", "", Task.DETECTION, ["cat", "dog"])
     if fo.dataset_exists(unique):
         fo.delete_dataset(unique)
@@ -35,8 +36,84 @@ def build(tmp_path, count=3):
     return manifest
 
 
-def test_dataset_name():
-    assert bridge.dataset_name(7) == "activelabel-7"
+@pytest.fixture
+def prefix(monkeypatch):
+    """A unique dataset prefix: the tests never touch (or delete) a dataset they did not create."""
+    unique = f"test-activelabel-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setattr(bridge, "DATASET_PREFIX", unique)
+    yield unique
+    for name in fo.list_datasets():
+        if name.startswith(unique):
+            fo.delete_dataset(name)
+
+
+def plain_dataset(name, manifest):
+    """A dataset as earlier versions created it: the plain name, samples with the project's images."""
+    dataset = fo.Dataset(name, persistent=True)
+    dataset.add_samples([fo.Sample(filepath=str(manifest.file_path(r).resolve())) for r in manifest.all()])
+    return dataset
+
+
+def test_dataset_names_differ_between_workspaces(tmp_path, prefix):
+    one, two = tmp_path / "ws1" / "1", tmp_path / "ws2" / "1"  # the same project id in two workspaces
+    one.mkdir(parents=True), two.mkdir(parents=True)
+    name_one, name_two = bridge.dataset_name(one, 1), bridge.dataset_name(two, 1)
+    assert name_one != name_two and name_one.startswith(f"{prefix}-1-") and name_two.startswith(prefix)
+    assert bridge.dataset_name(one, 1) == name_one  # chosen once, recorded in the project folder
+    assert recorded_name(one) == name_one
+
+
+def test_two_workspaces_do_not_overwrite_each_other(tmp_path, prefix):
+    datasets = []
+    for workspace, count in (("ws1", 3), ("ws2", 1)):
+        folder = tmp_path / workspace
+        folder.mkdir()
+        datasets.append(
+            bridge.sync_dataset(Project(1, "t", "", Task.DETECTION, ["cat"]), build(folder, count), None)
+        )
+    assert datasets[0].name != datasets[1].name
+    assert len(fo.load_dataset(datasets[0].name)) == 3 and len(fo.load_dataset(datasets[1].name)) == 1
+
+
+def test_dataset_of_earlier_versions_keeps_its_name(tmp_path, prefix):
+    manifest = build(tmp_path)
+    legacy = plain_dataset(f"{prefix}-1", manifest)
+    assert bridge.dataset_name(tmp_path, 1) == legacy.name
+    dataset = bridge.sync_dataset(Project(1, "t", "", Task.DETECTION, ["cat"]), manifest, None)
+    assert dataset.name == legacy.name and len(dataset) == 3
+
+
+def test_dataset_of_another_workspace_is_not_adopted(tmp_path, prefix):
+    mine, other = tmp_path / "mine", tmp_path / "other"
+    mine.mkdir()
+    manifest = build(other)
+    foreign = plain_dataset(f"{prefix}-1", manifest)
+    name = bridge.dataset_name(mine, 1)
+    assert name != foreign.name and len(fo.load_dataset(foreign.name)) == 3
+    empty = fo.Dataset(f"{prefix}-2", persistent=True)  # empty: whose it is cannot be told
+    assert bridge.dataset_name(mine, 2) != empty.name
+
+
+def test_delete_dataset_removes_only_the_projects_own(tmp_path, prefix):
+    mine, other = tmp_path / "mine", tmp_path / "other"
+    mine.mkdir()
+    foreign_manifest = build(other)
+    foreign = fo.Dataset(f"{prefix}-1", persistent=True)
+    foreign.add_samples(
+        [fo.Sample(filepath=str(foreign_manifest.file_path(r).resolve())) for r in foreign_manifest.all()]
+    )
+    dataset = bridge.sync_dataset(Project(1, "t", "", Task.DETECTION, ["cat"]), build(mine), None)
+    assert bridge.delete_dataset(mine, 1, recorded_name(mine)) is True
+    assert not fo.dataset_exists(dataset.name) and fo.dataset_exists(foreign.name)
+    assert bridge.delete_dataset(mine, 1, None) is False  # the plain name holds another workspace's images
+    assert fo.dataset_exists(foreign.name)
+
+
+def test_delete_dataset_of_earlier_versions_after_the_folder_is_gone(tmp_path, prefix):
+    manifest = build(tmp_path)
+    legacy = plain_dataset(f"{prefix}-1", manifest)
+    assert bridge.delete_dataset(tmp_path, 1, None) is True and not fo.dataset_exists(legacy.name)
+    assert bridge.delete_dataset(tmp_path, 1, None) is False  # nothing left; never raises
 
 
 def test_sync_is_idempotent_and_removes(tmp_path, project):

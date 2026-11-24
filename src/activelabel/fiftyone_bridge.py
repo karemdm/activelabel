@@ -1,19 +1,27 @@
 """Show a project in the FiftyOne App: images, quality measures, issues and ground truth.
 
-Every project has one persistent dataset, ``activelabel-<project id>``. Samples are keyed by
+Every project has one persistent dataset. FiftyOne keeps all datasets of the machine in one
+database, so the name must not repeat across workspaces: it is ``activelabel-<project id>-<random>``,
+chosen once and recorded in ``<project>/fiftyone.json`` (see :func:`dataset_name`). Samples are keyed by
 the image id (field ``image_id``). Segmentation polygons become ``Polylines`` with
 ``filled=True`` (simpler than rasterised masks, and they keep their exact shape).
 """
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+import threading
+import uuid
+from pathlib import Path
 from typing import Any
 
 import fiftyone as fo
 from fiftyone import ViewField as F
 
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
+from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
@@ -32,12 +40,75 @@ TASK_VIEW_PREFIX = "task-"  # saved view of a task: ``task-<id>`` (stable; the n
 APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
 PORT_TRIES = 11  # APP_PORT and the next 10 ports
 
+DATASET_PREFIX = "activelabel"  # datasets are ``<prefix>-<project id>[-<random>]``
+
 _session: Any = None
+_names_lock = threading.Lock()
+log = logging.getLogger(__name__)
 
 
-def dataset_name(project_id: int) -> str:
-    """Name of the FiftyOne dataset of a project."""
-    return f"activelabel-{project_id}"
+def _is_ours(name: str, project_dir: Path) -> bool:
+    """Whether the dataset ``name`` holds the images of this project folder (judged by sample paths)."""
+    sample = fo.load_dataset(name).first()
+    if sample is None:  # empty: cannot tell whose it is, so it is left alone
+        return False
+    return Path(os.path.normcase(sample.filepath)).is_relative_to(os.path.normcase(project_dir.resolve()))
+
+
+def _legacy_name(project_dir: Path, project_id: int) -> str | None:
+    """The old shared name ``activelabel-<id>``, when a dataset of that name holds this project's images."""
+    legacy = f"{DATASET_PREFIX}-{project_id}"
+    return legacy if fo.dataset_exists(legacy) and _is_ours(legacy, project_dir) else None
+
+
+def dataset_name(project_dir: Path, project_id: int) -> str:
+    """Name of the FiftyOne dataset of a project, chosen once and recorded in the project folder.
+
+    FiftyOne has one database per machine, so two workspaces (or a test server and the real one) must
+    not share the name ``activelabel-<id>``. A new project gets ``activelabel-<id>-<8 random hex>``.
+    A dataset created by earlier versions under the plain name is kept under that name (renaming it
+    would break open FiftyOne App tabs and edit sessions) when its samples point into this project
+    folder; one that holds another workspace's images is never adopted.
+    """
+    with _names_lock:
+        name = recorded_name(project_dir)
+        if name is None:
+            name = (
+                _legacy_name(project_dir, project_id)
+                or f"{DATASET_PREFIX}-{project_id}-{uuid.uuid4().hex[:8]}"
+            )
+            record_name(project_dir, name)
+        return name
+
+
+def existing_dataset(project_dir: Path, project_id: int) -> fo.Dataset | None:
+    """The project's dataset, or None when it was never created."""
+    name = dataset_name(project_dir, project_id)
+    return fo.load_dataset(name) if fo.dataset_exists(name) else None
+
+
+def delete_dataset(project_dir: Path, project_id: int, recorded: str | None) -> bool:
+    """Delete the dataset of a project that is being deleted (``project_dir`` need not exist any more).
+
+    Only a dataset recorded for the project, or the old plain name when it holds this project's
+    images, is deleted. Never raises: a failure is logged, the project is gone anyway.
+
+    Args:
+        project_dir: the folder the project had.
+        project_id: its id.
+        recorded: :func:`~activelabel.fiftyone_names.recorded_name` read before the folder was removed.
+
+    Returns:
+        Whether a dataset was deleted.
+    """
+    try:
+        name = recorded or _legacy_name(project_dir, project_id)
+        if name and fo.dataset_exists(name):
+            fo.delete_dataset(name)
+            return True
+    except Exception:  # noqa: BLE001 - best effort: the project is already deleted
+        log.warning("Could not delete the FiftyOne dataset of project %s", project_id, exc_info=True)
+    return False
 
 
 def _label_type(task: Task) -> type:
@@ -257,7 +328,7 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     Returns:
         The dataset.
     """
-    name = dataset_name(project.id)
+    name = dataset_name(manifest.project_dir, project.id)
     dataset = fo.load_dataset(name) if fo.dataset_exists(name) else fo.Dataset(name, persistent=True)
     dataset.persistent = True
     _declare_fields(dataset, project.task)
