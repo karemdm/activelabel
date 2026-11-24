@@ -72,8 +72,9 @@ class ModelStore:
     def save_run(self, run_number: int, note: str = "") -> dict[str, Any]:
         """Save the best weights of a finished run as the next model.
 
-        The run's ``last.pt`` is removed (only the best weights matter from now on). The first model
-        of a project becomes the current one.
+        The weights are moved, not copied: they exist once, in the model's folder (the run keeps its
+        curves, results and log), and ``last.pt`` is removed. The first model of a project becomes the
+        current one.
 
         Raises:
             RunNotFound: unknown run.
@@ -84,6 +85,9 @@ class ModelStore:
         if run["status"] != DONE:
             raise ModelError("Only a finished training run can be saved as a model.")
         run_dir = runs.path(run_number)
+        for existing in self.list():
+            if existing.get("run") == run_number:
+                raise ModelError(f"This training run is already saved as model m{existing['number']}.")
         if not (run_dir / WEIGHTS).exists():
             raise ModelError("This training run has no weights to save.")
         config = runs.config(run_number)
@@ -108,7 +112,6 @@ class ModelStore:
             number = max([counter, *[n + 1 for n in self._numbers()]])
             folder = self.path(number)
             folder.mkdir(parents=True)
-            shutil.copy2(run_dir / WEIGHTS, folder / WEIGHTS)
             shutil.copy2(run_dir / "config.yaml", folder / "config.yaml")
             write_json(folder / "results.json", results)
             card: dict[str, Any] = {
@@ -129,9 +132,10 @@ class ModelStore:
                 "classes": classes,
                 "device": run.get("device"),
                 "packages": run.get("packages"),
-                "size": (folder / WEIGHTS).stat().st_size,
+                "size": (run_dir / WEIGHTS).stat().st_size,
                 "exports": {},
             }
+            (run_dir / WEIGHTS).replace(folder / WEIGHTS)
             write_json(folder / "model.json", card)
             write_json(counter_file, {"next": number + 1})
             if self.current() is None:
