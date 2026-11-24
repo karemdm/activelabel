@@ -103,7 +103,7 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
         raise ApiError(
             400,
             "preannotation_kind_unsupported",
-            f"Pre-annotation with {kind} models comes later.",
+            f"Pre-annotation does not support this model ({kind}): YOLO models cannot be used for it.",
             kind=kind,
         )
     threshold = round(body.threshold, 3)  # the value that is stored and used

@@ -114,7 +114,7 @@ mapping is empty, or names a category or class that does not exist).
 Errors (each with a `code`, docs/DESIGN.md): 404 for an unknown model, run or task (`model_not_found`,
 `preannotation_not_found`, `task_not_found`); 400 for a model that is not in this version's catalogue
 (`model_not_in_catalogue`), whose labels the project does not use (`model_kind_mismatch`) or whose kind
-cannot pre-annotate (`preannotation_kind_unsupported`: today only the YOLO family), a threshold outside
+cannot pre-annotate (`preannotation_kind_unsupported`: today only the YOLO family, whatever its task), a threshold outside
 0.001–0.999 (`threshold_range`), an unknown scope (`scope_invalid`) or no image to fill
 (`no_images_for_choice`); 409 when the same task and scope are already being pre-annotated
 (`preannotation_running`). The result of a run has `counts` with `images`, `objects`, `skipped`,
