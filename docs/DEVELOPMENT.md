@@ -24,7 +24,7 @@ first checkout is used.
 Run the service from your checkout with a throw-away workspace:
 
 ```bash
-ACTIVELABEL_WORKSPACE=/path/to/scratch ACTIVELABEL_LANG=en activelabel serve --port 8091
+ACTIVELABEL_WORKSPACE=/path/to/scratch ACTIVELABEL_LANG=en activelabel serve --port 8100
 ```
 
 Any free port is fine; `/docs` shows the interactive API documentation and `/openapi.json` the schema.
