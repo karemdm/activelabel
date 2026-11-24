@@ -12,10 +12,13 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, BinaryIO
 
+from activelabel.annotations.folders import folder_classes
+
 STAGING = "staging"
 MAX_AGE_SECONDS = 24 * 3600
 MAX_TOTAL_BYTES = 1024**3
 ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 _TOKEN = re.compile(r"^[0-9a-f]{16}$")
 
 
@@ -65,7 +68,8 @@ def cleanup(project_dir: Path) -> None:
                 child.unlink(missing_ok=True)
 
 
-def _extract_zip(handle: BinaryIO, target: Path, budget: list[int]) -> int:
+def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list[PurePosixPath]) -> int:
+    """Extract the annotation files of a zip; the paths of its images are appended to ``images``."""
     saved = 0
     with tempfile.TemporaryFile() as tmp:
         shutil.copyfileobj(handle, tmp)
@@ -77,7 +81,11 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int]) -> int:
             infos = [i for i in archive.infolist() if not i.is_dir()]
             rels = [_safe_rel(i.filename) for i in infos]  # refuse the whole zip on any unsafe path
             for info, rel in zip(infos, rels, strict=True):
-                if "__MACOSX" in rel.parts or rel.name.startswith("._") or rel.suffix.lower() not in ALLOWED:
+                if "__MACOSX" in rel.parts or rel.name.startswith("._"):
+                    continue
+                if rel.suffix.lower() in IMAGE_SUFFIXES:
+                    images.append(rel)
+                if rel.suffix.lower() not in ALLOWED:
                     continue
                 with archive.open(info) as src:
                     _copy(src, target.joinpath(*rel.parts), budget)
@@ -88,11 +96,21 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int]) -> int:
 def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
     """Save uploaded annotation files (or zips of them) and return a token.
 
-    Only json, xml, txt, yaml and names files are kept (other files are ignored). Staging folders older
-    than 24 hours are removed first.
+    Only json, xml, txt, yaml and names files are kept (other files are ignored). An upload with
+    images and no annotation file (a zip or folder with one sub-folder per class) keeps an empty file
+    per image (only when they sit in at least two class folders), so that ``detect_format`` can see
+    the class folders. Staging folders older than 24 hours are removed first.
+
+    Args:
+        project_dir: the project's folder.
+        files: ``(name, stream)`` pairs as sent by the browser; names may contain sub-folders.
+
+    Returns:
+        The token of the staging folder.
 
     Raises:
-        ValueError: unsafe path (zip slip), invalid zip, too large, or no annotation file in the upload.
+        ValueError: unsafe path (zip slip), invalid zip, too large, or no annotation file or image in
+            the upload.
     """
     root = project_dir / STAGING
     cleanup(project_dir)
@@ -102,13 +120,22 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
     budget = [MAX_TOTAL_BYTES]
     try:
         saved = 0
+        images: list[PurePosixPath] = []
         for name, handle in files:
             rel = _safe_rel(name)
             if rel.suffix.lower() == ".zip":
-                saved += _extract_zip(handle, target, budget)
+                saved += _extract_zip(handle, target, budget, images)
             elif rel.suffix.lower() in ALLOWED:
                 _copy(handle, target.joinpath(*rel.parts), budget)
                 saved += 1
+            elif rel.suffix.lower() in IMAGE_SUFFIXES:
+                images.append(rel)
+        if not saved and folder_classes([str(rel) for rel in images]):
+            for rel in images:
+                placeholder = target.joinpath(*rel.parts)
+                placeholder.parent.mkdir(parents=True, exist_ok=True)
+                placeholder.touch()
+            saved = len(images)
         if not saved:
             raise ValueError("No annotation files were found in the upload.")
     except BaseException:

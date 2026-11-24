@@ -215,3 +215,35 @@ def test_merge_adds_the_class_of_a_label_that_was_imported(tmp_path):
     save_annotations(store.dir(project.id), AnnotationSet(Task.DETECTION, ["cão"], {}, {}))
     summary = apply(store, project.id, manifest, token, "import", mode="merge")
     assert summary["labels_imported"] == 1 and summary["classes_added"] == ["cao"]
+
+
+def test_class_folders_zip_labels_a_classification_project(tmp_path):
+    names = ["Ação/1.png", "Ação/2.png", "Não é gato/3.png", "Ônibus/4.png"]
+    store, project, manifest = make_project(tmp_path, names, task="classification")
+    folder = store.dir(project.id)
+    archive = zip_bytes({f"fotos/{n}": "x" for n in names})
+    token = stage(folder, [("fotos.zip", archive)])
+    assert {p.parent.name for p in load_staged(folder, token)} == {"Ação", "Não é gato", "Ônibus"}
+    report = validate(parse(load_staged(folder, token), "folders", manifest.all()), project)
+    assert report.format == "folders" and report.can_import and report.task_matches
+    summary = apply(store, project.id, manifest, token, "import", "replace")
+    assert summary["format"] == "folders" and summary["images_imported"] == 4
+    assert sorted(store.get(project.id).classes) == ["Ação", "Não é gato", "Ônibus"]
+    labels = load_annotations(folder).images
+    by_name = {r.name: labels[r.id][0].label for r in manifest.all()}
+    assert by_name == {
+        "Ação/1.png": "Ação",
+        "Ação/2.png": "Ação",
+        "Não é gato/3.png": "Não é gato",
+        "Ônibus/4.png": "Ônibus",
+    }
+
+
+def test_images_outside_class_folders_are_not_an_annotation_upload(tmp_path):
+    folder = tmp_path / "p"
+    with pytest.raises(ValueError, match="No annotation"):
+        stage(folder, [("fotos.zip", zip_bytes({"a/1.png": "x", "a/2.png": "x"}))])  # one class only
+    with pytest.raises(ValueError, match="No annotation"):
+        stage(folder, [("fotos.zip", zip_bytes({"1.png": "x", "2.png": "x"}))])
+    token = stage(folder, [("set.zip", zip_bytes({"c.json": "[]", "a/1.png": "x", "b/2.png": "x"}))])
+    assert [p.name for p in load_staged(folder, token)] == ["c.json"]  # annotation files win over images
