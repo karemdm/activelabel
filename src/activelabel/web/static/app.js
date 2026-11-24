@@ -3080,7 +3080,7 @@
           return;
         }
         if (!(data.models || []).some((m) => m.supported)) {
-          fill(node, el('p', { class: 'report-line' }, icon('info'), t('pre.kind_later')));
+          fill(node, el('p', { class: 'report-line' }, icon('info'), t('pre.none_supported')));
           return;
         }
         pickDefaults();

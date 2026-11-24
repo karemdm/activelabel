@@ -1090,7 +1090,6 @@
   "pre.result": "Images: {images}, labels: {objects}",
   "pre.no_models": "To pre-annotate, save a trained model or add a public model in Models.",
   "pre.go_models": "Go to Models",
-  "pre.kind_later": "Pre-annotation with segmentation models comes later.",
   "annotate.scope_preannotated": "Pre-annotated, not reviewed",
   "pre.scope_unreviewed_short": "Not reviewed",
   "pre.result_none": "Nothing at {v} or more",
@@ -1345,5 +1344,6 @@
   "ds.err_k_max": "With these data, K can be at most {max}.",
   "ds.delete_used_title": "Delete version v{n} anyway?",
   "ds.delete_used_text": "Training runs {runs} used this version and could not be repeated after it is deleted. Saved models keep working.",
-  "ds.delete_used_confirm": "Delete anyway"
+  "ds.delete_used_confirm": "Delete anyway",
+  "pre.none_supported": "None of the saved models can pre-annotate this project: it needs a model that makes the same kind of label as the project (the YOLO family is not supported yet)."
 }
