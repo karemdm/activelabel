@@ -8,6 +8,26 @@ Um projeto vai das imagens ao modelo treinado em seis passos, em dois grupos: **
 modelo treinado pode então pré-anotar imagens novas, que uma pessoa revisa no CVAT ou no
 FiftyOne e devolve ao próximo treinamento.
 
+```mermaid
+flowchart LR
+  subgraph Dados
+    direction LR
+    A["1 Imagens"] --> B["2 Anotações<br/>(opcional)"] --> C["3 Curadoria"]
+  end
+  subgraph Modelo
+    direction LR
+    D["4 Divisão dos dados"] --> E["5 Treinamento"] --> F["6 Modelos"]
+  end
+  C --> D
+  F -- "modelo atual" --> P["Pré-anotar<br/>(passo 2)"]
+  N["Imagens novas<br/>(passo 1, nova task)"] --> P
+  P --> R["Revisar no CVAT ou no FiftyOne,<br/>ou aceitar como estão"]
+  R -- "nova divisão, novo treino" --> D
+```
+
+Os nomes de botões e abas citados aqui são os da interface em português. Os documentos em inglês
+(README, `docs/`) citam a interface em inglês.
+
 ## Instalar
 
 Python 3.10 ou mais novo.
@@ -24,20 +44,24 @@ python -m pip install -e ".[dev]"
 activelabel serve --open
 ```
 
-Ou, sem ativar o ambiente: `activelabel.cmd serve --open` (Windows) ou
-`./activelabel.sh serve --open` (Linux, macOS). A interface abre em
-`http://127.0.0.1:8090`. O serviço não tem login: mantenha o host padrão `127.0.0.1`,
-a não ser numa rede confiável.
+Opções de `serve`: `--host` (padrão `127.0.0.1`), `--port` (padrão `8090`) e `--open` (abre o
+navegador). Sem ativar o ambiente, use o lançador do repositório, que roda o Python da pasta
+`.venv` ao lado dele: `activelabel.cmd serve --open` (Windows) ou `./activelabel.sh serve --open`
+(Linux, macOS). A interface abre em `http://127.0.0.1:8090`. O serviço não tem login: mantenha o
+host padrão `127.0.0.1`, a não ser numa rede confiável.
 
 ## Passo a passo
 
 ### Criar o projeto
 
-Na lista de projetos, *Novo projeto*: nome, descrição e tarefa (classificação, detecção,
+Na lista de projetos, *Novo projeto*: nome, descrição e **tipo** (classificação, detecção,
 segmentação ou pontos-chave). O número do projeto é automático. As classes são opcionais;
 podem vir dos arquivos de anotação. Um projeto que já existe no CVAT ou no Label Studio pode
 ser importado em vez de criado (veja [IMPORT.md](IMPORT.md), em inglês). A página do projeto
 mostra uma barra compacta com os seis passos, em dois grupos.
+
+No ActiveLabel, *task* é um pacote de imagens, como no CVAT; o tipo do projeto é o que a
+interface chama de *Tipo*.
 
 ### Grupo Dados
 
@@ -53,28 +77,39 @@ mostra uma barra compacta com os seis passos, em dois grupos.
 **2. Anotações** (opcional). Cinco abas:
 
 - *Resumo*: o que o projeto já tem (anotadas, a revisar, classes).
-- *Pré-anotar*: um modelo salvo sugere anotações para as imagens de uma task (veja o fim
-  deste guia e [PREANNOTATE.md](PREANNOTATE.md)).
-- *CVAT*: envia imagens ao CVAT e sincroniza as anotações nos dois sentidos, com uma revisão
-  antes de qualquer mudança ([ANNOTATION.md](ANNOTATION.md) e [SYNC.md](SYNC.md)). Se o
-  projeto vinculado foi apagado no CVAT, a tela avisa; use *Desvincular* e compare de novo
+- *Pré-anotar*: um modelo salvo (ou um modelo público) sugere anotações para as imagens de uma
+  task (veja o fim deste guia e [PREANNOTATE.md](PREANNOTATE.md)).
+- *CVAT*: sincroniza as anotações com o CVAT nos dois sentidos. *Comparar com o CVAT* mostra o
+  que mudou de cada lado, você revisa (e resolve os conflitos) e confirma com *Aplicar a
+  sincronização*; nada muda antes disso ([ANNOTATION.md](ANNOTATION.md) e [SYNC.md](SYNC.md)).
+  Se o projeto vinculado foi apagado no CVAT, a tela avisa; use *Desvincular* e compare de novo
   para criar um projeto novo.
-- *FiftyOne*: edite as anotações no App do FiftyOne e traga de volta.
+- *FiftyOne*: escolha quais imagens e use *Enviar para FiftyOne* para editá-las no App do
+  FiftyOne; depois *Trazer anotações de volta*, revise as diferenças e *Aplicar alterações* (ou
+  *Descartar estas alterações*).
 - *Importar anotações*: solte os arquivos de anotação (ou um .zip). O formato é detectado
   (COCO JSON, YOLO txt com `data.yaml`/`classes.txt`, Pascal VOC XML, XML do CVAT para
   imagens ou vídeo, MOT, JSON do Label Studio, pastas de classes), os arquivos são casados
   com as imagens e um relatório mostra o que foi encontrado e os problemas. Nada é importado
-  até você escolher: *Importar*, *Trocar a tarefa do projeto e importar* (quando as anotações
-  são de outra tarefa), *Converter e importar* (por exemplo contornos em caixas) ou
-  *Descartar*. Anotações feitas para um vídeo inteiro vão para uma task de vídeo, casadas
-  pelo número do quadro ([VIDEO.md](VIDEO.md)).
+  até você escolher: *Importar*, *Mudar o tipo para {tipo} e importar* (quando as anotações
+  são de outro tipo), *Converter para {tipo} e importar* (por exemplo contornos em caixas) ou
+  *Descartar*. Se o projeto já tem anotações, escolha também *Mesclar* ou *Substituir*.
+  Anotações feitas para um vídeo inteiro vão para uma task de vídeo, casadas pelo número do
+  quadro ([VIDEO.md](VIDEO.md)).
+
+O Label Studio está desligado na interface por enquanto: só a importação de um projeto dele
+está disponível.
 
 **3. Curadoria.** *Analisar imagens* mede brilho, contraste, nitidez, tamanho e um hash
-perceptual de cada imagem. Os filtros por problema (corrompida, borrada, escura, clara demais,
-baixo contraste, pequena, quase duplicada) mostram as imagens apontadas; selecione e
-*Exclua* (reversível, aba *Excluídas*) ou apague de vez (pede confirmação). *Abrir no
-FiftyOne* abre o mesmo filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá
-voltam com *Trazer exclusões do FiftyOne*.
+perceptual de cada imagem. Os filtros por problema (borradas, escuras, claras, baixo contraste,
+pequenas, proporção estranha, tons de cinza, quase duplicatas) mostram as imagens apontadas;
+*Selecionar sugeridas* marca as que provavelmente vale excluir. Selecione e use *Excluir
+selecionadas* (reversível: aba *Excluídas*, botão *Restaurar selecionadas*) ou *Apagar
+definitivamente* (pede confirmação). Os limites de cada problema ficam em *Avançado: limites* e
+mudam sem medir de novo; *Zerar análise* esquece as medidas, os problemas apontados e os grupos
+de quase duplicatas (imagens, exclusões e anotações ficam). *Abrir no FiftyOne* abre o mesmo
+filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *Trazer exclusões
+do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no envio.
 
 ### Grupo Modelo
 
@@ -87,12 +122,15 @@ semente; a prévia mostra os avisos antes de salvar. Detalhes: [DATASETS.md](DAT
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
 todas as dobras. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
-classificação, detecção, segmentação semântica e pontos-chave (torchvision); os modelos
-YOLO/Ultralytics estão planejados, ainda não disponíveis. Os pacotes necessários são
-instalados sob demanda, num ambiente separado. Detalhes: [TRAINING.md](TRAINING.md).
+classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
+pontos-chave (torchvision); os modelos YOLO/Ultralytics ainda não estão disponíveis e ficam
+escondidos na interface. Os pacotes necessários são instalados sob demanda, num ambiente
+separado. *Reproduzir* repete um treino com a mesma configuração. Detalhes:
+[TRAINING.md](TRAINING.md).
 
-**6. Modelos.** Salve uma execução concluída como modelo, compare os modelos, escolha o
-modelo atual, baixe os pesos e exporte para ONNX (classificação e segmentação semântica).
+**6. Modelos.** Use *Salvar como modelo* num treino concluído, compare os modelos, escolha o
+modelo atual (*Tornar atual*), baixe os pesos e exporte para ONNX (classificação e segmentação
+semântica). *Adicionar modelo público* inclui um modelo já treinado no COCO, sem treinar nada.
 
 ### Pré-anotar imagens novas com um modelo
 
@@ -100,7 +138,8 @@ modelo atual, baixe os pesos e exporte para ONNX (classificação e segmentaçã
 2. Em *Anotações*, aba *Pré-anotar*: escolha o modelo (o atual, por padrão), a task, quais
    imagens (sem anotação, ou pré-anotadas e ainda não revisadas) e a confiança mínima (de 0,05
    a 0,95; a tela propõe 0,5 para classificação e 0,3 para detecção e pontos-chave). Inicie.
-   Imagens ilegíveis são contadas e puladas.
+   Imagens ilegíveis são contadas e puladas. Funciona para classificação, detecção e
+   pontos-chave.
 3. Em *Para revisar*, use *Revisar no CVAT* ou *Revisar no FiftyOne*, corrija o que for
    preciso e traga de volta (sincronização com o CVAT, ou sessão de edição do FiftyOne). Ou
    escolha *Aceitar como estão*.
@@ -110,8 +149,8 @@ modelo atual, baixe os pesos e exporte para ONNX (classificação e segmentaçã
 Sem nenhum treino ainda, dá para começar com um **modelo público**: em *Modelos*, *Adicionar
 modelo público*, escolha um modelo treinado no COCO (detecção ou pontos-chave) e diga qual
 categoria dele vira cada classe do projeto (a tela sugere quando os nomes batem). Ele aparece
-como mais um modelo e pode ser usado em *Pré-anotar*. Os pesos são baixados a cada uso, numa
-pasta temporária apagada no fim; é preciso internet.
+como mais um modelo e pode ser usado em *Pré-anotar* (o modelo salvo ou o modelo público).
+Os pesos são baixados a cada uso, numa pasta temporária apagada no fim; é preciso internet.
 
 ### Atividades
 
@@ -121,7 +160,9 @@ aparecem num cartão pequeno no canto inferior direito da página do projeto, co
 ficam no histórico. Só um processo pesado (treinamento, exportação ou pré-anotação) roda de
 cada vez; os outros esperam na fila.
 
-Mais: [DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês) e
+Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos, em inglês),
+[DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês),
+[DEVELOPMENT.md](DEVELOPMENT.md) (guia de quem desenvolve, em inglês) e
 [FUTURE-LLM.md](FUTURE-LLM.md) (uso planejado de modelos de linguagem, em inglês).
 
 ## Configuração
@@ -130,4 +171,11 @@ Mais: [DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês) e
 | --- | --- | --- |
 | `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Onde ficam projetos, imagens e anotações |
 | `ACTIVELABEL_LANG` | `en` | Idioma padrão da interface (`en` ou `pt`) |
-| `ACTIVELABEL_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho |
+| `ACTIVELABEL_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho (só pela API, sem botão na interface) |
+
+O endereço e o usuário do CVAT ficam em `<workspace>/tools.json`; senhas e tokens só no chaveiro
+do sistema.
+
+## Licença
+
+Apache License 2.0, veja o arquivo [LICENSE](../LICENSE).
