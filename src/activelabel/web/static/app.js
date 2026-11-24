@@ -3357,8 +3357,7 @@
       let view = 'active';
       let limitsOpen = false;
       let firstLoad = true;
-      const ANY = '*';  // the quick filter "only with issues": the images are asked for by id (see flaggedIds)
-      const MAX_FLAGGED = 1500;  // the ids go in the query string
+      const ANY = '*';  // the quick filter "only with issues": the server filter issue=any
       const noticeBox = el('div', { class: 'cur-notice' });
       const chipsBox = el('div', { class: 'issue-chips', role: 'group', 'aria-label': t('cur.filter') });
       const histBox = el('div', { class: 'hists' });
@@ -3371,7 +3370,7 @@
       const grid = imageGrid({
         projectId,
         selectable: true,
-        query: () => ({ status: view, issue: view === 'active' && issue !== ANY ? issue : '', ids: view === 'active' && issue === ANY ? flaggedIds() : null, emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
+        query: () => ({ status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
         onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
         onOpen: (items, i) => openLightbox(projectId, items, i),
       });
@@ -3427,11 +3426,11 @@
       }
 
       const analyzed = () => summary && ((summary.totals || {}).measured || 0) > 0;
-      /* ids of every image with an issue (the union of the per-issue lists), or null when there are too many for the URL */
+      /* ids of every image with an issue (the union of the per-issue lists), or null when there is none */
       function flaggedIds() {
         const ids = new Set();
         Object.values((summary && summary.issue_ids) || {}).forEach((l) => l.forEach((x) => ids.add(x)));
-        return ids.size && ids.size <= MAX_FLAGGED ? [...ids] : null;
+        return ids.size ? [...ids] : null;
       }
 
       function draw() {
