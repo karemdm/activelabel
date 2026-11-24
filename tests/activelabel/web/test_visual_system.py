@@ -52,9 +52,11 @@ def test_activities_is_a_pill_where_failures_stay_and_successes_fade():
 
 
 def test_type_has_no_uppercase_and_uses_mono_for_ids_and_metrics():
-    """VISUAL 2.4: kickers are mono, colour and spacing (no uppercase); ids, counts and metrics are mono."""
+    """VISUAL 2.4: kickers are colour and spacing (no uppercase); ids, counts and metrics are mono."""
     assert "text-transform: uppercase" not in CSS
     assert re.search(r"--mono: ui-monospace", CSS)
-    assert re.search(r"^\.step-group-title \{[^}]*font-family: var\(--mono\)", CSS, re.M)
-    assert re.search(r"^\.project-id, [^{]*\.step-status[^{]*\{ font-family: var\(--mono\)", CSS, re.M)
+    title = re.search(r"^\.step-group-title \{([^}]*)\}", CSS, re.M)
+    assert title and "--mono" not in title.group(1)  # kickers and step summaries stay in the sans font
+    mono = re.search(r"^\.project-id, ([^{]*)\{ font-family: var\(--mono\)", CSS, re.M)
+    assert mono and ".thumb-name" in mono.group(1) and ".step-status" not in mono.group(1)
     assert re.search(r"^\.stat-tile dd \{[^}]*font-family: var\(--mono\)", CSS, re.M)
