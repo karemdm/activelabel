@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from activelabel.preannotate import QUEUED, RUNNING, PreannotationStore
 from activelabel.training.models import EXPORT_FILES, WEIGHTS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public, public_for, suggest_mapping
 from activelabel.training.runs import RunNotFound
@@ -147,12 +148,21 @@ def delete_model(
     store = _store(state, project_id)
     if not (body and body.confirm):
         raise HTTPException(400, "Confirm the deletion of this model.")
+    using = [
+        r
+        for r in PreannotationStore(state.store.dir(project_id)).list()
+        if r.get("model") == number and r.get("status") in (QUEUED, RUNNING)
+    ]
+    if using:
+        raise HTTPException(409, "A pre-annotation with this model is queued or running: wait for it to end.")
     try:
         store.delete(number)
     except ModelNotFound:
         raise _missing() from None
     except ModelError as error:
         raise HTTPException(409, str(error)) from None
+    except OSError:  # a file still in use (Windows): nothing was removed from the list
+        raise HTTPException(409, "A file of this model is in use: try again in a moment.") from None
     return {"deleted": True}
 
 
@@ -176,8 +186,13 @@ def download_model(project_id: int, number: int, kind: str, state: AppState = ST
     if name is None:
         raise HTTPException(404, "Unknown download.")
     try:
-        path = store.file(number, name)
         card = store.get(number)
+    except ModelNotFound:
+        raise _missing() from None
+    if card.get("source") == "public":
+        raise HTTPException(404, "A public model has no weights here: they are downloaded when it is used.")
+    try:
+        path = store.file(number, name)
     except ModelNotFound:
         raise HTTPException(404, "This file does not exist (export the model first).") from None
     project = re.sub(r"[^A-Za-z0-9._-]+", "-", state.project(project_id).name).strip("-") or "project"

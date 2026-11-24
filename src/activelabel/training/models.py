@@ -279,6 +279,7 @@ class ModelStore:
         Raises:
             ModelNotFound: unknown number.
             ModelError: an export of the model is running.
+            OSError: a file of the model is in use (nothing was removed).
         """
         with self._lock:
             card = self.get(number)
@@ -286,6 +287,10 @@ class ModelStore:
                 (e or {}).get("status") in ("queued", "running") for e in (card.get("exports") or {}).values()
             ):
                 raise ModelError("An export of this model is running: wait for it to end.")
+            # renamed first: if a file is in use the rename fails and the model stays as it was
+            trash = self.dir / f".deleting-m{number}"
+            shutil.rmtree(trash, ignore_errors=True)
+            self.path(number).rename(trash)
+            shutil.rmtree(trash, ignore_errors=True)
             if card["current"]:
                 write_json(self.dir / "current.json", {"model": None})
-            shutil.rmtree(self.path(number))

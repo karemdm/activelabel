@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from activelabel import preannotate
 from activelabel.training.catalog import get_model
 from activelabel.training.models import ModelNotFound, ModelStore
+from activelabel.training.public_models import get_public
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -35,19 +36,24 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
     project_task = state.project(project_id).task
     out = []
     for card in ModelStore(state.store.dir(project_id)).list():
-        spec = get_model(card["model"])
+        public = card.get("source") == "public"
+        spec = None if public else get_model(card["model"])
+        # a model this version no longer knows (catalogue changed): listed, but it cannot run
+        missing = get_public(str(card.get("public") or "")) is None if public else spec is None
         kind = card.get("task_kind") or (spec.task_kind if spec else "")
         out.append(
             {
                 "number": card["number"],
                 "model": card["model"],
                 "label": card.get("label") or (spec.label if spec else card["model"]),
-                "public": card.get("source") == "public",
+                "public": public,
+                "missing": missing,
                 "task_kind": kind,
                 "current": card.get("current", False),
                 "metric": card.get("metric"),
                 "value": card.get("value"),
-                "supported": kind in preannotate.KINDS
+                "supported": not missing
+                and kind in preannotate.KINDS
                 and preannotate.fits(kind, project_task)
                 and not (spec is not None and spec.family == "ultralytics"),
             }
@@ -77,13 +83,16 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
     except ModelNotFound:
         raise HTTPException(404, "This model does not exist.") from None
     info = next((m for m in _models(state, project_id) if m["number"] == body.model), None)
+    if info and info["missing"]:
+        raise HTTPException(400, "This model is not in the catalogue of this version of ActiveLabel.")
     if not info or not info["supported"]:
         kind = card.get("task_kind") or "these"
         if kind in preannotate.KINDS and not preannotate.fits(kind, state.project(project_id).task):
             raise HTTPException(400, f"This model makes {kind} labels, which this project does not use.")
         raise HTTPException(400, f"Pre-annotation with {kind} models comes later.")
-    if not 0.0 < body.threshold < 1.0:
-        raise HTTPException(400, "The minimum confidence must be between 0 and 1.")
+    threshold = round(body.threshold, 3)  # the value that is stored and used
+    if not 0.0 < threshold < 1.0:  # also refuses NaN
+        raise HTTPException(400, "The minimum confidence must be between 0.001 and 0.999.")
     try:
         images = preannotate.targets(project_dir, body.task, body.scope)
     except ValueError as error:
@@ -103,7 +112,7 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
         task=body.task,
         task_name=task_name,
         scope=body.scope,
-        threshold=round(body.threshold, 3),
+        threshold=threshold,
         total=len(images),
     )
     state.runner.enqueue_preannotation(project_id, run["number"])

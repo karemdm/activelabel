@@ -117,3 +117,45 @@ def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: False)
     body = client.get("/api/training/environment").json()
     assert body == {"exists": False, "packages": {}, "gpu": None}
+
+
+def test_a_damaged_run_does_not_hide_the_others(tmp_path):
+    client, state = _setup(tmp_path)
+    for _ in range(2):
+        client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn", "params": {"epochs": 1}})
+    (RunStore(state.store.dir(1)).path(1) / "config.yaml").unlink()
+    runs = client.get(RUNS).json()["runs"]
+    assert [r["number"] for r in runs] == [2, 1]
+    assert "config_error" in runs[1] and runs[0]["model"] == "fasterrcnn_resnet50_fpn"
+    one = client.get(f"{RUNS}/1")
+    assert one.status_code == 200 and one.json()["config"] is None
+    assert client.post(f"{RUNS}/1/reproduce").status_code == 409
+
+
+def test_log_tail_reads_only_the_end(tmp_path):
+    import random
+
+    from activelabel.web.training_api import _tail
+
+    rng = random.Random(7)
+    for case in range(60):
+        lines = ["x" * rng.randint(0, 40) + f" {k} ção" for k in range(rng.randint(0, 120))]
+        path = tmp_path / f"log{case}.txt"
+        path.write_text("\n".join(lines) + ("\n" if rng.random() < 0.5 else ""), encoding="utf-8")
+        for count in (1, 3, 50, 2000):
+            assert _tail(path, count, chunk=rng.randint(1, 64)) == lines[-count:], (case, count)
+    assert _tail(tmp_path / "missing.txt", 5) == []
+
+
+def test_a_version_without_training_images_is_refused(tmp_path):
+    import json
+
+    from activelabel.datasets import DatasetStore
+
+    client, state = _setup(tmp_path)
+    path = DatasetStore(state.store.dir(1)).dir / "v1.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["parts"]["train"] = []  # e.g. every training image was excluded by the split options
+    path.write_text(json.dumps(data), encoding="utf-8")
+    response = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"})
+    assert response.status_code == 400 and "training part" in response.json()["detail"]
