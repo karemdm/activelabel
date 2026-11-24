@@ -7,6 +7,7 @@ SHA-256) with their metadata in ``videos.json``. OpenCV reads them; no other too
 from __future__ import annotations
 
 import math
+import shutil
 import threading
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -20,6 +21,8 @@ from activelabel.storage import read_json, write_json
 
 VIDEO_EXTENSIONS = frozenset({".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"})
 JPEG_QUALITY = 95
+MAX_TASK_FRAMES = 20_000  # frames one task may take from a video
+JPEG_BYTES_PER_PIXEL = 0.6  # typical size of a quality-95 frame, to estimate the disk it needs
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -178,6 +181,30 @@ def plan(start: int, stop: int, step: int) -> dict[str, int]:
     """How many frames a selection has: ``{frames, step, first, last}``."""
     count = (stop - start) // step + 1
     return {"frames": count, "step": step, "first": start, "last": start + (count - 1) * step}
+
+
+def check_extraction(info: VideoInfo, frames: int, folder: Path) -> None:
+    """Refuse a selection that is too big or would not fit on the disk.
+
+    Frames are written twice while a task is made (a temporary copy, then the project's images),
+    so twice the estimated size must be free in ``folder``.
+
+    Raises:
+        ValueError: more than ``MAX_TASK_FRAMES`` frames, or not enough free space.
+    """
+    if frames > MAX_TASK_FRAMES:
+        raise ValueError(
+            f"This selection has {frames} frames (at most {MAX_TASK_FRAMES} per task): "
+            "take one frame every few frames, or a shorter range."
+        )
+    needed = round(2 * frames * info.width * info.height * JPEG_BYTES_PER_PIXEL)
+    folder.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(folder).free
+    if needed > free:
+        raise ValueError(
+            f"The frames need about {needed // 2**20} MB of free disk space and only {free // 2**20} MB "
+            "are free: take fewer frames."
+        )
 
 
 def extract_frames(

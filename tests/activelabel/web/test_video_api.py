@@ -233,3 +233,21 @@ def test_delete_video_refused_while_a_video_task_runs(tmp_path):
         assert client.delete(f"/api/projects/1/videos/{vid}").status_code == 409
     finally:
         release.set()
+
+
+def test_selection_too_big_or_without_disk_space_is_refused(tmp_path, monkeypatch):
+    import collections
+
+    import activelabel.images.video as video_module
+
+    client, state, path = _setup(tmp_path)
+    video = _upload(client, path).json()["id"]
+    monkeypatch.setattr(video_module, "MAX_TASK_FRAMES", 10)
+    big = client.post("/api/projects/1/tasks/from-video", json={"video": video, "step": 1})
+    assert big.status_code == 400 and "at most 10" in big.json()["detail"]
+    monkeypatch.setattr(video_module, "MAX_TASK_FRAMES", 20_000)
+    usage = collections.namedtuple("usage", "total used free")
+    monkeypatch.setattr(video_module.shutil, "disk_usage", lambda _: usage(10**9, 10**9 - 1000, 1000))
+    full = client.post("/api/projects/1/tasks/from-video", json={"video": video, "step": 1})
+    assert full.status_code == 400 and "free disk space" in full.json()["detail"]
+    assert not TaskStore(state.store.dir(1)).load()
