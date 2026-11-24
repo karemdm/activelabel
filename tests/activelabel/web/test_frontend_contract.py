@@ -103,3 +103,11 @@ def test_every_dialog_opens_through_the_one_pattern():
     assert set(opened) <= {"dlg", "lightbox", "newDlg"}  # the others go through openModal()
     assert opened.count("dlg") == 1  # only inside openModal()
     assert re.search(r"\.dialog-body \.form-actions\s*\{[^}]*position: sticky", CSS)
+
+
+def test_the_step_bar_marks_each_step_and_keeps_the_current_one_in_view():
+    """A step shows done, attention or busy besides its number; a scrolling bar centres the current one."""
+    for state in ("done", "attention", "busy"):
+        assert f"step.state_{state}" in (SRC / "i18n" / "en.json").read_text(encoding="utf-8")
+        assert f".step.is-{state}" in CSS
+    assert "stepper.scrollLeft" in JS
