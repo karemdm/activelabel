@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
@@ -40,10 +42,6 @@ def test_update_fields(tmp_path):
 
 
 def test_cached_parse_never_leaks_changes_or_hides_edits(tmp_path):
-    import json
-
-    from activelabel.images.manifest import ImageRecord, Manifest
-
     manifest = Manifest(tmp_path)
     manifest.add(
         [ImageRecord("a", "a.png", "images/a.png", 1, 1, 1, "t", issues=["dark"], metrics={"x": 1.0})]

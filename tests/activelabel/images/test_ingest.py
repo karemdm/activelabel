@@ -206,11 +206,6 @@ def test_report_as_dict_caps_lists():
 
 
 def test_annotation_files_sent_with_images_are_listed(tmp_path):
-    import io
-
-    from activelabel.images.ingest import ingest_files
-    from activelabel.images.manifest import Manifest
-
     report = ingest_files(Manifest(tmp_path / "p"), [("labels.json", io.BytesIO(b"{}"))])
     assert report.other_files == ["labels.json"] and report.rejected == []
 
