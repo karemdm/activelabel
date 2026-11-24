@@ -151,6 +151,20 @@
   }
   const toastError = (err) => toast(`${t('common.error')} ${err && err.message ? err.message : err}`, 'error', 10000);
 
+  /** Click handler for a button that starts something: the button stays disabled until the request settles,
+   *  so a double click cannot start it twice. `stillBusy` says when it must stay disabled after that
+   *  (a job of its kind is running). */
+  const once = (fn, stillBusy = () => false) => async (e) => {
+    const button = e.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      await fn(button);
+    } finally {
+      button.disabled = stillBusy();
+    }
+  };
+
   /** Redraws a box whose controls carry `data-act` keys and keeps keyboard focus on the same control
    *  (or on the first one when it is gone), so a refresh does not send the person back to the page top. */
   function redraw(box, ...nodes) {
@@ -866,6 +880,7 @@
       links: [],
       syncTool: {},
       syncDismissed: new Set(),
+      watchers: [],  // called after every redraw of the activity strip (the buttons that depend on running jobs)
     };
     const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training', 'models'];
 
@@ -1145,7 +1160,7 @@
       const job = await api('POST', `/projects/${projectId}/sync/${tool}`, { json: body });
       if (job && job.id) ctx.syncTool[job.id] = tool;
       toast(t('sync.started', { tool: toolName(tool) }), 'info', 3000);
-      jobStarted(job);
+      await jobStarted(job);
     }
 
     /* sending found a project with the same name: synchronise or cancel */
@@ -1192,7 +1207,7 @@
         const open = isHttp(link.url)
           ? el('a', { href: link.url, target: '_blank', rel: 'noopener' }, link.remote_name || toolName(tool), ' ', icon('external', 14))
           : el('span', null, link.remote_name || toolName(tool));
-        const run = el('button', { type: 'button', class: 'btn primary', disabled: planning, onclick: async (e) => {
+        const run = el('button', { type: 'button', class: 'btn primary', disabled: planning, title: planning ? t('sync.compare_busy_any') : null, onclick: async (e) => {
           const b = e.currentTarget;
           b.disabled = true;
           try { await startSync(tool); } catch (err) { b.disabled = false; toastError(err); }
@@ -1396,7 +1411,7 @@
             ctx.syncDismissed.add(pid);
             if (job2 && job2.id) ctx.syncTool[job2.id] = tool;
             toast(t('sync.apply_started'), 'info', 3000);
-            jobStarted(job2);
+            await jobStarted(job2);
             draw(true);
           } catch (err) {
             apply.dataset.busy = '0';
@@ -1654,6 +1669,7 @@
       let focusAfter = null; // selector to focus once the cards are drawn
 
       const tasksBox = el('div', { class: 'tasks-wrap' });
+      ctx.watchers.push(() => tasksBox.querySelectorAll('[data-fo]').forEach((b) => { b.disabled = kindActive('fiftyone'); }));
       const filterBox = el('div', { class: 'task-filter' });
       const taskById = (id) => tasks.find((x) => x.id === id);
 
@@ -1774,6 +1790,12 @@
               src ? el('span', { class: 'task-video-icon', title: t('video.mode_video') }, icon('video', 16)) : null, task.name));
         }
 
+        const foButton = (task) => {
+          const b = iconButton('fiftyone', `${t('tasks.open_fo')}: ${task.name}`, '', once(() => openTaskInFiftyOne(task), () => kindActive('fiftyone')));
+          b.dataset.fo = '1';
+          b.disabled = kindActive('fiftyone');
+          return b;
+        };
         const iconButton = (name, label, extra, onclick, id) => el('button', { type: 'button', class: `icon-btn small${extra ? ` ${extra}` : ''}`, id, 'aria-label': label, title: label, onclick }, icon(name, 16));
         let everyText = null;
         if (src && src.step) {
@@ -1817,7 +1839,7 @@
           el('div', { class: 'task-head' },
             title,
             isRenaming ? null : el('div', { class: 'task-actions' },
-              iconButton('fiftyone', `${t('tasks.open_fo')}: ${task.name}`, '', () => openTaskInFiftyOne(task)),
+              foButton(task),
               iconButton('edit', `${t('tasks.rename')}: ${task.name}`, '', () => { renaming = task.id; renameDraft = null; drawTasks(); }, `${cid}-rename`),
               iconButton('trash', `${t('tasks.delete')}: ${task.name}`, 'danger', () => deleteTask(task)),
               manyJobs
@@ -1866,7 +1888,7 @@
           const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { task: task.id } });
           if (job && job.id) ctx.openWhenDone.add(job.id);
           toast(t('cur.fo_starting'), 'info', 4000);
-          jobStarted(job);
+          await jobStarted(job);
         } catch (err) { toastError(err); }
       }
 
@@ -1917,7 +1939,8 @@
       }
 
       // ---- video tab
-      const vid = { busy: false, xhr: null, video: null, taskMade: false, plan: null, seq: 0, timer: null, unit: 'frames', polling: null, jobId: null };
+      const POLL_LOST = 3;  // failed polls in a row before the person is told and can leave
+      const vid = { busy: false, xhr: null, video: null, taskMade: false, plan: null, seq: 0, timer: null, unit: 'frames', polling: null, jobId: null, pollFails: 0 };
       const VIDEO_EXT = /\.(mp4|avi|mov|mkv|webm|m4v)$/i;
       const vFile = el('input', { type: 'file', class: 'sr-only', id: 'video-input', accept: '.mp4,.avi,.mov,.mkv,.webm,.m4v,video/*', tabindex: '-1' });
       const vDrop = el('div', { class: 'dropzone', id: 'video-dropzone' },
@@ -2127,6 +2150,7 @@
         vid.polling = null;
         vid.busy = false;
         vid.jobId = null;
+        vid.pollFails = 0;
         vRun.hidden = true;
         fill(vRun);
         modeTabs.hidden = false;
@@ -2161,6 +2185,8 @@
         try {
           const job = await api('POST', `/projects/${projectId}/tasks/from-video`, { json: body });
           vid.jobId = job.id;
+          vid.pollFails = 0;
+          drawRun(job);  // the Cancel button is there from the start, not after the first poll
           pollJob(job.id);
         } catch (err) {
           vid.taskMade = false;
@@ -2182,11 +2208,20 @@
         try {
           job = await api('GET', `/jobs/${id}`);
         } catch (err) {
+          vid.pollFails += 1;
+          if (vid.pollFails >= POLL_LOST && !vRun.querySelector('.poll-lost')) {
+            /* the server does not answer: say so, and let the person leave (the job goes on and shows in the activity bar) */
+            add(vRun, el('p', { class: 'report-line bad poll-lost', role: 'alert' }, icon('warning'), t('video.poll_lost')));
+            closeBtn.hidden = false;
+            closeX.hidden = false;
+          }
           vid.polling = setTimeout(() => pollJob(id), 1500);
           return;
         }
         if (vid.jobId !== id) return;
         if (job.status === 'queued' || job.status === 'running') {
+          if (vid.pollFails >= POLL_LOST) { closeBtn.hidden = true; closeX.hidden = true; }
+          vid.pollFails = 0;
           drawRun(job);
           vid.polling = setTimeout(() => pollJob(id), 1500);
           return;
@@ -2226,7 +2261,7 @@
           el('div', { class: 'dlg-head' }, el('h2', null, t('tasks.new_title')), closeX),
           formBox, progressBox, reportBox,
           el('div', { class: 'form-actions' }, closeBtn)));
-      newDlg.addEventListener('cancel', (e) => { if (uploading || vid.jobId && vid.polling) e.preventDefault(); }); // Esc must not hide a running upload
+      newDlg.addEventListener('cancel', (e) => { if (uploading || (vid.jobId && vid.polling && vid.pollFails < POLL_LOST)) e.preventDefault(); }); // Esc must not hide a running upload
       newDlg.addEventListener('close', () => {
         // a video uploaded but never used by a task is removed again
         if (vid.jobId && vid.polling) return;
@@ -2588,7 +2623,7 @@
         try {
           const job = await api('POST', `/projects/${projectId}/annotate`, { json: body });
           toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
-          jobStarted(job);
+          await jobStarted(job);
         } catch (err) {
           const d = err.detail;
           if (err.status === 409 && d && d.code === 'remote_exists') await remoteExistsDialog(d);
@@ -2620,7 +2655,7 @@
           buttons.push(act(s.status === 'pulled' ? t('annotate.pull_again') : t('annotate.pull'), s.status === 'open' ? 'primary' : '', async () => {
             const job = await api('POST', `/projects/${projectId}/annotate/${sid}/pull`);
             toast(t('annotate.pull_started'), 'info', 3000);
-            jobStarted(job);
+            await jobStarted(job);
           }));
         }
         if (s.status === 'pulled' && s.diff) {
@@ -2633,6 +2668,7 @@
           });
           apply.disabled = !changes;
           buttons.unshift(apply);
+          if (!changes) buttons.splice(1, 0, el('span', { class: 'muted small' }, t('annotate.apply_none')));
           buttons.push(act(t('annotate.discard'), '', async () => {
             await api('POST', `/projects/${projectId}/annotate/${sid}/discard`);
             toast(t('annotate.discarded'), 'success', 4000);
@@ -3201,13 +3237,18 @@
       ctx.curationSelected = () => [...grid.selected];
 
       const analyzeBtn = (recompute) =>
-        el('button', { type: 'button', class: `btn${recompute ? '' : ' primary'}`, onclick: () => analyze(recompute) }, recompute ? t('cur.reanalyze') : t('cur.analyze'));
+        el('button', { type: 'button', class: `btn${recompute ? '' : ' primary'}`, disabled: kindActive('analyze'), onclick: once(() => analyze(recompute), () => kindActive('analyze')) },
+          recompute ? t('cur.reanalyze') : t('cur.analyze'));
+      let analyzing = false;
+      ctx.watchers.push(() => {
+        if (panel.mounted && analyzing !== kindActive('analyze')) { analyzing = !analyzing; drawNotice(); }
+      });
 
       async function analyze(recompute) {
         try {
           const job = await api('POST', `/projects/${projectId}/curation/analyze`, { json: { recompute: !!recompute } });
           toast(t('cur.started'), 'info', 3000);
-          jobStarted(job);
+          await jobStarted(job);
         } catch (err) {
           toastError(err);
         }
@@ -3428,7 +3469,7 @@
           const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { view: view_ } });
           if (job && job.id) ctx.openWhenDone.add(job.id);
           toast(t('cur.fo_starting'), 'info', 4000);
-          jobStarted(job);
+          await jobStarted(job);
         } catch (err) { toastError(err); }
       }
       async function pullExclusions() {
@@ -3439,9 +3480,11 @@
         } catch (err) { toastError(err); }
       }
 
+      const openFoBtn = el('button', { type: 'button', class: 'btn', onclick: once(openFiftyOne, () => kindActive('fiftyone')) }, t('cur.open_fo'));
+      ctx.watchers.push(() => { openFoBtn.disabled = kindActive('fiftyone'); });
       const foBox = el('div', { class: 'fo-box card' },
         el('div', null,
-          el('button', { type: 'button', class: 'btn', onclick: openFiftyOne }, t('cur.open_fo')),
+          openFoBtn,
           el('button', { type: 'button', class: 'btn', onclick: pullExclusions }, t('cur.pull_fo'))),
         el('p', { class: 'muted' }, t('cur.fo_hint')));
 
@@ -3537,6 +3580,7 @@
     let jobsFocus = null;
     function renderJobs() {
       if (ctx.syncDraw) ctx.syncDraw();
+      ctx.watchers.forEach((watch) => watch());
       const all = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created)));
       const running = all.filter(isActive);
       const finished = all.filter((j) => !isActive(j));
@@ -3682,13 +3726,14 @@
       if (jobs.some(isActive)) ctx.pollTimer = setTimeout(pollJobs, 2000);
     }
 
-    function jobStarted(job) {
+    async function jobStarted(job) {
       if (job && job.id) {
         ctx.jobStatus.set(job.id, job.status || 'queued');
         if (/^sync_/.test(String(job.kind))) (ctx.syncNotify = ctx.syncNotify || new Set()).add(job.id);
       }
-      pollJobs();
+      await pollJobs();  // so the buttons that wait for this job are disabled when the caller redraws
     }
+    const kindActive = (...kinds) => ctx.jobs.some((j) => kinds.includes(j.kind) && isActive(j));
 
     // ---- step 4: dataset versions (frozen splits, see docs/DATASETS.md)
     function datasetsPanel() {
@@ -4092,7 +4137,7 @@
         if (first) first.focus();
       }
 
-      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'ds-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('ds.new'));
+      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'ds-new', onclick: once(() => openNew(newBtn)) }, icon('plus', 16), t('ds.new'));
       add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-datasets' }, t('step.datasets')), el('p', { class: 'muted' }, t('ds.intro'))),
@@ -4240,7 +4285,7 @@
               : null,
             r.status === 'done' && !r.model_number ? act('save', t('md.save'), () => saveModel(r), 'primary') : null,
             ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
-            r.config_error ? null : act('again', t('tr.reproduce'), () => reproduceRun(r)),
+            r.config_error ? null : act('again', t('tr.reproduce'), once(() => reproduceRun(r))),
             ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
       }
 
@@ -4973,7 +5018,7 @@
       }
 
       // ---------------------------------------------------------------- assemble
-      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'tr-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('tr.new'));
+      const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'tr-new', onclick: once(() => openNew(newBtn)) }, icon('plus', 16), t('tr.new'));
       add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-training' }, t('step.training')), el('p', { class: 'muted' }, t('tr.intro'))),
@@ -5178,6 +5223,19 @@
         const note = el('textarea', { id: 'md-public-note', rows: '2', maxlength: '500' });
         const save = el('button', { type: 'submit', class: 'btn primary' }, t('md.public_add'));
         const err = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
+        /* the first public category chosen for two project classes ({category, classes}), or null: a category goes to one class only */
+        function clash() {
+          const by = {};
+          for (const [cls, from] of Object.entries(st.map)) if (from) (by[from] = by[from] || []).push(cls);
+          const found = Object.entries(by).find(([, classes]) => classes.length > 1);
+          return found ? { category: found[0], classes: found[1] } : null;
+        }
+        function showClash() {
+          const c = clash();
+          err.textContent = c ? t('md.mapping_duplicate', { category: c.category, classes: c.classes.join(', ') }) : '';
+          err.hidden = !c;
+          return !!c;
+        }
         function suggested() {
           /* project class -> the public category suggested for it (same name) */
           const out = {};
@@ -5187,7 +5245,7 @@
         function drawChoices() {
           fill(choices, ...data.models.map((m) => {
             const id = `md-pub-${m.id}`;
-            const input = el('input', { type: 'radio', name: 'md-pub', id, value: m.id, checked: m.id === st.id, onchange: () => { st.id = m.id; st.map = suggested(); drawMap(); } });
+            const input = el('input', { type: 'radio', name: 'md-pub', id, value: m.id, checked: m.id === st.id, onchange: () => { st.id = m.id; st.map = suggested(); drawMap(); showClash(); } });
             return el('label', { class: `md-public-choice${m.id === st.id ? ' selected' : ''}`, for: id }, input,
               el('span', { class: 'md-public-text' }, el('strong', null, m.label),
                 el('span', { class: 'muted' }, `${tr(`md.pub.${m.id}`, m.note)} · ${t('md.public_stats', { map: nf3.format(m.box_map), mb: num(m.size_mb) })}`)));
@@ -5200,7 +5258,7 @@
             el('p', { class: 'hint' }, t('md.mapping_help')),
             el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
               const id = `md-map-${cls}`;
-              const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; } },
+              const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; showClash(); } },
                 el('option', { value: '' }, t('md.mapping_none')),
                 ...m.classes.map((c) => el('option', { value: c, selected: st.map[cls] === c }, c)));
               return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), sel);
@@ -5220,6 +5278,7 @@
             el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
         dlg.querySelector('form').addEventListener('submit', async (e) => {
           e.preventDefault();
+          if (showClash()) return;
           const mapping = {};
           for (const [cls, from] of Object.entries(st.map)) if (from) mapping[from] = cls;
           if (!Object.keys(mapping).length) { err.textContent = t('md.mapping_empty'); err.hidden = false; return; }
