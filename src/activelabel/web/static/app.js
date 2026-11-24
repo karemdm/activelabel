@@ -1003,6 +1003,7 @@
       openWhenDone: new Set(),
       pollTimer: null,
       panels: {},
+      weightless: new Set(),  // runs whose weights went with a deleted model (the server does not say so in the run list)
       links: [],
       syncTool: {},
       syncDismissed: new Set(),
@@ -4519,6 +4520,12 @@
         const meta = r.config_error ? [] : [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null, r.trainings ? tn('tr.trainings', r.trainings) : null].filter(Boolean);
         const facts = [durationOf(r), deviceOf(r)].filter(Boolean);
         const act = (name, label, fn, cls = '') => el('button', { type: 'button', class: `btn small ${cls}`, 'data-act': name, onclick: fn }, label);
+        const noWeights = r.status === 'done' && !r.model_number && ctx.weightless.has(r.number);
+        const saveButton = act('save', t('md.save'), () => saveModel(r), 'primary');
+        if (noWeights) {
+          saveButton.disabled = true;
+          saveButton.setAttribute('aria-describedby', `${id}-noweights`);
+        }
         return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
           el('div', { class: 'tr-run-head' },
             el('h3', { id: `${id}-t` }, `#${r.number}`),
@@ -4529,6 +4536,7 @@
           r.status === 'running' && r.message ? el('p', { class: 'muted tr-msg' }, r.message) : null,
           configError(r),
           r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null,
+          noWeights ? el('p', { class: 'muted tr-msg tr-noweights', id: `${id}-noweights` }, icon('info', 14), t('md.no_weights')) : null,
           best || facts.length
             ? el('p', { class: 'tr-facts' }, best ? el('strong', null, best) : null, best && facts.length ? ' · ' : null, el('span', { class: 'muted' }, facts.join(' · ')))
             : null,
@@ -4537,7 +4545,7 @@
             r.status === 'done' && r.model_number
               ? el('a', { class: 'btn small tr-saved', href: '#models', 'data-act': 'model' }, icon('star', 14), t('md.saved_as', { n: r.model_number }))
               : null,
-            r.status === 'done' && !r.model_number ? act('save', t('md.save'), () => saveModel(r), 'primary') : null,
+            r.status === 'done' && !r.model_number ? saveButton : null,
             ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
             r.config_error ? null : act('again', t('tr.reproduce'), once(() => reproduceRun(r))),
             ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
@@ -4560,7 +4568,7 @@
         const keep = new Set();
         const nodes = runs.map((r) => {
           keep.add(r.number);
-          const sig = JSON.stringify(r) + (catalog ? '1' : '0');
+          const sig = JSON.stringify(r) + (catalog ? '1' : '0') + (ctx.weightless.has(r.number) ? 'w' : '');
           const old = cards.get(r.number);
           if (old && old.sig === sig) return old.node;
           const fresh = runCard(r);
@@ -4648,7 +4656,13 @@
             toast(t(onnx.checked && !exportFailed ? 'md.saved_onnx' : 'md.saved', { n: m.number }), 'success', 4000);
             await load(true);
             ctx.panels.models.count();
-          } catch (err) { save.disabled = false; toastError(err); }
+          } catch (err) {
+            toastError(err);
+            if (err.code !== 'run_no_weights') { save.disabled = false; return; }
+            ctx.weightless.add(r.number);  // the weights are gone: the card says so instead of offering the save again
+            dlg.close();
+            await load(true);
+          }
         });
         dlg.addEventListener('close', () => dlg.remove());
         document.body.appendChild(dlg);
@@ -5383,14 +5397,17 @@
       }
 
       async function removeModel(m) {
-        const ok = await confirmDialog({ title: t('md.delete_title', { n: m.number }), text: t('md.delete_text'), confirmLabel: t('md.delete') });
+        const text = [isPublic(m) ? t('md.delete_text_public') : t('md.delete_text'), m.current ? t('md.delete_text_current') : null].filter(Boolean).join(' ');
+        const ok = await confirmDialog({ title: t('md.delete_title', { n: m.number }), text, confirmLabel: t('md.delete') });
         if (!ok) return;
         try {
           await api('DELETE', `/projects/${projectId}/models/${m.number}`, { json: { confirm: true } });
+          if (m.run != null) ctx.weightless.add(m.run);
           toast(t('md.deleted', { n: m.number }), 'success', 3000);
         } catch (err) { toastError(err); }
         await load(true);
         ctx.panels.training.count();
+        ctx.panels.training.refresh();
       }
 
       const ONNX_KINDS = ['classification', 'semantic'];   // detection graphs are not reliable in ONNX yet

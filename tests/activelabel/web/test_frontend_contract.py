@@ -237,3 +237,15 @@ def test_no_text_says_segmentation_pre_annotation_comes_later():
         texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
         assert "kind_later" not in texts
         assert not re.search(r"segmentation models comes later|segmentação virá depois", texts)
+
+
+def test_a_run_whose_model_was_deleted_cannot_be_saved_again():
+    """Deleting a model takes the run's weights: the dialog says so (and that the project loses its current
+    model), and the run's save button is disabled with the reason, also after a refused save."""
+    assert "ctx.weightless.add(m.run)" in JS
+    assert "run_no_weights" in JS
+    card = JS[JS.index("const noWeights") :]
+    assert "saveButton.disabled = true" in card[:400]
+    assert "md.no_weights" in card[:1500]
+    remove = JS[JS.index("async function removeModel") :]
+    assert "md.delete_text_current" in remove[:600]
