@@ -35,7 +35,7 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
 
 ## Minimum confidence
 
-Detections below it are left out; for classification, an image whose best class is below it stays
+Detections (and segments) below it are left out; for classification, an image whose best class is below it stays
 without a label. The screen limits it to 0.05–0.95 and proposes 0.5 for classification and 0.3 for detection and
 keypoints (a reviewer corrects a few extra boxes faster than drawing missing ones). Models trained on few images give low
 scores: when a run finds nothing, the screen says so and suggests a lower threshold.
@@ -51,8 +51,25 @@ is skipped and counted (`counts.unreadable`). A run interrupted by a restart end
 error `interrupted`; it can be started again. Logs:
 `<project>/preannotations/p<N>.log`; runs: `<project>/preannotations.json`.
 
-Supported now: classification, detection and keypoints (torchvision). Semantic and instance
-segmentation need masks turned into polygons and come later; YOLO comes with the Ultralytics models.
+Supported: classification, detection, keypoints, **instance segmentation and semantic segmentation**
+(torchvision). A segmentation model predicts masks; the worker (which has no OpenCV) sends each mask as a
+run-length code of at most a fixed size on its longer side, and ActiveLabel turns it into polygons: the
+outer outline of every region (holes are not kept), regions smaller than 0.02 % of the image are dropped
+as noise, and each outline is simplified (Douglas-Peucker, tolerance 0.4 % of its perimeter, at least one
+pixel). An instance gives one object with all its regions as rings; the mask of a whole class from a
+semantic model becomes one object per region. Every polygon object also gets its bounding box. YOLO comes
+with the Ultralytics models.
+
+What is written is checked when the run ends:
+
+- Only labels of the project's **current classes** and with the **shape its type needs** are written; the
+  others are counted, not written (`counts.dropped_class`, `counts.dropped_geometry`). A model whose
+  classes are all gone from the project is refused (the run fails with a plain text).
+- A keypoint model must find the same number of points per object as the labels of the project
+  (`num_keypoints` on the model card); otherwise the run is refused with a text that names both numbers.
+- If the project's type or classes changed while the model was running, **nothing is written** and the run
+  fails with a text that says to run it again (changing them waits for runs that already started, but a
+  run can be queued first).
 
 ## Public models
 
@@ -94,9 +111,14 @@ mapping is empty, or names a category or class that does not exist).
 | POST | `/api/projects/{id}/preannotations/{n}/cancel` | cancel a queued or running run |
 | POST | `/api/projects/{id}/preannotations/accept` | accept the pre-annotations of a task (`{task}`) or of every task |
 
-Errors: 404 for an unknown model or run; 400 for a model whose kind is not supported yet or does not fit
-the project type, a threshold outside 0.001–0.999, an unknown scope or task, or no image to fill; 409 when the
-same task and scope are already being pre-annotated.
+Errors (each with a `code`, docs/DESIGN.md): 404 for an unknown model, run or task (`model_not_found`,
+`preannotation_not_found`, `task_not_found`); 400 for a model that is not in this version's catalogue
+(`model_not_in_catalogue`), whose labels the project does not use (`model_kind_mismatch`) or whose kind
+cannot pre-annotate (`preannotation_kind_unsupported`: today only the YOLO family), a threshold outside
+0.001–0.999 (`threshold_range`), an unknown scope (`scope_invalid`) or no image to fill
+(`no_images_for_choice`); 409 when the same task and scope are already being pre-annotated
+(`preannotation_running`). The result of a run has `counts` with `images`, `objects`, `skipped`,
+`unreadable`, `empty`, `dropped_class` and `dropped_geometry`.
 
 Edit sessions accept the image scope `preannotated` (images whose labels are all pre-annotations).
 
