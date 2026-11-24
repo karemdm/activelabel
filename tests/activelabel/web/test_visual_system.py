@@ -107,3 +107,15 @@ def test_long_image_names_keep_their_end():
     assert re.search(r"^\.thumb-name \{ direction: rtl; text-align: left; \}", CSS, re.M)
     assert r'.thumb-name::before, .thumb-name::after { content: "\200E"; }' in CSS  # LTR marks
     assert "el('span', { class: 'thumb-name', title: img.name }" in JS  # the full name stays in the title
+
+
+def test_curation_histograms_fill_the_row_and_limits_show_their_state():
+    """#340 items 2, 3 and alignment."""
+    block = CSS[CSS.index("/* #340 (Curation)") :]
+    assert re.search(r"\.hist \{ flex: 1 1 240px", block)
+    assert re.search(
+        r'\.btn\[aria-controls="cur-limits"\]\[aria-expanded="true"\] \{ background: var\(--area-soft\)',
+        block,
+    )
+    assert re.search(r"\.th-grid \.field\.inline \{[^}]*justify-content: flex-end", block)
+    assert "'aria-controls': 'cur-limits'" in JS
