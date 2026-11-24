@@ -30,6 +30,14 @@ _LOCKS_GUARD = threading.Lock()
 
 
 def _lock_for(path: Path) -> threading.RLock:
+    """One lock per file, shared by every store object that uses it.
+
+    Args:
+        path: the file to lock (resolved, so every spelling of it shares one lock).
+
+    Returns:
+        The re-entrant lock of that file.
+    """
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
@@ -49,11 +57,19 @@ class VideoInfo:
     ext: str = ".mp4"
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            All the fields, as a dict.
+        """
         return asdict(self)
 
     def public(self) -> dict[str, Any]:
-        """The form returned by the API (without the file extension)."""
+        """The form returned by the API (without the file extension).
+
+        Returns:
+            All the fields but ``ext``, as a dict.
+        """
         data = asdict(self)
         data.pop("ext")
         return data
@@ -61,6 +77,12 @@ class VideoInfo:
 
 def probe(path: Path) -> tuple[float, int, int, int]:
     """Read ``(fps, frames, width, height)`` of a video.
+
+    Args:
+        path: the video file.
+
+    Returns:
+        The frame rate, the number of frames, the width and the height in pixels.
 
     Raises:
         CodedError: OpenCV cannot read it, or it has no frames or no frame rate.
@@ -86,17 +108,32 @@ class VideoStore:
     """Videos of one project (``videos.json`` and the ``videos`` folder)."""
 
     def __init__(self, project_dir: Path) -> None:
+        """Point the store at ``<project_dir>/videos`` and ``<project_dir>/videos.json``.
+
+        Args:
+            project_dir: folder of the project.
+        """
         self.project_dir = project_dir
         self.folder = project_dir / "videos"
         self.path = project_dir / "videos.json"
         self._lock = _lock_for(self.path)
 
     def list(self) -> list[VideoInfo]:
-        """Every video, in upload order."""
+        """Every video, in upload order.
+
+        Returns:
+            The metadata of each stored video.
+        """
         return [VideoInfo(**item) for item in read_json(self.path, [])]
 
     def get(self, video_id: str) -> VideoInfo:
         """One video.
+
+        Args:
+            video_id: id of the video.
+
+        Returns:
+            Its metadata.
 
         Raises:
             KeyError: unknown id.
@@ -107,7 +144,14 @@ class VideoStore:
         raise KeyError(video_id)
 
     def file(self, info: VideoInfo) -> Path:
-        """Absolute path of the stored video."""
+        """Absolute path of the stored video.
+
+        Args:
+            info: metadata of the video.
+
+        Returns:
+            Its path in the videos folder.
+        """
         return self.folder / f"{info.id}{info.ext}"
 
     def add(self, name: str, ext: str, tmp: Path, video_id: str, size: int) -> VideoInfo:
@@ -115,8 +159,19 @@ class VideoStore:
 
         The same content again returns the existing record and discards ``tmp``.
 
+        Args:
+            name: original file name.
+            ext: file extension with the dot (it decides the decoder OpenCV uses).
+            tmp: the uploaded file, already complete, inside the videos folder.
+            video_id: id of the video (the first 16 hex digits of the SHA-256 of its content).
+            size: size of the file in bytes.
+
+        Returns:
+            The metadata of the video (the existing one when it was already stored).
+
         Raises:
-            ValueError: the file cannot be read as a video.
+            ValueError: the file cannot be read as a video (a ``CodedError`` from :func:`probe`; the
+                file is removed).
         """
         with self._lock:
             for info in self.list():
@@ -136,7 +191,11 @@ class VideoStore:
             return info
 
     def delete(self, video_id: str) -> None:
-        """Remove a video and its record."""
+        """Remove a video and its record.
+
+        Args:
+            video_id: id of the video (an unknown id changes nothing).
+        """
         with self._lock:
             kept = []
             for info in self.list():
@@ -147,7 +206,15 @@ class VideoStore:
             write_json(self.path, [i.as_dict() for i in kept])
 
     def drop_if_unused(self, video_id: str, tasks: Iterable[Any]) -> bool:
-        """Delete the video when no task uses it. Returns whether it was deleted."""
+        """Delete the video when no task uses it.
+
+        Args:
+            video_id: id of the video.
+            tasks: the tasks of the project (their ``source`` says which video they use).
+
+        Returns:
+            Whether the video was deleted.
+        """
         if any((t.source or {}).get("video") == video_id for t in tasks):
             return False
         self.delete(video_id)
@@ -161,7 +228,18 @@ def resolve_selection(
     step: int = 1,
     every_seconds: float | None = None,
 ) -> tuple[int, int, int]:
-    """Validate a frame selection. Returns ``(start, stop, step)``.
+    """Validate a frame selection.
+
+    Args:
+        info: the video.
+        start: first frame.
+        stop: last frame, included (None = the last frame of the video).
+        step: take one frame every ``step`` frames.
+        every_seconds: take one frame every this many seconds; when given it replaces ``step``
+            (rounded to whole frames, at least 1).
+
+    Returns:
+        ``(start, stop, step)`` with the defaults filled in.
 
     Raises:
         CodedError: ``0 <= start <= stop < frames`` or ``step >= 1`` does not hold.
@@ -185,7 +263,16 @@ def resolve_selection(
 
 
 def plan(start: int, stop: int, step: int) -> dict[str, int]:
-    """How many frames a selection has: ``{frames, step, first, last}``."""
+    """How many frames a selection has: ``{frames, step, first, last}``.
+
+    Args:
+        start: first frame.
+        stop: last frame, included.
+        step: take one frame every ``step`` frames.
+
+    Returns:
+        The number of frames taken, the step, and the first and last frame taken.
+    """
     count = (stop - start) // step + 1
     return {"frames": count, "step": step, "first": start, "last": start + (count - 1) * step}
 
@@ -195,6 +282,11 @@ def check_extraction(info: VideoInfo, frames: int, folder: Path) -> None:
 
     Frames are written twice while a task is made (a temporary copy, then the project's images),
     so twice the estimated size must be free in ``folder``.
+
+    Args:
+        info: the video (its size sets the estimate).
+        frames: number of frames the selection takes.
+        folder: where the frames will be written (created when missing).
 
     Raises:
         CodedError: more than ``MAX_TASK_FRAMES`` frames, or not enough free space.
@@ -227,11 +319,20 @@ def extract_frames(
 
     Frames are read in sequence (``grab``/``retrieve``), which is exact and faster than seeking.
 
+    Args:
+        video: the video file.
+        start: first frame.
+        stop: last frame, included.
+        step: take one frame every ``step`` frames.
+        target: existing folder for the files (named by the frame index, ``<index:08d>.jpg``).
+        progress: reports progress and checks for cancellation (None = neither).
+
     Returns:
         ``(frame index, file)`` in order; fewer than planned when the file ends early.
 
     Raises:
         Cancelled: the job was cancelled (the caller removes ``target``).
+        ValueError: a frame cannot be encoded as JPEG.
     """
     total = plan(start, stop, step)["frames"]
     out: list[tuple[int, Path]] = []
@@ -264,8 +365,16 @@ def extract_frames(
 def frame_jpeg(video: Path, index: int, width: int = 320) -> bytes:
     """One frame as JPEG, at most ``width`` pixels wide.
 
+    Args:
+        video: the video file.
+        index: the frame number.
+        width: the largest width in pixels (a wider frame is shrunk, keeping its proportions).
+
+    Returns:
+        The JPEG bytes (quality 80).
+
     Raises:
-        ValueError: the frame cannot be read.
+        CodedError: the frame cannot be read or encoded (a ``ValueError``).
     """
     cap = cv2.VideoCapture(str(video))
     try:
