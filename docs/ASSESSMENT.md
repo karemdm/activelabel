@@ -5,6 +5,14 @@ what can go wrong, and a prioritised proposal. It states facts that can be check
 marks opinions as such. Cost: S (hours), M (a day or two), L (a week or more). Risk is the risk of the
 change itself.
 
+## Status since the review
+
+Done since this review was written: stable error codes next to the English `detail` on most API errors
+(`web/errors.py`, `errors.py`; docs/DESIGN.md lists them), limits on names, classes, job size, archives
+and video frames, one FiftyOne dataset name per project, a shared check of label content against the
+task, and a faster manifest. Still open: an origin/host check for the API, schema versions in stored files,
+the split of `app.js` and of the runner, generated endpoint tables, a lock file and a release process.
+
 ## Strengths
 
 - **Clear layering.** Domain code (`labels`, `datasets`, `tasks_store`, `sync`, `training`) does not import
