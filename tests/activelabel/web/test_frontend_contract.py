@@ -95,3 +95,11 @@ def test_curation_actions_come_before_the_image_grid():
     assert mounted.index("actionsBar") < mounted.index("grid.node")
     assert "fo-box" not in panel and "fo-box" not in CSS
     assert "quiet-danger cur-reset" in panel  # "reset analysis" is quiet and apart from the safe actions
+
+
+def test_every_dialog_opens_through_the_one_pattern():
+    """Dialogs get the same head (title and X) when they open, and their foot stays in view."""
+    opened = re.findall(r"(\w+)\.showModal\(\)", JS)
+    assert set(opened) <= {"dlg", "lightbox", "newDlg"}  # the others go through openModal()
+    assert opened.count("dlg") == 1  # only inside openModal()
+    assert re.search(r"\.dialog-body \.form-actions\s*\{[^}]*position: sticky", CSS)

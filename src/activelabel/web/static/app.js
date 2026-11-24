@@ -376,6 +376,18 @@
   }
 
   /** A question with several answers; resolves with the chosen value, or null when cancelled. */
+  /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
+     in view while the body scrolls). The X is added here so no dialog forgets it. */
+  function openModal(dlg) {
+    const title = dlg.querySelector('h2');
+    if (title && !dlg.querySelector('.dlg-head')) {
+      const head = el('div', { class: 'dlg-head' });
+      title.replaceWith(head);
+      head.append(title, el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), title: t('common.close'), onclick: () => dlg.close() }, icon('close', 18)));
+    }
+    dlg.showModal();
+  }
+
   function choiceDialog({ title, text, choices }) {
     return new Promise((resolve) => {
       const dlg = el('dialog', { class: 'dialog wide', 'aria-label': title });
@@ -390,7 +402,7 @@
         el('div', { class: 'form-actions' }, cancelBtn)));
       dlg.addEventListener('close', () => { dlg.remove(); resolve(value); });
       document.body.appendChild(dlg);
-      dlg.showModal();
+      openModal(dlg);
       cancelBtn.focus();  // Enter must never pick an answer (some are destructive)
     });
   }
@@ -416,7 +428,7 @@
             cancelBtn)));
       dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
       document.body.appendChild(dlg);
-      dlg.showModal();
+      openModal(dlg);
       (input || (danger ? cancelBtn : okBtn)).focus();  // a destructive answer is never the one Enter gives
     });
   }
@@ -811,7 +823,7 @@
     });
     dlg.addEventListener('close', () => dlg.remove());
     document.body.appendChild(dlg);
-    dlg.showModal();
+    openModal(dlg);
     urlInput.focus();
   }
 
@@ -1138,7 +1150,7 @@
       });
       dlg.addEventListener('close', () => dlg.remove());
       document.body.appendChild(dlg);
-      dlg.showModal();
+      openModal(dlg);
       nameInput.focus();
     }
 
@@ -2729,7 +2741,7 @@
               el('div', { class: 'form-actions' }, okBtn, cancelBtn)));
           dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
           document.body.appendChild(dlg);
-          dlg.showModal();
+          openModal(dlg);
           cancelBtn.focus();
         });
         if (!ok) return;
@@ -3682,7 +3694,7 @@
     function openHistory() {
       if (!historyDlg) { historyDlg = el('dialog', { class: 'dialog wide', 'aria-label': t('jobs.history_title') }); document.body.appendChild(historyDlg); }
       fillHistory();
-      historyDlg.showModal();
+      openModal(historyDlg);
     }
     function closeHistory() { if (historyDlg && historyDlg.open) historyDlg.close(); }
 
@@ -4179,7 +4191,7 @@
         dlg.addEventListener('close', () => { clearTimeout(timer); token += 1; dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
         drawMode();
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
         changed();
         const first = dlg.querySelector('input');
         if (first) first.focus();
@@ -4445,7 +4457,7 @@
         });
         dlg.addEventListener('close', () => dlg.remove());
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
         note.focus();
       }
 
@@ -4727,7 +4739,7 @@
         drawFolds();
         drawModel();
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
         datasetSel.focus();
       }
 
@@ -5061,7 +5073,7 @@
 
         dlg.addEventListener('close', () => { clearTimeout(dtimer); dlg.remove(); load(true); });
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
         add(body, el('p', { class: 'muted' }, t('common.loading')));
         refresh().then(() => { const close = dlg.querySelector('[data-act="close"]'); if (close) close.focus(); });
       }
@@ -5146,7 +5158,7 @@
         });
         dlg.addEventListener('close', () => dlg.remove());
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
         input.focus();
       }
 
@@ -5341,7 +5353,7 @@
         });
         dlg.addEventListener('close', () => { dlg.remove(); if (trigger) trigger.focus(); });
         document.body.appendChild(dlg);
-        dlg.showModal();
+        openModal(dlg);
       }
 
       function draw() {
