@@ -138,8 +138,9 @@ semântica). *Adicionar modelo público* inclui um modelo já treinado no COCO, 
 2. Em *Anotações*, aba *Pré-anotar*: escolha o modelo (o atual, por padrão), a task, quais
    imagens (sem anotação, ou pré-anotadas e ainda não revisadas) e a confiança mínima (de 0,05
    a 0,95; a tela propõe 0,5 para classificação e 0,3 para detecção e pontos-chave). Inicie.
-   Imagens ilegíveis são contadas e puladas. Funciona para classificação, detecção e
-   pontos-chave.
+   Imagens ilegíveis são contadas e puladas. Funciona para classificação, detecção,
+   pontos-chave e segmentação (as máscaras viram polígonos). No cartão de um modelo em *Modelos*,
+   *Pré-anotar com este* abre esta aba com o modelo escolhido.
 3. Em *Para revisar*, use *Revisar no CVAT* ou *Revisar no FiftyOne*, corrija o que for
    preciso e traga de volta (sincronização com o CVAT, ou sessão de edição do FiftyOne). Ou
    escolha *Aceitar como estão*.

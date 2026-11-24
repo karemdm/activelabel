@@ -118,8 +118,9 @@ project is its *type*.)
 6. **Models** keeps the runs you save (*Save as model*): compare them, choose the current one
    (*Make current*), download the weights and export ONNX (classification and semantic
    segmentation). *Add a public model* adds a pretrained COCO model that needs no training. The
-   current model pre-annotates new images (*Annotations*, *Pre-annotate*) for classification,
-   detection and keypoints.
+   current model pre-annotates new images (*Annotations*, *Pre-annotate*, or *Pre-annotate with this
+   one* on its card) for classification, detection, keypoints and both kinds of segmentation (masks
+   become polygons).
 
 ### Activities
 
