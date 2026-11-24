@@ -124,6 +124,9 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
   width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: var(--space-2) 0.7rem; min-height: 40px;
 }
+/* every select looks like the other fields (the more specific rules below only change its size) */
+select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-1) 0.7rem; }
+.ann-task select { width: 100%; max-width: 28rem; }
 .form-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: var(--space-4); }
 
 .task-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
