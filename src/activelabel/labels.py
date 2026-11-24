@@ -10,7 +10,8 @@ A project keeps its ground truth in ``<project>/annotations.json``::
 from __future__ import annotations
 
 import threading
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,137 @@ def task_of(labels: list[Label]) -> Task | None:
     if any(lb.bbox for lb in labels):
         return Task.DETECTION
     return Task.CLASSIFICATION
+
+
+NO_GEOMETRY = "no_geometry"
+POLYGON_TOO_FEW_POINTS = "polygon_too_few_points"
+BOX_INVALID = "box_invalid"
+KEYPOINTS_COUNT_MISMATCH = "keypoints_count_mismatch"
+MULTIPLE_CLASSES = "multiple_classes"
+UNKNOWN_CLASS = "unknown_class"
+LABEL_PROBLEMS = (
+    NO_GEOMETRY,
+    POLYGON_TOO_FEW_POINTS,
+    BOX_INVALID,
+    KEYPOINTS_COUNT_MISMATCH,
+    MULTIPLE_CLASSES,
+    UNKNOWN_CLASS,
+)
+MAX_PROBLEM_EXAMPLES = 5
+
+
+def has_geometry(task: Task, label: Label) -> bool:
+    """Whether a label has the shape its task needs (classification needs none)."""
+    if task is Task.CLASSIFICATION:
+        return True
+    if task is Task.DETECTION:
+        return bool(label.bbox)
+    if task is Task.SEGMENTATION:
+        return bool(label.polygons)
+    return bool(label.keypoints)
+
+
+def geometry_problem(task: Task, label: Label, keypoints: int | None = None) -> str | None:
+    """The first thing wrong with the shape of one label for a task, or None when it is usable.
+
+    Args:
+        task: the task the label must fit.
+        label: the label.
+        keypoints: how many points a pose label must have; None leaves the count unchecked.
+
+    Returns:
+        ``no_geometry`` (the shape the task needs is missing), ``box_invalid`` (width or height not
+        positive, or the box lies entirely outside the image), ``polygon_too_few_points`` (a ring with
+        fewer than 3 points) or ``keypoints_count_mismatch``; None when the label is fine.
+    """
+    if not has_geometry(task, label):
+        return NO_GEOMETRY
+    if task is Task.DETECTION and label.bbox:
+        x, y, w, h = label.bbox[:4]
+        if w <= 0 or h <= 0 or x >= 1 or y >= 1 or x + w <= 0 or y + h <= 0:
+            return BOX_INVALID
+    elif task is Task.SEGMENTATION and any(len(ring) < 3 for ring in label.polygons or []):
+        return POLYGON_TOO_FEW_POINTS
+    elif task is Task.KEYPOINTS and keypoints is not None and len(label.keypoints or []) != keypoints:
+        return KEYPOINTS_COUNT_MISMATCH
+    return None
+
+
+@dataclass
+class LabelCheck:
+    """What :func:`validate_labels` found.
+
+    Attributes:
+        counts: for every category of ``LABEL_PROBLEMS``: how many labels (``multiple_classes``: how many
+            images) have the problem. Every category is present, zero when none.
+        examples: for every category with a problem, up to 5 image ids that have it.
+        labels: labels examined.
+    """
+
+    counts: dict[str, int] = field(default_factory=lambda: dict.fromkeys(LABEL_PROBLEMS, 0))
+    examples: dict[str, list[str]] = field(default_factory=dict)
+    labels: int = 0
+
+    def add(self, problem: str, image_id: str) -> None:
+        """Count one occurrence of ``problem`` on an image."""
+        self.counts[problem] += 1
+        found = self.examples.setdefault(problem, [])
+        if image_id not in found and len(found) < MAX_PROBLEM_EXAMPLES:
+            found.append(image_id)
+
+    @property
+    def ok(self) -> bool:
+        """True when nothing was found."""
+        return not any(self.counts.values())
+
+    def problems(self) -> dict[str, int]:
+        """Only the categories that have something, with their counts."""
+        return {k: v for k, v in self.counts.items() if v}
+
+
+def validate_labels(
+    task: Task,
+    labels_by_image: dict[str, list[Label]],
+    classes: list[str] | None = None,
+    keypoints: int | None = None,
+) -> LabelCheck:
+    """Check the content of labels against a task (pure: nothing is changed or written).
+
+    Used wherever labels enter or leave a project (import, sync, data split, training, pre-annotation) so
+    they all agree on what is usable. A label counts under ONE geometry problem (see
+    :func:`geometry_problem`); the class checks are separate.
+
+    Args:
+        task: the task the labels must fit.
+        labels_by_image: labels per image id.
+        classes: the project's classes; labels naming another class (ignoring case) count as
+            ``unknown_class``. None or empty skips that check.
+        keypoints: the number of points a pose label must have. None: the most common number among the
+            pose labels is taken as the expected one, so labels that differ from it are reported.
+
+    Returns:
+        The counts and examples per category. For classification ``multiple_classes`` counts the images
+        that have more than one distinct class (those keep only the first on import).
+    """
+    check = LabelCheck()
+    known = {c.lower() for c in classes or []}
+    expected = keypoints
+    if task is Task.KEYPOINTS and expected is None:
+        sizes = Counter(
+            len(lb.keypoints) for items in labels_by_image.values() for lb in items if lb.keypoints
+        )
+        expected = sizes.most_common(1)[0][0] if sizes else None
+    for image_id, items in labels_by_image.items():
+        for label in items:
+            check.labels += 1
+            problem = geometry_problem(task, label, expected)
+            if problem:
+                check.add(problem, image_id)
+            if known and label.label.lower() not in known:
+                check.add(UNKNOWN_CLASS, image_id)
+        if task is Task.CLASSIFICATION and len({lb.label.lower() for lb in items}) > 1:
+            check.add(MULTIPLE_CLASSES, image_id)
+    return check
 
 
 @dataclass

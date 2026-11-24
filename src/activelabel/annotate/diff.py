@@ -15,6 +15,7 @@ from activelabel.labels import (
     Label,
     annotations_lock,
     annotations_path,
+    has_geometry,
     load_annotations,
     save_annotations,
 )
@@ -140,16 +141,6 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
 
 
 # -- cleaning -------------------------------------------------------------------
-def _has_geometry(task: Task, label: Label) -> bool:
-    if task is Task.CLASSIFICATION:
-        return True
-    if task is Task.DETECTION:
-        return bool(label.bbox)
-    if task is Task.SEGMENTATION:
-        return bool(label.polygons)
-    return bool(label.keypoints)
-
-
 def clean_labels(project: Project, labels: list[Label]) -> tuple[list[Label], dict[str, int]]:
     """Labels that fit the project: class names match the class list ignoring case, geometry present.
 
@@ -160,7 +151,7 @@ def clean_labels(project: Project, labels: list[Label]) -> tuple[list[Label], di
     dropped = {"no_geometry": 0, "multiple_classes": 0}
     out: list[Label] = []
     for label in labels:
-        if not _has_geometry(project.task, label):
+        if not has_geometry(project.task, label):
             dropped["no_geometry"] += 1
             continue
         out.append(Label(**{**label.__dict__, "label": known.get(label.label.lower(), label.label)}))
