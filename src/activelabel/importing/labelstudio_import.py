@@ -10,14 +10,16 @@ appears in logs, files or messages.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import mimetypes
 import shutil
+import socket
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
@@ -39,6 +41,7 @@ EXPORT_TIMEOUT = 300
 DOWNLOAD_TIMEOUT = 120
 CHUNK = 1024 * 1024
 LABEL_TAGS = ("Labels", "RectangleLabels", "PolygonLabels", "KeyPointLabels", "BrushLabels", "EllipseLabels")
+MAX_REDIRECTS = 3
 FATAL = ("refused the token", "Cannot reach")  # failures that make every image fail: stop
 
 
@@ -141,6 +144,47 @@ def _local_name(value: str, used: set[str], index: int) -> str:
     return candidate
 
 
+def _refuse_non_public(url: str, own_host: str) -> None:
+    """Refuse an image address that points into this machine or its network (SSRF guard).
+
+    Task data of a Label Studio project is written by other people: an address like
+    ``http://169.254.169.254/...`` or ``http://localhost:8080/...`` must not make this server fetch it.
+    The Label Studio server itself (``own_host``) is allowed. A host that does not resolve is left to
+    fail by itself.
+
+    Raises:
+        ToolError: the host resolves to a private, loopback, link-local or otherwise non-public address.
+    """
+    host = urlsplit(url).hostname or ""
+    if not host or host == own_host:
+        return
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return
+    for info in infos:
+        ip = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if not ip.is_global:
+            raise ToolError("unsafe image address (not a public server)")
+
+
+def _get_public(url: str, own_host: str) -> requests.Response:
+    """GET an absolute image address without the token, checking every redirect like the first address."""
+    for _ in range(MAX_REDIRECTS + 1):
+        _refuse_non_public(url, own_host)
+        try:
+            response = requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True, allow_redirects=False)
+        except requests.RequestException:
+            raise ToolError("could not download the image") from None
+        location = response.headers.get("Location") if 300 <= response.status_code < 400 else None
+        if not location:
+            return response
+        url = urljoin(url, location)
+    raise ToolError("too many redirects")
+
+
 def _fetch(client: _Client, value: str, target: Path) -> str:
     """Download ``value`` to ``target``; returns the Content-Type. Raises ToolError."""
     base = client.url
@@ -149,10 +193,7 @@ def _fetch(client: _Client, value: str, target: Path) -> str:
     if value.startswith("/"):
         response = client.request("GET", value, timeout=DOWNLOAD_TIMEOUT, stream=True)
     elif urlsplit(value).scheme in ("http", "https"):
-        try:
-            response = requests.get(value, timeout=DOWNLOAD_TIMEOUT, stream=True)  # no token for other hosts
-        except requests.RequestException:
-            raise ToolError("could not download the image") from None
+        response = _get_public(value, urlsplit(base).hostname or "")  # no token for other hosts
         if response.status_code >= 400:
             raise ToolError(f"image server answered {response.status_code}")
     else:

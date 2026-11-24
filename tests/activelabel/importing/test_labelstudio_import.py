@@ -231,3 +231,46 @@ def test_token_refused_stops_import(server, tmp_path):
     with pytest.raises(ToolError, match="refused the token"):
         run(store, tmp_path)
     assert store.list() == []
+
+
+def test_task_data_cannot_make_the_server_fetch_internal_addresses(monkeypatch):
+    from activelabel.importing import labelstudio_import as imp
+
+    for host in (
+        "127.0.0.1",
+        "localhost",
+        "169.254.169.254",
+        "10.1.2.3",
+        "192.168.0.7",
+        "[::1]",
+        "[::ffff:127.0.0.1]",
+    ):
+        with pytest.raises(ToolError, match="not a public"):
+            imp._refuse_non_public(f"http://{host}:8080/x.png", "ls.example")
+    imp._refuse_non_public("http://ls.example/x.png", "ls.example")  # the Label Studio server itself
+    imp._refuse_non_public("http://no-such-host.invalid/x.png", "ls.example")  # fails later by itself
+    monkeypatch.setattr(imp.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 0))])
+    imp._refuse_non_public("http://cdn.example/x.png", "ls.example")
+
+
+def test_a_redirect_to_an_internal_address_is_refused(monkeypatch):
+    from activelabel.importing import labelstudio_import as imp
+
+    monkeypatch.setattr(imp.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 0))])
+
+    class Redirect:
+        status_code = 302
+        headers = {"Location": "http://169.254.169.254/latest/meta-data"}
+
+    seen = []
+    monkeypatch.setattr(requests, "get", lambda url, **kw: seen.append(url) or Redirect())
+    monkeypatch.setattr(
+        imp.socket,
+        "getaddrinfo",
+        lambda host, port: [
+            (2, 1, 6, "", ("169.254.169.254" if host.startswith("169") else "93.184.216.34", 0))
+        ],
+    )
+    with pytest.raises(ToolError, match="not a public"):
+        imp._get_public("http://cdn.example/a.png", "ls.example")
+    assert seen == ["http://cdn.example/a.png"]  # the internal address was never requested
