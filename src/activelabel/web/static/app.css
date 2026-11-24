@@ -1067,3 +1067,18 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-map-row { display: grid; grid-template-columns: minmax(6rem, auto) 1fr; gap: var(--space-2); align-items: center; }
 .md-map-row label { font-weight: 600; overflow-wrap: anywhere; }
 .md-public-choice input { margin-top: var(--space-1); flex: none; }
+
+/* phones and small tablets: every target is at least 44x44 px (#334), not only 44 px high. Kept last so it
+   wins over the fixed sizes above; the look on a desktop does not change. */
+@media (max-width: 760px) {
+  .icon-btn, .icon-btn.small, .tr-del, .ds-del, .lb-nav, .pager .btn, .lang-switch a { min-width: 44px; min-height: 44px; }
+  .icon-btn, .icon-btn.small, .tr-del { width: 44px; height: 44px; }
+  .lang-switch a { justify-content: center; }
+  .brand, .topnav a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+  .step-tab, .task-title, .job-row { min-height: 44px; }
+  summary { min-height: 44px; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+  /* the checkbox stays 22px; the box around it is the 44px target */
+  .thumb-check { padding: 10px; top: 0; left: 0; border-radius: 0 0 var(--radius-sm) 0; }
+  /* the remove-class X: a 44px target that overlaps the chip's padding, so the chip keeps its size */
+  .chip-x { padding: 16px; margin: -14px -10px -14px -12px; }
+}
