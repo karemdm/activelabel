@@ -130,6 +130,7 @@ heavy process (training, export or pre-annotation) runs at a time; the others wa
 
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
+[docs/ASSESSMENT.md](docs/ASSESSMENT.md) (strengths, risks and a roadmap),
 [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models) and
 [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md) (user guide in Portuguese).
 
