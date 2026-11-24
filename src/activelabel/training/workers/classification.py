@@ -55,12 +55,23 @@ class SpecError(ValueError):
 
 
 def emit(event: str, **fields: Any) -> None:
-    """Print one event line."""
+    """Print one event line.
+
+    Args:
+        event: Event name (``log``, ``progress``, ``epoch``, ``done`` or ``error``).
+        **fields: Extra fields of the JSON object.
+    """
     print(json.dumps({"event": event, **fields}), flush=True)
 
 
 def load_spec(path: str | Path) -> dict[str, Any]:
     """Read and check ``spec.json``.
+
+    Args:
+        path: Path of the spec file.
+
+    Returns:
+        The spec as a dict.
 
     Raises:
         SpecError: missing keys, an unsupported task, no images or a fold ``"all"``.
@@ -88,6 +99,13 @@ def load_spec(path: str | Path) -> dict[str, Any]:
 def augmentation_plan(preset: str, size: int) -> list[tuple[str, dict[str, Any]]]:
     """Training transforms of a preset as ``(torchvision.transforms name, kwargs)`` pairs.
 
+    Args:
+        preset: Augmentation preset (``none``, ``light``, ``standard`` or ``strong``).
+        size: Side of the square the images are resized to.
+
+    Returns:
+        The ``(transform name, keyword arguments)`` pairs, in order.
+
     Raises:
         SpecError: unknown preset.
     """
@@ -110,12 +128,25 @@ def augmentation_plan(preset: str, size: int) -> list[tuple[str, dict[str, Any]]
 
 
 def eval_plan(size: int) -> list[tuple[str, dict[str, Any]]]:
-    """Transforms of validation and test images."""
+    """Transforms of validation and test images.
+
+    Args:
+        size: Side of the square the images are resized to.
+
+    Returns:
+        The ``(transform name, keyword arguments)`` pairs, in order.
+    """
     return [("Resize", {"size": (size, size)})]
 
 
 def head_path(model_id: str) -> str:
     """Dotted path of the classifier layer of a torchvision model.
+
+    Args:
+        model_id: The torchvision model name (e.g. ``resnet50``).
+
+    Returns:
+        The dotted attribute path of the layer.
 
     Raises:
         SpecError: unknown model.
@@ -127,7 +158,16 @@ def head_path(model_id: str) -> str:
 
 
 def confusion_matrix(truth: list[int], predicted: list[int], n: int) -> list[list[int]]:
-    """``matrix[true][predicted]`` counts."""
+    """``matrix[true][predicted]`` counts.
+
+    Args:
+        truth: True class index of each image.
+        predicted: Predicted class index of each image.
+        n: Number of classes.
+
+    Returns:
+        The ``n`` by ``n`` matrix of counts.
+    """
     matrix = [[0] * n for _ in range(n)]
     for t, p in zip(truth, predicted, strict=True):
         matrix[t][p] += 1
@@ -135,11 +175,28 @@ def confusion_matrix(truth: list[int], predicted: list[int], n: int) -> list[lis
 
 
 def _ratio(a: float, b: float) -> float:
+    """``a / b``, or 0.0 when ``b`` is zero.
+
+    Args:
+        a: Numerator.
+        b: Denominator.
+
+    Returns:
+        The quotient, or 0.0.
+    """
     return a / b if b else 0.0
 
 
 def per_class(matrix: list[list[int]], classes: list[str]) -> dict[str, dict[str, float]]:
-    """Precision, recall, F1 and support of every class."""
+    """Precision, recall, F1 and support of every class.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``).
+        classes: Class names, in the order of the matrix.
+
+    Returns:
+        ``{class: {"precision", "recall", "f1", "support"}}``.
+    """
     out = {}
     for i, name in enumerate(classes):
         tp = matrix[i][i]
@@ -152,13 +209,27 @@ def per_class(matrix: list[list[int]], classes: list[str]) -> dict[str, dict[str
 
 
 def accuracy(matrix: list[list[int]]) -> float:
-    """Share of correct predictions."""
+    """Share of correct predictions.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``).
+
+    Returns:
+        The accuracy, 0..1.
+    """
     total = sum(map(sum, matrix))
     return _ratio(sum(matrix[i][i] for i in range(len(matrix))), total)
 
 
 def macro_f1(matrix: list[list[int]]) -> float:
-    """Mean F1 over the classes that appear in the truth or in the predictions."""
+    """Mean F1 over the classes that appear in the truth or in the predictions.
+
+    Args:
+        matrix: Confusion matrix (``matrix[true][predicted]``).
+
+    Returns:
+        The macro F1, 0..1.
+    """
     n = len(matrix)
     scores = []
     for i in range(n):
@@ -173,7 +244,17 @@ def macro_f1(matrix: list[list[int]]) -> float:
 
 
 def evaluation(truth: list[int], predicted: list[int], classes: list[str]) -> dict[str, Any]:
-    """Accuracy, macro F1, per-class metrics and the confusion matrix."""
+    """Accuracy, macro F1, per-class metrics and the confusion matrix.
+
+    Args:
+        truth: True class index of each image.
+        predicted: Predicted class index of each image.
+        classes: Class names.
+
+    Returns:
+        A dict with ``accuracy``, ``macro_f1``, ``per_class``, ``confusion_matrix``, ``classes`` and
+        ``images``.
+    """
     matrix = confusion_matrix(truth, predicted, len(classes))
     return {
         "accuracy": accuracy(matrix),
@@ -186,7 +267,14 @@ def evaluation(truth: list[int], predicted: list[int], classes: list[str]) -> di
 
 
 def split_folds_note(spec: dict[str, Any]) -> str:
-    """One-line description of the data, for the log."""
+    """One-line description of the data, for the log.
+
+    Args:
+        spec: The job spec (``parts``, ``classes`` and optionally ``fold``).
+
+    Returns:
+        The sentence with image counts per part, the fold and the number of classes.
+    """
     parts = spec["parts"]
     sizes = ", ".join(f"{k} {len(v)}" for k, v in parts.items())
     fold = f", fold {spec['fold']}" if spec.get("fold") is not None else ""
@@ -197,13 +285,32 @@ class ImageDataset:
     """Map-style dataset of ``{"path", "label"}`` items (works with ``torch.utils.data.DataLoader``)."""
 
     def __init__(self, items: list[dict[str, Any]], transform: Any) -> None:
+        """Keep the items and the transform.
+
+        Args:
+            items: The images of one part (``path`` and ``label`` each).
+            transform: The transforms applied to every image.
+        """
         self.items = items
         self.transform = transform
 
     def __len__(self) -> int:
+        """Number of images.
+
+        Returns:
+            The number of items in the part.
+        """
         return len(self.items)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
+        """The transformed image and class index at ``index``.
+
+        Args:
+            index: Position in the part.
+
+        Returns:
+            ``(image tensor, class index)``.
+        """
         item = self.items[index]
         with Image.open(item["path"]) as image:
             # labels are drawn on the photo as shown (EXIF rotation applied)
@@ -216,7 +323,14 @@ class ImageDataset:
 
 
 def pick_device(torch: Any) -> str:
-    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``."""
+    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``.
+
+    Args:
+        torch: The torch module.
+
+    Returns:
+        The device name.
+    """
     if torch.cuda.is_available():
         return "cuda"
     mps = getattr(torch.backends, "mps", None)
@@ -226,7 +340,12 @@ def pick_device(torch: Any) -> str:
 
 
 def seed_everything(seed: int, torch: Any) -> None:
-    """Seed Python, numpy and torch."""
+    """Seed Python, numpy and torch.
+
+    Args:
+        seed: The seed.
+        torch: The torch module.
+    """
     random.seed(seed)
     numpy.random.seed(seed)
     torch.manual_seed(seed)
@@ -235,19 +354,42 @@ def seed_everything(seed: int, torch: Any) -> None:
 
 
 def build_transforms(plan: list[tuple[str, dict[str, Any]]]) -> Any:
-    """Compose the planned transforms, then tensor conversion and normalisation."""
+    """Compose the planned transforms, then tensor conversion and normalisation.
+
+    Args:
+        plan: ``(torchvision.transforms name, kwargs)`` pairs, as from ``augmentation_plan``.
+
+    Returns:
+        The composed transform.
+    """
     steps = [getattr(transforms, name)(**kwargs) for name, kwargs in plan]
     steps += [transforms.ToTensor(), transforms.Normalize(MEAN, STD)]
     return transforms.Compose(steps)
 
 
 def _get(module: Any, path: str) -> Any:
+    """The attribute (or sequence item, for numeric parts) of ``module`` at a dotted ``path``.
+
+    Args:
+        module: The object to start from.
+        path: Dotted path such as ``classifier.2``.
+
+    Returns:
+        The object at the path.
+    """
     for part in path.split("."):
         module = module[int(part)] if part.isdigit() else getattr(module, part)
     return module
 
 
 def _set(module: Any, path: str, value: Any) -> None:
+    """Replace the attribute (or sequence item) of ``module`` at a dotted ``path`` with ``value``.
+
+    Args:
+        module: The object to start from.
+        path: Dotted path such as ``classifier.2``.
+        value: The new object.
+    """
     *parents, last = path.split(".")
     holder = _get(module, ".".join(parents)) if parents else module
     if last.isdigit():
@@ -259,8 +401,16 @@ def _set(module: Any, path: str, value: Any) -> None:
 def build_model(spec: dict[str, Any], pretrained: bool) -> tuple[Any, Any]:
     """The model with a new classifier for the classes, and that classifier layer.
 
+    Args:
+        spec: The job spec (``classes``, ``model``, ``family`` and ``params.image_size``).
+        pretrained: Load pretrained weights (downloads them when needed).
+
+    Returns:
+        ``(model, classifier layer)``.
+
     Raises:
-        SpecError: a size the model cannot take.
+        SpecError: a size the model cannot take, or an unknown torchvision model.
+        ImportError: a timm model was asked for and timm is not installed.
     """
     n = len(spec["classes"])
     model_id, size = spec["model"], int(spec["params"]["image_size"])
@@ -283,7 +433,17 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> tuple[Any, Any]:
 
 
 def make_optimizer(spec: dict[str, Any], model: Any, head: Any, torch: Any) -> Any:
-    """Optimizer for the start mode: head only, backbone at a lower rate, or everything."""
+    """Optimizer for the start mode: head only, backbone at a lower rate, or everything.
+
+    Args:
+        spec: The job spec (``start`` and ``params``).
+        model: The network; in ``transfer`` mode its parameters are frozen except the head.
+        head: The classifier layer of ``model``.
+        torch: The torch module.
+
+    Returns:
+        The optimizer (SGD, Adam or AdamW as in ``params.optimizer``).
+    """
     p = spec["params"]
     lr, start = float(p["lr"]), spec["start"]
     head_params = list(head.parameters())
@@ -312,7 +472,16 @@ def make_optimizer(spec: dict[str, Any], model: Any, head: Any, torch: Any) -> A
 
 
 def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``."""
+    """Learning rate schedule, or ``None``.
+
+    Args:
+        spec: The job spec (``params.scheduler`` and ``params.epochs``).
+        optimizer: The optimizer to schedule.
+        torch: The torch module.
+
+    Returns:
+        A cosine or step scheduler, or ``None`` for a constant rate.
+    """
     name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
     if name == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -330,7 +499,20 @@ def run_epoch(
     optimizer: Any = None,
     on_step: ProgressFn = None,
 ) -> tuple[float, list[int], list[int]]:
-    """One pass over a loader. Trains when ``optimizer`` is given. Returns loss, truth, predictions."""
+    """One pass over a loader. Trains when ``optimizer`` is given.
+
+    Args:
+        model: The network.
+        loader: Data loader of ``(images, labels)`` batches.
+        device: Torch device name.
+        torch: The torch module.
+        loss_fn: Loss function ``(output, labels)``.
+        optimizer: The optimizer; ``None`` evaluates without gradients.
+        on_step: Called with ``(step, steps)`` after each batch (optional).
+
+    Returns:
+        ``(mean loss per image, true class indices, predicted class indices)``.
+    """
     training = optimizer is not None
     total, count = 0.0, 0
     truth: list[int] = []
@@ -404,7 +586,21 @@ def save_checkpoint(path: Path, model: Any, meta: dict[str, Any], epoch: int) ->
 
 
 def train(spec: dict[str, Any]) -> dict[str, Any]:
-    """Train, keep the best epoch by the selection metric, evaluate the test part. Returns the results."""
+    """Train, keep the best epoch by the selection metric, evaluate the test part.
+
+    Writes ``best.pt``, ``last.pt`` and ``results.json`` to ``output_dir``.
+
+    Args:
+        spec: The checked job spec.
+
+    Returns:
+        The results: ``metric``, ``best_epoch``, ``epochs_run``, ``stopped_early``, ``val`` and
+        ``test`` (``None`` without a test part).
+
+    Raises:
+        SpecError: A model, size or preset the worker cannot use.
+        ImportError: A timm model was asked for and timm is not installed.
+    """
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
     out = Path(spec["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
@@ -505,7 +701,14 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: Command line; ``argv[1]`` is the path of the spec JSON file.
+
+    Returns:
+        Process exit code: 0 on success, 1 after an ``error`` event.
+    """
     try:
         spec = load_spec(argv[1])
         results = train(spec)

@@ -42,18 +42,41 @@ MASK_THRESHOLD = 0.5  # instance mask probability that counts as inside the obje
 
 
 def emit(event: str, **fields: Any) -> None:
-    """One JSON line for ActiveLabel."""
+    """One JSON line for ActiveLabel.
+
+    Args:
+        event: Event name (``progress``, ``prediction``, ``skipped``, ``done`` or ``error``).
+        **fields: Extra fields of the JSON object.
+    """
     print(json.dumps({"event": event, **fields}), flush=True)
 
 
 def _clamp(value: float) -> float:
+    """``value`` limited to the range 0..1.
+
+    Args:
+        value: Any number.
+
+    Returns:
+        The number clamped to 0..1.
+    """
     return min(1.0, max(0.0, value))
 
 
 def classification_labels(
     probabilities: list[float], classes: list[str], threshold: float, model: str
 ) -> list[dict[str, Any]]:
-    """The most likely class when it reaches ``threshold`` (else no label)."""
+    """The most likely class when it reaches ``threshold`` (else no label).
+
+    Args:
+        probabilities: Probability of each class, in the order of ``classes``.
+        classes: Class names, in the order of the network's outputs.
+        threshold: Lowest confidence kept.
+        model: Name of the saved model, stored in the label.
+
+    Returns:
+        A list with one label (``label``, ``score``, ``model``), or an empty list.
+    """
     best = max(range(len(probabilities)), key=lambda i: probabilities[i])
     score = float(probabilities[best])
     if score < threshold or best >= len(classes):
@@ -66,6 +89,12 @@ def encode_mask(mask: Any) -> dict[str, Any]:
 
     ``counts`` are the lengths of the alternating runs of the flattened (row by row) mask, the first
     one of zeros (possibly 0 long).
+
+    Args:
+        mask: 2-D boolean array (anything ``numpy`` converts to one; needs a ``shape``).
+
+    Returns:
+        ``{"size": [h, w], "counts": [...]}``.
     """
     flat = np.asarray(mask, dtype=bool).reshape(-1)
     changes = np.flatnonzero(flat[1:] != flat[:-1]) + 1
@@ -77,7 +106,15 @@ def encode_mask(mask: Any) -> dict[str, Any]:
 
 
 def mask_step(width: int, height: int) -> int:
-    """Subsampling step that brings the longer side of a mask to at most ``MAX_MASK_SIDE``."""
+    """Subsampling step that brings the longer side of a mask to at most ``MAX_MASK_SIDE``.
+
+    Args:
+        width: Image width in pixels.
+        height: Image height in pixels.
+
+    Returns:
+        The step, at least 1.
+    """
     return max(1, -(-max(width, height) // MAX_MASK_SIDE))
 
 
@@ -88,6 +125,17 @@ def semantic_labels(
 
     The score of a class is the mean confidence of its pixels; classes below ``threshold`` are left
     out. The label has only a mask: ActiveLabel splits it into one polygon object per region.
+
+    Args:
+        classes_map: 2-D array with the class index of each pixel.
+        confidence: 2-D array, same shape, with the confidence of each pixel.
+        classes: Project class names (index 0 of the list is class 1 of the map); ``None`` marks a
+            category the project does not use.
+        threshold: Lowest mean confidence kept.
+        model: Name of the saved model, stored in each label.
+
+    Returns:
+        A list of labels (``label``, ``score``, ``model``, ``mask``).
     """
     out = []
     for index in np.unique(classes_map):
@@ -121,7 +169,23 @@ def detection_labels(
 ) -> list[dict[str, Any]]:
     """Objects at or above ``threshold``: relative box ``[x, y, w, h]``, class name (0 is background).
 
-    ``masks`` (one boolean 2-D array per detection, any resolution) add a ``mask`` to each object.
+    Args:
+        boxes: Boxes ``[x1, y1, x2, y2]`` in pixels.
+        labels: Class index of each box (0 is background).
+        scores: Confidence of each box.
+        width: Image width in pixels.
+        height: Image height in pixels.
+        classes: Project class names (index 0 of the list is class 1); ``None`` marks a category the
+            project does not use.
+        threshold: Lowest confidence kept.
+        model: Name of the saved model, stored in each label.
+        keypoints: Per detection, a list of ``[x, y, visibility]`` points in pixels (optional).
+        masks: One boolean 2-D array per detection, any resolution; adds a ``mask`` to each object
+            (optional).
+
+    Returns:
+        A list of labels with ``label``, ``bbox``, ``score``, ``model`` and, when given, ``keypoints``
+        and ``mask``.
     """
     out = []
     for i, (box, label, score) in enumerate(zip(boxes, labels, scores, strict=True)):
@@ -154,7 +218,16 @@ def detection_labels(
 
 
 def instance_masks(probabilities: Any, width: int, height: int) -> list[Any]:
-    """Boolean masks (reduced to at most ``MAX_MASK_SIDE`` pixels) of the ``(N, 1, H, W)`` mask output."""
+    """Boolean masks (reduced to at most ``MAX_MASK_SIDE`` pixels) of the ``(N, 1, H, W)`` mask output.
+
+    Args:
+        probabilities: Tensor of mask probabilities, shape ``(N, 1, H, W)``.
+        width: Image width in pixels.
+        height: Image height in pixels.
+
+    Returns:
+        One 2-D boolean array per detection.
+    """
     step = mask_step(width, height)
     return [m[::step, ::step] for m in (probabilities[:, 0] > MASK_THRESHOLD).cpu().numpy()]
 
@@ -164,6 +237,17 @@ def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device:
 
     The image is resized to the training size, like in evaluation, and the logits are scaled back
     to the (reduced) size of the photo before the argmax.
+
+    Args:
+        model: The segmentation network, already on ``device`` and in eval mode.
+        image: RGB ``PIL`` image.
+        size: Side of the square the image is resized to for the network.
+        mean: Per-channel mean used to normalise the image.
+        std: Per-channel standard deviation used to normalise the image.
+        device: Torch device name the model is on.
+
+    Returns:
+        ``(class map, confidence)`` as 2-D ``numpy`` arrays.
     """
     width, height = image.size
     step = mask_step(width, height)
@@ -182,7 +266,18 @@ def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device:
 
 
 def predict(spec: dict[str, Any]) -> dict[str, int]:
-    """Run the model over every item, emitting one ``prediction`` per image."""
+    """Run the model over every item, emitting one ``prediction`` per image.
+
+    Args:
+        spec: The job spec (see the module docstring).
+
+    Returns:
+        Totals ``{"images", "objects", "unreadable"}``: images with at least one label, labels, and
+        files that could not be read.
+
+    Raises:
+        ValueError: The task is not supported, or the weights do not match the network.
+    """
     task = spec["task"]
     if task not in KINDS:
         raise ValueError(f"Pre-annotation with {task} models is not available yet.")
@@ -271,7 +366,14 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
 
 
 def main(argv: list[str]) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: Command line; ``argv[1]`` is the path of the spec JSON file.
+
+    Returns:
+        Process exit code: 0 on success, 1 after an ``error`` event.
+    """
     try:
         spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
         totals = predict(spec)

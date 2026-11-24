@@ -64,11 +64,19 @@ class PublicModel:
     keypoints: tuple[str, ...] = field(default=())
 
     def classes(self) -> list[str]:
-        """Categories a project class can be mapped from (no background, no unused indexes)."""
+        """Categories a project class can be mapped from (no background, no unused indexes).
+
+        Returns:
+            The category names without the first one (background) and the ``N/A`` placeholders.
+        """
         return [c for c in self.categories[1:] if c != "N/A"]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form (with the mappable classes)."""
+        """JSON-ready form (with the mappable classes).
+
+        Returns:
+            The model as a dict, with ``categories`` as a list and ``classes`` added.
+        """
         data = asdict(self)
         data["categories"] = list(self.categories)
         data["keypoints"] = list(self.keypoints)
@@ -126,12 +134,26 @@ PROJECT_TYPE = {"detection": "detection", "keypoints": "keypoints"}
 
 
 def get_public(model_id: str) -> PublicModel | None:
-    """A public model by id, or None."""
+    """A public model by id, or None.
+
+    Args:
+        model_id: id of the public model.
+
+    Returns:
+        The model, or ``None`` when the id is unknown.
+    """
     return next((m for m in PUBLIC_MODELS if m.id == model_id), None)
 
 
 def public_for(project_type: str | None) -> list[PublicModel]:
-    """Public models that make the labels a project of this type uses (all without a type)."""
+    """Public models that make the labels a project of this type uses (all without a type).
+
+    Args:
+        project_type: project type (``detection``, ``keypoints``...), or ``None`` for every model.
+
+    Returns:
+        The matching public models, in catalogue order.
+    """
     return [m for m in PUBLIC_MODELS if project_type is None or PROJECT_TYPE.get(m.task_kind) == project_type]
 
 

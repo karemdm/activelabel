@@ -40,7 +40,12 @@ KINDS = ("classification", "semantic")  # detection graphs break in ONNX Runtime
 
 
 def emit(event: str, **fields: Any) -> None:
-    """One JSON line for ActiveLabel."""
+    """One JSON line for ActiveLabel.
+
+    Args:
+        event: Event name (``log``, ``done`` or ``error``).
+        **fields: Extra fields of the JSON object.
+    """
     print(json.dumps({"event": event, **fields}), flush=True)
 
 
@@ -49,6 +54,10 @@ def check_keys(missing: list[str], unexpected: list[str]) -> None:
 
     A pretrained torchvision detector uses frozen batch norm (no ``num_batches_tracked``) and a
     pretrained segmentation model has an auxiliary classifier, which inference does not use.
+
+    Args:
+        missing: Keys the network has but the checkpoint lacks.
+        unexpected: Keys the checkpoint has but the network lacks.
 
     Raises:
         ValueError: any other missing or unexpected weight.
@@ -64,16 +73,40 @@ class Logits(torch.nn.Module):
     """A torchvision segmentation model that returns only its logits (ONNX wants a plain tensor)."""
 
     def __init__(self, inner: Any) -> None:
+        """Wrap a segmentation model.
+
+        Args:
+            inner: The torchvision model whose forward returns a dict with an ``out`` entry.
+        """
         super().__init__()
         self.inner = inner
 
     def forward(self, x: Any) -> Any:
-        """The ``out`` logits of the wrapped model for the images ``x``."""
+        """The ``out`` logits of the wrapped model for the images ``x``.
+
+        Args:
+            x: Batch of images (N×3×H×W).
+
+        Returns:
+            The ``out`` logits tensor.
+        """
         return self.inner(x)["out"]
 
 
 def export(spec: dict[str, Any]) -> dict[str, Any]:
-    """Rebuild the network, load the weights and write the ONNX file. Returns ``{"size", "inputs"}``."""
+    """Rebuild the network, load the weights and write the ONNX file.
+
+    Args:
+        spec: The job spec (``checkpoint``, ``output``, ``worker``, ``task``, ``build``).
+
+    Returns:
+        ``{"size", "inputs", "opset", "image_size"}``: file size in bytes, the input shape of the
+        graph, the ONNX opset and the input image side.
+
+    Raises:
+        ValueError: The task is not exportable, or the weights do not match the network.
+        ImportError: ``onnx`` is not installed in the training environment.
+    """
     task = spec["task"]
     if task not in KINDS:
         raise ValueError(f"ONNX export of {task} models is not available yet.")
@@ -113,7 +146,14 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    """Entry point."""
+    """Entry point.
+
+    Args:
+        argv: Command line; ``argv[1]`` is the path of the spec JSON file.
+
+    Returns:
+        Process exit code: 0 on success, 1 after an ``error`` event.
+    """
     try:
         spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
         info = export(spec)

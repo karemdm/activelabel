@@ -86,6 +86,12 @@ class RunnerError(RuntimeError):
 def worker_script(task_kind: str) -> Path:
     """Script that trains this kind of task.
 
+    Args:
+        task_kind: kind of task of the model (a key of ``WORKER_FILES``).
+
+    Returns:
+        Path of the worker script in ``workers/``.
+
     Raises:
         RunnerError: the kind of task has no worker yet.
     """
@@ -97,7 +103,14 @@ def worker_script(task_kind: str) -> Path:
 
 
 def download_env(tmp: Path) -> dict[str, str]:
-    """Environment variables that send every download and cache of the worker to ``tmp``."""
+    """Environment variables that send every download and cache of the worker to ``tmp``.
+
+    Args:
+        tmp: temporary folder of the run.
+
+    Returns:
+        Variable names and values (cache folders inside ``tmp``, unbuffered UTF-8 output).
+    """
     cache = {
         "TORCH_HOME": tmp / "torch",
         "HF_HOME": tmp / "hf",
@@ -114,7 +127,14 @@ def download_env(tmp: Path) -> dict[str, str]:
 
 
 def selection_key(metric: str) -> str:
-    """Name of the validation metric in an ``epoch`` event."""
+    """Name of the validation metric in an ``epoch`` event.
+
+    Args:
+        metric: name of the selection metric (for example ``accuracy``).
+
+    Returns:
+        The key of that metric in the event (``val_<metric>``).
+    """
     return f"val_{metric}"
 
 
@@ -134,6 +154,15 @@ def _objects(
     A box for detection, polygons (3 or more points each) for instance segmentation (a box stands in
     for the polygon only in semantic segmentation), points for pose (all with ``keypoints`` points).
     Labels of another class or without that shape are left out.
+
+    Args:
+        own: the label dicts of the image.
+        classes: class names of the dataset version; the position is the class index.
+        kind: kind of task (``detection``, ``instance``, ``semantic`` or ``keypoints``).
+        keypoints: points every object must have (pose), or ``None``.
+
+    Returns:
+        One dict per usable label: ``label`` (class index) plus its shape keys.
     """
     out = []
     task = KIND_TASK[kind]
@@ -155,14 +184,25 @@ def _objects(
 def build_spec(
     project_dir: Path, config: RunConfig, model: ModelSpec, run_dir: Path, version: dict[str, Any]
 ) -> dict[str, Any]:
-    """The ``spec.json`` of the classification worker: absolute image paths and class indexes.
-
-    Raises:
-        RunnerError: a fold ``"all"`` (later), a part without images, or missing image files.
+    """The ``spec.json`` of the worker: absolute image paths and class indexes.
 
     Items are ``{"path", "label"}`` for classification and ``{"path", "objects"}`` for the other
     kinds (``objects``: ``label`` class index plus the label's ``bbox``, ``polygons`` and ``keypoints``);
     an image without objects is kept as a background image.
+
+    Args:
+        project_dir: folder of the project.
+        config: configuration of the single training (not a grid or an all-folds run).
+        model: catalogue entry of the model.
+        run_dir: folder where the worker writes its outputs.
+        version: the dataset version (``classes``, ``parts``, ``folds``, ``labels``, ``type``).
+
+    Returns:
+        The spec dict written to ``spec.json``.
+
+    Raises:
+        RunnerError: a grid or all-folds config, images no longer in the project, labels without the
+            shape the model trains on, an empty train or validation part, or no keypoints.
     """
     if config.fold == "all" or config.mode != "single":
         raise RunnerError("A grid or all-folds run is trained one child at a time.")
@@ -252,25 +292,50 @@ class _Target:
 
 
 def _pump_lines(stream: IO[str], lines: queue.Queue[str | None]) -> None:
-    """Move the lines of a process's output to a queue (``None`` marks the end); runs in a thread."""
+    """Move the lines of a process's output to a queue (``None`` marks the end); runs in a thread.
+
+    Args:
+        stream: output stream of the process.
+        lines: queue that receives every line, then ``None`` at the end of the stream.
+    """
     for line in stream:
         lines.put(line)
     lines.put(None)
 
 
 def _send_message(update: Callable[..., Any], message: str) -> None:
-    """Show a set-up message (environment preparation) through ``update(message=...)``."""
+    """Show a set-up message (environment preparation) through ``update(message=...)``.
+
+    Args:
+        update: function that stores the status fields.
+        message: text to show.
+    """
     update(message=message)
 
 
 def _report_step(store: RunStore, number: int, progress: Progress, message: str) -> None:
-    """Show a set-up message (environment preparation) in the job and in the run."""
+    """Show a set-up message (environment preparation) in the job and in the run.
+
+    Args:
+        store: runs of the project.
+        number: number of the run.
+        progress: progress handle of the job.
+        message: text to show.
+    """
     progress.update(message=message)
     store.update(number, message=message)
 
 
 def _update_child(store: RunStore, number: int, index: int, **fields: Any) -> None:
-    """Write the fields a child training reports: the top-level ones also go to the run itself."""
+    """Write the fields a child training reports: the top-level ones also go to the run itself.
+
+    Args:
+        store: runs of the project.
+        number: number of the run.
+        index: position of the child in the run's ``children``.
+        **fields: status fields of the child; those in ``TOP_FIELDS`` are copied to the run, and
+            ``message`` is kept only there.
+    """
     top = {k: v for k, v in fields.items() if k in TOP_FIELDS}
     own = {k: v for k, v in fields.items() if k != "message"}
     store.update_child(number, index, top=top, **own)
@@ -282,6 +347,14 @@ class _PredictionEvents:
     def __init__(
         self, runs: preannotate.PreannotationStore, number: int, progress: Progress, total: int
     ) -> None:
+        """Start collecting events of one pre-annotation run.
+
+        Args:
+            runs: store of the pre-annotation runs.
+            number: number of the pre-annotation run.
+            progress: progress handle of the job.
+            total: number of images sent to the process (used until it reports its own total).
+        """
         self.predictions: dict[str, list[Label]] = {}
         self.unreadable: list[str] = []
         self._runs = runs
@@ -291,7 +364,11 @@ class _PredictionEvents:
         self._last = 0.0
 
     def __call__(self, event: dict[str, Any]) -> None:
-        """Take one event of the process (``prediction``, ``skipped`` or ``progress``)."""
+        """Take one event of the process (``prediction``, ``skipped`` or ``progress``).
+
+        Args:
+            event: a JSON event of the process; other kinds are ignored.
+        """
         kind = event.get("event")
         if kind == "prediction":
             self.predictions[str(event["id"])] = preannotate.mask_labels(event.get("labels") or [])
@@ -304,6 +381,14 @@ class _PredictionEvents:
 
 
 def _describe(entry: dict[str, Any]) -> str:
+    """Short text for a child in the log: its grid values and fold (``training`` when it has neither).
+
+    Args:
+        entry: the child's entry of ``children`` (``values``, ``fold``).
+
+    Returns:
+        For example ``lr=0.01, fold 2``.
+    """
     parts = [f"{k}={v}" for k, v in (entry.get("values") or {}).items()]
     if entry.get("fold") is not None:
         parts.append(f"fold {int(entry['fold']) + 1}")
@@ -384,6 +469,17 @@ class TrainingRunner:
         scripts: Callable[[str], Path] = worker_script,
         poll: float = 0.2,
     ) -> None:
+        """Create the runner; nothing runs until a run is queued.
+
+        Args:
+            workspace: folder of the app's data (temporary folders go to ``training/tmp`` inside it).
+            project_dir: function that gives the folder of a project by id.
+            project_ids: function that lists the project ids (used by ``recover``); none by default.
+            project: function that gives a project by id; by default it is read from its folder.
+            environment: training environment; by default one inside ``workspace``.
+            scripts: function that gives the worker script of a kind of task.
+            poll: seconds to wait for a line of output before checking for cancellation.
+        """
         self.workspace = Path(workspace)
         self._project_dir = project_dir
         self._project_ids = project_ids or (lambda: [])
@@ -402,7 +498,14 @@ class TrainingRunner:
         self._pre_jobs: dict[tuple[int, int], str] = {}
 
     def _project(self, project_id: int) -> Any:
-        """The project (type and classes), read from its folder when no lookup was given."""
+        """The project (type and classes), read from its folder when no lookup was given.
+
+        Args:
+            project_id: id of the project.
+
+        Returns:
+            The project.
+        """
         if self._project_lookup is not None:
             return self._project_lookup(project_id)
         return ProjectStore(self._project_dir(project_id).parent).get(project_id)
@@ -410,11 +513,23 @@ class TrainingRunner:
     # -- public ------------------------------------------------------------
 
     def store(self, project_id: int) -> RunStore:
-        """Runs of a project."""
+        """Runs of a project.
+
+        Args:
+            project_id: id of the project.
+
+        Returns:
+            The run store of the project.
+        """
         return RunStore(self._project_dir(project_id))
 
     def enqueue(self, project_id: int, number: int) -> None:
-        """Queue a stored run; it starts when no other run is running."""
+        """Queue a stored run; it starts when no other run is running.
+
+        Args:
+            project_id: id of the project.
+            number: number of the stored run.
+        """
         key = (project_id, number)
         with self._lock:
             self._waiting.append(key)
@@ -426,6 +541,14 @@ class TrainingRunner:
 
     def cancel(self, project_id: int, number: int) -> dict[str, Any]:
         """Cancel a queued or running run (a running one has its process tree killed).
+
+        Args:
+            project_id: id of the project.
+            number: number of the run.
+
+        Returns:
+            The run as it is after the call (a running one is waited for up to 10 seconds; one that
+            was neither queued nor running is returned unchanged).
 
         Raises:
             RunNotFound: unknown run.
@@ -459,11 +582,19 @@ class TrainingRunner:
     def enqueue_export(self, project_id: int, number: int, fmt: str) -> dict[str, Any]:
         """Queue the export of a saved model (in the same queue as the training runs).
 
-        Returns the model card. An export already queued or running is left as it is.
+        An export already queued or running is left as it is.
+
+        Args:
+            project_id: id of the project.
+            number: number of the saved model.
+            fmt: export format (one of ``FORMATS``).
+
+        Returns:
+            The model card.
 
         Raises:
             ModelNotFound: unknown model.
-            ModelError: unknown format.
+            ModelError: unknown format, or a public model (it has no weights to export).
         """
         if fmt not in FORMATS:
             raise ModelError(
@@ -488,7 +619,12 @@ class TrainingRunner:
         return card
 
     def enqueue_preannotation(self, project_id: int, number: int) -> None:
-        """Queue a stored pre-annotation run (in the same queue as the training runs)."""
+        """Queue a stored pre-annotation run (in the same queue as the training runs).
+
+        Args:
+            project_id: id of the project.
+            number: number of the pre-annotation run.
+        """
         job = self._jobs.submit(
             project_id, "preannotate", lambda p: self._preannotate(project_id, number, p), {"number": number}
         )
@@ -497,6 +633,10 @@ class TrainingRunner:
 
     def cancel_preannotation(self, project_id: int, number: int) -> None:
         """Cancel a queued or running pre-annotation (nothing is written for a cancelled run).
+
+        Args:
+            project_id: id of the project.
+            number: number of the pre-annotation run.
 
         Raises:
             preannotate.RunNotFound: unknown run.
@@ -522,7 +662,14 @@ class TrainingRunner:
                 time.sleep(0.05)
 
     def has_active(self, project_id: int) -> bool:
-        """Whether a training run, ONNX export or pre-annotation of the project is queued or running."""
+        """Whether a training run, ONNX export or pre-annotation of the project is queued or running.
+
+        Args:
+            project_id: id of the project.
+
+        Returns:
+            ``True`` when the project has an active job.
+        """
         return bool(self._jobs.active(project_id))
 
     def recover(self) -> None:
@@ -563,6 +710,16 @@ class TrainingRunner:
                 LOG.exception("Could not queue run %s of project %s again", number, project_id)
 
     def _recover_run(self, store: RunStore, project_id: int, run: dict[str, Any]) -> list[tuple[int, int]]:
+        """Fail a run left running (and its unfinished children); report a queued one to be queued again.
+
+        Args:
+            store: runs of the project.
+            project_id: id of the project.
+            run: the run as stored.
+
+        Returns:
+            ``[(project_id, number)]`` when the run was queued, otherwise an empty list.
+        """
         number = run["number"]
         if run["status"] == RUNNING:
             fields: dict[str, Any] = {}
@@ -588,7 +745,11 @@ class TrainingRunner:
         return []
 
     def _recover_tools(self, project_id: int) -> None:
-        """Pre-annotations and exports left queued or running are marked as interrupted."""
+        """Pre-annotations and exports left queued or running are marked as interrupted.
+
+        Args:
+            project_id: id of the project.
+        """
         try:
             pre = preannotate.PreannotationStore(self._project_dir(project_id))
             for run in pre.list():
@@ -618,6 +779,17 @@ class TrainingRunner:
     # -- export of a saved model ---------------------------------------------
 
     def _export(self, project_id: int, number: int, fmt: str, progress: Progress) -> None:
+        """Job of an export: set up the environment, run the export process and record the outcome.
+
+        The result (done, cancelled or failed with a readable error) is written on the model card; the
+        temporary folder and the half-written file are always removed.
+
+        Args:
+            project_id: id of the project.
+            number: number of the saved model.
+            fmt: export format.
+            progress: progress handle of the job (checked for cancellation).
+        """
         store = ModelStore(self._project_dir(project_id))
         try:
             store.set_export(number, fmt, status=RUNNING, started=now(), message="")
@@ -685,7 +857,13 @@ class TrainingRunner:
 
     @staticmethod
     def _drop_partial_export(store: ModelStore, number: int, fmt: str) -> None:
-        """Remove the half-written export file (before a status says the export is over)."""
+        """Remove the half-written export file (before a status says the export is over).
+
+        Args:
+            store: models of the project.
+            number: number of the saved model.
+            fmt: export format.
+        """
         try:
             (store.path(number) / EXPORT_FILES[fmt]).with_suffix(".part").unlink(missing_ok=True)
         except OSError:
@@ -693,6 +871,14 @@ class TrainingRunner:
 
     @staticmethod
     def _export_failed(store: ModelStore, number: int, fmt: str, message: str) -> None:
+        """Remove the partial file and mark the export as failed (nothing is recorded if the model is gone).
+
+        Args:
+            store: models of the project.
+            number: number of the saved model.
+            fmt: export format.
+            message: error to show.
+        """
         TrainingRunner._drop_partial_export(store, number, fmt)
         try:
             store.set_export(number, fmt, status=FAILED, error=message, finished=now())
@@ -700,6 +886,16 @@ class TrainingRunner:
             pass  # the model folder is gone: nothing to record
 
     def _preannotate(self, project_id: int, number: int, progress: Progress) -> None:
+        """Job of a pre-annotation: check the model and project, predict, then write the labels.
+
+        Nothing is written when the project's type or classes changed meanwhile. The outcome (done with
+        counts, cancelled or failed with a readable error) is written on the pre-annotation run.
+
+        Args:
+            project_id: id of the project.
+            number: number of the pre-annotation run.
+            progress: progress handle of the job (checked for cancellation).
+        """
         project_dir = self._project_dir(project_id)
         runs = preannotate.PreannotationStore(project_dir)
         try:
@@ -844,6 +1040,24 @@ class TrainingRunner:
         """Run a tool process (export, pre-annotation); returns the ``done`` event's results.
 
         ``on_event`` receives every JSON event; ``prediction`` lines are not written to the log.
+
+        Args:
+            project_id: id of the project.
+            number: number of the model (export) or of the pre-annotation run.
+            fmt: export format, or ``"predict"`` for a pre-annotation (part of the process key).
+            cmd: command line of the process.
+            tmp: temporary folder (working directory and download cache).
+            log_file: file that receives the process output.
+            progress: progress handle of the job (checked for cancellation).
+            on_event: function that receives every JSON event of the process.
+            what: name of the process in the error message.
+
+        Returns:
+            The ``results`` of the ``done`` event.
+
+        Raises:
+            RunnerError: the process failed, reported an error or ended without results.
+            Cancelled: the job was cancelled (the process tree is killed).
         """
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         key = (project_id, number, fmt)
@@ -912,6 +1126,7 @@ class TrainingRunner:
     # -- one run -----------------------------------------------------------
 
     def _write_positions(self) -> None:
+        """Write the queue position (from 1) on every run still waiting."""
         with self._lock:
             waiting = list(self._waiting)
         for position, (project_id, number) in enumerate(waiting, start=1):
@@ -921,6 +1136,15 @@ class TrainingRunner:
                 continue
 
     def _execute(self, key: tuple[int, int], progress: Progress) -> None:
+        """Job of a training run: mark it running, call ``_run`` and record done, cancelled or failed.
+
+        A run deleted or cancelled while waiting is skipped. The process and temporary folder are
+        always released.
+
+        Args:
+            key: ``(project_id, run number)``.
+            progress: progress handle of the job.
+        """
         project_id, number = key
         store = self.store(project_id)
         with self._lock:
@@ -955,6 +1179,16 @@ class TrainingRunner:
                 _remove_tree(tmp)
 
     def _run(self, key: tuple[int, int], store: RunStore, progress: Progress) -> None:
+        """Prepare the environment and the temporary folder, then train (one training or the children).
+
+        Args:
+            key: ``(project_id, run number)``.
+            store: runs of the project.
+            progress: progress handle of the job.
+
+        Raises:
+            RunnerError: unknown or not yet supported model, or the dataset version was deleted.
+        """
         project_id, number = key
         run_dir = store.path(number)
         config = store.config(number)
@@ -1014,7 +1248,25 @@ class TrainingRunner:
         cmd: list[str],
         tmp: Path,
     ) -> None:
-        """Train every child of a grid or all-folds run, then rank them and keep the best weights."""
+        """Train every child of a grid or all-folds run, then rank them and keep the best weights.
+
+        A failed child is recorded and the others still train; a cancellation marks the remaining
+        children cancelled and propagates.
+
+        Args:
+            key: ``(project_id, run number)``.
+            store: runs of the project.
+            progress: progress handle of the job.
+            config: configuration of the composite run.
+            model: catalogue entry of the model.
+            version: the dataset version.
+            cmd: worker command without the spec file (the spec of each child is appended).
+            tmp: temporary folder of the run.
+
+        Raises:
+            Cancelled: the job was cancelled.
+            RunnerError: every child failed.
+        """
         project_id, number = key
         run_dir = store.path(number)
         n_folds = len(version.get("folds") or []) if config.fold == "all" else 1
@@ -1086,7 +1338,17 @@ class TrainingRunner:
         self._finish_children(store, number, config.metric or model.default_metric(), n_folds)
 
     def _finish_children(self, store: RunStore, number: int, metric: str, n_folds: int) -> None:
-        """Rank the combinations; copy the best child's curves, results and weights to the run."""
+        """Rank the combinations; copy the best child's curves, results and weights to the run.
+
+        Args:
+            store: runs of the project.
+            number: number of the run.
+            metric: selection metric.
+            n_folds: folds per combination.
+
+        Raises:
+            RunnerError: no child finished.
+        """
         run_dir = store.path(number)
         entries = store.get(number).get("children") or []
         results = {
@@ -1126,6 +1388,19 @@ class TrainingRunner:
         tmp: Path,
         spec: dict[str, Any],
     ) -> None:
+        """Run one worker process, handle its events and write ``results.json``.
+
+        Args:
+            key: ``(project_id, run number)`` (the process is registered under it).
+            target: where this training writes its files and status.
+            progress: progress handle of the job.
+            cmd: command line of the worker, including the spec file.
+            tmp: temporary folder (working directory and download cache).
+            spec: the spec given to the worker (``metric`` selects the validation key).
+
+        Raises:
+            RunnerError: the process failed, reported an error or ended without results.
+        """
         run_dir = target.dir
         metric_key = selection_key(spec["metric"])
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
@@ -1186,6 +1461,16 @@ class TrainingRunner:
         metric_key: str,
         state: dict[str, Any],
     ) -> None:
+        """Handle one output line of the worker: a JSON event, or plain text that goes to the log.
+
+        Args:
+            text: the line without its line break.
+            target: where this training writes its files and status.
+            progress: progress handle of the job.
+            log: open log file.
+            metric_key: key of the selection metric in ``epoch`` events.
+            state: mutable state of the process (``results``, ``error``, ``last`` write time, ``warnings``).
+        """
         if not text.strip():
             return
         try:
