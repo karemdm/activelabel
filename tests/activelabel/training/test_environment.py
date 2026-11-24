@@ -270,6 +270,8 @@ def test_ensure_installs_only_missing(env, monkeypatch):
     rec = Recorder(env)
     monkeypatch.setattr(envmod, "run_logged", rec)
     monkeypatch.setattr(envmod.TrainingEnvironment, "gpu", lambda self: GpuInfo("RTX", "551", "12.4"))
+    # the CUDA build is chosen on Linux and Windows, never on macOS
+    monkeypatch.setattr(envmod.sys, "platform", "linux")
     state = {"dists": {}}
 
     def fake(cmd, timeout=30):
