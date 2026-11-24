@@ -9,6 +9,21 @@ description = "Image datasets from curation to trained models: projects, images,
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Karem Daiane Marcomini" }]
+keywords = ["computer vision", "annotation", "dataset curation", "CVAT", "FiftyOne", "training"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
@@ -40,6 +55,12 @@ dev = [
     "pre-commit>=3.7",
     "types-PyYAML",
 ]
+
+[project.urls]
+Homepage = "https://github.com/karemdm/activelabel"
+Documentation = "https://github.com/karemdm/activelabel/tree/main/docs"
+Source = "https://github.com/karemdm/activelabel"
+Issues = "https://github.com/karemdm/activelabel/issues"
 
 [project.scripts]
 activelabel = "activelabel.cli:main"
