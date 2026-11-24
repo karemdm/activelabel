@@ -1,7 +1,7 @@
 # ActiveLabel — annotation with external tools
 
 People draw and correct annotations in a consolidated tool of their choice. FiftyOne is the
-hub: every project already has a FiftyOne dataset (`activelabel-<id>`), and FiftyOne
+hub: every project already has a FiftyOne dataset (named `activelabel-<id>-<random>` and recorded in `<project>/fiftyone.json`, docs/DESIGN.md), and FiftyOne
 integrates natively with CVAT and Label Studio. ActiveLabel stays the source of truth: work
 is **sent** to a tool and **brought back**; nothing changes in the project until the person
 reviews a summary of the changes and applies it.

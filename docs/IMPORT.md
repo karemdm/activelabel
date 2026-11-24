@@ -38,6 +38,32 @@ it came from.
 Images keep their remote file names; identical files are added once (content hash); unreadable
 files are listed in the report. Nothing is changed on the remote server.
 
+## Annotation files (the *Import annotations* tab)
+
+Annotation files (or a .zip) of an existing project follow a check-then-apply flow
+(`POST /projects/{id}/annotations`, then `POST .../{token}/apply`, docs/DESIGN.md): the files are kept
+aside in `staging/<token>/`, the format is detected, the files are matched with the images, and a report
+says what was found. Nothing changes until the person chooses an action.
+
+- A check that finds nothing usable (unknown format, unreadable file, no labels) is not kept aside: the
+  files are removed at once and the answer is a 400 with a code (`annotation_format_unknown`,
+  `annotation_unreadable`). Files that were kept and never decided are removed after 24 hours and when the
+  service starts.
+- **Labels the project's type cannot use are reported and left out**, never imported as empty or broken
+  labels: a box project does not take a label that has no box (`no_geometry`: "Some labels do not have the
+  shape this project type needs (box, polygon or keypoints); they are left out."), and a keypoints project
+  leaves out labels whose number of points differs from the most common one
+  (`keypoints_count_mismatch`). When the project is a detection project and the file has polygons or
+  keypoints, *Convert to {task} and import* turns them into boxes (`converted_to_box`).
+- **YOLO lines that cannot be read are reported with their place**: the example is `<file>:<line>: <start of
+  the line>` (an unknown class id, a polygon with too few points, a wrong number of keypoints, ...). A file
+  called `labels.txt`, `classes.txt` or `names.txt` that holds label lines is the label file of an image of
+  that name; one that only lists names gives the class names.
+- CVAT shapes without a label are reported and left out, not imported as an empty class.
+- *Change the type to {task} and import* always rewrites the stored type of the saved annotations as well
+  as the project's; changing the type or the classes of a project (PATCH) waits for training, ONNX export
+  and pre-annotation of the project to finish (409 `busy_training`), because they read both.
+
 ## HTTP API
 
 | Method | Path | Body / query | Returns |
@@ -50,5 +76,12 @@ Job result (CVAT projects add `tasks`, the tasks imported, and `linked`): `{proj
 problems: [{level, code, message, count, examples}]}`. While running, `progress.update`
 messages: "Listing <tool> data", "Reading annotations", "Comparing with CVAT", "Downloading images",
 "Creating the project". Cancelling stops at a safe point and removes the half-created project.
-Errors: tool not configured → 400 "Configure <tool> first"; remote project not found → 404;
-`ToolError` → 400 with its message.
+Errors: tool not configured → 400 "Configure <tool> first" (`tool_not_configured`); remote project not
+found → 404; `ToolError` → 400 with its message.
+
+**Safety of the downloads.** The address of a tool must be `http://` or `https://`. Label Studio task data
+is written by other people, so an image address inside it that resolves to a private, loopback,
+link-local or otherwise non-public address is refused ("unsafe image address"), every redirect is checked
+the same way, and the access token is only sent to the Label Studio server itself. Images that cannot be
+downloaded are listed in the report (`image_download_failed`) and the import goes on. Frames of a CVAT task
+are paired with the local images by position in the task, not by file name.
