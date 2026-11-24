@@ -14,14 +14,26 @@ import random
 import threading
 from bisect import bisect_left
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from activelabel.curation.issues import curation_path, load_duplicate_of
+from activelabel.errors import CodedError
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
-from activelabel.labels import Label, load_annotations
+from activelabel.labels import (
+    BOX_INVALID,
+    KEYPOINTS_COUNT_MISMATCH,
+    MULTIPLE_CLASSES,
+    NO_GEOMETRY,
+    POLYGON_TOO_FEW_POINTS,
+    Label,
+    geometry_problem,
+    load_annotations,
+    validate_labels,
+)
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
 from activelabel.tasks import Task
@@ -528,6 +540,67 @@ class _Attempt:
     segment_of: dict[str, tuple[str, int]]
 
 
+def common_count(sizes: Iterable[int]) -> int | None:
+    """The most frequent of the numbers of points of pose labels (None when there are none)."""
+    found = Counter(n for n in sizes if n)
+    return found.most_common(1)[0][0] if found else None
+
+
+def usable_labels(
+    task: Task, labels: dict[str, list[Label]]
+) -> tuple[dict[str, list[Label]], dict[str, Any]]:
+    """Keep the labels a task can train on (see :func:`activelabel.labels.geometry_problem`).
+
+    Labels without the shape the task needs, with a polygon of fewer than 3 points, with an invalid
+    box or (pose) with another number of points than most are dropped; a classification image keeps
+    only its first label (the class training uses). Images left without labels are not in the result.
+
+    Returns:
+        The usable labels per image and ``{"unusable": labels dropped, "keypoints": expected number of
+        points or None, "warnings": [...]}`` with one warning per problem
+        (``labels_without_geometry``, ``keypoints_count_mismatch``, ``multiple_classes``) giving ``count`` and
+        up to 5 ``examples`` (image ids).
+    """
+    expected = (
+        common_count(len(lb.keypoints or []) for items in labels.values() for lb in items)
+        if task is Task.KEYPOINTS
+        else None
+    )
+    check = validate_labels(task, labels, None, expected)
+    kept: dict[str, list[Label]] = {}
+    for image_id, items in labels.items():
+        good = [lb for lb in items if geometry_problem(task, lb, expected) is None]
+        if task is Task.CLASSIFICATION:
+            good = good[:1]
+        if good:
+            kept[image_id] = good
+    shape = (NO_GEOMETRY, BOX_INVALID, POLYGON_TOO_FEW_POINTS)
+    warnings: list[dict[str, Any]] = []
+    missing = sum(check.counts[p] for p in shape)
+    if missing:
+        examples = [i for p in shape for i in check.examples.get(p, [])][:5]
+        warnings.append({"code": "labels_without_geometry", "count": missing, "examples": examples})
+    if check.counts[KEYPOINTS_COUNT_MISMATCH]:
+        warnings.append(
+            {
+                "code": "keypoints_count_mismatch",
+                "count": check.counts[KEYPOINTS_COUNT_MISMATCH],
+                "examples": check.examples.get(KEYPOINTS_COUNT_MISMATCH, []),
+                "expected": expected,
+            }
+        )
+    if check.counts[MULTIPLE_CLASSES]:
+        warnings.append(
+            {
+                "code": "multiple_classes",
+                "count": check.counts[MULTIPLE_CLASSES],
+                "examples": check.examples.get(MULTIPLE_CLASSES, []),
+            }
+        )
+    unusable = missing + check.counts[KEYPOINTS_COUNT_MISMATCH]
+    return kept, {"unusable": unusable, "keypoints": expected, "warnings": warnings}
+
+
 def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> Plan:
     """Compute a split (nothing is saved).
 
@@ -538,20 +611,34 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     wanted = set(options.tasks) if options.tasks else {t.id for t in tasks}
     manifest = Manifest(project_dir).load()
     annotations = load_annotations(project_dir)
-    labels = {
+    people = {
         k: [lb for lb in v if lb.score is None]
         for k, v in (annotations.images if annotations else {}).items()
     }
     classification = project.task == Task.CLASSIFICATION
-    chosen: list[str] = []
-    for task in tasks:
-        if task.id in wanted:
-            chosen += [i for i in task.images if i in manifest and manifest[i].status == ACTIVE]
-    candidates = [
-        i for i in dict.fromkeys(chosen) if labels.get(i) or (options.background and not classification)
-    ]
+    chosen: list[str] = list(
+        dict.fromkeys(
+            i
+            for task in tasks
+            if task.id in wanted
+            for i in task.images
+            if i in manifest and manifest[i].status == ACTIVE
+        )
+    )
+    labels, problems = usable_labels(project.task, {i: people[i] for i in chosen if people.get(i)})
+    candidates = [i for i in chosen if labels.get(i) or (options.background and not people.get(i))]
+    if classification:
+        candidates = [i for i in candidates if labels.get(i)]
     if not candidates:
-        raise ValueError("There are no images to split: choose tasks with annotated images.")
+        if problems["unusable"]:
+            raise CodedError(
+                "no_usable_labels",
+                f"None of the labels has the shape a {project.task.value} project needs.",
+                task=project.task.value,
+            )
+        raise CodedError(
+            "nothing_to_split", "There are no images to split: choose tasks with annotated images."
+        )
     total = len(candidates)
     position = {i: n for n, i in enumerate(candidates)}
     classes_of = {i: {lb.label for lb in labels.get(i, [])} for i in candidates}
@@ -681,7 +768,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
 
     found = sorted({c for s in classes_of.values() for c in s})
     ordered = [c for c in project.classes if c in found] + [c for c in found if c not in project.classes]
-    warnings: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = list(problems["warnings"])
     for key, ids, share in slots:
         warnings += _slot_warnings(key, ids, share, total - len(dropped), final.biggest, ordered, labels)
 
