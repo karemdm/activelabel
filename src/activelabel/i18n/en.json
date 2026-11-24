@@ -1295,5 +1295,13 @@
   "error.single_run_has_grid": "A single run has no grid: use the grid mode or remove the lists.",
   "error.start_in_params": "Set the start with the 'start' option, not inside 'params'.",
   "error.start_invalid": "The start must be one of: {choices}.",
-  "error.training_unavailable": "Training YOLO models is not available yet."
+  "error.training_unavailable": "Training YOLO models is not available yet.",
+  "error.model_kind_mismatch": "This model makes {kind} labels, which this project does not use.",
+  "error.model_not_in_catalogue": "This model is not in the catalogue of this version of ActiveLabel.",
+  "error.no_images_for_choice": "No image of this task matches this choice.",
+  "error.preannotation_kind_unsupported": "Pre-annotation does not work with this model yet (the YOLO family is not supported).",
+  "error.preannotation_not_found": "This pre-annotation does not exist.",
+  "error.preannotation_running": "These images are already being pre-annotated.",
+  "error.threshold_range": "The minimum confidence must be between 0.001 and 0.999.",
+  "error.scope_invalid": "The images must be one of: {scopes}."
 }
