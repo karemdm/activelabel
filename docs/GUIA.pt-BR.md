@@ -10,20 +10,25 @@ FiftyOne e devolve ao próximo treinamento.
 
 ```mermaid
 flowchart LR
-  subgraph Dados
+  subgraph G1["Dados"]
     direction LR
-    A["1 Imagens"] --> B["2 Anotações<br/>(opcional)"] --> C["3 Curadoria"]
+    A["1 Imagens"] --> B["2 Anotações"] --> C["3 Curadoria"]
   end
-  subgraph Modelo
+  subgraph G2["Modelo"]
     direction LR
     D["4 Divisão dos dados"] --> E["5 Treinamento"] --> F["6 Modelos"]
   end
+  subgraph G3["Melhorar o modelo"]
+    direction LR
+    N["Imagens novas"] --> P["Pré-anotar"] --> R["Revisar"]
+  end
   C --> D
-  F -- "modelo atual" --> P["Pré-anotar<br/>(passo 2)"]
-  N["Imagens novas<br/>(passo 1, nova task)"] --> P
-  P --> R["Revisar no CVAT ou no FiftyOne,<br/>ou aceitar como estão"]
-  R -- "nova divisão, novo treino" --> D
+  F --> P
+  R --> D
 ```
+
+No desenho, o modelo atual pré-anota imagens novas, uma pessoa revisa, e as imagens revisadas entram numa
+nova divisão e num novo treinamento.
 
 Os nomes de botões e abas citados aqui são os da interface em português. *Task*, *Job* e *Fold* são
 a mesma palavra nos dois idiomas, como no CVAT. Os documentos em inglês

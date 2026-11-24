@@ -10,51 +10,30 @@ Interface names are the English ones; the Portuguese names are in `src/activelab
 
 ```mermaid
 flowchart TB
-  subgraph Browser["Browser (no framework)"]
-    UI["Pages: templates/*.html<br/>app.js + app.css<br/>texts from i18n pt/en"]
-  end
-
-  subgraph Service["ActiveLabel service (FastAPI, one process)"]
-    direction TB
-    R["Routers (web/): api, tasks_api, video_api, datasets_api,<br/>annotate_api, sync_api, import_api,<br/>training_api, models_api, preannotate_api, pages"]
-    S["AppState: settings, ProjectStore,<br/>JobManager (light jobs), TrainingRunner"]
-    D["Domain: labels, annotations (importers), curation,<br/>datasets (split), tasks_store, images, sync, annotate,<br/>importing, preannotate, training (catalog, config, runs, models)"]
-    JM["JobManager<br/>one worker thread:<br/>analysis, uploads, sync, FiftyOne, import"]
-    TR["TrainingRunner<br/>its own queue, one worker thread:<br/>training, ONNX export, pre-annotation"]
-    R --> S
-    R --> D
-    S --> JM
-    S --> TR
-  end
-
-  subgraph Disk["Workspace on disk (JSON, YAML, images, weights)"]
-    P["projects/ID/... (see section 2)"]
-    T["tools.json (addresses and users)"]
-    TE["training/env: Python environment<br/>training/tmp: temporary folder of a run"]
-  end
-
-  subgraph Workers["Training environment (separate Python)"]
-    W["worker scripts (training/workers):<br/>classification, detection, segmentation,<br/>predict, export_onnx<br/>read spec.json, write JSON lines"]
-  end
-
-  K["System keyring<br/>(passwords, tokens)"]
-  FO["FiftyOne App and database"]
-  CV["CVAT (online or own server)"]
-  LS["Label Studio<br/>(import only in the interface)"]
-
-  UI -- "HTTP /api, /static, pages" --> R
-  D --> P
-  S --> T
-  TR -- "creates, pip installs" --> TE
-  TR -- "subprocess + spec.json" --> W
-  W -- "JSON lines on stdout" --> TR
-  W --> TE
-  TR --> P
-  D --> K
-  D -- "fiftyone_bridge" --> FO
-  D -- "sync/cvat_remote,<br/>annotate/cvat_tool" --> CV
-  D --> LS
+  UI["Browser<br/>pages and app.js"]
+  API["FastAPI routers<br/>web/*_api.py"]
+  DOM["Domain code<br/>labels, datasets, sync,<br/>curation, training"]
+  JOB["Light jobs<br/>one worker thread"]
+  RUN["Training runner<br/>own queue, one worker thread"]
+  ENV["Training environment<br/>separate Python and workers"]
+  DISK[("Workspace on disk<br/>JSON, images, weights")]
+  EXT["CVAT, FiftyOne,<br/>Label Studio, keyring"]
+  UI --> API
+  API --> DOM
+  API --> JOB
+  API --> RUN
+  JOB --> DOM
+  DOM --> DISK
+  DOM --> EXT
+  RUN --> ENV
+  RUN --> DISK
+  ENV --> DISK
 ```
+
+Arrows mean "calls or uses". The browser talks to the routers over HTTP (`/api`, `/static`, pages); the
+domain code reads and writes the workspace (section 2) and reaches CVAT and FiftyOne through
+`sync/cvat_remote.py`, `annotate/cvat_tool.py` and `fiftyone_bridge.py`; the runner creates and fills the
+training environment, starts the workers as subprocesses with a `spec.json` and reads their JSON lines.
 
 Rules that shape the design:
 
@@ -69,31 +48,24 @@ Rules that shape the design:
 
 ## 2. Data model on disk
 
+An arrow means "is used by" or "feeds": images come from files or from the frames of a video and are listed
+by tasks; labels belong to images; a dataset version freezes images and labels; runs train on a version;
+a model is saved from a run; pre-annotation runs use a model and write labels for review. A link (sync
+with CVAT) and an edit session refer to images.
+
 ```mermaid
-erDiagram
-  PROJECT ||--o{ IMAGE : "images.json"
-  PROJECT ||--o{ TASK : "tasks.json"
-  PROJECT ||--o| ANNOTATIONS : "annotations.json"
-  PROJECT ||--o{ DATASET_VERSION : "datasets/v N .json"
-  PROJECT ||--o{ RUN : "runs/r N"
-  PROJECT ||--o{ MODEL : "models/m N"
-  PROJECT ||--o{ PREANNOTATION_RUN : "preannotations.json"
-  PROJECT ||--o{ VIDEO : "videos.json"
-  PROJECT ||--o{ LINK : "links.json (one per tool)"
-  PROJECT ||--o{ SESSION : "annotate.json"
-  TASK }o--o{ IMAGE : "ordered list of image ids"
-  TASK }o--o| VIDEO : "source (video tasks)"
-  IMAGE }o--o| VIDEO : "video, frame, time"
-  ANNOTATIONS ||--o{ LABEL : "per image id"
-  DATASET_VERSION ||--o{ LABEL : "frozen copy"
-  DATASET_VERSION }o--o{ IMAGE : "parts: train, val, test, folds"
-  RUN }o--|| DATASET_VERSION : "config.yaml: dataset"
-  RUN ||--o{ CHILD_RUN : "grid or folds: c1, c2..."
-  MODEL }o--|| RUN : "saved from (or public model)"
-  PREANNOTATION_RUN }o--|| MODEL : "uses"
-  PREANNOTATION_RUN }o--|| TASK : "labels the images of"
-  LINK }o--o{ IMAGE : "items: remote key, labels at last sync"
-  SESSION }o--o{ IMAGE : "image_ids"
+flowchart TB
+  VID["Video<br/>videos.json"] --> IMG
+  TSK["Task<br/>tasks.json"] --> IMG["Image<br/>images.json"]
+  IMG --> LAB["Labels<br/>annotations.json"]
+  IMG --> DS["Dataset version<br/>datasets/vN.json"]
+  LAB --> DS
+  DS --> RUN["Run<br/>runs/rN"]
+  RUN --> MOD["Model<br/>models/mN"]
+  MOD --> PRE["Pre-annotation run<br/>preannotations.json"]
+  PRE --> LAB
+  LNK["Link<br/>links.json"] --> IMG
+  SES["Edit session<br/>annotate.json"] --> IMG
 ```
 
 - Image ids are the first 16 hex digits of the SHA-256 of the file, so identical files are one image.
@@ -106,31 +78,25 @@ erDiagram
 
 ```mermaid
 flowchart TB
-  start(["New project or Import project"]) --> A1
-
+  S(["New or imported project"]) --> A1
   subgraph Data
-    A1["1 Images<br/>Gallery, Tasks and jobs:<br/>files, folder, .zip, video"]
-    A2["2 Annotations (optional)<br/>Summary, Pre-annotate, CVAT,<br/>FiftyOne, Import annotations"]
-    A3["3 Curation<br/>Analyze images, filters,<br/>Exclude selected"]
-    A1 --> A2 --> A3
+    direction LR
+    A1["1 Images"] --> A2["2 Annotations"] --> A3["3 Curation"]
   end
-
   subgraph Model
-    B4["4 Data split<br/>New version: train, val, test<br/>or K folds"]
-    B5["5 Training<br/>New run: single, grid, all folds"]
-    B6["6 Models<br/>Save as model, Make current,<br/>download, ONNX, public model"]
-    B4 --> B5 --> B6
+    direction LR
+    B4["4 Data split"] --> B5["5 Training"] --> B6["6 Models"]
   end
-
   A3 --> B4
-  A2 -. "labels may also come<br/>from CVAT or FiftyOne" .-> B4
-
-  B6 -- "current model" --> PRE["Pre-annotate<br/>(Annotations tab)"]
-  NEW["New task with new images<br/>(step 1)"] --> PRE
+  B6 --> PRE["Pre-annotate"]
+  NEW["New images"] --> PRE
   PRE --> REV{"Review"}
-  REV -- "Review in CVAT: Compare with CVAT,<br/>Apply synchronisation" --> LAB["Reviewed labels<br/>in annotations.json"]
-  REV -- "Review in FiftyOne: Send, Bring back,<br/>Apply changes" --> LAB
-  REV -- "Accept as they are" --> LAB
+  REV --> CV["CVAT sync"]
+  REV --> FO["FiftyOne session"]
+  REV --> AC["Accept as they are"]
+  CV --> LAB["Reviewed labels"]
+  FO --> LAB
+  AC --> LAB
   LAB --> B4
 ```
 
@@ -176,15 +142,13 @@ sequenceDiagram
 
 The decision per image:
 
-```mermaid
-flowchart LR
-  Q{"What changed since the last sync?"}
-  Q -- "nothing" --> N["nothing"]
-  Q -- "only the remote" --> PU["pull: remote to project"]
-  Q -- "only the project" --> PS["push: project to remote"]
-  Q -- "both, same result" --> N
-  Q -- "both, different" --> CF["conflict: the person chooses"]
-```
+| Changed since the last sync | Action |
+| --- | --- |
+| nothing | nothing |
+| only the remote | pull: remote to project |
+| only the project | push: project to remote |
+| both, same result | nothing |
+| both, different | conflict: the person chooses |
 
 With `direction: pull` or `push` one side wins and there are no conflicts; what exists only on the other
 side is left alone and listed (docs/SYNC.md).
@@ -193,37 +157,36 @@ side is left alone and listed (docs/SYNC.md).
 
 ```mermaid
 stateDiagram-v2
-  [*] --> queued: POST /runs (or Repeat)
-  queued --> running: the slot is free
-  queued --> cancelled: cancel while waiting
-  running --> done: worker finished
-  running --> failed: error, or interrupted by a restart
-  running --> cancelled: cancel (process tree killed)
-  failed --> [*]
+  direction LR
+  [*] --> queued
+  queued --> running: start
+  queued --> cancelled: cancel
+  running --> done: finish
+  running --> failed: error
+  running --> cancelled: cancel
   done --> [*]
+  failed --> [*]
   cancelled --> [*]
-  queued --> queued: restart puts it back in line
-
-  state running {
-    [*] --> environment
-    environment --> preparing: packages installed
-    preparing --> training: spec.json written
-    training --> evaluating: best epoch, test part
-    evaluating --> [*]
-  }
 ```
+
+While a run is `running` it goes through these phases (`phase` in `run.json`):
+
+```mermaid
+flowchart LR
+  E["environment"] --> P["preparing"] --> T["training"] --> V["evaluating"]
+```
+
+A run that was running when the service stopped ends as `failed` (`interrupted`) at the next start;
+queued runs are queued again.
 
 A grid search or an all-folds run is one run with **children** trained one after another in the same
 slot:
 
 ```mermaid
-flowchart TB
-  R["run r N: running"] --> C1["c1: queued, running, done or failed"]
-  C1 --> C2["c2"] --> C3["c3 ..."]
-  C3 --> F{"At least one child done?"}
-  F -- "yes" --> RK["rank combinations by the mean<br/>of the selection metric over folds;<br/>copy the best child's curves, results<br/>and weights to r N; other weights removed"]
-  F -- "no" --> X["run failed:<br/>every training failed"]
-  RK --> D["run done"]
+flowchart LR
+  C1["child c1"] --> C2["child c2"] --> C3["child c3 ..."] --> Q{"any done?"}
+  Q -- yes --> OK["rank, keep best"]
+  Q -- no --> NO["run failed"]
 ```
 
 If the run is cancelled, children not started are marked `cancelled`. A child that fails does not stop
@@ -234,12 +197,13 @@ are queued in the same slot and run the same way (`queued`, `running`, `done`, `
 
 ```mermaid
 stateDiagram-v2
-  [*] --> queued: submit
-  queued --> running: the worker takes it
-  queued --> cancelled: cancelled before it starts
-  running --> done: function returns (result)
-  running --> failed: exception (error, traceback)
-  running --> cancelled: Progress.check raises Cancelled
+  direction LR
+  [*] --> queued
+  queued --> running: taken
+  queued --> cancelled: cancel
+  running --> done: returns
+  running --> failed: exception
+  running --> cancelled: cancel
 ```
 
 A job function receives a `Progress` handle, reports with `update(...)` and calls `check()` between

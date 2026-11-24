@@ -117,15 +117,15 @@ Where to start for common changes:
 Training uses packages (PyTorch, torchvision, timm, ...) that ActiveLabel itself does not depend on.
 
 ```mermaid
-flowchart LR
-  A["Request: create a run<br/>(config.yaml, status queued)"] --> B["TrainingRunner queue<br/>(one slot for the whole app)"]
-  B --> C["TrainingEnvironment.ensure<br/>(create the venv, install the missing packages)"]
-  C --> D["build_spec: spec.json in training/tmp/rN"]
-  D --> E["subprocess: env python worker.py spec.json"]
-  E -- "JSON lines: progress, epoch, done" --> B
-  B --> F["run.json, metrics.jsonl, results.json, log.txt"]
-  E --> G["best.pt, last.pt in runs/rN"]
-  B --> H["remove training/tmp/rN"]
+flowchart TB
+  A["Create run<br/>config.yaml, queued"] --> B["Runner queue<br/>one slot"]
+  B --> C["Ensure environment<br/>install missing packages"]
+  C --> D["Write spec.json<br/>in training/tmp"]
+  D --> E["Start worker<br/>with spec.json"]
+  E --> F["JSON lines<br/>progress, epoch, done"]
+  F --> G["run.json, metrics.jsonl,<br/>results.json, log.txt"]
+  E --> H["best.pt, last.pt"]
+  G --> I["Remove training/tmp"]
 ```
 
 - **Environment** (`training/environment.py`). A virtual environment under `<workspace>/training/env`
