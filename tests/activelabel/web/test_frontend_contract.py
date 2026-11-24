@@ -249,3 +249,11 @@ def test_a_run_whose_model_was_deleted_cannot_be_saved_again():
     assert "md.no_weights" in card[:1500]
     remove = JS[JS.index("async function removeModel") :]
     assert "md.delete_text_current" in remove[:600]
+
+
+def test_every_select_has_the_field_look():
+    """A select with no class of its own (the task chooser of the import) is styled like the other fields."""
+    rule = re.search(r"^select \{([^}]*)\}", CSS, re.M)
+    assert rule, "there is no base rule for select"
+    assert "border: 1px solid var(--border)" in rule.group(1)
+    assert "background: var(--surface)" in rule.group(1)
