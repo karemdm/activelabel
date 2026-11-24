@@ -16,6 +16,7 @@ from typing import Any
 
 import cv2
 
+from activelabel.errors import CodedError
 from activelabel.jobs import Progress
 from activelabel.storage import read_json, write_json
 
@@ -62,12 +63,12 @@ def probe(path: Path) -> tuple[float, int, int, int]:
     """Read ``(fps, frames, width, height)`` of a video.
 
     Raises:
-        ValueError: OpenCV cannot read it, or it has no frames or no frame rate.
+        CodedError: OpenCV cannot read it, or it has no frames or no frame rate.
     """
     cap = cv2.VideoCapture(str(path))
     try:
         if not cap.isOpened():
-            raise ValueError("This file is not a video that can be read.")
+            raise CodedError("video_unreadable", "This file is not a video that can be read.")
         fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
         frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -75,9 +76,9 @@ def probe(path: Path) -> tuple[float, int, int, int]:
     finally:
         cap.release()
     if not ok:
-        raise ValueError("This file is not a video that can be read.")
+        raise CodedError("video_unreadable", "This file is not a video that can be read.")
     if frames < 1 or not math.isfinite(fps) or fps <= 0:
-        raise ValueError("The video has no frames or no frame rate.")
+        raise CodedError("video_no_frames", "The video has no frames or no frame rate.")
     return fps, frames, width, height
 
 
@@ -163,17 +164,23 @@ def resolve_selection(
     """Validate a frame selection. Returns ``(start, stop, step)``.
 
     Raises:
-        ValueError: ``0 <= start <= stop < frames`` or ``step >= 1`` does not hold.
+        CodedError: ``0 <= start <= stop < frames`` or ``step >= 1`` does not hold.
     """
     stop = info.frames - 1 if stop is None else stop
     if every_seconds is not None:
         if not 0 < every_seconds <= 86_400:  # also refuses NaN and infinity
-            raise ValueError("Seconds between frames must be greater than 0 and at most one day.")
+            raise CodedError(
+                "video_seconds_range", "Seconds between frames must be greater than 0 and at most one day."
+            )
         step = max(1, round(every_seconds * info.fps))
     if step < 1:
-        raise ValueError("Take one frame every 1 or more frames.")
+        raise CodedError("video_step_range", "Take one frame every 1 or more frames.")
     if not 0 <= start <= stop < info.frames:
-        raise ValueError(f"The range must satisfy 0 <= start <= end < {info.frames} (frames of the video).")
+        raise CodedError(
+            "video_range_invalid",
+            f"The range must satisfy 0 <= start <= end < {info.frames} (frames of the video).",
+            frames=info.frames,
+        )
     return start, stop, step
 
 
@@ -190,20 +197,26 @@ def check_extraction(info: VideoInfo, frames: int, folder: Path) -> None:
     so twice the estimated size must be free in ``folder``.
 
     Raises:
-        ValueError: more than ``MAX_TASK_FRAMES`` frames, or not enough free space.
+        CodedError: more than ``MAX_TASK_FRAMES`` frames, or not enough free space.
     """
     if frames > MAX_TASK_FRAMES:
-        raise ValueError(
+        raise CodedError(
+            "video_too_many_frames",
             f"This selection has {frames} frames (at most {MAX_TASK_FRAMES} per task): "
-            "take one frame every few frames, or a shorter range."
+            "take one frame every few frames, or a shorter range.",
+            frames=frames,
+            max=MAX_TASK_FRAMES,
         )
     needed = round(2 * frames * info.width * info.height * JPEG_BYTES_PER_PIXEL)
     folder.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(folder).free
     if needed > free:
-        raise ValueError(
+        raise CodedError(
+            "video_not_enough_disk",
             f"The frames need about {needed // 2**20} MB of free disk space and only {free // 2**20} MB "
-            "are free: take fewer frames."
+            "are free: take fewer frames.",
+            needed_mb=needed // 2**20,
+            free_mb=free // 2**20,
         )
 
 
@@ -261,11 +274,11 @@ def frame_jpeg(video: Path, index: int, width: int = 320) -> bytes:
     finally:
         cap.release()
     if not ok:
-        raise ValueError("This frame cannot be read.")
+        raise CodedError("frame_unreadable", "This frame cannot be read.")
     rows, cols = image.shape[:2]
     if cols > width:
         image = cv2.resize(image, (width, max(1, round(rows * width / cols))), interpolation=cv2.INTER_AREA)
     ok, data = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 80])
     if not ok:
-        raise ValueError("This frame cannot be encoded.")
+        raise CodedError("frame_unreadable", "This frame cannot be encoded.")
     return bytes(data.tobytes())
