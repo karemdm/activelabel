@@ -2,10 +2,15 @@
 
 Format (docs/SYNC.md)::
 
-    {"<tool>": {"url", "remote_id", "remote_name", "created", "last_sync",
-                "items": {"<image_id>": {"key": "<remote item key>", "base": "<label hash>"}}}}
+    {"<tool>": {"url", "remote_id", "remote_name", "created", "last_sync", "revision", "tasks"?,
+                "items": {"<image_id>": {"key": "<remote item key>", "base": "<label hash>",
+                                         "labels": [<labels at the last synchronisation>],
+                                         "removed"?: true}}}}
 
-The ``base`` of an image is the :func:`label_hash` of its labels at the last synchronisation.
+The ``base`` of an image is the :func:`label_hash` of its labels at the last synchronisation; ``labels``
+are those labels themselves (what a three-way merge needs). An entry with ``base`` alone is the legacy
+form. ``removed`` marks an image removed on both sides. ``revision`` goes up with every new link, so a
+comparison made before it is recognised as old. ``tasks`` (optional) maps local tasks to remote ones.
 """
 
 from __future__ import annotations

@@ -251,3 +251,31 @@ def test_zip_upload_without_seekable(manifest, tmp_path):
     assert not hasattr(_NoSeekable(data), "seekable")
     report = ingest_files(manifest, [("pics.zip", _NoSeekable(data))])
     assert report.added == 1 and not report.rejected
+
+
+def test_the_content_decides_the_kind_of_a_file(manifest, tmp_path):
+    png = _bytes(tmp_path, "p.png", seed=1, fmt="PNG")
+    gif = io.BytesIO()
+    Image.new("RGB", (64, 48), "red").save(gif, format="GIF")
+    report = ingest_files(
+        manifest, [("fake.jpg", io.BytesIO(gif.getvalue())), ("photo.jpg", io.BytesIO(png))]
+    )
+    assert report.rejected == [{"name": "fake.jpg", "reason": "unsupported"}] and report.added == 1
+    stored = manifest.all()[0]
+    assert stored.name == "photo.jpg" and stored.file.endswith(".png")  # stored as what it really is
+
+
+def test_a_colon_in_a_name_is_fine_but_a_drive_path_is_not(manifest, tmp_path):
+    files = [
+        (name, io.BytesIO(_bytes(tmp_path, "a.jpg", seed=i)))
+        for i, name in enumerate(["a:b.jpg", "C:/x.jpg", "d:y.jpg"])
+    ]
+    report = ingest_files(manifest, files)
+    assert report.added == 2 and [r["name"] for r in report.rejected] == ["C:/x.jpg"]
+    assert {r.name for r in manifest.all()} == {"a:b.jpg", "d:y.jpg"}
+
+
+def test_a_huge_image_is_too_large_not_corrupt(manifest, tmp_path, monkeypatch):
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    report = ingest_files(manifest, [("big.jpg", io.BytesIO(_bytes(tmp_path, "big.jpg", seed=4)))])
+    assert report.rejected == [{"name": "big.jpg", "reason": "too large"}]

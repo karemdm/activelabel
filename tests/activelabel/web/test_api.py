@@ -71,8 +71,11 @@ def test_folder_import_is_a_job(tmp_path):
     job = client.post("/api/projects/1/images/folder", json={"path": str(root / "set")}).json()
     done = wait_job(client, 1, job["id"])
     assert done["status"] == "done" and done["result"]["added"] == 1
-    outside = client.post("/api/projects/1/images/folder", json={"path": str(tmp_path)}).json()
-    assert wait_job(client, 1, outside["id"])["status"] == "failed"
+    outside = client.post("/api/projects/1/images/folder", json={"path": str(tmp_path)})
+    assert outside.status_code == 400 and "import root" in outside.json()["detail"]  # at once, no job
+    missing = client.post("/api/projects/1/images/folder", json={"path": str(root / "nope")})
+    assert missing.status_code == 400 and "Not a folder" in missing.json()["detail"]
+    assert len(client.get("/api/projects/1/jobs").json()) == 1
 
 
 def test_folder_import_off_without_root(tmp_path):

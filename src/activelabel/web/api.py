@@ -18,7 +18,7 @@ from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.fiftyone_names import recorded_name
-from activelabel.images.ingest import ingest_files, ingest_folder, thumbnail
+from activelabel.images.ingest import check_folder, ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.importing.common import read_origin
 from activelabel.jobs import Job, Progress
@@ -41,7 +41,7 @@ from activelabel.web.state import AppState, get_state
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 MAX_PAGE = 500
-JOB_GONE = "This job no longer exists (the list of finished jobs was cleared or the server restarted)."
+JOB_GONE = "This activity no longer exists (the list of finished jobs was cleared or the server restarted)."
 UPLOADS = Annotated[list[UploadFile], File()]
 
 
@@ -394,12 +394,16 @@ def upload_images(project_id: int, files: UPLOADS, state: AppState = STATE) -> d
 
 @router.post("/projects/{project_id}/images/folder")
 def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) -> dict[str, Any]:
-    """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT) as a new task, as a job."""
+    """Import a folder of this machine (only inside ACTIVELABEL_IMPORT_ROOT) as a new task, as a job.
+
+    A folder that is off limits or missing is refused at once (HTTP 400).
+    """
     manifest = state.manifest(project_id)
     root = state.settings.import_root
-    if root is None:
-        raise HTTPException(400, "Importing by path is off: set ACTIVELABEL_IMPORT_ROOT.")
-    folder = Path(body.path).expanduser()
+    try:
+        folder = check_folder(Path(body.path).expanduser(), root)  # refused now, not later inside the job
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
     tasks = TaskStore(state.store.dir(project_id))
 
     def run(progress: Progress) -> dict[str, Any]:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -37,6 +38,16 @@ MAX_ZIP_ENTRIES = 100_000
 MAX_EXAMPLES = 200
 CHUNK = 1024 * 1024
 ORIENTATION_TAG = 0x0112
+# Pillow format -> extension the file is stored with (the content decides, not the name)
+FORMAT_EXTENSIONS = {
+    "JPEG": ".jpg",
+    "MPO": ".jpg",
+    "PNG": ".png",
+    "BMP": ".bmp",
+    "TIFF": ".tif",
+    "WEBP": ".webp",
+}
+DRIVE_PATH = re.compile(r"[A-Za-z]:/")
 
 
 @dataclass
@@ -47,7 +58,7 @@ class IngestReport:
         added: images stored.
         duplicates: names of images already in the project (or repeated in the upload).
         rejected: ``{"name": ..., "reason": ...}`` for files that were not stored
-            (``corrupt``, ``too small``, ``unsupported``, ``unsafe path``, ...).
+            (``corrupt``, ``too small``, ``too large``, ``unsupported``, ``unsafe path``, ...).
         other_files: names of annotation files (json, txt, xml, yaml) sent with the images or inside archives.
         ids: ids of the images stored by this import, in order (not part of :meth:`as_dict`).
     """
@@ -76,9 +87,12 @@ class _ZipTooLarge(Exception):
 
 
 def _clean_name(name: str) -> str | None:
-    """Normalised relative name, or None when it is absolute or climbs out with ``..``."""
+    """Normalised relative name, or None when it is absolute (``/``, ``C:/``) or climbs out with ``..``.
+
+    A colon elsewhere in the name (``a:b.png``) is fine: files are stored under their id.
+    """
     name = name.replace("\\", "/")
-    if not name or name.startswith("/") or (len(name) > 1 and name[1] == ":"):
+    if not name or name.startswith("/") or DRIVE_PATH.match(name):
         return None
     parts = [p for p in name.split("/") if p not in ("", ".")]
     if not parts or ".." in parts:
@@ -91,11 +105,14 @@ def _is_hidden(name: str) -> bool:
     return any(p.startswith(".") or p == "__MACOSX" for p in parts) or parts[-1].lower() in IGNORED_NAMES
 
 
-def _read_image(path: Path) -> tuple[int, int]:
-    """Check a file with Pillow and return its displayed (EXIF-oriented) width and height.
+def _read_image(path: Path) -> tuple[int, int, str]:
+    """Check a file with Pillow and return its displayed (EXIF-oriented) width and height and its extension.
+
+    The extension comes from the content (a PNG sent as ``photo.jpg`` is stored as ``.png``).
 
     Raises:
-        ValueError: the file is not a readable image (the message is the rejection reason).
+        ValueError: the file is not a readable image of a supported kind (the message is the rejection
+            reason: ``corrupt``, ``too large``, ``unsupported``, ``too small``).
     """
     try:
         with Image.open(path) as probe:
@@ -104,13 +121,18 @@ def _read_image(path: Path) -> tuple[int, int]:
             image.load()
             width, height = image.size
             orientation = image.getexif().get(ORIENTATION_TAG, 1)
+            extension = FORMAT_EXTENSIONS.get(image.format or "")
+    except Image.DecompressionBombError as exc:
+        raise ValueError("too large") from exc
     except Exception as exc:  # noqa: BLE001 - Pillow raises many kinds of errors for bad files
         raise ValueError("corrupt") from exc
+    if extension is None:
+        raise ValueError("unsupported")
     if orientation in (5, 6, 7, 8):
         width, height = height, width
     if min(width, height) < MIN_SIDE:
         raise ValueError("too small")
-    return width, height
+    return width, height, extension
 
 
 class _Ingester:
@@ -156,7 +178,7 @@ class _Ingester:
         if ext == ".zip":
             self._expand_zip(clean, stream)
         elif ext in IMAGE_EXTENSIONS:
-            self._store_image(clean, stream, ext)
+            self._store_image(clean, stream)
         elif ext in ANNOTATION_EXTENSIONS:
             self.report.other_files.append(clean)  # annotation files sent with the images: step 2
         else:
@@ -166,12 +188,13 @@ class _Ingester:
         self,
         name: str,
         stream: IO[bytes],
-        ext: str,
         limit: int | None = None,
         salt: bytes = b"",
         extra: dict[str, Any] | None = None,
     ) -> int:
-        """Stream a file to disk, validate it and register it. Returns the bytes read.
+        """Stream a file to disk, validate it and register it (stored under its real kind's extension).
+
+        Returns the bytes read.
 
         ``salt`` is hashed after the content (video frames: video, frame and task, so identical
         frames still get their own id); ``extra`` are more fields of the image record.
@@ -193,7 +216,7 @@ class _Ingester:
                 self.report.duplicates.append(name)
                 return size
             try:
-                width, height = _read_image(tmp)
+                width, height, ext = _read_image(tmp)
             except ValueError as exc:
                 self.reject(name, str(exc))
                 return size
@@ -262,7 +285,7 @@ class _Ingester:
         if ext in IMAGE_EXTENSIONS:
             try:
                 with archive.open(info) as entry:
-                    return self._store_image(clean, entry, ext, limit=remaining)
+                    return self._store_image(clean, entry, limit=remaining)
             except (zipfile.BadZipFile, RuntimeError, NotImplementedError, zlib.error, EOFError):
                 self.reject(clean, "corrupt")
                 return 0
@@ -343,7 +366,6 @@ def ingest_frames(
                 ingester._store_image(
                     name,
                     stream,
-                    ".jpg",
                     salt=f"{video}:{index}:{salt}".encode(),
                     extra={"video": video, "frame": index, "time": seconds},
                 )
@@ -365,6 +387,27 @@ def _walk(folder: Path) -> Iterator[Path]:
             yield Path(current) / name
 
 
+def check_folder(folder: Path, import_root: Path | None) -> Path:
+    """The resolved folder to import, after checking it may be imported.
+
+    Args:
+        folder: folder asked for.
+        import_root: allowed root (``ACTIVELABEL_IMPORT_ROOT``); None means importing by path is off.
+
+    Raises:
+        ValueError: importing by path is off, or the folder is not a folder inside the root.
+    """
+    if import_root is None:
+        raise ValueError("Importing by path is off: set ACTIVELABEL_IMPORT_ROOT.")
+    root = import_root.resolve()
+    target = Path(folder).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"The folder must be inside the import root ({root}).")
+    if not target.is_dir():
+        raise ValueError(f"Not a folder: {target}")
+    return target
+
+
 def ingest_folder(
     manifest: Manifest,
     folder: Path,
@@ -383,17 +426,12 @@ def ingest_folder(
         The import report.
 
     Raises:
-        ValueError: importing by path is off, or the folder is not a folder inside the root.
+        ValueError: see :func:`check_folder`.
         Cancelled: the user cancelled; images stored so far stay in the manifest.
     """
-    if import_root is None:
-        raise ValueError("Importing by path is off: set ACTIVELABEL_IMPORT_ROOT.")
+    target = check_folder(folder, import_root)
+    assert import_root is not None  # check_folder refused otherwise
     root = import_root.resolve()
-    target = Path(folder).resolve()
-    if target != root and root not in target.parents:
-        raise ValueError(f"The folder must be inside the import root ({root}).")
-    if not target.is_dir():
-        raise ValueError(f"Not a folder: {target}")
     paths = list(_walk(target))
     ingester = _Ingester(manifest, progress)
     ingester.total = len(paths)
@@ -439,4 +477,12 @@ def thumbnail(manifest: Manifest, record: ImageRecord, size: int = 256) -> Path:
     return target
 
 
-__all__ = ["Cancelled", "IngestReport", "ingest_files", "ingest_folder", "ingest_frames", "thumbnail"]
+__all__ = [
+    "Cancelled",
+    "IngestReport",
+    "check_folder",
+    "ingest_files",
+    "ingest_folder",
+    "ingest_frames",
+    "thumbnail",
+]
