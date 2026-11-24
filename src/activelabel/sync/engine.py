@@ -1045,14 +1045,14 @@ def _import_remote_task(
         if not ids:
             return 0
         task = tstore.create(str(spec["name"] or "") or None, spec.get("job_size"), ids)
-        _attach_video(project_dir, tstore, manifest, remote, settings, spec, task, ids, ordered, warnings)
-    by_name = {Path(str(x["name"])).name: x for x in ordered}
-    stored = manifest.load()
+        placed = _placed(ordered, report.per_file)
+        _attach_video(project_dir, tstore, manifest, remote, settings, spec, task, ids, placed, warnings)
     pulled: dict[str, list[Label]] = {}
     removed: list[str] = []
-    for image_id in ids:
-        x = by_name.get(Path(stored[image_id].name).name)
-        if x is None:
+    for image_id, x in placed.items():
+        if image_id not in ids:  # a frame identical to an image the project already has: linked, not pulled
+            if image_id not in items and not x.get("deleted"):
+                items[image_id] = links.base_entry(str(x["key"]), [Label.from_dict(lb) for lb in x["labels"]])
             continue
         if x.get("deleted"):
             removed.append(image_id)
@@ -1072,6 +1072,20 @@ def _import_remote_task(
     return 1
 
 
+def _placed(ordered: list[dict[str, Any]], per_file: list[str | None]) -> dict[str, dict[str, Any]]:
+    """Remote items by the image each one became (items are paired by position, never by file name).
+
+    Two frames with the same base name in different folders stay apart, and a frame identical to an
+    image the project already has is paired with that image. When two items give the same image the
+    first one wins.
+    """
+    placed: dict[str, dict[str, Any]] = {}
+    for item, image_id in zip(ordered, per_file, strict=True):
+        if image_id:
+            placed.setdefault(image_id, item)
+    return placed
+
+
 def _attach_video(
     project_dir: Path,
     tstore: TaskStore,
@@ -1081,7 +1095,7 @@ def _attach_video(
     spec: dict[str, Any],
     task: ImageTask,
     ids: list[str],
-    ordered: list[dict[str, Any]],
+    placed: dict[str, dict[str, Any]],
     warnings: list[str] | None,
 ) -> None:
     """Bring the original video of a remote video task and make the local task a task from a video.
@@ -1129,11 +1143,9 @@ def _attach_video(
             return
     finally:
         shutil.rmtree(folder, ignore_errors=True)
-    stored = manifest.load()
-    by_name = {Path(str(x["name"])).name: x for x in ordered}
     changes: dict[str, dict[str, Any]] = {}
     for image_id in ids:
-        x = by_name.get(Path(stored[image_id].name).name)
+        x = placed.get(image_id)
         if x is None:
             continue
         index = start + _key_frame(x["key"]) * step
