@@ -44,9 +44,13 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 - Task names are unique within the project and at most 100 characters (400 `task_name_taken`,
   `task_name_too_long`); the default name "Task <id>" is always free. The job size is a whole number
   from 1 to 100,000 (`job_size_invalid`).
-- A task is never empty: an upload that adds nothing (no readable image, only duplicates) creates no task;
-  `POST …/tasks` answers 400 `no_images_added` with the upload report when the task is created closed, and
-  the interface shows the reason of each rejected file.
+- A task is never empty. An upload that adds nothing (no readable image, only duplicates) leaves no task:
+  - a task created **closed** (`open=false`, the way for a one-shot upload through the API) with no image
+    added is refused: 400 `no_images_added` with the upload report;
+  - a task created **open** (the default, used by the chunked upload of the interface) that ends empty is
+    **removed when it is closed**: `PATCH …/tasks/{tid}` with `{open: false}` deletes it and answers the task
+    view with `removed: true`;
+  - the interface shows the reason of each rejected file.
 - Ids are never reused; a deleted task's id is not given again.
 - **Migration**: a project without `tasks.json` that has images gets one task, `"Task 1"`, with
   every image in manifest order and `job_size: null`. Done on first read, then saved.
@@ -59,9 +63,9 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/api/projects/{id}/tasks` | | `{tasks: [task view]}` |
-| POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <id>"), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400) |
+| POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <id>"), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
-| PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task; reopening is refused) | task view |
+| PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task and, when it holds no image, removes it: the answer has `removed: true`; reopening a closed task is refused: 409 `task_closed`) | task view |
 | POST | `/api/projects/{id}/tasks/from-video` | see docs/VIDEO.md | job (the task is created closed) |
 | DELETE | `/api/projects/{id}/tasks/{tid}` | `{confirm: true}` | `{deleted: n images}` |
 
