@@ -64,6 +64,18 @@ process reads it and builds the targets in memory (class indexes, torchvision ta
 polygons for semantic segmentation). A version needs images in the training and validation parts that
 have labels (docs/DATASETS.md).
 
+Each kind of model trains on **one shape** of the labels: a box for detection, polygons (three or more
+points) for instance segmentation, polygons for semantic segmentation (a box stands in for a polygon only
+there), and points for keypoints, all with the same number of points. A label of another class or without
+that shape is left out of the spec; a version whose images have labels but none usable for the model is
+refused when the run starts, with a text that asks for a new version (a new version leaves such labels out
+and says so, docs/DATASETS.md). A run is also refused (400 `dataset_classes_removed`) when its version has
+classes the project no longer has.
+
+The *New run* dialog keeps the hyperparameters closed behind one line that says whether they are the
+*default values* or how many differ (*+{n}*), and tells which packages the first run installs when the
+training environment lacks them.
+
 During the run: phases (`environment`, `preparing`, `training`, `evaluating`), epoch progress,
 loss and validation metric per epoch (live curves), cancel. At the end the test part (if the
 version has one) is evaluated with the best epoch.
@@ -96,7 +108,7 @@ while running, every child with its status) and the curves of any child.
 | `run.json` | status, times, device used, package versions, ActiveLabel version, child runs (grid / folds) |
 | `metrics.jsonl` | one line per epoch: losses and validation metrics |
 | `results.json` | best epoch, validation and test metrics (confusion matrix and per-class metrics when the type has them) |
-| `best.pt`, `last.pt` | weights (of the best child for grid / all folds; `last.pt` removed when the run is saved as a model) |
+| `best.pt`, `last.pt` | weights (of the best child for grid / all folds). When the run is saved as a model both leave the run: `best.pt` **moves** to the model and `last.pt` is removed |
 | `log.txt` | output of the training process (every child, each after a `== c<k>: … ==` line) |
 | `c<k>/` | a child of a grid / all-folds run: `config.yaml` (single mode, one fold), `metrics.jsonl`, `results.json` |
 
@@ -107,7 +119,9 @@ adds `ranking` (`rank`, `combo`, `values`, `children`, `scores`, `mean`, `std`, 
 
 *Repeat* (*Reproduzir*) starts a new run with the same `config.yaml` (409 when the file of the run is
 missing or damaged). A run whose `config.yaml` cannot be read still appears in the list, with a
-`config_error` instead of its configuration, and can be deleted.
+`config_error` instead of its configuration, and can be deleted. `config_error` is a stable code
+(`config_missing` or `config_damaged`) with a plain `config_message`; the detail, which may name a path,
+only goes to the server log.
 
 **Cancel** kills the worker process: the run gets the status `cancelled` and keeps its partial curves
 (`metrics.jsonl`) and its log, but not usable results, and it cannot be saved as a model (only a
@@ -117,10 +131,12 @@ that was running when ActiveLabel stopped ends as failed (`interrupted`); queued
 ## Models (step 6)
 
 A finished run is **saved as a model** (button *Save as model* (*Salvar como modelo*) on the run): `<project>/models/m<N>/`
-holds its best weights (`best.pt`), `config.yaml`, `results.json` and a card, `model.json` (run and
+holds its best weights (`best.pt`, **moved** from the run, so the weights exist once and a saved run
+has no `best.pt` any more; the run keeps its curves, results and log), `config.yaml`, `results.json` and a card, `model.json` (run and
 best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
-the order of the network's outputs, device and package versions, size, note, exports). Numbers are
-never reused, a run is saved at most once, and saving removes the run's `last.pt`. The save dialog asks which
+the order of the network's outputs, the number of points of a keypoint model, device and package
+versions, size, note, exports). Numbers are never reused, a run is saved at most once, and saving removes
+the run's `last.pt`. The save dialog asks which
 weights to keep: the PyTorch weights always, and also ONNX (classification and semantic
 segmentation), which is then queued right after saving.
 
@@ -132,6 +148,12 @@ segmentation), which is then queued right after saving.
   current*); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
+- **Model card** (step 6): short by design. It shows the number of classes (*{n} classes*, with a link to
+  see them all) and the actions of the model; *Pre-annotate with this one* (*Pré-anotar com este*) opens
+  the *Pre-annotate* tab of *Annotations* with that model chosen. The step does not need images in the
+  project (a public model needs none), and an empty step offers its action: save a finished run or add a
+  public model. In the dialog of a public model the mapping is summarised as *{n} of {total} project
+  classes linked to a model category* (*Review* opens the choices).
 - **Comparison**: the screen lists the models and compares them in a table (every validation and
   test metric, the main per-class metric, size), highlighting the best value of each row.
 - A saved model whose architecture this version no longer offers is listed as *unavailable*
@@ -154,7 +176,7 @@ segmentation), which is then queued right after saving.
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
-| GET | `/api/training/environment` | installed packages, device found |
+| GET | `/api/training/environment` | installed packages, device found; with `?model=<id>` also `missing` (packages that model needs) and `install_needed`, which the *New run* dialog uses to say that the first run installs packages |
 | GET/POST | `/api/projects/{id}/runs` | list / create (queued job) |
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
 | GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
@@ -174,8 +196,11 @@ Done: catalogue, training environment, runner, classification, detection, semant
 instance segmentation (Mask R-CNN) and keypoints (torchvision), grid search and all folds, the step 5 screen (Treinamento), and step 6
 (Modelos) with save, current model, comparison, download and ONNX export.
 
-Not yet: YOLO / Ultralytics models (training them is refused), semantic and instance segmentation in
-pre-annotation (and ONNX for instance, detection and keypoint models), and regression.
+Pre-annotation works with classification, detection, keypoint, instance segmentation and semantic
+segmentation models (docs/PREANNOTATE.md).
+
+Not yet: YOLO / Ultralytics models (training them is refused), ONNX for instance, detection and keypoint
+models, and regression.
 
 ## Image orientation
 
