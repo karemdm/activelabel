@@ -84,7 +84,8 @@ round of labels to review, not to replace a model trained on the project's own i
   dialog shows the COCO box mAP and the download size of each. Classification models (ImageNet,
   1000 classes) come later.
 - **Mapping**: for each class of the project, the category of the model that stands for it
-  (suggested when the names match, ignoring case, `_` and `-`). Several categories can go to one
+  (suggested when the names match, ignoring case, accents, `_` and `-`, or when a class is the Portuguese
+  name of a COCO category: `gato` for `cat`, `pessoa` for `person`). Several categories can go to one
   class (`truck` and `car` → `car`); categories not mapped are ignored.
 - **Weights**: nothing is stored in the project (`model.json` only, with `source: "public"`, the
   catalogue id and the mapping). Each pre-annotation run downloads the weights from the torchvision

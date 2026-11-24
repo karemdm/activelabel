@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from activelabel.training.category_names import coco_name, name_key
+
 #: COCO categories in the order of torchvision's detection outputs ("N/A" are unused indexes).
 COCO_CATEGORIES = (
     "__background__", "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -134,10 +136,23 @@ def public_for(project_type: str | None) -> list[PublicModel]:
 
 
 def suggest_mapping(model: PublicModel, project_classes: list[str]) -> dict[str, str]:
-    """Public category → project class for names that match (ignoring case, spaces and underscores)."""
+    """Public category → project class for names that match.
 
-    def key(name: str) -> str:
-        return name.casefold().replace("_", " ").replace("-", " ").strip()
+    A name matches ignoring case, accents, spaces and underscores, or as the Portuguese name of a COCO
+    category (``gato`` for ``cat``). An exact name wins over a translation.
 
-    by_key = {key(c): c for c in project_classes}
-    return {c: by_key[key(c)] for c in model.classes() if key(c) in by_key}
+    Args:
+        model: The public model.
+        project_classes: The classes of the project.
+
+    Returns:
+        ``{category: project class}`` for every category of the model that a class stands for.
+    """
+    exact = {name_key(c): c for c in project_classes}
+    translated = {coco: c for c in project_classes if (coco := coco_name(c))}
+    mapping = {}
+    for category in model.classes():
+        chosen = exact.get(name_key(category)) or translated.get(category)
+        if chosen:
+            mapping[category] = chosen
+    return mapping

@@ -37,7 +37,6 @@ BASELINE = {
     "sync/engine.py:apply_plan.ids_of",
     "sync/engine.py:make_plan.remote_known",
     "training/catalog.py:_classification.m",
-    "training/public_models.py:suggest_mapping.key",
     "training/runner.py:TrainingRunner._export.step",
     "training/runner.py:TrainingRunner._preannotate.on_event",
     "training/runner.py:TrainingRunner._preannotate.step",

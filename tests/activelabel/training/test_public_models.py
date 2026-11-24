@@ -213,3 +213,11 @@ def test_a_keypoint_model_with_another_skeleton_is_refused(det):
 
 def tmp_path_of(state):
     return state.store.root.parent / "kimg"
+
+
+def test_suggestions_translate_portuguese_names_and_keep_exact_ones_first():
+    detector = get_public("coco_fasterrcnn_mobilenet_v3")
+    assert detector is not None
+    suggested = suggest_mapping(detector, ["gato", "Cão", "pessoa", "carro", "solda"])
+    assert suggested == {"person": "pessoa", "car": "carro", "cat": "gato", "dog": "Cão"}
+    assert suggest_mapping(detector, ["gato", "cat"])["cat"] == "cat"

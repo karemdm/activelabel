@@ -178,7 +178,7 @@ running.
 | DELETE | `/projects/{id}` | `{confirm_name}` | `{deleted: id}` |
 | POST | `/projects/{id}/images` | multipart `files` (images and/or .zip); creates a new task named "Task <id>" | ingest report (+ `task`) |
 | POST | `/projects/{id}/images/folder` | `{path}`; needs `ACTIVELABEL_IMPORT_ROOT` (400 otherwise), the path must be inside it; API only, the interface has no button for it | job (folder import) |
-| GET | `/projects/{id}/images` | `status` (`active` default, `excluded`, `all`), `issue`, `ids` (comma separated), `task`, `job` (needs `task`), `dataset`, `part` and `fold` (need `dataset`), `offset`, `limit` (60 by default, at most 500) | `{total, items}` |
+| GET | `/projects/{id}/images` | `status` (`active` default, `excluded`, `all`), `issue` (a flag, or `any` for every flagged image), `ids` (comma separated), `task`, `job` (needs `task`), `dataset`, `part` and `fold` (need `dataset`), `offset`, `limit` (60 by default, at most 500) | `{total, items}` (classification projects: each item has `classes`) |
 | GET | `/projects/{id}/images/{image_id}/thumb` | | JPEG |
 | GET | `/projects/{id}/images/{image_id}/file` | | original file |
 | POST | `/projects/{id}/images/exclude` | `{ids, reason}` | `{changed}` |
@@ -221,7 +221,7 @@ running.
 | GET, DELETE | `/projects/{id}/datasets/{n}` | see [DATASETS.md](DATASETS.md) | version / `{deleted}` |
 | GET | `/training/catalog` | `type` | models with hyperparameter specs, selection metrics |
 | GET | `/training/environment` | | installed packages, device found |
-| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs / the new run, stored as `queued`; it starts as soon as no other heavy process is running |
+| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs (each with `model_number` and `has_weights`) / the new run, stored as `queued`; it starts as soon as no other heavy process is running |
 | GET / DELETE | `/projects/{id}/runs/{n}` | DELETE: `{confirm: true}` (409 while running) | config, status, metrics, results / `{deleted}` |
 | POST | `/projects/{id}/runs/{n}/cancel`, `/reproduce` | | the run / a new run with the same configuration |
 | GET | `/projects/{id}/runs/{n}/log`, `/children/{c}` | `lines` (200 by default) | log tail / one child of a grid or all-folds run |
