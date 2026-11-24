@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from activelabel.datasets import DatasetNotFound, DatasetStore
+from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.storage import now, read_json, write_json
 from activelabel.training.catalog import get_model
 from activelabel.training.runs import DONE, RunStore
@@ -103,6 +103,7 @@ class ModelStore:
                     "The data split version of this run was deleted and the run has no list of classes."
                 ) from None
         classes = list(classes)
+        points = self._keypoints_of(spec, config.dataset)
         with self._lock:
             for existing in self.list():
                 if existing.get("run") == run_number:
@@ -122,6 +123,7 @@ class ModelStore:
                 "child": run.get("best_child"),
                 "model": config.model,
                 "task_kind": spec.task_kind if spec else "",
+                "num_keypoints": points,
                 "dataset": config.dataset,
                 "dataset_fingerprint": config.dataset_fingerprint,
                 "start": config.start,
@@ -142,6 +144,16 @@ class ModelStore:
                 write_json(self.dir / "current.json", {"model": number})
         (run_dir / "last.pt").unlink(missing_ok=True)
         return self.get(number)
+
+    def _keypoints_of(self, spec: Any, dataset: int) -> int | None:
+        """Points per object a pose model was trained with (read from its dataset version's labels)."""
+        if spec is None or spec.task_kind != "keypoints":
+            return None
+        try:
+            labels = DatasetStore(self.project_dir).read(dataset).get("labels") or {}
+        except DatasetNotFound:
+            return None
+        return common_count(len(lb.get("keypoints") or []) for own in labels.values() for lb in own)
 
     def add_public(
         self, public_id: str, mapping: dict[str, str], project_classes: list[str], note: str = ""
@@ -188,6 +200,7 @@ class ModelStore:
                 "model": model.builder,
                 "label": model.label,
                 "task_kind": model.task_kind,
+                "num_keypoints": len(model.keypoints) or None,
                 "mapping": mapping,
                 "classes": [c for c in project_classes if c in set(mapping.values())],
                 "metric": "",
