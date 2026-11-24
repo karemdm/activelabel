@@ -136,6 +136,12 @@ def geometry_problem(task: Task, label: Label, keypoints: int | None = None) -> 
     return None
 
 
+def common_keypoint_count(labels_by_image: dict[str, list[Label]]) -> int | None:
+    """The most common number of points among the pose labels (None when there are none)."""
+    sizes = Counter(len(lb.keypoints) for items in labels_by_image.values() for lb in items if lb.keypoints)
+    return sizes.most_common(1)[0][0] if sizes else None
+
+
 @dataclass
 class LabelCheck:
     """What :func:`validate_labels` found.
