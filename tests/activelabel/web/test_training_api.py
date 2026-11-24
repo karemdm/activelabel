@@ -126,7 +126,12 @@ def test_a_damaged_run_does_not_hide_the_others(tmp_path):
     (RunStore(state.store.dir(1)).path(1) / "config.yaml").unlink()
     runs = client.get(RUNS).json()["runs"]
     assert [r["number"] for r in runs] == [2, 1]
-    assert "config_error" in runs[1] and runs[0]["model"] == "fasterrcnn_resnet50_fpn"
+    assert runs[1]["config_error"] == "config_missing" and runs[0]["model"] == "fasterrcnn_resnet50_fpn"
+    assert "config.yaml" not in runs[1]["config_message"] and "\\" not in runs[1]["config_message"]
+    assert str(state.store.dir(1)) not in str(runs[1])
+    (RunStore(state.store.dir(1)).path(1) / "config.yaml").write_text("{not: [valid", encoding="utf-8")
+    damaged = client.get(RUNS).json()["runs"][1]
+    assert damaged["config_error"] == "config_damaged" and str(state.store.dir(1)) not in str(damaged)
     one = client.get(f"{RUNS}/1")
     assert one.status_code == 200 and one.json()["config"] is None
     assert client.post(f"{RUNS}/1/reproduce").status_code == 409

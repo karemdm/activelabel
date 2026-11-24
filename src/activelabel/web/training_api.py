@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ from activelabel.training.models import ModelStore
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.state import AppState, get_state
 
+LOG = logging.getLogger(__name__)
+CONFIG_MESSAGES = {
+    "config_missing": "The configuration file of this run is missing.",
+    "config_damaged": "The configuration file of this run is damaged.",
+}
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 
@@ -38,11 +44,17 @@ def _store(state: AppState, project_id: int) -> RunStore:
 
 
 def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
-    """A run with the main fields of its configuration (``config_error`` when the file is unreadable)."""
+    """A run with the main fields of its configuration.
+
+    When ``config.yaml`` cannot be read the run has ``config_error`` (``config_missing`` or
+    ``config_damaged``) and a plain ``config_message``; the detail (which may name a path) goes to the log.
+    """
     try:
         config = store.config(run["number"])
     except (OSError, ValueError) as exc:  # a missing or damaged config.yaml must not hide every run
-        return {**run, "config_error": str(exc) or type(exc).__name__}
+        LOG.warning("Run %s: unreadable config.yaml: %s", run["number"], exc)
+        code = "config_missing" if isinstance(exc, FileNotFoundError) else "config_damaged"
+        return {**run, "config_error": code, "config_message": CONFIG_MESSAGES[code]}
     return {
         **run,
         "model": config.model,
