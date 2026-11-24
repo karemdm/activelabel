@@ -227,7 +227,7 @@ flowchart TB
 ```
 
 If the run is cancelled, children not started are marked `cancelled`. A child that fails does not stop
-the others. A run saved as a model (`models/m<N>`) keeps its best weights; ONNX export and pre-annotation
+the others. A run saved as a model (`models/m<N>`) hands its best weights over to the model (they move, they are not copied); ONNX export and pre-annotation
 are queued in the same slot and run the same way (`queued`, `running`, `done`, `failed`).
 
 ## 6. Job lifecycle (light jobs)
