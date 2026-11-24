@@ -10,6 +10,7 @@ from activelabel import preannotate
 from activelabel.annotate.sessions import select_images
 from activelabel.datasets import DatasetOptions, plan_split
 from activelabel.labels import Label, load_annotations, save_annotations
+from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 from activelabel.training.config import RunConfig
 from activelabel.training.runs import RunStore
@@ -263,3 +264,37 @@ def test_no_readable_image_fails_readably(pre):
     assert failed["error"] == "None of the images of this task could be read."
     wait_for(lambda: not runner.has_active(1))
     assert runner._pre_jobs == {} and tmp_dirs(runner) == []
+
+
+def test_masks_become_polygon_labels():
+    import numpy as np
+
+    w = worker_module()
+    mask = np.zeros((40, 80), dtype=bool)
+    mask[10:30, 10:30] = True  # region 1
+    mask[5:35, 50:75] = True  # region 2
+    mask[0, 79] = True  # a speck: noise
+    encoded = w.encode_mask(mask)
+    assert (preannotate.decode_mask(encoded) == mask).all()
+    assert (preannotate.decode_mask(w.encode_mask(~mask)) == ~mask).all()
+    rings = preannotate.mask_polygons(mask)
+    assert len(rings) == 2 and all(len(r) >= 4 for r in rings)
+    xs = sorted(p[0] for p in rings[0] + rings[1])
+    assert xs[0] == pytest.approx(10.5 / 80) and xs[-1] == pytest.approx(74.5 / 80)
+
+    instance = w.detection_labels([[10, 5, 75, 35]], [1], [0.9], 80, 40, ["a"], 0.5, "m1", None, [mask])
+    (one,) = preannotate.mask_labels(instance)
+    assert one.label == "a" and one.score == 0.9 and len(one.polygons) == 2 and len(one.bbox) == 4
+    assert one.bbox[0] == pytest.approx(10.5 / 80) and one.bbox[2] == pytest.approx(64 / 80)
+
+    classes_map = np.where(mask, 1, 0)
+    semantic = w.semantic_labels(classes_map, np.full(mask.shape, 0.8), ["a", "b"], 0.5, "m2")
+    assert [x["label"] for x in semantic] == ["a"] and semantic[0]["score"] == 0.8
+    assert w.semantic_labels(classes_map, np.full(mask.shape, 0.3), ["a"], 0.5, "m2") == []
+    objects = preannotate.mask_labels(semantic)
+    assert len(objects) == 2 and all(len(o.polygons) == 1 and o.bbox for o in objects)  # one per region
+    assert preannotate.mask_labels([{"label": "a", "mask": w.encode_mask(np.zeros((9, 9), bool))}]) == []
+    with pytest.raises(ValueError):
+        preannotate.decode_mask({"size": [3, 3], "counts": [0, 4]})
+    assert set(preannotate.KINDS) >= {"instance", "semantic"}
+    assert preannotate.fits("semantic", Task.SEGMENTATION) and preannotate.fits("instance", Task.SEGMENTATION)

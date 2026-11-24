@@ -686,7 +686,7 @@ class TrainingRunner:
             def on_event(event: dict[str, Any]) -> None:
                 kind = event.get("event")
                 if kind == "prediction":
-                    predictions[str(event["id"])] = [Label.from_dict(x) for x in event.get("labels") or []]
+                    predictions[str(event["id"])] = preannotate.mask_labels(event.get("labels") or [])
                 elif kind == "skipped":
                     unreadable.append(str(event.get("id")))
                 elif kind == "progress" and time.monotonic() - last["t"] >= PROGRESS_EVERY:
