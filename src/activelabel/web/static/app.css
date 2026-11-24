@@ -224,13 +224,17 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .step:hover { background: var(--surface-2); border-color: var(--border); }
 .step:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .step.current { border-color: var(--group, var(--primary)); background: var(--group-soft, var(--primary-soft)); }
-.step-num { flex: none; width: 26px; height: 26px; font-size: var(--font-sm); border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-weight: 700; border: 1px solid var(--border); }
+/* step markers: the state is in the shape, never only in the colour (and in hidden text for screen readers):
+   to do = number in an outline; done = check in the area colour (not green: done is not a status);
+   needs attention = amber "!"; busy = pulsing outline; the current step is the only filled circle. */
+.step-num { flex: none; width: 26px; height: 26px; font-size: var(--font-sm); border-radius: 50%; display: grid; place-items: center; background: transparent; color: var(--muted); font-weight: 700; border: 1.5px solid var(--border); transition: background-color var(--area-fade), border-color var(--area-fade), color var(--area-fade); }
+.step.is-done .step-num { color: var(--group, var(--primary)); border-color: var(--group, var(--primary)); }
+.step.is-attention .step-num { color: var(--warn); border-color: var(--warn); }
+.step.is-busy .step-num { border-color: var(--group, var(--primary)); color: var(--group, var(--primary)); animation: step-pulse 1.4s ease-in-out infinite; }
 .step.current .step-num { background: var(--group, var(--primary)); color: var(--on-accent); border-color: var(--group, var(--primary)); }
-.step.is-done .step-num { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
-.step.is-attention .step-num { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
-.step.is-busy .step-num { border-color: var(--primary); color: var(--primary); animation: step-pulse 1.4s ease-in-out infinite; }
-.step.current.is-done .step-num, .step.current.is-attention .step-num { background: var(--group, var(--primary)); color: var(--on-accent); border-color: var(--group, var(--primary)); }
-@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px var(--primary-soft); } }
+/* the current step keeps its "needs attention" visible: an amber ring around the filled circle */
+.step.current.is-attention .step-num { box-shadow: 0 0 0 2px var(--group-soft, var(--surface)), 0 0 0 4px var(--warn); }
+@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px var(--group-soft, var(--primary-soft)); } }
 .step-text { display: flex; flex-direction: column; min-width: 0; }
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: var(--font-sm); }

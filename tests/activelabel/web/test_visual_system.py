@@ -28,3 +28,13 @@ def test_the_area_fades_and_the_fade_is_off_with_reduced_motion():
 def test_cards_are_flat_and_only_overlays_have_a_shadow():
     card = re.search(r"^\.card \{([^}]*)\}", CSS, re.M)
     assert card and "box-shadow" not in card.group(1)
+
+
+def test_step_markers_carry_the_state_in_the_shape():
+    """Done is an outlined check in the area colour, the current step is the only filled circle."""
+    done = re.search(r"^\.step\.is-done \.step-num \{([^}]*)\}", CSS, re.M)
+    assert done and "background" not in done.group(1) and "var(--ok" not in done.group(1)
+    assert re.search(r"^\.step-num \{[^}]*background: transparent", CSS, re.M)
+    assert re.search(r"^\.step\.current \.step-num \{[^}]*background: var\(--group", CSS, re.M)
+    assert "state === 'done' ? icon('check', 16) : state === 'attention' ? '!'" in JS
+    assert "t(`step.state_${state}`)" in JS  # the state as hidden text for screen readers
