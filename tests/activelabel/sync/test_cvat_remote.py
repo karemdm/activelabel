@@ -768,6 +768,22 @@ def test_failed_task_creation_deletes_the_new_task(
     assert any(c[0] == "DELETE" for c in cvat.calls)
 
 
+@pytest.mark.parametrize(
+    "body", [{"name": "x"}, {"name": "x", "project_id": None}, {"name": "x", "project_id": 0}]
+)
+def test_a_task_without_project_is_refused_before_any_request(cvat: FakeCvat, body: dict[str, Any]) -> None:
+    api = CvatRemote._api(SETTINGS)
+    with pytest.raises(ToolError, match="outside a project"):
+        api.request("POST", "/api/tasks", json=body)
+    assert not cvat.calls and not cvat.tasks
+
+
+def test_a_task_with_project_is_created(cvat: FakeCvat) -> None:
+    pid, _ = seeded(cvat)
+    answer = CvatRemote._api(SETTINGS).request("POST", "/api/tasks", json={"name": "ok", "project_id": pid})
+    assert cvat.tasks[answer["id"]]["project_id"] == pid
+
+
 def test_failed_cleanup_keeps_the_original_error(
     cvat: FakeCvat, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

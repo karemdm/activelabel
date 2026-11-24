@@ -95,7 +95,16 @@ class _Api(_Http):
     """CVAT REST client: the read side of the importer plus writes, with readable errors."""
 
     def request(self, method: str, path: str, *, timeout: int = TIMEOUT, **kw: Any) -> Any:
-        """Call the API and return the decoded JSON (None when the answer has no body)."""
+        """Call the API and return the decoded JSON (None when the answer has no body).
+
+        A task is only created inside a project (review in CVAT goes through the sync with the linked
+        project): ``POST /api/tasks`` without ``project_id`` is refused before anything is sent.
+        """
+        if method.upper() == "POST" and path.split("?", 1)[0].rstrip("/") == "/api/tasks":
+            if not (kw.get("json") or {}).get("project_id"):
+                raise ToolError(
+                    "Refusing to create a CVAT task outside a project: the task needs a project_id."
+                )
         try:
             r = self._http.request(method, f"{self.url}{path}", auth=self._auth, timeout=timeout, **kw)
         except Exception:  # noqa: BLE001 - network/timeouts: never echo the exception text
