@@ -37,3 +37,22 @@ def test_update_fields(tmp_path):
     assert manifest.get("a").issues == ["dark"]
     with pytest.raises(ValueError):
         manifest.update({"a": {"file": "x"}})
+
+
+def test_cached_parse_never_leaks_changes_or_hides_edits(tmp_path):
+    import json
+
+    from activelabel.images.manifest import ImageRecord, Manifest
+
+    manifest = Manifest(tmp_path)
+    manifest.add(
+        [ImageRecord("a", "a.png", "images/a.png", 1, 1, 1, "t", issues=["dark"], metrics={"x": 1.0})]
+    )
+    first = manifest.load()
+    first["a"].issues.append("blurry")  # changing a loaded record must not change what is stored
+    first["a"].metrics["x"] = 9.0
+    assert manifest.get("a").issues == ["dark"] and manifest.get("a").metrics == {"x": 1.0}
+    data = json.loads(manifest.path.read_text(encoding="utf-8"))
+    data[0]["name"] = "edited by hand.png"
+    manifest.path.write_text(json.dumps(data, indent=3), encoding="utf-8")  # another process changed the file
+    assert manifest.get("a").name == "edited by hand.png"

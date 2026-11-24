@@ -1,7 +1,7 @@
 """The list of images of a project (``images.json``).
 
-Images are stored by content: the id is a hash of the file, so the same image uploaded
-twice is detected. Excluding an image keeps its file (it can be restored); deleting it
+Images are stored by content: the id is a hash of the file (salted for video frames), so the same
+image uploaded twice is detected. Excluding an image keeps its file (it can be restored); deleting it
 removes the file.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,28 @@ def _lock_for(path: Path) -> threading.RLock:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
 
+MAX_CACHED = 6
+_PARSED_LOCK = threading.Lock()
+_PARSED: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}  # file -> (mtime, size), its JSON
+
+
+def _remember(key: Path, stamp: tuple[int, int], data: list[dict[str, Any]]) -> None:
+    """Keep the parsed list of a manifest (the last few only: a big project holds tens of MB)."""
+    with _PARSED_LOCK:
+        _PARSED.pop(key, None)
+        _PARSED[key] = (stamp, data)
+        while len(_PARSED) > MAX_CACHED:
+            _PARSED.pop(next(iter(_PARSED)))
+
+
+def _stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
+
+
 ACTIVE = "active"
 EXCLUDED = "excluded"
 
@@ -34,7 +56,8 @@ class ImageRecord:
     """One image of a project.
 
     Attributes:
-        id: first 16 hex digits of the SHA-256 of the file (content id).
+        id: first 16 hex digits of the SHA-256 of the file (content id); for a video frame the hash also
+            covers the video, frame index and task, so identical frames of different tasks stay apart.
         name: original file name, with its sub-folder inside the upload (``a/b.jpg``).
         file: stored file, relative to the project folder (``images/<id>.<ext>``).
         width: pixels.
@@ -68,8 +91,8 @@ class ImageRecord:
     time: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
-        return asdict(self)
+        """JSON-ready form (not ``dataclasses.asdict``: that is several times slower on 50 000 images)."""
+        return {**self.__dict__, "metrics": dict(self.metrics), "issues": list(self.issues)}
 
 
 class Manifest:
@@ -80,15 +103,35 @@ class Manifest:
         self.path = project_dir / "images.json"
         self._lock = _lock_for(self.path)
 
+    def _items(self) -> list[dict[str, Any]]:
+        """The JSON list, parsed again only when the file changed (the parse is most of the cost)."""
+        key, stamp = self.path.resolve(), _stamp(self.path)
+        with _PARSED_LOCK:
+            cached = _PARSED.get(key)
+        if stamp is not None and cached is not None and cached[0] == stamp:
+            return cached[1]
+        data: list[dict[str, Any]] = read_json(self.path, [])
+        if stamp is not None:
+            _remember(key, stamp, data)
+        return data
+
     def load(self) -> dict[str, ImageRecord]:
-        """Every image by id, in the order they were added."""
-        data = read_json(self.path, [])
-        return {item["id"]: ImageRecord(**item) for item in data}
+        """Every image by id, in the order they were added (new objects: change them freely)."""
+        records = {}
+        for item in self._items():
+            records[item["id"]] = ImageRecord(
+                **{**item, "metrics": dict(item.get("metrics", {})), "issues": list(item.get("issues", []))}
+            )
+        return records
 
     def save(self, records: dict[str, ImageRecord]) -> None:
         """Replace the list."""
+        data = [r.as_dict() for r in records.values()]
         with self._lock:
-            write_json(self.path, [r.as_dict() for r in records.values()])
+            write_json(self.path, data, indent=None)  # long list: compact
+            stamp = _stamp(self.path)
+            if stamp is not None:
+                _remember(self.path.resolve(), stamp, data)
 
     def all(self) -> list[ImageRecord]:
         """Every image."""
