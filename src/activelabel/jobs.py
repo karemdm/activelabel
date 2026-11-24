@@ -55,6 +55,7 @@ class Job:
     total: int = 0
     message: str = ""
     result: dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)  # what the job is about (e.g. the run number)
     error: str = ""
     created: str = field(default_factory=now)
     started: str = ""
@@ -105,9 +106,14 @@ class JobManager:
         self._lock = threading.Lock()
         self._keep = keep
 
-    def submit(self, project_id: int, kind: str, function: JobFunction) -> Job:
-        """Queue a job and return its state (updated in place while it runs)."""
-        job = Job(uuid.uuid4().hex[:12], project_id, kind)
+    def submit(
+        self, project_id: int, kind: str, function: JobFunction, params: dict[str, Any] | None = None
+    ) -> Job:
+        """Queue a job and return its state (updated in place while it runs).
+
+        ``params`` say what the job is about (for example ``{"number": 3}``) and are listed with it.
+        """
+        job = Job(uuid.uuid4().hex[:12], project_id, kind, params=dict(params or {}))
         cancel = threading.Event()
         with self._lock:
             self._jobs[job.id] = job
