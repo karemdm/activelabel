@@ -6,6 +6,9 @@ project: everything works the same afterwards (curation, annotation sessions in 
 editing, task change, ...). The origin is only recorded for information.
 
 The tools use the same settings and keyring login as the annotation tools (docs/ANNOTATION.md).
+In the interface (*Import project* on the project list) both CVAT and Label Studio can be a source.
+Label Studio is otherwise switched off in the interface (no edit sessions, no synchronisation); only the
+import remains available there.
 
 ## What is imported
 
