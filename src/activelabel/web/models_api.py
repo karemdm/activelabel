@@ -5,15 +5,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from activelabel.jobs import QUEUED, RUNNING
 from activelabel.preannotate import PreannotationStore
+from activelabel.textcheck import message_of
 from activelabel.training.models import EXPORT_FILES, WEIGHTS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public, public_for, suggest_mapping
 from activelabel.training.runs import RunNotFound
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -60,8 +62,8 @@ def _store(state: AppState, project_id: int) -> ModelStore:
     return ModelStore(state.store.dir(project_id))
 
 
-def _missing() -> HTTPException:
-    return HTTPException(404, "This model does not exist.")
+def _missing() -> ApiError:
+    return ApiError(404, "model_not_found", "This model does not exist.")
 
 
 @router.get("/projects/{project_id}/models")
@@ -91,15 +93,17 @@ def add_public_model(project_id: int, body: PublicModelBody, state: AppState = S
     project = state.project(project_id)
     model = get_public(body.public)
     if model is None:
-        raise HTTPException(404, "This public model does not exist.")
+        raise ApiError(404, "public_model_not_found", "This public model does not exist.")
     if model not in public_for(project.task.value):
-        raise HTTPException(400, "This public model does not make the labels this project uses.")
+        raise ApiError(
+            400, "public_model_wrong_type", "This public model does not make the labels this project uses."
+        )
     try:
         return ModelStore(state.store.dir(project_id)).add_public(
             body.public, body.mapping, list(project.classes), body.note
         )
     except ModelError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
 
 
 @router.post("/projects/{project_id}/models")
@@ -109,9 +113,9 @@ def save_model(project_id: int, body: SaveModel, state: AppState = STATE) -> dic
     try:
         return store.save_run(body.run, body.note.strip()[:500])
     except RunNotFound:
-        raise HTTPException(404, "This training run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
     except ModelError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
 
 
 @router.get("/projects/{project_id}/models/{number}")
@@ -148,22 +152,28 @@ def delete_model(
     """Delete a model and its files (needs ``{"confirm": true}``)."""
     store = _store(state, project_id)
     if not (body and body.confirm):
-        raise HTTPException(400, "Confirm the deletion of this model.")
+        raise ApiError(400, "confirm_required", "Confirm the deletion of this model.")
     using = [
         r
         for r in PreannotationStore(state.store.dir(project_id)).list()
         if r.get("model") == number and r.get("status") in (QUEUED, RUNNING)
     ]
     if using:
-        raise HTTPException(409, "A pre-annotation with this model is queued or running: wait for it to end.")
+        raise ApiError(
+            409,
+            "model_in_use",
+            "A pre-annotation with this model is queued or running: wait for it to end.",
+        )
     try:
         store.delete(number)
     except ModelNotFound:
         raise _missing() from None
     except ModelError as error:
-        raise HTTPException(409, str(error)) from None
+        raise ApiError(409, error.code, message_of(error), **error.params) from None
     except OSError:  # a file still in use (Windows): nothing was removed from the list
-        raise HTTPException(409, "A file of this model is in use: try again in a moment.") from None
+        raise ApiError(
+            409, "model_file_in_use", "A file of this model is in use: try again in a moment."
+        ) from None
     return {"deleted": True}
 
 
@@ -176,7 +186,7 @@ def export_model(project_id: int, number: int, body: ExportModel, state: AppStat
     except ModelNotFound:
         raise _missing() from None
     except ModelError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
 
 
 @router.get("/projects/{project_id}/models/{number}/download/{kind}")
@@ -185,17 +195,23 @@ def download_model(project_id: int, number: int, kind: str, state: AppState = ST
     store = _store(state, project_id)
     name = DOWNLOADS.get(kind)
     if name is None:
-        raise HTTPException(404, "Unknown download.")
+        raise ApiError(404, "download_unknown", "Unknown download.", kind=kind)
     try:
         card = store.get(number)
     except ModelNotFound:
         raise _missing() from None
     if card.get("source") == "public":
-        raise HTTPException(404, "A public model has no weights here: they are downloaded when it is used.")
+        raise ApiError(
+            404,
+            "public_model_no_weights",
+            "A public model has no weights here: they are downloaded when it is used.",
+        )
     try:
         path = store.file(number, name)
     except ModelNotFound:
-        raise HTTPException(404, "This file does not exist (export the model first).") from None
+        raise ApiError(
+            404, "model_file_missing", "This file does not exist (export the model first)."
+        ) from None
     project = re.sub(r"[^A-Za-z0-9._-]+", "-", state.project(project_id).name).strip("-") or "project"
     filename = f"{project}-m{number}-{card['model']}{path.suffix}"
     return FileResponse(path, filename=filename, media_type="application/octet-stream")

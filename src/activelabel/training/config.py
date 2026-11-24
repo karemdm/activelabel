@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from activelabel.errors import CodedError
+from activelabel.textcheck import message_of
 from activelabel.training.catalog import METRICS, STARTS, ModelSpec, get_model
 
 MAX_GRID = 50
@@ -19,8 +21,8 @@ MODES = ("single", "grid")
 KEYS = ("dataset", "dataset_fingerprint", "fold", "model", "start", "mode", "metric", "params", "grid")
 
 
-class ConfigError(ValueError):
-    """The configuration is not valid (the message is readable)."""
+class ConfigError(CodedError):
+    """The configuration is not valid (a :class:`~activelabel.errors.CodedError`: the message is readable)."""
 
 
 @dataclass
@@ -72,21 +74,25 @@ class RunConfig:
                 dataset or model.
         """
         if not isinstance(data, dict):
-            raise ConfigError("The configuration must be a mapping of options.")
+            raise ConfigError("config_not_mapping", "The configuration must be a mapping of options.")
         unknown = set(data) - set(KEYS)
         if unknown:
-            raise ConfigError(f"Unknown option(s): {', '.join(sorted(map(str, unknown)))}.")
+            raise ConfigError(
+                "config_unknown_options",
+                f"Unknown option(s): {', '.join(sorted(map(str, unknown)))}.",
+                options=sorted(map(str, unknown)),
+            )
         for key in ("dataset", "model"):
             if data.get(key) in (None, ""):
-                raise ConfigError(f"Choose the {key}.")
+                raise ConfigError("config_choose", f"Choose the {key}.", field=key)
         params, grid = data.get("params") or {}, data.get("grid") or {}
         if not isinstance(params, dict) or not isinstance(grid, dict):
-            raise ConfigError("'params' and 'grid' must be mappings.")
+            raise ConfigError("config_params_not_mapping", "'params' and 'grid' must be mappings.")
         if any(not isinstance(v, list) for v in grid.values()):
-            raise ConfigError("Every grid entry must be a list of values.")
+            raise ConfigError("grid_entry_not_list", "Every grid entry must be a list of values.")
         dataset = data["dataset"]
         if isinstance(dataset, bool) or not isinstance(dataset, int):
-            raise ConfigError("The dataset version must be a number.")
+            raise ConfigError("dataset_not_number", "The dataset version must be a number.")
         return cls(
             dataset=dataset,
             model=str(data["model"]),
@@ -113,7 +119,7 @@ class RunConfig:
         try:
             return cls.from_dict(yaml.safe_load(text))
         except yaml.YAMLError:
-            raise ConfigError("The configuration is not valid YAML.") from None
+            raise ConfigError("config_invalid_yaml", "The configuration is not valid YAML.") from None
 
     def grid_size(self) -> int:
         """How many runs the grid makes (1 without a grid)."""
@@ -123,7 +129,7 @@ class RunConfig:
         """Every parameter of the model (catalogue default unless set here), ``start`` included."""
         spec = model or get_model(self.model)
         if spec is None:
-            raise ConfigError(f"Unknown model '{self.model}'.")
+            raise ConfigError("model_unknown", f"Unknown model '{self.model}'.", model=self.model)
         values = {p.name: p.default for p in spec.param_specs()}
         values.update(self.params)
         values["start"] = self.start
@@ -186,55 +192,86 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
     """
     model = get_model(config.model)
     if model is None:
-        raise ConfigError(f"Unknown model '{config.model}'.")
+        raise ConfigError("model_unknown", f"Unknown model '{config.model}'.", model=config.model)
     if project_type not in model.types:
-        raise ConfigError(f"The model '{config.model}' is not for {project_type} projects.")
+        raise ConfigError(
+            "model_wrong_type",
+            f"The model '{config.model}' is not for {project_type} projects.",
+            model=config.model,
+            type=project_type,
+        )
     if config.mode not in MODES:
-        raise ConfigError("The mode must be 'single' or 'grid'.")
+        raise ConfigError("mode_invalid", "The mode must be 'single' or 'grid'.")
     if config.start not in STARTS:
-        raise ConfigError(f"The start must be one of: {', '.join(STARTS)}.")
+        raise ConfigError(
+            "start_invalid", f"The start must be one of: {', '.join(STARTS)}.", choices=list(STARTS)
+        )
     if config.start != "scratch" and not model.supports_pretrained:
-        raise ConfigError(f"The model '{config.model}' has no pretrained weights: start from scratch.")
+        raise ConfigError(
+            "model_no_pretrained",
+            f"The model '{config.model}' has no pretrained weights: start from scratch.",
+            model=config.model,
+        )
 
     fold = config.fold
     if folds:
         if fold is None:
             fold = "all"
         elif fold != "all" and (isinstance(fold, bool) or not isinstance(fold, int) or not 0 <= fold < folds):
-            raise ConfigError(f"The fold must be 'all' or a number from 0 to {folds - 1}.")
+            raise ConfigError(
+                "fold_invalid", f"The fold must be 'all' or a number from 0 to {folds - 1}.", last=folds - 1
+            )
     elif fold is not None:
-        raise ConfigError("This dataset version has no folds: leave the fold empty.")
+        raise ConfigError("fold_not_allowed", "This dataset version has no folds: leave the fold empty.")
 
     metrics, default = METRICS[model.task_kind]
     metric = config.metric or default
     if metric not in metrics:
-        raise ConfigError(f"The selection metric must be one of: {', '.join(metrics)}.")
+        raise ConfigError(
+            "metric_invalid",
+            f"The selection metric must be one of: {', '.join(metrics)}.",
+            choices=list(metrics),
+        )
 
     params = _check_values(model, config.params)
     grid: dict[str, list[Any]] = {}
     for name, values in config.grid.items():
         if name in config.params:
-            raise ConfigError(f"'{name}' is both a fixed value and a grid list: use only one.")
+            raise ConfigError(
+                "param_fixed_and_grid",
+                f"'{name}' is both a fixed value and a grid list: use only one.",
+                name=name,
+            )
         if not values:
-            raise ConfigError(f"The grid list of '{name}' is empty.")
+            raise ConfigError("grid_list_empty", f"The grid list of '{name}' is empty.", name=name)
         checked = [_check_one(model, name, v) for v in values]
         if len({repr(v) for v in checked}) != len(checked):
-            raise ConfigError(f"The grid list of '{name}' repeats a value.")
+            raise ConfigError("grid_list_repeats", f"The grid list of '{name}' repeats a value.", name=name)
         grid[name] = checked
     if model.task_kind == "semantic":
         batches = [params["batch_size"]] if "batch_size" in params else []
         batches += grid.get("batch_size", [])
         if any(b < 2 for b in batches):
-            raise ConfigError("Segmentation models need a batch size of at least 2.")
+            raise ConfigError(
+                "segmentation_batch_size", "Segmentation models need a batch size of at least 2."
+            )
     if config.mode == "single" and grid:
-        raise ConfigError("A single run has no grid: use the grid mode or remove the lists.")
+        raise ConfigError(
+            "single_run_has_grid", "A single run has no grid: use the grid mode or remove the lists."
+        )
     if config.mode == "grid" and not grid:
-        raise ConfigError("Grid mode needs at least one list of values.")
+        raise ConfigError("grid_needs_lists", "Grid mode needs at least one list of values.")
     size = math.prod(len(v) for v in grid.values()) if grid else 1
     total = size * (folds if fold == "all" else 1)
     if total > MAX_GRID:
         what = "The grid makes" if fold != "all" else "The grid and the folds make"
-        raise ConfigError(f"{what} {total} trainings; at most {MAX_GRID} are allowed.")
+        raise ConfigError(
+            "grid_too_big",
+            f"{what} {total} trainings; at most {MAX_GRID} are allowed.",
+            total=total,
+            max=MAX_GRID,
+            folds=fold == "all",
+        )
 
     return RunConfig(
         dataset=config.dataset,
@@ -252,17 +289,21 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
 def _check_one(model: ModelSpec, name: str, value: Any) -> Any:
     spec = model.param(name)
     if spec is None:
-        raise ConfigError(f"'{name}' is not a hyperparameter of {model.id}.")
+        raise ConfigError(
+            "param_unknown", f"'{name}' is not a hyperparameter of {model.id}.", name=name, model=model.id
+        )
     try:
         return spec.check(value)
-    except ValueError as error:
-        raise ConfigError(str(error)) from None
+    except CodedError as error:
+        raise ConfigError(error.code, message_of(error), **error.params) from None
 
 
 def _check_values(model: ModelSpec, values: dict[str, Any]) -> dict[str, Any]:
     out = {}
     for name, value in values.items():
         if name == "start":
-            raise ConfigError("Set the start with the 'start' option, not inside 'params'.")
+            raise ConfigError(
+                "start_in_params", "Set the start with the 'start' option, not inside 'params'."
+            )
         out[name] = _check_one(model, name, value)
     return out

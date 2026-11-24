@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
@@ -16,7 +16,7 @@ from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, 
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.models import ModelStore
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
-from activelabel.web.errors import ApiError
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 LOG = logging.getLogger(__name__)
@@ -72,19 +72,23 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
     try:
         version = DatasetStore(state.store.dir(project.id)).get(config.dataset)
     except DatasetNotFound:
-        raise HTTPException(404, f"Dataset version {config.dataset} does not exist.") from None
+        raise ApiError(
+            404, "dataset_not_found", "This dataset version does not exist.", version=config.dataset
+        ) from None
     if version["type"] != project.task.value:
-        raise HTTPException(400, "This dataset version was made for another project type.")
+        raise ApiError(400, "dataset_wrong_type", "This dataset version was made for another project type.")
     try:
         checked = validate(config, project.task.value, len(version["folds"] or []))
     except ConfigError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
     model = get_model(checked.model)
     if model is not None and model.family == "ultralytics":
-        raise HTTPException(400, "Training YOLO models is not available yet.")
+        raise ApiError(400, "training_unavailable", "Training YOLO models is not available yet.")
     if version.get("incomplete"):
-        raise HTTPException(
-            400, "Some images of this dataset version were deleted from the project: make a new version."
+        raise ApiError(
+            400,
+            "dataset_incomplete",
+            "Some images of this dataset version were deleted from the project: make a new version.",
         )
     gone = [c for c in version["classes"] if c not in project.classes]
     if gone:  # the version is frozen: the way out is a new version, not a model with classes nobody can use
@@ -96,10 +100,16 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
             classes=gone,
         )
     if not version.get("folds") and not (version.get("sizes") or {}).get("train"):
-        raise HTTPException(400, "The training part of this dataset version has no images: make another one.")
+        raise ApiError(
+            400,
+            "dataset_train_empty",
+            "The training part of this dataset version has no images: make another one.",
+        )
     if not version.get("folds") and not (version.get("sizes") or {}).get("val"):
-        raise HTTPException(
-            400, "This dataset version has no validation images: make a version with validation."
+        raise ApiError(
+            400,
+            "dataset_no_validation",
+            "This dataset version has no validation images: make a version with validation.",
         )
     checked.dataset_fingerprint = version["fingerprint"]
     return checked
@@ -116,7 +126,12 @@ def _create(state: AppState, project: Project, config: RunConfig) -> dict[str, A
 def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the query parameter is named type
     """Models (with their hyperparameter specs) a project type offers; all without ``type``."""
     if type is not None and type not in PROJECT_TYPES:
-        raise HTTPException(400, f"The type must be one of: {', '.join(PROJECT_TYPES)}.")
+        raise ApiError(
+            400,
+            "type_invalid",
+            f"The type must be one of: {', '.join(PROJECT_TYPES)}.",
+            choices=list(PROJECT_TYPES),
+        )
     return {
         "models": [m.as_dict() for m in models_for(type)],
         "common": [p.as_dict() for p in COMMON_PARAMS],
@@ -146,7 +161,7 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
     if model is not None:
         spec = get_model(model)
         if spec is None:
-            raise HTTPException(404, "This model does not exist.")
+            raise ApiError(404, "model_not_found", "This model does not exist.")
         needed = [*spec.packages, *EXTRA_PACKAGES]
         answer["missing"] = env.missing(needed) if exists else needed
         answer["install_needed"] = bool(answer["missing"])
@@ -160,7 +175,7 @@ def run_log(project_id: int, number: int, lines: int = 200, state: AppState = ST
     try:
         folder = store._require(number)  # noqa: SLF001 - folder of an existing run
     except RunNotFound:
-        raise HTTPException(404, "This training run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
     count = max(1, min(int(lines), 2000))
     return {"lines": _tail(folder / "log.txt", count)}
 
@@ -196,7 +211,7 @@ def create_run(project_id: int, body: dict[str, Any], state: AppState = STATE) -
     try:
         config = RunConfig.from_dict(body)
     except ConfigError as error:
-        raise HTTPException(400, str(error)) from None
+        raise bad_request(error) from None
     return _create(state, project, config)
 
 
@@ -221,7 +236,7 @@ def get_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, 
             "results": store.results(number),
         }
     except RunNotFound:
-        raise HTTPException(404, "This run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
 
 
 @router.get("/projects/{project_id}/runs/{number}/children/{child}")
@@ -239,7 +254,7 @@ def get_child(project_id: int, number: int, child: str, state: AppState = STATE)
             "results": store.results(number, child),
         }
     except RunNotFound:
-        raise HTTPException(404, "This training does not exist.") from None
+        raise ApiError(404, "child_not_found", "This training does not exist.") from None
 
 
 @router.delete("/projects/{project_id}/runs/{number}")
@@ -249,15 +264,15 @@ def delete_run(
     """Delete a run (needs ``{"confirm": true}``); a running run cannot be deleted."""
     store = _store(state, project_id)
     if not (body and body.confirm):
-        raise HTTPException(400, "Confirm the deletion of this run.")
+        raise ApiError(400, "confirm_required", "Confirm the deletion of this run.")
     try:
         if store.get(number)["status"] == QUEUED:  # also leave the queue of the runner
             state.runner.cancel(project_id, number)
         store.delete(number)
     except RunNotFound:
-        raise HTTPException(404, "This run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
     except RunBusy:
-        raise HTTPException(409, "This run is running: cancel it before deleting.") from None
+        raise ApiError(409, "run_running", "This run is running: cancel it before deleting.") from None
     return {"deleted": True}
 
 
@@ -268,9 +283,11 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
     try:
         config = _store(state, project_id).config(number)
     except RunNotFound:
-        raise HTTPException(404, "This run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
     except (OSError, ValueError):
-        raise HTTPException(409, "The configuration of this run is missing or damaged.") from None
+        raise ApiError(
+            409, "run_config_damaged", "The configuration of this run is missing or damaged."
+        ) from None
     return _create(state, project, config)
 
 
@@ -282,4 +299,4 @@ def cancel_run(project_id: int, number: int, state: AppState = STATE) -> dict[st
         state.runner.cancel(project_id, number)
         return _summary(store, store.get(number))
     except RunNotFound:
-        raise HTTPException(404, "This run does not exist.") from None
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None

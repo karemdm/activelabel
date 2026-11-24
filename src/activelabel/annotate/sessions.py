@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.labels import load_annotations
 from activelabel.storage import now, read_json, write_json
@@ -39,7 +40,7 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
     """Ids of the images a session covers.
 
     Raises:
-        ValueError: unknown scope or nothing selected (message is readable).
+        CodedError: unknown scope or nothing selected (message is readable).
     """
     active = manifest.active()
     if scope == "all":
@@ -58,12 +59,18 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
         chosen = [r.id for r in active if r.id in pending]
     elif scope == "issue":
         if not issue:
-            raise ValueError("Choose an issue.")
+            raise CodedError("issue_required", "Choose an issue.")
         chosen = [r.id for r in active if issue in r.issues]
     else:
-        raise ValueError(f"Unknown scope '{scope}' (use: {', '.join(SCOPES)}).")
+        raise CodedError(
+            "scope_unknown",
+            f"Unknown scope '{scope}' (use: {', '.join(SCOPES)}).",
+            scope=scope,
+        )
     if not chosen:
-        raise ValueError("No images match this choice. Pick other images or another scope.")
+        raise CodedError(
+            "no_images_match", "No images match this choice. Pick other images or another scope."
+        )
     return chosen
 
 

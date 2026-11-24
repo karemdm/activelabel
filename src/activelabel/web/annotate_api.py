@@ -198,7 +198,7 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
     try:
         image_ids = sessions.select_images(manifest, body.scope, body.ids, body.issue)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise bad_request(exc) from exc
     project_dir = state.store.dir(project_id)
 
     def run(progress: Progress) -> dict[str, Any]:

@@ -11,6 +11,8 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from activelabel.errors import CodedError
+
 FAMILIES = ("torchvision", "timm", "ultralytics")
 TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints")
 STARTS = ("transfer", "finetune", "scratch")
@@ -55,36 +57,41 @@ class ParamSpec:
         """Validate ``value`` and return it in the right Python type.
 
         Raises:
-            ValueError: with a readable message.
+            CodedError: with a readable message.
         """
         name = self.name
         if self.kind == "bool":
             if not isinstance(value, bool):
-                raise ValueError(f"'{name}' must be true or false.")
+                raise CodedError("param_not_bool", f"'{name}' must be true or false.", name=name)
             return value
         if self.kind == "choice":
             if value not in self.choices:
-                raise ValueError(f"'{name}' must be one of: {', '.join(self.choices)}.")
+                raise CodedError(
+                    "param_not_choice",
+                    f"'{name}' must be one of: {', '.join(self.choices)}.",
+                    name=name,
+                    choices=list(self.choices),
+                )
             return value
         if isinstance(value, bool) or not isinstance(value, int | float):
-            raise ValueError(f"'{name}' must be a number.")
+            raise CodedError("param_not_number", f"'{name}' must be a number.", name=name)
         try:
             if isinstance(value, float) and not math.isfinite(value):
-                raise ValueError(f"'{name}' must be a finite number.")
+                raise CodedError("param_not_finite", f"'{name}' must be a finite number.", name=name)
             if self.kind == "int":
                 if int(value) != value:
-                    raise ValueError(f"'{name}' must be a whole number.")
+                    raise CodedError("param_not_whole", f"'{name}' must be a whole number.", name=name)
                 value = int(value)
             else:
                 value = float(value)
         except OverflowError:
-            raise ValueError(f"'{name}' is too large.") from None
+            raise CodedError("param_too_large", f"'{name}' is too large.", name=name) from None
         if isinstance(value, float) and not math.isfinite(value):
-            raise ValueError(f"'{name}' must be a finite number.")
+            raise CodedError("param_not_finite", f"'{name}' must be a finite number.", name=name)
         if self.min is not None and value < self.min:
-            raise ValueError(f"'{name}' must be at least {self.min:g}.")
+            raise CodedError("param_min", f"'{name}' must be at least {self.min:g}.", name=name, min=self.min)
         if self.max is not None and value > self.max:
-            raise ValueError(f"'{name}' must be at most {self.max:g}.")
+            raise CodedError("param_max", f"'{name}' must be at most {self.max:g}.", name=name, max=self.max)
         return value
 
     def as_dict(self) -> dict[str, Any]:
