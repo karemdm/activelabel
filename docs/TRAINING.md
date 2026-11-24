@@ -68,6 +68,12 @@ During the run: phases (`environment`, `preparing`, `training`, `evaluating`), e
 loss and validation metric per epoch (live curves), cancel. At the end the test part (if the
 version has one) is evaluated with the best epoch.
 
+Besides the selection metric, the results of a keypoint model carry the object-keypoint-similarity mAP
+(`kp_map50`, `kp_map50_95`, as in COCO but with the same tolerance `1/K` for every one of the `K` points,
+because COCO's per-point values exist only for the 17 body points) and PCK@0.1; those of an instance
+segmentation model carry the mask mAP (`mask_map50`, `mask_map50_95`). The selection metric of both stays the
+box mAP.
+
 A grid search or a run over *all folds* of a K-fold version trains several **children**, one after
 another in the same slot of the queue (never two at once) and the same temporary folder (pretrained
 weights are downloaded once). Children are ordered by grid combination, then fold; at most 50
