@@ -159,3 +159,17 @@ def test_the_project_header_shows_the_classes_on_one_line_with_see_all():
     """The header keeps the classes to one line; the full list opens in a dialog."""
     assert "classLine(p.classes)" in JS and "classes.see_all" in JS
     assert re.search(r"\.class-line-chips\s*\{[^}]*flex-wrap: nowrap", CSS)
+
+
+def test_split_warnings_of_the_label_checks_have_texts():
+    """Warnings the split adds for label content (#112, #113) and the duplicates cause of a big group."""
+    import json
+    from pathlib import Path
+
+    i18n = Path(__file__).parents[3] / "src" / "activelabel" / "i18n"
+    for lang in ("en", "pt"):
+        texts = json.loads((i18n / f"{lang}.json").read_text(encoding="utf-8"))
+        for code in ("labels_without_geometry", "multiple_classes", "keypoints_count_mismatch"):
+            for form in ("one", "other"):
+                assert f"ds.w_{code}_{form}" in texts and f"ds.b_{code}_{form}" in texts, (lang, code, form)
+        assert "ds.w_group_drift_duplicates" in texts and "ds.warn_g_labels" in texts
