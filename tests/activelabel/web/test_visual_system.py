@@ -67,3 +67,11 @@ def test_running_badges_and_info_toasts_are_neutral():
     for selector in (r"\.status-running, \.status-queued", r"\.tr-badge\.running", r"\.toast-info"):
         rule = re.search(rf"^{selector} \{{([^}}]*)\}}", CSS, re.M)
         assert rule and "--primary" not in rule.group(1) and "--area" not in rule.group(1), selector
+
+
+def test_the_dialog_head_with_its_close_button_stays_in_view():
+    """#333: the head (title and X) is sticky at the top of the scrolling body, like the foot."""
+    rule = re.search(r"^\.dialog-body > \.dlg-head, \.dialog-body > \.tr-detail-head \{([^}]*)\}", CSS, re.M)
+    assert rule and "position: sticky" in rule.group(1) and "top: -1.25rem" in rule.group(1)
+    assert "background: var(--surface)" in rule.group(1)
+    assert "head.append(title, el('button'" in JS  # every dialog opened by openModal gets the head and X
