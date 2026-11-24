@@ -184,6 +184,11 @@ input[type="text"], input[type="number"], input[type="password"], input[type="ur
 .step.current { border-color: var(--primary); background: var(--primary-soft); }
 .step-num { flex: none; width: 26px; height: 26px; font-size: var(--font-sm); border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-weight: 700; border: 1px solid var(--border); }
 .step.current .step-num { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.step.is-done .step-num { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.step.is-attention .step-num { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.step.is-busy .step-num { border-color: var(--primary); color: var(--primary); animation: step-pulse 1.4s ease-in-out infinite; }
+.step.current.is-done .step-num, .step.current.is-attention .step-num { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px var(--primary-soft); } }
 .step-text { display: flex; flex-direction: column; min-width: 0; }
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: var(--font-sm); }
@@ -364,7 +369,7 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
   .panel { padding: 0.9rem; }
   .project-head-actions { width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } .step.is-busy .step-num { animation: none; } }
 
 .jobs-bar[hidden] { display: none; }
 
@@ -879,7 +884,10 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 /* narrow screens: the bar scrolls sideways and shows only number and name */
 @media (max-width: 900px) {
   .step-group { display: flex; flex: none; }
-  .step-group-title, .step-status, .stepper .step-tag { display: none; }
+  .step-status, .stepper .step-tag { display: none; }
+  .step-group { align-items: center; flex-wrap: nowrap; }
+  .step-group-title { flex: none; margin: 0 var(--space-1) 0 var(--space-1); }
+  .step-group + .step-group { padding-left: var(--space-3); border-left: 1px solid var(--border); }
   .step { width: auto; flex: none; }
 }
 

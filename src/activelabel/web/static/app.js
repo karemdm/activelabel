@@ -976,27 +976,48 @@
       return c.analyzed > 0 ? tn('status.issues', c.with_issues || 0) : t('status.not_analyzed');
     }
 
+    /* where a step stands, for the marker on the bar: done, needs attention, busy or still to do */
+    function stepState(step) {
+      const c = (ctx.project && ctx.project.counts) || {};
+      if (step === 'images') return c.active > 0 ? 'done' : 'todo';
+      if (step === 'annotations') return c.preannotated > 0 ? 'attention' : c.annotated > 0 ? 'done' : 'todo';
+      if (step === 'curation') return c.analyzed > 0 ? (c.with_issues > 0 ? 'attention' : 'done') : 'todo';
+      if (step === 'datasets') return ctx.datasetCount ? 'done' : 'todo';
+      if (step === 'training') return ctx.runActive ? 'busy' : ctx.runCount ? 'done' : 'todo';
+      return ctx.modelCount ? 'done' : 'todo';
+    }
+
     /* the step bar groups the steps: the data (1-3) and the model made from it (4-6) */
     const STEP_GROUPS = [['data', ['images', 'annotations', 'curation']], ['model', ['datasets', 'training', 'models']]];
     function renderStepper() {
       const item = (step) => {
         const i = STEPS.indexOf(step);
+        const state = stepState(step);
         return el('button', {
           type: 'button',
-          class: `step${ctx.tab === step ? ' current' : ''}`,
+          class: `step is-${state}${ctx.tab === step ? ' current' : ''}`,
           'aria-current': ctx.tab === step ? 'step' : null,
           'data-step': step,
           'data-act': step,
           onclick: () => showTab(step),
         },
-          el('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
+          el('span', { class: 'step-num', 'aria-hidden': 'true' }, state === 'done' ? icon('check', 16) : state === 'attention' ? '!' : String(i + 1)),
           el('span', { class: 'step-text' },
-            el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
+            el('span', { class: 'step-title' }, t(`step.${step}`), state === 'todo' ? null : el('span', { class: 'sr-only' }, ` (${t(`step.state_${state}`)})`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
             el('span', { class: 'step-status', title: stepStatus(step) }, stepStatus(step))));
       };
       redraw(stepper, ...STEP_GROUPS.map(([group, steps]) => el('div', { class: 'step-group', role: 'group', 'aria-labelledby': `sg-${group}` },
         el('p', { class: 'step-group-title', id: `sg-${group}` }, t(`project.group_${group}`)),
         ...steps.map(item))));
+      /* on a narrow screen the bar scrolls sideways: keep the current step in view */
+      requestAnimationFrame(() => {  // after the bar is in the page and has its width
+        const here = stepper.querySelector('.step.current');
+        if (here && stepper.scrollWidth > stepper.clientWidth) {
+          const box = stepper.getBoundingClientRect();
+          const at = here.getBoundingClientRect();
+          stepper.scrollLeft += at.left - box.left - (box.width - at.width) / 2;
+        }
+      });
     }
 
     /* Tabs inside a step: one subject per tab. The last tab is remembered per project and step. */
