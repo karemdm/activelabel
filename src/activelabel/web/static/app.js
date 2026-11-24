@@ -19,10 +19,10 @@
   const t = (key, vars) => fmt(key in I18N ? I18N[key] : key, vars);
   /** Translation with a fallback text when the key is unknown (server-provided names). */
   const tr = (key, fallback, vars) => (key in I18N ? fmt(I18N[key], vars) : fallback);
-  const plurals = new Intl.PluralRules(LOCALE);
-  /** Plural: uses key_one or key_other by the language's own rule (in Portuguese 0 is singular); {n} is the formatted number. */
+  /** Plural: key_one for exactly 1 and key_other for anything else, 0 included ("0 imagens", also in Portuguese,
+   *  whose own plural rule would call 0 singular); {n} is the formatted number. */
   const tn = (key, n, vars) => {
-    const suffix = plurals.select(n) === 'one' ? '_one' : '_other';
+    const suffix = n === 1 ? '_one' : '_other';
     return fmt(I18N[key + suffix] || key + suffix, { n: nf.format(n), ...vars });
   };
   const num = (n) => nf.format(Number(n) || 0);
