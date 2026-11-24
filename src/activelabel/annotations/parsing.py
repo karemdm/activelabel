@@ -11,8 +11,9 @@ import yaml
 
 from activelabel.annotations.coco import parse_coco
 from activelabel.annotations.context import ParseContext
-from activelabel.annotations.folders import parse_folders
+from activelabel.annotations.folders import folder_classes, parse_folders
 from activelabel.annotations.models import ParseResult
+from activelabel.annotations.staging import IMAGE_SUFFIXES
 from activelabel.annotations.target import VideoTarget
 from activelabel.annotations.videoformats import (
     is_cvat_video,
@@ -74,8 +75,15 @@ def detect_format(files: list[Path]) -> str | None:
     """Annotation format by content: coco, yolo, voc, cvat, cvatvideo (CVAT video), mot or None.
 
     Several YOLO txt files plus data.yaml count as one dataset. Unrelated files are ignored; files of
-    two different formats give None. Class folders (``folders``) come from image names, see
-    :func:`activelabel.annotations.folders.folder_classes`.
+    two different formats give None. Class folders (``folders``) are recognised when the files are
+    only images (see :func:`activelabel.annotations.staging.stage`) in at least two class folders,
+    see :func:`activelabel.annotations.folders.folder_classes`.
+
+    Args:
+        files: the staged files.
+
+    Returns:
+        The format name, or None.
     """
     found: set[str] = set()
     yolo_labels = 0
@@ -95,6 +103,8 @@ def detect_format(files: list[Path]) -> str | None:
         found.add("yolo")
     if mot:
         found.add("mot")
+    if not found and files and all(p.suffix.lower() in IMAGE_SUFFIXES for p in files):
+        return "folders" if folder_classes([f"{p.parent.name}/{p.name}" for p in files]) else None
     return next(iter(found)) if len(found) == 1 else None
 
 
