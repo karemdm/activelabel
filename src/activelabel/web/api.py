@@ -237,6 +237,12 @@ def _backup_annotations(project_dir: Path) -> None:
     shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
 
 
+def _with_classes(annotations: AnnotationSet, project: Project) -> AnnotationSet:
+    """The ground truth with the class list of the project (so ``class_names`` never lags behind)."""
+    annotations.classes = list(project.classes)
+    return annotations
+
+
 @router.patch("/projects/{project_id}")
 def update_project(project_id: int, body: ProjectChanges, state: AppState = STATE) -> dict[str, Any]:
     """Change name, description, task or classes.
@@ -331,13 +337,17 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
     except ValueError as exc:
         raise _bad_request(exc) from exc
     if converted is not None:
-        save_annotations(project_dir, cleaned or converted)
+        save_annotations(project_dir, _with_classes(cleaned or converted, project))
     elif result is not None:
         _backup_annotations(project_dir)
         annotations_path(project_dir).unlink()
     elif cleaned is not None:
         _backup_annotations(project_dir)
-        save_annotations(project_dir, cleaned)
+        save_annotations(project_dir, _with_classes(cleaned, project))
+    elif body.classes is not None:  # the ground truth names the same classes as the project
+        current = load_annotations(project_dir)
+        if current is not None and current.classes != project.classes:
+            save_annotations(project_dir, _with_classes(current, project))
     overview = project_overview(state, project)
     if result is not None:
         overview["annotations_result"] = result
@@ -611,7 +621,9 @@ def check_annotations(
 
     ``task`` is a video task: its images are then matched by frame number (docs/VIDEO.md). Without it,
     the project's only video task is used by the formats made for video (CVAT for video, MOT).
-    ``class_name`` names the objects of MOT files that come without a labels file.
+    ``class_name`` names the objects of MOT files that come without a labels file. When the files cannot be
+    imported at all (``can_import`` false) they are not kept: the report still comes back, and discarding
+    its token is harmless.
     """
     project = state.project(project_id)
     manifest = state.manifest_with_images(project_id)
@@ -655,6 +667,8 @@ def check_annotations(
     except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
         ann.discard_staged(project_dir, token)
         raise HTTPException(400, f"The annotation file could not be read: {exc}") from exc
+    if not report.can_import:  # the only option left is to discard: nothing to keep aside
+        ann.discard_staged(project_dir, token)
     return {
         **report.as_dict(),
         "token": token,

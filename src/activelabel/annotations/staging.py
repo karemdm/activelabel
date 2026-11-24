@@ -47,12 +47,18 @@ def _check_token(token: str) -> None:
         raise ValueError("Invalid staging token.")
 
 
-def _cleanup(root: Path) -> None:
+def cleanup(project_dir: Path) -> None:
+    """Remove staging folders (and their target files) not touched for 24 hours."""
+    root = project_dir / STAGING
     if not root.exists():
         return
     limit = time.time() - MAX_AGE_SECONDS
     for child in root.iterdir():
-        if child.stat().st_mtime < limit:
+        try:
+            expired = child.stat().st_mtime < limit
+        except OSError:  # gone meanwhile
+            continue
+        if expired:
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
             else:
@@ -89,7 +95,7 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
         ValueError: unsafe path (zip slip), invalid zip, too large, or no annotation file in the upload.
     """
     root = project_dir / STAGING
-    _cleanup(root)
+    cleanup(project_dir)
     token = secrets.token_hex(8)
     target = root / token
     target.mkdir(parents=True)
