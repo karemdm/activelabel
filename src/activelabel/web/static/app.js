@@ -3977,6 +3977,14 @@
         return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1 ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0] } : w));
       }
 
+      /* why a hold-out version cannot train a model (an empty training or validation part), or null */
+      function trainBlockReason(sizes) {
+        if (Array.isArray(sizes.folds)) return null;
+        if (!count(sizes.train)) return t('ds.cannot_train_train');
+        if (!count(sizes.val)) return t('ds.cannot_train_val');
+        return null;
+      }
+
       /* information about the videos that were cut into segments (not a warning) */
       const videoInfos = (warnings) => (warnings || []).filter((w) => w.code === 'video_split');
       function videoText(w) {
@@ -4040,6 +4048,7 @@
         const warns = cleaned.map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
         const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
         const id = `ds-v${v.version}`;
+        const noTrain = trainBlockReason(sizes);
         return el('li', { class: 'ds-card card', id, 'aria-labelledby': `${id}-title` },
           el('div', { class: 'ds-card-head' },
             el('h3', { id: `${id}-title` }, `v${v.version}`),
@@ -4055,11 +4064,12 @@
             el('summary', null, icon('warning', 14), warnSummary(cleaned)),
             el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns)) : null,
           infoBadges.length ? el('ul', { class: 'ds-badges' }, ...infoBadges) : null,
+          noTrain ? el('p', { class: 'ds-block', id: `${id}-block` }, icon('warning', 14), noTrain) : null,
           el('div', { class: 'ds-view' },
             el('span', { class: 'muted' }, t('ds.see_images')),
             ...items.filter((x) => x.n > 0).map((x) => el('button', { type: 'button', class: 'btn small', 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
               onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label)),
-            el('button', { type: 'button', class: 'btn small primary ds-train-with', disabled: !!v.incomplete,
+            el('button', { type: 'button', class: 'btn small primary ds-train-with', disabled: !!v.incomplete || !!noTrain, 'aria-describedby': noTrain ? `${id}-block` : null,
               onclick: () => { showTab('training'); ctx.panels.training.startWith(v.version); } }, icon('chart', 14), t('ds.train_with'))));
       }
 
@@ -4087,8 +4097,21 @@
       async function remove(v) {
         const ok = await confirmDialog({ title: t('ds.delete_title', { n: v.version }), text: t('ds.delete_text'), confirmLabel: t('ds.delete') });
         if (!ok) return;
+        const send = (extra) => api('DELETE', `/projects/${projectId}/datasets/${v.version}`, { json: { confirm: true, ...extra } });
         try {
-          await api('DELETE', `/projects/${projectId}/datasets/${v.version}`, { json: { confirm: true } });
+          try {
+            await send({});
+          } catch (err) {
+            /* finished runs used this version: say which, and delete only when the person accepts they cannot be repeated */
+            if (err.code !== 'dataset_used_by_runs') throw err;
+            const again = await confirmDialog({
+              title: t('ds.delete_used_title', { n: v.version }),
+              text: t('ds.delete_used_text', { runs: errorParams(err.params).runs }),
+              confirmLabel: t('ds.delete_used_confirm'),
+            });
+            if (!again) return;
+            await send({ confirm_runs: true });
+          }
           toast(t('ds.deleted', { n: v.version }), 'success', 3000);
           ctx.panels.images.forgetDataset(v.version);
         } catch (err) {
@@ -4107,7 +4130,7 @@
           return;
         }
         const cls = isClassification();
-        const st = { tasks: new Set(tasks.map((x) => x.id)), mode: 'split', bg: false };
+        const st = { tasks: new Set(tasks.map((x) => x.id)), mode: 'split', bg: false, maxK: null, blocked: false };
         let timer = null;
         let token = 0;
 
@@ -4116,6 +4139,9 @@
         const val = numInput('ds-val', 20, 0, 99);
         const test = numInput('ds-test', 10, 0, 99);
         const kInput = numInput('ds-k', 5, 2, 10);
+        const kHelp = el('p', { class: 'muted ds-help', id: 'ds-k-help' });
+        kInput.setAttribute('aria-describedby', 'ds-k-help');
+        const allowBox = el('input', { type: 'checkbox', id: 'ds-allow-empty', onchange: () => syncCreate() });
         const ktestInput = numInput('ds-ktest', 10, 0, 90);
         const seed = el('input', { type: 'number', id: 'ds-seed', inputmode: 'numeric', step: '1', value: '42' });
         const note = el('input', { type: 'text', id: 'ds-note', maxlength: '500', autocomplete: 'off' });
@@ -4123,6 +4149,8 @@
         const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
         const gapInput = el('input', { type: 'number', id: 'ds-gap', inputmode: 'decimal', min: '0', max: '3600', step: '0.1', value: '0.5' });
         const create = el('button', { type: 'submit', class: 'btn primary' }, t('ds.create'));
+        /* a version whose training or validation part is empty is created only on an explicit "create anyway" */
+        const syncCreate = () => { create.disabled = st.blocked && !allowBox.checked; };
 
         // tasks
         const taskBoxes = tasks.map((x) => {
@@ -4156,6 +4184,7 @@
             st.mode === 'split'
               ? el('div', { class: 'ds-nums' }, field(t('ds.pct_train'), train), field(t('ds.pct_val'), val), field(t('ds.pct_test'), test))
               : el('div', { class: 'ds-nums' }, field(t('ds.k'), kInput), field(t('ds.pct_test'), ktestInput)),
+            st.mode === 'split' ? null : kHelp,
             ratioBar, sumText);
           drawRatios();
         }
@@ -4198,6 +4227,8 @@
           } else {
             const k = parseInt(kInput.value, 10);
             const tp = int(ktestInput);
+            if (st.maxK != null && st.maxK < 2) return { error: t('ds.k_none') };
+            if (st.maxK != null && k > st.maxK) return { error: t('ds.err_k_max', { max: num(st.maxK) }) };
             if (!(k >= 2 && k <= 10)) return { error: t('ds.err_k') };
             if (Number.isNaN(tp) || tp > 90) return { error: t('ds.err_sum') };
             body.split = { train: 100 - tp, val: 0, test: tp };
@@ -4210,8 +4241,28 @@
         const previewBox = el('div', { class: 'ds-preview', 'aria-live': 'polite' });
         const showMsg = (text, cl = 'muted') => fill(previewBox, el('p', { class: cl, role: cl === 'ds-error' ? 'alert' : null }, text));
 
+        /* the most folds the images allow (from the preview): limits K in the field and says why */
+        function limitK(maxK) {
+          st.maxK = Number.isFinite(maxK) ? maxK : null;
+          if (st.maxK == null) return;
+          kInput.max = String(Math.max(2, Math.min(10, st.maxK)));
+          kHelp.textContent = st.maxK < 2 ? t('ds.k_none') : t('ds.k_max', { max: num(st.maxK) });
+          kfoldRadio.disabled = st.maxK < 2;
+        }
+
         function renderPreview(d) {
-          const items = partItems(normSizes(d), d.options);
+          const sizes = normSizes(d);
+          const items = partItems(sizes, d.options);
+          limitK(d.max_kfold);
+          const blocked = (d.empty_parts || []).filter((p) => p === 'train' || p === 'val');
+          st.blocked = blocked.length > 0;
+          const reason = trainBlockReason(sizes);
+          const emptyNote = blocked.length
+            ? el('li', { class: 'report-line ds-warn ds-blocked', role: 'alert' }, icon('warning'),
+              el('div', null,
+                el('p', null, t('ds.empty_blocked', { parts: blocked.map((p) => lower(partName(p))).join(t('ds.and')) })),
+                el('label', { for: allowBox.id, class: 'ds-check' }, allowBox, el('span', null, t('ds.allow_empty')))))
+            : reason ? el('li', { class: 'report-line ds-warn ds-blocked' }, icon('warning'), reason) : null;
           const total = totalOf(items);
           const stats = d.stats || {};
           const per = items.map((x) => statFor(stats, x));
@@ -4236,7 +4287,8 @@
             more.setAttribute('aria-expanded', String(all));
           }
           paint();
-          const warns = cleanWarnings(d.warnings, items).map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
+          const warns = cleanWarnings(d.warnings, items).filter((w) => !(w.code === 'part_empty' && blocked.includes(w.part)))  // said above, with the choice
+            .map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
           const infos = videoInfos(d.warnings).map((w) => el('li', { class: 'report-line ds-info' }, icon('info'), videoText(w)));
           fill(previewBox,
             el('h3', { class: 'section-title' }, t('ds.preview'), el('span', { class: 'muted' }, ` · ${tn('status.images_active', total)}`)),
@@ -4244,7 +4296,7 @@
             legend(items),
             el('div', { class: 'ds-table-wrap' }, el('table', { class: 'ds-table' }, el('thead', null, head), body)),
             more,
-            warns.length ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')),
+            warns.length || emptyNote ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, emptyNote, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')),
             infos.length ? el('ul', { class: 'ds-warns ds-infos' }, ...infos) : null);
         }
 
@@ -4255,11 +4307,12 @@
           try {
             const d = await api('POST', `/projects/${projectId}/datasets/preview`, { json: opts.body });
             if (mine !== token) return;
-            create.disabled = false;
             renderPreview(d);
+            syncCreate();
           } catch (err) {
             if (mine !== token) return;
             create.disabled = true;  // a version the server refuses to preview cannot be created
+            if (err.code === 'kfold_too_few_groups') limitK(err.params.groups);  // that many groups is the most folds
             showMsg(err.message || String(err), 'ds-error');
           }
         }
@@ -4267,6 +4320,8 @@
           drawRatios();
           clearTimeout(timer);
           token += 1;
+          allowBox.checked = false;  // a new choice of proportions needs a new "create anyway"
+          st.blocked = false;
           const opts = options();
           create.disabled = !!opts.error;
           if (opts.error) { showMsg(opts.error, 'ds-error'); return; }
@@ -4274,8 +4329,10 @@
           timer = setTimeout(runPreview, 400);
         }
 
+        let kfoldRadio = null;
         const modeOpt = (mode, label) => {
           const input = el('input', { type: 'radio', name: 'ds-mode', id: `ds-mode-${mode}`, value: mode, class: 'sr-only', checked: st.mode === mode, onchange: () => { st.mode = mode; drawMode(); changed(); } });
+          if (mode === 'kfold') kfoldRadio = input;
           return el('label', { for: input.id, class: 'seg-opt' }, input, label);
         };
         const bgRow = cls ? null : el('div', { class: 'field ds-switch' },
@@ -4302,6 +4359,10 @@
         const dlg = el('dialog', { class: 'dialog wide ds-dialog', 'aria-label': t('ds.new_title') }, form);
         [seed, kInput, ktestInput, train, val, test, gapInput].forEach((i) => i.addEventListener('input', changed));
         videosSel.addEventListener('change', changed);
+        kInput.addEventListener('change', () => {
+          const k = parseInt(kInput.value, 10);
+          if (st.maxK >= 2 && k > st.maxK) { kInput.value = String(st.maxK); changed(); }
+        });
 
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -4309,7 +4370,9 @@
           if (opts.error) return;
           create.disabled = true;
           try {
-            const v = await api('POST', `/projects/${projectId}/datasets`, { json: { ...opts.body, note: note.value.trim() } });
+            const body = { ...opts.body, note: note.value.trim() };
+            if (st.blocked && allowBox.checked) body.allow_empty = true;
+            const v = await api('POST', `/projects/${projectId}/datasets`, { json: body });
             dlg.close();
             toast(t('ds.created', { n: v.version }), 'success', 4000);
             await load();

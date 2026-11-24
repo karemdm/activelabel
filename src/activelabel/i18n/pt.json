@@ -1335,5 +1335,15 @@
   "error.url_invalid": "O endereço deve começar com http:// ou https:// e indicar um servidor.",
   "error.url_required": "Informe o endereço da ferramenta.",
   "error.tool_error": "Erro do {tool}: {reason}",
-  "error.tool_unsupported": "As sessões do {tool} não são mais aceitas: encerre esta sessão."
+  "error.tool_unsupported": "As sessões do {tool} não são mais aceitas: encerre esta sessão.",
+  "ds.empty_blocked": "Com estas proporções, a parte de {parts} ficaria sem imagens (poucas imagens ou grupos de imagens). Não dá para treinar um modelo com esta versão.",
+  "ds.allow_empty": "Criar mesmo assim (esta versão não poderá ser usada para treinar)",
+  "ds.cannot_train_train": "Não dá para treinar com esta versão: a parte de treino não tem imagens.",
+  "ds.cannot_train_val": "Não dá para treinar com esta versão: a parte de validação não tem imagens.",
+  "ds.k_max": "Com estes dados cabem no máximo {max} folds: cada fold precisa de pelo menos um grupo de imagens.",
+  "ds.k_none": "Estes dados não permitem K-fold: há grupos de imagens de menos para 2 folds.",
+  "ds.err_k_max": "Com estes dados, K pode ser no máximo {max}.",
+  "ds.delete_used_title": "Excluir a versão v{n} mesmo assim?",
+  "ds.delete_used_text": "Os treinos {runs} usaram esta versão e não poderão ser repetidos depois que ela for excluída. Os modelos salvos continuam funcionando.",
+  "ds.delete_used_confirm": "Excluir mesmo assim"
 }

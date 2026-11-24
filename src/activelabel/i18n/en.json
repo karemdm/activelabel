@@ -1335,5 +1335,15 @@
   "error.url_invalid": "The URL must start with http:// or https:// and name a server.",
   "error.url_required": "Give the URL of the tool.",
   "error.tool_error": "{tool} error: {reason}",
-  "error.tool_unsupported": "Sessions of {tool} are no longer supported: close this session."
+  "error.tool_unsupported": "Sessions of {tool} are no longer supported: close this session.",
+  "ds.empty_blocked": "With these proportions the {parts} part would have no images (too few images or groups of images). A model cannot be trained on this version.",
+  "ds.allow_empty": "Create it anyway (this version cannot be used to train)",
+  "ds.cannot_train_train": "This version cannot train a model: its training part has no images.",
+  "ds.cannot_train_val": "This version cannot train a model: its validation part has no images.",
+  "ds.k_max": "These data allow at most {max} folds: each fold needs at least one group of images.",
+  "ds.k_none": "These data do not allow K-fold: there are too few groups of images for 2 folds.",
+  "ds.err_k_max": "With these data, K can be at most {max}.",
+  "ds.delete_used_title": "Delete version v{n} anyway?",
+  "ds.delete_used_text": "Training runs {runs} used this version and could not be repeated after it is deleted. Saved models keep working.",
+  "ds.delete_used_confirm": "Delete anyway"
 }
