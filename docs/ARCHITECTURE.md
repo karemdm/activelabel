@@ -17,7 +17,7 @@ flowchart TB
   RUN["Training runner<br/>own queue, one worker thread"]
   ENV["Training environment<br/>separate Python and workers"]
   DISK[("Workspace on disk<br/>JSON, images, weights")]
-  EXT["CVAT, FiftyOne,<br/>Label Studio, keyring"]
+  EXT["CVAT, FiftyOne,<br/>system keyring"]
   UI --> API
   API --> DOM
   API --> JOB

@@ -16,7 +16,7 @@ the tab *FiftyOne* (edit sessions, described here). Review in CVAT happens only 
 synchronisation.
 
 **Discontinued tools.** Label Studio support was removed, and so were the CVAT edit sessions (CVAT is
-reviewed through the synchronisation). A workspace made before that may still hold their sessions, links or
+reviewed through the synchronisation; see [CHANGELOG.md](../CHANGELOG.md)). A workspace made before that may still hold their sessions, links or
 imported-from records: they are shown as belonging to a discontinued tool and can only be **closed**
 (sessions) or **unlinked** (links); nothing is changed in the tool, and no request to it is made.
 

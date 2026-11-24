@@ -66,7 +66,7 @@ The service has no login: keep the default host `127.0.0.1` unless you are on a 
 
 **New project** (not a step): name, description and **type** (classification, detection,
 segmentation or keypoints). The project number is automatic. Classes are optional; they can
-come from the annotation files. A project that already exists in CVAT or Label Studio can
+come from the annotation files. A project that already exists in CVAT can
 be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
 bar with the six steps; each step shows a marker (done, needs attention, in progress) and its status.
 (In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
@@ -91,7 +91,7 @@ project is its *type*.)
    - *FiftyOne*: edit annotations in the FiftyOne App and bring them back.
    - *Import annotations* (*Importar anotações*): drop annotation files (or a .zip). The format is
      detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or
-     video XML, MOT, Label Studio JSON, class folders), the files are matched with the images and a
+     video XML, MOT, class folders), the files are matched with the images and a
      report (which takes the place of the drop zone) shows what was found and any problem. Labels that do
      not have the shape of the project's type are reported and left out. Nothing is imported until you choose *Import*,
      *Change the type to {task} and import*, *Convert to {task} and import* (for example outlines to
@@ -99,9 +99,7 @@ project is its *type*.)
      *Replace*. Files made for a whole video go to a video task by frame number
      ([docs/VIDEO.md](docs/VIDEO.md)).
 
-   Label Studio is switched off in the interface for now: only *importing a project* from it is
-   offered. Its code and the CVAT edit session of the API (docs/ANNOTATION.md) are still in the repository
-   but are planned for removal: for CVAT, review through the synchronisation (docs/SYNC.md).
+   Review in CVAT goes only through the synchronisation (docs/SYNC.md).
 3. **Curation**: *Analyze images* measures brightness, contrast, sharpness, size and a
    perceptual hash of each image. Filters per issue (blurry, dark, bright, low contrast, small, odd
    aspect ratio, grayscale, near duplicate) show the flagged images; *Select suggested* picks the
@@ -144,6 +142,7 @@ heavy process (training, export or pre-annotation) runs at a time; the others wa
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
 [docs/ASSESSMENT.md](docs/ASSESSMENT.md) (strengths, risks and a roadmap),
+[CHANGELOG.md](CHANGELOG.md) (notable changes, including removed features),
 [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models) and
 [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md) (user guide in Portuguese).
 
