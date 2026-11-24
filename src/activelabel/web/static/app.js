@@ -4143,7 +4143,7 @@
       const foldText = (f) => (f == null ? '' : f === 'all' ? t('tr.fold_all') : t('ds.fold', { n: Number(f) + 1 }));
       const datasetText = (r) => (r.dataset == null ? '' : [t('tr.dataset_short', { n: r.dataset }), foldText(r.fold)].filter(Boolean).join(' · '));
       /* a run whose configuration file is damaged comes without model, dataset or start, with `config_error` instead */
-      const configError = (r) => (r.config_error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, `${t('tr.config_error')} ${r.config_error}`)) : null);
+      const configError = (r) => (r.config_error ? el('p', { class: 'tr-fail', title: r.config_error }, icon('error', 16), el('span', null, t('tr.config_error'))) : null);  // the technical detail (a file path) stays in the tooltip
 
       function fmtDuration(ms) {
         const s = Math.max(0, Math.round(ms / 1000));
