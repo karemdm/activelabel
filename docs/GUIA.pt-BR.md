@@ -87,7 +87,7 @@ interface chama de *Tipo*.
   a revisar) e as classes mais frequentes, com busca e *Ver todas*.
 - *Pré-anotar*: um modelo salvo (ou um modelo público) sugere anotações para as imagens de uma
   task (veja o fim deste guia e [PREANNOTATE.md](PREANNOTATE.md)).
-- *CVAT*: sincroniza as anotações com o CVAT nos dois sentidos. *Comparar com o CVAT* mostra o
+- *CVAT* (a revisão no CVAT é feita só por aqui): sincroniza as anotações com o CVAT nos dois sentidos. *Comparar com o CVAT* mostra o
   que mudou de cada lado, você revisa (e resolve os conflitos) e confirma com *Aplicar a
   sincronização*; nada muda antes disso ([ANNOTATION.md](ANNOTATION.md) e [SYNC.md](SYNC.md)).
   Se o projeto vinculado foi apagado no CVAT, a tela avisa; use *Desvincular* e compare de novo
@@ -97,7 +97,7 @@ interface chama de *Tipo*.
   *Descartar estas alterações*).
 - *Importar anotações*: solte os arquivos de anotação (ou um .zip). O formato é detectado
   (COCO JSON, YOLO txt com `data.yaml`/`classes.txt`, Pascal VOC XML, XML do CVAT para
-  imagens ou vídeo, MOT, JSON do Label Studio, pastas de classes), os arquivos são casados
+  imagens ou vídeo, MOT, pastas de classes), os arquivos são casados
   com as imagens e um relatório (que ocupa o lugar da área de soltar) mostra o que foi encontrado e os
   problemas. Rótulos sem a forma do tipo do projeto são avisados e ficam de fora. Nada é importado
   até você escolher: *Importar*, *Mudar o tipo para {tipo} e importar* (quando as anotações

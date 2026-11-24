@@ -5,8 +5,8 @@ annotations, with a review before anything changes. In the interface this is the
 *Annotations*; it is also the only way to review in CVAT (there are no CVAT edit sessions). The API takes
 `cvat` as `{tool}`; any other name answers 404 `tool_unknown`.
 
-Label Studio support was removed. A link written for a tool that cannot be synchronised any more (an old
-workspace) is listed by `GET /api/projects/{id}/links` with `supported: false` and shown as "Linked to a
+A link written for a tool that cannot be synchronised any more (an old workspace; see
+[CHANGELOG.md](../CHANGELOG.md)) is listed by `GET /api/projects/{id}/links` with `supported: false` and shown as "Linked to a
 discontinued tool" (*Vinculado a uma ferramenta descontinuada*): it cannot be synchronised and can only be
 unlinked, which changes nothing in that tool.
 

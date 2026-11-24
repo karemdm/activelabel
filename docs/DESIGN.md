@@ -25,7 +25,7 @@ Principles (from what went wrong in the previous tool):
 
 ```
 <workspace>/                       ACTIVELABEL_WORKSPACE (default ~/.activelabel)
-  tools.json                       address and user of CVAT / Label Studio (secrets: system keyring only)
+  tools.json                       address and user of CVAT (secrets: system keyring only)
   projects/next_id.json            next project id (ids are never reused)
   projects/<id>/...                one folder per project (below)
   training/                        training environment (docs/TRAINING.md)
@@ -74,7 +74,7 @@ project deletes its recorded dataset (and the plain-named one only when it holds
 
 1. **Projects** — cards that fill the row: name, `#id`, type, images (active / excluded), annotation
    coverage ("{done} of {total} images annotated"), date. Buttons *New project* and *Import project*.
-2. **New project** (like Label Studio / CVAT) — two columns: name and description (the id is automatic),
+2. **New project** — two columns: name and description (the id is automatic),
    then type as four cards with an icon and one line each (classification, detection,
    segmentation, keypoints) and classes (optional, can come from the annotations). Editing a project
    uses the same layout.
@@ -158,7 +158,7 @@ Texts the interface does not know a code for are shown as the English `detail`.
 | Image files | JPEG, PNG, BMP, TIFF or WebP, shortest side at least 8 px; the kind is decided by the content (a PNG sent as `photo.jpg` is stored as `.png`); a rejected file is listed with its reason (`corrupt`, `too large`, `unsupported`, `too small`) |
 | Files in an uploaded archive | at most 100,000 entries and 20 GiB when expanded; larger ones are rejected with a reason |
 | Annotation files kept aside before a decision | at most 1 GiB in all, removed after 24 hours and when the service starts |
-| Tool address (CVAT, Label Studio) | must be `http://` or `https://` (`url_invalid`) |
+| Tool address (CVAT) | must be `http://` or `https://` (`url_invalid`) |
 
 Calls that change a project's data wait for its running jobs: they answer 409 "Wait for the running task
 to finish, or cancel it" while an analysis, a synchronisation or another job of the project is queued or

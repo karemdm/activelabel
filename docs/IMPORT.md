@@ -75,9 +75,7 @@ messages: "Listing <tool> data", "Reading annotations", "Comparing with CVAT", "
 Errors: tool not configured → 400 "Configure <tool> first" (`tool_not_configured`); remote project not
 found → 404; `ToolError` → 400 with its message.
 
-**Safety of the downloads.** The address of a tool must be `http://` or `https://`. Label Studio task data
-is written by other people, so an image address inside it that resolves to a private, loopback,
-link-local or otherwise non-public address is refused ("unsafe image address"), every redirect is checked
-the same way, and the access token is only sent to the Label Studio server itself. Images that cannot be
-downloaded are listed in the report (`image_download_failed`) and the import goes on. Frames of a CVAT task
-are paired with the local images by position in the task, not by file name.
+The address of the tool must be `http://` or `https://` (`url_invalid`). Images that cannot be downloaded
+are listed in the report (`image_download_failed`) and the import goes on. Frames of a CVAT task are paired
+with the local images by position in the task, not by file name. A failure reported by CVAT is answered as
+400 `tool_error` (`params.tool`, `params.reason`).
