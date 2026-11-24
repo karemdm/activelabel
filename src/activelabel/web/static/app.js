@@ -375,7 +375,6 @@
     return bar;
   }
 
-  /** A question with several answers; resolves with the chosen value, or null when cancelled. */
   /* An empty list says what is missing and puts the action in the same place; the header button is hidden then. */
   function emptyState(iconName, text, ...actions) {
     return el('div', { class: 'ds-empty' }, icon(iconName, 28), el('p', { class: 'muted' }, text), actions.length ? el('div', { class: 'ds-empty-actions' }, ...actions) : null);
@@ -393,6 +392,7 @@
     dlg.showModal();
   }
 
+  /** A question with several answers; resolves with the chosen value, or null when cancelled. */
   function choiceDialog({ title, text, choices }) {
     return new Promise((resolve) => {
       const dlg = el('dialog', { class: 'dialog wide', 'aria-label': title });
