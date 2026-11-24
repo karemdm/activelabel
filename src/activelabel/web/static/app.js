@@ -2,15 +2,6 @@
 (() => {
   'use strict';
 
-  /* Optional parts of a view are written `cond ? node : null`. el() skips them, but the DOM's own
-     replaceChildren/append would print "null": make them skip null/undefined/false too. */
-  for (const name of ['replaceChildren', 'append']) {
-    const native = Element.prototype[name];
-    Element.prototype[name] = function (...nodes) {
-      return native.apply(this, nodes.filter((n) => n !== null && n !== undefined && n !== false));
-    };
-  }
-
   const VL = window.VL || {};
   const I18N = window.I18N || {};
   const LOCALE = VL.locale || 'en';
@@ -78,6 +69,15 @@
     }
     return append(node, kids);
   }
+
+  /** Replaces a node's children. Optional parts are written `cond ? node : null`: like el(), this skips them
+   *  (the DOM's own replaceChildren would print "null"). */
+  const fill = (node, ...nodes) => {
+    node.replaceChildren();
+    return append(node, nodes);
+  };
+  /** Adds children to a node, skipping null/undefined/false like el() does. */
+  const add = (node, ...nodes) => append(node, nodes);
 
   const ICONS = {
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
@@ -151,6 +151,17 @@
   }
   const toastError = (err) => toast(`${t('common.error')} ${err && err.message ? err.message : err}`, 'error', 10000);
 
+  /** Redraws a box whose controls carry `data-act` keys and keeps keyboard focus on the same control
+   *  (or on the first one when it is gone), so a refresh does not send the person back to the page top. */
+  function redraw(box, ...nodes) {
+    const key = box.contains(document.activeElement) ? document.activeElement.dataset.act : null;
+    fill(box, ...nodes);
+    if (key == null) return;
+    const keyed = [...box.querySelectorAll('[data-act]')];
+    const again = keyed.find((x) => x.dataset.act === key && !x.disabled) || keyed.find((x) => !x.disabled);
+    if (again) again.focus();
+  }
+
   // ---------------------------------------------------------------- API
   function detailText(detail) {
     if (Array.isArray(detail)) return detail.map((d) => (d && d.msg) || JSON.stringify(d)).join('; ');
@@ -201,7 +212,7 @@
     };
     const paint = () => {
       if (!button) return;
-      button.replaceChildren(icon(current() === 'dark' ? 'sun' : 'moon', 20));
+      fill(button, icon(current() === 'dark' ? 'sun' : 'moon', 20));
       button.setAttribute('aria-pressed', current() === 'dark' ? 'true' : 'false');
     };
     if (button) {
@@ -225,7 +236,7 @@
     let current = value || 'detection';
     const node = el('div', { class: 'task-cards', role: 'radiogroup' });
     const draw = () => {
-      node.replaceChildren(
+      fill(node,
         ...TASKS.map((task) => {
           const id = `${name}-${task}`;
           const input = el('input', { type: 'radio', name, id, value: task, class: 'sr-only' });
@@ -264,7 +275,7 @@
       draw();
     };
     const draw = () => {
-      list.replaceChildren(
+      fill(list,
         ...items.map((name, i) =>
           el(
             'li',
@@ -334,7 +345,7 @@
         toggle.setAttribute('aria-expanded', String(open));
       };
       toggle.addEventListener('click', () => collapse(toggle.getAttribute('aria-expanded') !== 'true'));
-      box.append(...rest, toggle);
+      add(box, ...rest, toggle);
       collapse(false);
     }
     return box;
@@ -352,7 +363,7 @@
     return new Promise((resolve) => {
       const dlg = el('dialog', { class: 'dialog wide', 'aria-label': title });
       let value = null;
-      dlg.append(el('div', { class: 'dialog-body' },
+      add(dlg, el('div', { class: 'dialog-body' },
         el('h2', null, title),
         el('p', null, text),
         el('ul', { class: 'choices' }, ...choices.map((c) => el('li', null,
@@ -397,13 +408,13 @@
     try {
       list = await api('GET', '/projects');
     } catch (err) {
-      root.replaceChildren(el('p', { class: 'muted' }, t('common.load_failed')));
+      fill(root, el('p', { class: 'muted' }, t('common.load_failed')));
       toastError(err);
       return;
     }
     const projects = Array.isArray(list) ? list : (list && list.items) || [];
     if (!projects.length) {
-      root.replaceChildren(
+      fill(root,
         el('div', { class: 'empty card' },
           el('h2', null, t('projects.empty_title')),
           el('p', null, t('projects.empty_text')),
@@ -412,7 +423,7 @@
             el('a', { class: 'btn big', href: '/projects/import' }, t('projects.import_first')))));
       return;
     }
-    root.replaceChildren(el('ul', { class: 'project-grid' }, ...projects.map(projectCard)));
+    fill(root, el('ul', { class: 'project-grid' }, ...projects.map(projectCard)));
   }
 
   function annotationStatus(c) {
@@ -473,8 +484,7 @@
     const selected = new Set();
     const items = [];
     let total = 0;
-    let loading = false;
-    let token = 0;
+    let token = 0;  // only the latest request may draw: a filter change while one is in flight wins
     const list = el('ul', { class: 'thumb-grid' });
     const info = el('p', { class: 'muted grid-info', 'aria-live': 'polite' });
     const pager = el('nav', { class: 'pager', 'aria-label': t('grid.pages') });
@@ -502,7 +512,7 @@
         : null;
       const li = el('li', { class: `thumb${selected.has(img.id) ? ' is-selected' : ''}`, 'data-id': img.id },
         el('button', { type: 'button', class: 'thumb-btn', title: img.name, onclick: () => onOpen && onOpen(items, index) },
-          el('img', { src: `/api/projects/${projectId}/images/${img.id}/thumb`, alt: img.name, loading: 'lazy', width: '160', height: '160' })),
+          el('img', { src: `/api/projects/${projectId}/images/${img.id}/thumb`, alt: '', loading: 'lazy', width: '160', height: '160' })),
         box,
         el('div', { class: 'thumb-meta' },
           el('span', { class: 'thumb-name', title: img.name }, img.name),
@@ -536,7 +546,7 @@
         try { localStorage.setItem('al-page-size', String(size)); } catch (err) { /* no storage */ }
         page = 0; load(false);
       } }, ...SIZES.map((n) => el('option', { value: String(n), selected: n === size }, num(n))));
-      pager.replaceChildren(
+      fill(pager,
         total > size ? el('span', { class: 'pager-pages' },
           btn('‹', page - 1, { disabled: page === 0, aria: t('grid.prev') }), ...numbers,
           btn('›', page + 1, { disabled: page >= pages - 1, aria: t('grid.next') })) : el('span'),
@@ -544,8 +554,6 @@
     }
 
     async function load(reset) {
-      if (loading) return;
-      loading = true;
       const mine = ++token;
       if (reset) { page = 0; selected.clear(); fire(); }
       const q = query();
@@ -561,14 +569,13 @@
         const data = await api('GET', `/projects/${projectId}/images?${params}`);
         if (mine !== token) return;
         total = data.total || 0;
-        if (page > 0 && page * size >= total) { page = Math.max(0, Math.ceil(total / size) - 1); loading = false; return load(false); }
+        if (page > 0 && page * size >= total) { page = Math.max(0, Math.ceil(total / size) - 1); return await load(false); }
         items.length = 0;
-        list.replaceChildren();
+        fill(list);
         (data.items || []).forEach((img, i) => { items.push(img); list.appendChild(card(img, i)); });
       } catch (err) {
-        toastError(err);
-      } finally {
-        loading = false;
+        if (mine === token) toastError(err);
+        return;
       }
       const from = page * size + 1;
       info.textContent = items.length
@@ -623,15 +630,18 @@
       lightbox.addEventListener('click', (e) => { if (e.target === lightbox) lightbox.close(); });
     }
     let i = index;
-    const draw = () => {
+    const go = (step) => { i += step; draw(step < 0 ? 'prev' : 'next'); };
+    /* `focus` names the button that was used: the body is rebuilt, so focus is put back on it (or on the other
+       one at the ends) and the arrow keys, which listen on the dialog, keep working */
+    function draw(focus = null) {
       const img = items[i];
       const metrics = Object.entries(img.metrics || {}).filter(([, v]) => typeof v === 'number');
-      lightbox.replaceChildren(
+      fill(lightbox,
         el('div', { class: 'lightbox-body' },
           el('div', { class: 'lightbox-stage' },
-            el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.prev'), disabled: i === 0, onclick: () => { i -= 1; draw(); } }, '‹'),
+            el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.prev'), 'data-nav': 'prev', disabled: i === 0, onclick: () => go(-1) }, '‹'),
             el('img', { src: `/api/projects/${projectId}/images/${img.id}/file`, alt: img.name }),
-            el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.next'), disabled: i >= items.length - 1, onclick: () => { i += 1; draw(); } }, '›')),
+            el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.next'), 'data-nav': 'next', disabled: i >= items.length - 1, onclick: () => go(1) }, '›')),
           el('aside', { class: 'lightbox-side' },
             el('div', { class: 'lightbox-head' },
               el('h2', null, img.name),
@@ -646,12 +656,16 @@
             metrics.length
               ? el('dl', { class: 'facts compact' }, ...metrics.map(([k, v]) => el('div', null, el('dt', null, tr(`metric.${k}`, k)), el('dd', null, nf1.format(v)))))
               : null)));
-    };
+      if (focus) {
+        const target = [focus, focus === 'prev' ? 'next' : 'prev'].map((k) => lightbox.querySelector(`[data-nav="${k}"]:not(:disabled)`)).find(Boolean);
+        (target || lightbox.querySelector('.icon-btn')).focus();
+      }
+    }
     draw();
     if (!lightbox.open) lightbox.showModal();
     lightbox.onkeydown = (e) => {
-      if (e.key === 'ArrowLeft' && i > 0) { i -= 1; draw(); }
-      if (e.key === 'ArrowRight' && i < items.length - 1) { i += 1; draw(); }
+      if (e.key === 'ArrowLeft' && i > 0) go(-1);
+      if (e.key === 'ArrowRight' && i < items.length - 1) go(1);
     };
   }
 
@@ -737,12 +751,12 @@
         await store();
         const r = await api('POST', `/annotation-tools/${tool}/test`);
         message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
-        message.replaceChildren(icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
+        fill(message, icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
         if (onChange) await onChange();
         forgetBtn.hidden = false;
       } catch (err) {
         message.className = 'test-result bad';
-        message.replaceChildren(icon('error'), err.message);
+        fill(message, icon('error'), err.message);
       } finally { busy(false); }
     });
     forgetBtn.addEventListener('click', async () => {
@@ -856,12 +870,12 @@
       document.title = `${ctx.project.name} · ${t('app.name')}`;
       await loadLinks();
       renderHeader();
-      if (ctx.tab) showTab(ctx.tab); else renderStepper();  // opens a gated step once images arrive
+      showTab(ctx.tab);  // also opens a gated step once images arrive
       return true;
     }
 
     function showMissing() {
-      root.replaceChildren(el('div', { class: 'empty card' },
+      fill(root, el('div', { class: 'empty card' },
         el('h1', null, t('notfound.title')),
         el('p', null, t('notfound.text')),
         el('a', { class: 'btn primary', href: '/' }, t('notfound.back'))));
@@ -869,7 +883,7 @@
 
     function renderHeader() {
       const p = ctx.project;
-      headerBox.replaceChildren(
+      fill(headerBox,
         el('div', { class: 'project-head-main' },
           el('div', { class: 'project-title-row' },
             el('h1', null, p.name),
@@ -917,6 +931,7 @@
           class: `step${ctx.tab === step ? ' current' : ''}`,
           'aria-current': ctx.tab === step ? 'step' : null,
           'data-step': step,
+          'data-act': step,
           onclick: () => showTab(step),
         },
           el('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
@@ -924,7 +939,7 @@
             el('span', { class: 'step-title' }, t(`step.${step}`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
             el('span', { class: 'step-status', title: stepStatus(step) }, stepStatus(step))));
       };
-      stepper.replaceChildren(...STEP_GROUPS.map(([group, steps]) => el('div', { class: 'step-group', role: 'group', 'aria-labelledby': `sg-${group}` },
+      redraw(stepper, ...STEP_GROUPS.map(([group, steps]) => el('div', { class: 'step-group', role: 'group', 'aria-labelledby': `sg-${group}` },
         el('p', { class: 'step-group-title', id: `sg-${group}` }, t(`project.group_${group}`)),
         ...steps.map(item))));
     }
@@ -965,7 +980,7 @@
         const button = el('button', { type: 'button', role: 'tab', id, class: 'step-tab', 'aria-controls': `${id}-pane`, onclick: () => select(tab.id), onkeydown: keys }, tab.label, count);
         const pane = el('div', { role: 'tabpanel', id: `${id}-pane`, class: 'step-tab-pane', 'aria-labelledby': id }, ...tab.nodes);
         parts.set(tab.id, { button, pane, count });
-        list.append(button);
+        add(list, button);
         return pane;
       });
       select(parts.has(saved) ? saved : (typeof initial === 'function' ? initial() : initial) || tabs[0].id);
@@ -981,7 +996,10 @@
     }
 
     /* steps 2 and 3 work on the project's images: without images they only say so */
-    const hasImages = () => ((ctx.project && ctx.project.counts && ctx.project.counts.active) || 0) > 0;
+    const hasImages = () => {
+      const c = (ctx.project && ctx.project.counts) || {};
+      return (c.active || 0) + (c.excluded || 0) > 0;  // excluded images can be restored in step 3
+    };
     const gateNode = el('section', { class: 'card gate', hidden: true },
       el('p', { class: 'report-line' }, icon('info'), t('gate.need_images')),
       el('button', { type: 'button', class: 'btn primary', onclick: () => showTab('images') }, t('gate.go_images')));
@@ -1006,10 +1024,6 @@
       if (!panel.mounted) { panel.mounted = true; panel.mount(); } else if (panel.show) panel.show();
       if (scrollToPanel) panel.node.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-
-    const afterChange = async () => {
-      await refreshProject();
-    };
 
     // ---- edit & delete
     function openEdit() {
@@ -1137,7 +1151,7 @@
       /* the review area of the CVAT section: the plan, its result and (paused tools) older links */
       const node = el('div', { class: 'sync-section', id: 'annotate-sync', tabindex: '-1' });
       const box = el('div', { class: 'sync-box' });
-      node.append(box);
+      add(node, box);
       const states = new Map();  // plan_id -> {res, def, error}
       let lastSig = null;
 
@@ -1286,7 +1300,7 @@
             r.local.checked = v === 'local';
             r.remote.checked = v === 'remote';
           }
-          errorBox.replaceChildren(...(st.error === 'stale'
+          fill(errorBox, ...(st.error === 'stale'
             ? [el('p', { class: 'report-line' }, icon('warning'), t('sync.stale')),
                el('button', { type: 'button', class: 'btn', onclick: async () => {
                  ctx.syncDismissed.add(pid);
@@ -1414,7 +1428,7 @@
         const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, staleJob && staleJob.id, done && done.id, (ctx.tasksList || []).length]);
         if (!force && sig === lastSig && !(st && st.error)) return;
         lastSig = sig;
-        box.replaceChildren(...[
+        fill(box, ...[
           /* CVAT has its own card above; links with paused tools stay readable here */
           ctx.links.some((l) => l.tool !== 'cvat')
             ? el('ul', { class: 'plain link-list' }, ...ctx.links.filter((l) => l.tool !== 'cvat').map(linkCard))
@@ -1526,7 +1540,7 @@
         jobSizeInput.removeAttribute('aria-invalid');
         uploading = true;
         controller = new AbortController();
-        reportBox.replaceChildren();
+        fill(reportBox);
         if (!newDlg.open) newDlg.showModal();
         setStage('uploading');
         const merged = emptyReport();
@@ -1535,7 +1549,7 @@
         let created = null; // the task made by the first chunk
         const draw = () => {
           progressBox.hidden = false;
-          progressBox.replaceChildren(
+          fill(progressBox,
             el('div', { class: 'upload-line' },
               el('strong', null, t('images.uploading', { done: num(sent), total: num(files.length) })),
               el('button', { type: 'button', class: 'btn small', onclick: () => controller.abort() }, t('common.cancel'))),
@@ -1577,7 +1591,7 @@
         setStage(created ? 'done' : 'form'); // nothing was created: back to the form, the report says why
         if (cancelled) toast(t('images.cancelled', { done: num(sent) }), 'info');
         renderReport(merged, sent < files.length);
-        await afterChange();
+        await refreshProject();
         await loadTasks();
         grid.reload();
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
@@ -1612,7 +1626,7 @@
               el('p', { class: 'muted' }, tn('images.annotations_found_n', r.other_files_count)),
               el('button', { type: 'button', class: 'btn primary', onclick: () => { newDlg.close(); showTab('annotations', true); } }, t('images.go_annotations')))));
         }
-        reportBox.replaceChildren(el('div', { class: 'card report-card' }, el('h3', null, t('images.result')), ...rows));
+        fill(reportBox, el('div', { class: 'card report-card' }, el('h3', null, t('images.result')), ...rows));
       }
 
       // ---- tasks (cards), and the filter of the grid
@@ -1688,7 +1702,7 @@
         const chipText = task
           ? (filter.job != null ? t('tasks.filter_chip_job', { name: task.name, n: filter.job }) : t('tasks.filter_chip', { name: task.name }))
           : null;
-        filterBox.replaceChildren(
+        fill(filterBox,
           el('div', { class: 'task-filter-row' },
             el('div', { class: 'field inline' }, el('label', { for: 'filter-task', class: 'sr-only' }, t('tasks.filter_task')), taskSelect),
             jobSelect ? el('div', { class: 'field inline' }, el('label', { for: 'filter-job', class: 'sr-only' }, t('tasks.filter_job')), jobSelect) : null,
@@ -1822,7 +1836,7 @@
             el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title')));
           wireDrop(body, (entries) => openNewTask(entries));
         }
-        tasksBox.replaceChildren(head, body);
+        fill(tasksBox, head, body);
         if (focusAfter) {
           const f = tasksBox.querySelector(focusAfter);
           focusAfter = null;
@@ -1852,7 +1866,7 @@
           toast(tn('tasks.deleted', Number(r && r.deleted) || 0), 'success', 5000);
         } catch (err) { toastError(err); return; }
         expanded.delete(task.id);
-        await afterChange();
+        await refreshProject();
         await loadTasks();
         grid.reload();
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
@@ -1898,7 +1912,7 @@
       const vUp = el('div', { class: 'upload-progress', hidden: true });
       const vSel = el('div', { class: 'video-sel', hidden: true });
       const vRun = el('div', { class: 'video-run', hidden: true, 'aria-live': 'polite' });
-      videoBox.append(vFile, vDrop, vUp, vSel, vRun);
+      add(videoBox, vFile, vDrop, vUp, vSel, vRun);
       wireDrop(vDrop, (entries) => pickVideo(entries.length ? entries[0].file : null));
       vFile.addEventListener('change', () => { pickVideo(vFile.files[0] || null); vFile.value = ''; });
 
@@ -1930,7 +1944,7 @@
       const vStrip = el('ul', { class: 'plain video-strip' });
       const vCreate = el('button', { type: 'button', class: 'btn primary', id: 'video-create', onclick: () => createFromVideo() }, t('tasks.create'));
       const vAnother = el('button', { type: 'button', class: 'btn', onclick: () => discardVideo() }, t('video.change'));
-      vSel.append(
+      add(vSel,
         vInfo,
         el('div', { class: 'new-task-fields' },
           el('div', { class: 'field' }, el('label', { for: 'video-start' }, t('video.start')), vStart, vStartAlt),
@@ -1995,7 +2009,7 @@
       async function runPlan() {
         const body = selection(true);
         const my = ++vid.seq;
-        if (!body) { vSummary.textContent = t('video.invalid'); vStrip.replaceChildren(); return; }
+        if (!body) { vSummary.textContent = t('video.invalid'); fill(vStrip); return; }
         try {
           const p = await api('POST', `/projects/${projectId}/videos/${vid.video.id}/plan`, { json: body });
           if (my !== vid.seq || !vid.video) return;
@@ -2009,7 +2023,7 @@
         } catch (err) {
           if (my !== vid.seq) return;
           vSummary.textContent = err.message;
-          vStrip.replaceChildren();
+          fill(vStrip);
         }
       }
 
@@ -2023,7 +2037,7 @@
             el('img', { src: `/api/projects/${projectId}/videos/${v.id}/frame?n=${idx}&w=160`, alt: t('video.frame_alt', { n: num(idx) }), loading: 'lazy' }),
             el('span', { class: 'muted' }, fmtClock(idx / v.fps))));
         }
-        vStrip.replaceChildren(...items);
+        fill(vStrip, ...items);
       }
 
       function showVideo(v) {
@@ -2053,7 +2067,7 @@
         vid.xhr = xhr;
         const draw = (done, total) => {
           vUp.hidden = false;
-          vUp.replaceChildren(
+          fill(vUp,
             el('div', { class: 'upload-line' },
               el('strong', null, t('video.uploading', { name: file.name })),
               el('button', { type: 'button', class: 'btn small', onclick: () => xhr.abort() }, t('common.cancel'))),
@@ -2084,7 +2098,7 @@
         vid.video = null;
         vSel.hidden = true;
         vSummary.textContent = '';
-        vStrip.replaceChildren();
+        fill(vStrip);
         if (!quiet) vDrop.hidden = false;
         if (v && !vid.taskMade) {
           try { await api('DELETE', `/projects/${projectId}/videos/${v.id}`); } catch (e) { /* in use or already gone */ }
@@ -2098,7 +2112,7 @@
         vid.busy = false;
         vid.jobId = null;
         vRun.hidden = true;
-        vRun.replaceChildren();
+        fill(vRun);
         modeTabs.hidden = false;
         fieldsBox.hidden = false;
         vUp.hidden = true;
@@ -2127,7 +2141,7 @@
         vRun.hidden = false;
         closeBtn.hidden = true;
         closeX.hidden = true;
-        vRun.replaceChildren(el('p', { class: 'muted' }, t('video.starting')));
+        fill(vRun, el('p', { class: 'muted' }, t('video.starting')));
         try {
           const job = await api('POST', `/projects/${projectId}/tasks/from-video`, { json: body });
           vid.jobId = job.id;
@@ -2139,7 +2153,7 @@
       }
 
       function drawRun(job) {
-        vRun.replaceChildren(
+        fill(vRun,
           el('div', { class: 'upload-line' },
             el('strong', null, t('video.creating')),
             el('button', { type: 'button', class: 'btn small', onclick: async () => { try { await api('POST', `/jobs/${job.id}/cancel`); } catch (e) { toastError(e); } } }, t('common.cancel'))),
@@ -2171,7 +2185,7 @@
           vid.taskMade = !!(job.result && job.result.task);
           showRunEnd(false, job.status === 'cancelled' ? t('video.cancelled') : job.error || tr(`job.status.${job.status}`, job.status));
         }
-        await afterChange();
+        await refreshProject();
         await loadTasks();
         grid.reload();
         if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
@@ -2179,7 +2193,7 @@
 
       function showRunEnd(ok, text) {
         vid.busy = false;
-        vRun.replaceChildren(
+        fill(vRun,
           el('p', { class: `report-line ${ok ? 'ok' : 'bad'}` }, icon(ok ? 'check' : 'warning'), text),
           ok ? null : el('div', { class: 'drop-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => {
             vRun.hidden = true; modeTabs.hidden = false; fieldsBox.hidden = false;
@@ -2215,8 +2229,8 @@
       function drawStaged() {
         stagedBox.hidden = !staged;
         drop.hidden = !!staged;
-        if (!staged) { stagedBox.replaceChildren(); return; }
-        stagedBox.replaceChildren(
+        if (!staged) { fill(stagedBox); return; }
+        fill(stagedBox,
           icon('images', 28),
           el('strong', null, tn('images.staged', staged.length)),
           el('div', { class: 'drop-actions' },
@@ -2228,7 +2242,7 @@
         if (!uploading && !(vid.jobId && vid.polling)) {
           resetVideo();
           if (entries && entries.length) setMode('images');
-          reportBox.replaceChildren();
+          fill(reportBox);
           const files = entries ? usable(entries) : [];
           staged = files.length ? files : null;
           drawStaged();
@@ -2243,7 +2257,7 @@
         { id: 'gallery', label: t('images.tab_gallery'), nodes: [el('div', { class: 'grid-head' }, gridTitle, filterBox), grid.node] },
         { id: 'tasks', label: t('images.tab_tasks'), nodes: [tasksBox] },
       ], 'gallery');
-      node.append(
+      add(node,
         el('h2', { id: 'h-images' }, t('step.images')),
         imageTabs.node,
         newDlg, fileInput, folderInput);
@@ -2314,9 +2328,9 @@
       // ---- tool cards
       function drawTools() {
         toolsBox.hidden = EDIT_TOOLS.length < 2;
-        if (toolsBox.hidden) { toolsBox.replaceChildren(); return; }
+        if (toolsBox.hidden) { fill(toolsBox); return; }
         const focused = document.activeElement && document.activeElement.name === 'annotate-tool' ? document.activeElement.value : null;
-        toolsBox.replaceChildren(el('fieldset', { class: 'field' },
+        fill(toolsBox, el('fieldset', { class: 'field' },
           el('legend', null, t('annotate.tool_title')),
           el('div', { class: 'task-cards tool-cards', role: 'radiogroup' }, ...EDIT_TOOLS.map((tool) => {
             const id = `annotate-tool-${tool}`;
@@ -2381,7 +2395,7 @@
           id: 'cvat-job', 'aria-label': t('sync.scope_job'), disabled: !task || !task.jobs.length,
           onchange: (e) => { c.job = Number(e.target.value); c.scope = 'job'; drawScope(); drawSend(); },
         }, ...(task ? task.jobs : []).map((j) => el('option', { value: String(j.n), selected: j.n === c.job }, t('tasks.job_option', { n: j.n, first: num(j.first), last: num(j.last) }))));
-        cvatScopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
+        fill(cvatScopeBox, el('fieldset', { class: 'field scope-box' },
           el('legend', null, t('sync.scope_title')),
           el('div', { class: 'scope-rows' },
             row('project', t('sync.scope_project'), el('span', { class: 'count' }, num(counts().active || 0))),
@@ -2408,7 +2422,7 @@
         cvatCtaBox.hidden = !state.loaded || ready || !!link;
         cvatCard.hidden = !state.loaded || !(ready || link);
         if (!state.loaded) return;
-        cvatCtaBox.replaceChildren(
+        fill(cvatCtaBox,
           icon('cvat', 24),
           el('p', null, t('sync.cta_text', { tool: name })),
           el('button', { type: 'button', class: 'btn primary', id: 'cvat-setup', onclick: () => openSetup('cvat') }, t('sync.cta', { tool: name })));
@@ -2438,7 +2452,7 @@
               el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
               el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never'))))
           : el('p', { class: 'muted' }, t('sync.creates', { tool: name }));
-        cvatInfoBox.replaceChildren(head, facts);
+        fill(cvatInfoBox, head, facts);
       }
 
       function drawCvatDirection() {
@@ -2453,7 +2467,7 @@
           input.addEventListener('change', () => { c.direction = d; help.textContent = t(`sync.dir_${d}_help`, { tool: name }); });
           return el('label', { for: id, class: 'seg-opt' }, input, t(`sync.dir_${d}`, { tool: name }));
         });
-        cvatDirBox.replaceChildren(el('fieldset', { class: 'field' },
+        fill(cvatDirBox, el('fieldset', { class: 'field' },
           el('legend', null, t('sync.dir_title')),
           el('div', { class: 'seg', role: 'radiogroup', 'aria-label': t('sync.dir_title') }, ...opts),
           help));
@@ -2461,8 +2475,8 @@
       }
 
       function drawCvatSend() {
-        if (!state.loaded) { cvatSendBox.replaceChildren(); return; }
-        cvatSendBox.replaceChildren(
+        if (!state.loaded) { fill(cvatSendBox); return; }
+        fill(cvatSendBox,
           el('button', { type: 'button', class: 'btn primary big', id: 'cvat-compare', disabled: cvatBusy(), title: cvatBusy() ? t('sync.compare_busy') : null, onclick: (e) => syncCvat(e.currentTarget) },
             icon('cvat', 20), t('sync.compare', { tool: toolName('cvat') })));
       }
@@ -2517,7 +2531,7 @@
           id: 'annotate-issue', 'aria-label': t('annotate.scope_issue_pick'), disabled: !issueEntries().length,
           onchange: (e) => { state.issue = e.target.value; state.scope = 'issue'; drawScope(); drawSend(); },
         }, ...issueEntries().map(([k, n]) => el('option', { value: k, selected: k === state.issue }, `${issueName(k)} (${num(n)})`)));
-        scopeBox.replaceChildren(el('fieldset', { class: 'field scope-box' },
+        fill(scopeBox, el('fieldset', { class: 'field scope-box' },
           el('legend', null, t('annotate.scope_title')),
           el('div', { class: 'scope-rows' },
             row('all', t('annotate.scope_all'), el('span', { class: 'count' }, num(counts().active || 0))),
@@ -2531,11 +2545,11 @@
       }
 
       function drawSendDefault() {
-        if (!state.loaded) { sendBox.replaceChildren(); return; }
+        if (!state.loaded) { fill(sendBox); return; }
         const tool = state.tool;
         const n = scopeCount(state.scope);
         const ready = isReady(tool);
-        sendBox.replaceChildren(
+        fill(sendBox,
           el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
             icon(tool, 20), ready ? t('annotate.send', { tool: toolName(tool) }) : t('annotate.setup_and_send', { tool: toolName(tool) })),
           el('p', { class: 'muted', 'aria-live': 'polite' }, n ? tn('annotate.will_send', n, { tool: toolName(tool) }) : t('annotate.nothing_to_send')));
@@ -2591,7 +2605,7 @@
             const r = await api('POST', `/projects/${projectId}/annotate/${sid}/apply`);
             const a = (r && r.applied) || {};
             toast(tn('annotate.applied_n', Number(a.images_changed ?? a.images ?? changes) || 0), 'success', 6000);
-            await afterChange();
+            await refreshProject();
             Object.values(ctx.panels).forEach((panel) => panel.mounted && panel.refresh && panel.refresh());
           });
           apply.disabled = !changes;
@@ -2648,8 +2662,8 @@
       }
 
       function drawSessions() {
-        if (!state.loaded) { sessionsBox.replaceChildren(el('p', { class: 'muted' }, t('common.loading'))); return; }
-        sessionsBox.replaceChildren(state.sessions.length
+        if (!state.loaded) { fill(sessionsBox, el('p', { class: 'muted' }, t('common.loading'))); return; }
+        fill(sessionsBox, state.sessions.length
           ? el('ul', { class: 'plain session-list' }, ...state.sessions.map(sessionCard))
           : el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('annotate.sessions_empty'))));
       }
@@ -2884,7 +2898,7 @@
       }
 
       function draw(force = false) {
-        if (!data) { node.replaceChildren(el('p', { class: 'muted' }, t('common.loading'))); return; }
+        if (!data) { fill(node, el('p', { class: 'muted' }, t('common.loading'))); return; }
         const s2 = JSON.stringify([data, form]);
         if (!force && s2 === sig) return;
         const typing = document.activeElement && node.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'number';
@@ -2896,17 +2910,17 @@
         }
         sig = s2;
         if (!(data.models || []).length) {
-          node.replaceChildren(el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('pre.no_models')),
+          fill(node, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('pre.no_models')),
             el('a', { class: 'btn', href: '#models' }, t('pre.go_models'))));
           return;
         }
         if (!(data.models || []).some((m) => m.supported)) {
-          node.replaceChildren(el('p', { class: 'report-line' }, icon('info'), t('pre.kind_later')));
+          fill(node, el('p', { class: 'report-line' }, icon('info'), t('pre.kind_later')));
           return;
         }
         pickDefaults();
         const focused = document.activeElement && node.contains(document.activeElement) ? document.activeElement.id : null;
-        node.replaceChildren(live, formBlock(), reviewBlock(), historyBlock());
+        fill(node, live, formBlock(), reviewBlock(), historyBlock());
         if (focused) { const f = document.getElementById(focused); if (f) f.focus(); }
       }
 
@@ -2931,7 +2945,7 @@
         taskBox.hidden = !videoTasks.length;
         if (!videoTasks.length) return;
         if (!videoTasks.some((x) => String(x.id) === chosenTask)) chosenTask = videoTasks.length === 1 ? String(videoTasks[0].id) : '';
-        taskBox.replaceChildren(
+        fill(taskBox,
           el('label', { for: 'ann-task' }, t('ann.for_task')),
           el('select', { id: 'ann-task', onchange: (e) => { chosenTask = e.target.value; } },
             el('option', { value: '', selected: chosenTask === '' }, t('ann.task_images')),
@@ -2957,7 +2971,7 @@
       async function upload(files) {
         if (!files.length || busy) return;
         busy = true;
-        reportBox.replaceChildren(el('p', { class: 'muted' }, t('ann.checking')));
+        fill(reportBox, el('p', { class: 'muted' }, t('ann.checking')));
         const form = new FormData();
         files.forEach((f) => form.append('files', f, f.webkitRelativePath || f.name));
         if (chosenTask) form.append('task', chosenTask);
@@ -2965,7 +2979,7 @@
           const report = await api('POST', `/projects/${projectId}/annotations`, { body: form });
           renderValidation(report);
         } catch (err) {
-          reportBox.replaceChildren();
+          fill(reportBox);
           toastError(err);
         } finally {
           busy = false;
@@ -3012,7 +3026,7 @@
               el('span', { class: 'muted' }, meta.help));
           }));
 
-        reportBox.replaceChildren(
+        fill(reportBox,
           el('div', { class: 'card report-card' },
             el('h3', null, t('ann.report_title')),
             el('p', { class: 'task-line' }, el('span', { class: 'badge' }, tr(`format.${report.format}`, report.format || '?')), ' ', taskLine),
@@ -3045,12 +3059,12 @@
         try {
           if (action === 'discard') {
             await api('DELETE', `/projects/${projectId}/annotations/${report.token}`);
-            reportBox.replaceChildren(el('p', { class: 'report-line ok' }, icon('check'), t('ann.discarded')));
+            fill(reportBox, el('p', { class: 'report-line ok' }, icon('check'), t('ann.discarded')));
             return;
           }
           const summary = await api('POST', `/projects/${projectId}/annotations/${report.token}/apply`, { json: { action, mode } });
           renderSummary(summary || {});
-          await afterChange();
+          await refreshProject();
           loadGt();
         } catch (err) {
           all.forEach((b) => { b.disabled = false; });
@@ -3067,7 +3081,7 @@
         const lines = [...always, ...optional]
           .filter((k) => k in s && (always.includes(k) || count(s[k]) > 0))
           .map((k) => el('div', null, el('dt', null, t(`summary.${k}`)), el('dd', null, num(count(s[k])))));
-        reportBox.replaceChildren(el('div', { class: 'card report-card' },
+        fill(reportBox, el('div', { class: 'card report-card' },
           el('p', { class: 'report-line ok' }, icon('check'), el('strong', null, t('ann.applied'))),
           lines.length ? el('dl', { class: 'facts' }, ...lines) : null));
       }
@@ -3077,7 +3091,7 @@
         try {
           data = await api('GET', `/projects/${projectId}/annotations`);
         } catch (err) {
-          gtBox.replaceChildren();
+          fill(gtBox);
           if (err.status !== 404) toastError(err);
           return;
         }
@@ -3091,12 +3105,12 @@
         const waitingNote = waitingReview ? el('p', { class: 'report-line' }, icon('info'), tn('ann.to_review', waitingReview)) : null;
         if (!images && !labels) {
           const way = (tab, key) => el('li', null, el('button', { type: 'button', class: 'btn small', onclick: () => annTabs.select(tab, true) }, t(`ann.way_${key}`)), el('span', { class: 'muted' }, t(`ann.way_${key}_help`)));
-          gtBox.replaceChildren(el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
+          fill(gtBox, el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
             el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
           return;
         }
         const max = Math.max(1, ...classes.map((c) => c.count || 0));
-        gtBox.replaceChildren(
+        fill(gtBox,
           el('h3', null, t('ann.current')),
           el('p', { class: 'gt-summary' }, `${tn('status.annotated', images)} · ${tn('ann.labels_n', labels)}`),
           waitingNote,
@@ -3112,7 +3126,7 @@
       const pre = preannotateBlock({
         reviewCvat: (taskId) => { annTabs.select('cvat'); annotate.focusCvatTask(taskId); },
         reviewFiftyone: () => { annTabs.select('fiftyone'); annotate.focusScope('preannotated'); },
-        changed: () => { loadGt(); afterChange(); },
+        changed: () => { loadGt(); refreshProject(); },
       });
       const annTabs = tabsView('annotations', t('step.annotations'), [
         { id: 'summary', label: t('ann.tab_summary'), nodes: [gtBox] },
@@ -3124,7 +3138,7 @@
           el('p', { class: 'muted' }, t('ann.load_intro')),
           taskBox, drop, fileInput, reportBox)] },
       ], 'summary');
-      node.append(
+      add(node,
         el('h2', { id: 'h-annotations' }, t('step.annotations')),
         annTabs.node);
       panel.mount = () => { loadGt(); loadVideoTasks(); annotate.mount(); };
@@ -3179,7 +3193,7 @@
         try {
           await api('DELETE', `/projects/${projectId}/curation`);
           toast(t('cur.reset_done'), 'success', 4000);
-          await afterChange();
+          await refreshProject();
           load();
         } catch (err) { toastError(err); }
       }
@@ -3218,12 +3232,12 @@
       function drawNotice() {
         if (analyzed()) {
           const totals = summary.totals || {};
-          noticeBox.replaceChildren(el('div', { class: 'row-between' },
+          fill(noticeBox, el('div', { class: 'row-between' },
             el('p', { class: 'muted' }, t('cur.measured', { measured: num(totals.measured || 0), total: num(totals.active || 0) })),
             el('div', { class: 'row-actions' }, analyzeBtn(true),
               el('button', { type: 'button', class: 'btn danger-outline', onclick: resetAnalysis }, t('cur.reset')))));
         } else {
-          noticeBox.replaceChildren(el('div', { class: 'callout' }, icon('info'),
+          fill(noticeBox, el('div', { class: 'callout' }, icon('info'),
             el('div', null, el('strong', null, t('cur.not_analyzed')), el('p', { class: 'muted' }, t('cur.intro')), analyzeBtn(false))));
         }
       }
@@ -3234,17 +3248,17 @@
         const mk = (key, label, n, help) =>
           el('button', {
             type: 'button', class: `chip-btn${issue === key ? ' active' : ''}`, 'aria-pressed': issue === key ? 'true' : 'false',
-            title: help || null, 'data-issue': key,
+            title: help || null, 'data-issue': key, 'data-act': key,
             onclick: () => { issue = key; drawChips(); grid.reload(); },
           }, el('span', null, label), el('span', { class: 'count' }, num(n)));
-        chipsBox.replaceChildren(
+        redraw(chipsBox,
           mk('', t('cur.all'), totals.active || 0, t('cur.all.help')),
           ...ISSUES.concat(Object.keys(counts).filter((k) => !ISSUES.includes(k))).map((k) => mk(k, issueName(k), counts[k] || 0, tr(`issue.${k}.help`, ''))));
       }
 
       function drawHists() {
         const h = (summary && summary.histograms) || {};
-        histBox.replaceChildren(...['brightness', 'contrast', 'sharpness'].filter((m) => h[m] && (h[m].counts || []).length).map((m) => histogram(m, h[m])));
+        fill(histBox, ...['brightness', 'contrast', 'sharpness'].filter((m) => h[m] && (h[m].counts || []).length).map((m) => histogram(m, h[m])));
       }
 
       function histogram(metric, data) {
@@ -3268,7 +3282,7 @@
 
       function drawAdvanced() {
         const th = summary && summary.thresholds;
-        if (!th) { advBox.replaceChildren(); return; }
+        if (!th) { fill(advBox); return; }
         const inputs = Object.entries(th).map(([k, v]) => {
           const id = `th-${k}`;
           return el('div', { class: 'field inline' }, el('label', { for: id }, tr(`threshold.${k}`, k)), el('input', { id, name: k, type: 'number', step: 'any', value: String(v) }));
@@ -3288,16 +3302,16 @@
           }
         });
         const open = advBox.open;
-        advBox.replaceChildren(el('summary', null, t('cur.advanced')), form);
+        fill(advBox, el('summary', null, t('cur.advanced')), form);
         advBox.open = open;
       }
 
       function drawTabs() {
         const excluded = ((ctx.project || {}).counts || {}).excluded || 0;
-        tabs.replaceChildren(
+        redraw(tabs,
           ...['active', 'excluded'].map((v) =>
             el('button', {
-              type: 'button', class: `tab${view === v ? ' active' : ''}`, 'aria-pressed': view === v ? 'true' : 'false', 'data-view': v,
+              type: 'button', class: `tab${view === v ? ' active' : ''}`, 'aria-pressed': view === v ? 'true' : 'false', 'data-view': v, 'data-act': v,
               onclick: () => { view = v; draw(); grid.reload(); },
             }, v === 'active' ? t('cur.tab_active') : `${t('cur.tab_excluded')} (${num(excluded)})`)));
       }
@@ -3308,24 +3322,24 @@
         /* the actions on a selection appear once something is selected (no greyed-out buttons) */
         if (view === 'active') {
           buttons.push(
-            el('button', { type: 'button', class: 'btn', onclick: selectAll }, t('cur.select_all')),
-            el('button', { type: 'button', class: 'btn', onclick: selectSuggested }, t('cur.select_suggested')));
+            el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all')),
+            el('button', { type: 'button', class: 'btn', 'data-act': 'suggested', onclick: selectSuggested }, t('cur.select_suggested')));
           if (n) {
             buttons.push(
-              el('button', { type: 'button', class: 'btn', onclick: () => grid.setSelected([]) }, t('cur.clear')),
-              el('button', { type: 'button', class: 'btn primary', onclick: exclude }, t('cur.exclude')));
+              el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
+              el('button', { type: 'button', class: 'btn primary', 'data-act': 'exclude', onclick: exclude }, t('cur.exclude')));
           }
         } else {
-          buttons.push(el('button', { type: 'button', class: 'btn', onclick: selectAll }, t('cur.select_all')));
+          buttons.push(el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all')));
           if (n) {
             buttons.push(
-              el('button', { type: 'button', class: 'btn', onclick: () => grid.setSelected([]) }, t('cur.clear')),
-              el('button', { type: 'button', class: 'btn primary', onclick: restore }, t('cur.restore')),
-              el('button', { type: 'button', class: 'btn danger-outline', onclick: remove }, t('cur.delete')));
+              el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
+              el('button', { type: 'button', class: 'btn primary', 'data-act': 'restore', onclick: restore }, t('cur.restore')),
+              el('button', { type: 'button', class: 'btn danger-outline', 'data-act': 'delete', onclick: remove }, t('cur.delete')));
           }
         }
         const hint = n ? null : el('span', { class: 'muted cur-select-hint' }, t(view === 'active' ? 'cur.select_hint' : 'cur.select_hint_excluded'));
-        toolbar.replaceChildren(...buttons, hint, countText);
+        redraw(toolbar, ...buttons, hint, countText);
       }
 
       async function selectAll() {
@@ -3339,7 +3353,7 @@
           toast(ids.length ? tn('cur.suggested_n', ids.length) : t('cur.suggested_none'), 'info', 4000);
         } catch (err) { toastError(err); }
       }
-      const after = async () => { await afterChange(); await load(); };
+      const after = async () => { await refreshProject(); await load(); };
       async function exclude() {
         const ids = [...grid.selected];
         try {
@@ -3392,7 +3406,7 @@
           el('button', { type: 'button', class: 'btn', onclick: pullExclusions }, t('cur.pull_fo'))),
         el('p', { class: 'muted' }, t('cur.fo_hint')));
 
-      node.append(
+      add(node,
         el('h2', { id: 'h-curation' }, t('step.curation')),
         noticeBox,
         histBox,
@@ -3483,7 +3497,7 @@
       const shown = [...running, ...latest];
       jobsBox.hidden = !shown.length;
       jobsBox.classList.toggle('min', jobsPrefs.min);
-      if (!shown.length) { jobsBox.replaceChildren(); return; }
+      if (!shown.length) { fill(jobsBox); return; }
       const pct = running.length === 1 && running[0].total ? Math.round((running[0].done / running[0].total) * 100) : null;
       const summary = running.length
         ? `${tn('jobs.running_n', running.length)}${pct != null ? ` · ${pct}%` : ''}`
@@ -3498,7 +3512,7 @@
         renderJobs();
       };
       if (jobsPrefs.min) {
-        jobsBox.replaceChildren(el('button', { type: 'button', class: 'jobs-pill', 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
+        fill(jobsBox, el('button', { type: 'button', class: 'jobs-pill', 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
           glyph, el('span', null, summary), el('span', { class: 'sr-only' }, t('jobs.show'))));
       } else {
         const head = el('div', { class: 'jobs-head' },
@@ -3507,7 +3521,7 @@
           finished.length > 1 ? el('button', { type: 'button', class: 'btn small', onclick: openHistory }, t('jobs.history', { n: num(finished.length) })) : null,
           el('button', { type: 'button', class: 'icon-btn', 'data-jobs': 'min', 'aria-expanded': 'true', 'aria-label': t('jobs.minimize'), title: t('jobs.minimize'), onclick: () => toggle(true) }, icon('chevron', 16)),
           el('button', { type: 'button', class: 'icon-btn', 'data-jobs': 'close', 'aria-label': t('jobs.close'), title: t('jobs.close'), onclick: close }, icon('close', 16)));
-        jobsBox.replaceChildren(head, el('ul', { class: 'jobs' }, ...shown.map(jobRow)));
+        fill(jobsBox, head, el('ul', { class: 'jobs' }, ...shown.map(jobRow)));
       }
       if (jobsFocus) { const b = jobsBox.querySelector(`[data-jobs="${jobsFocus}"]`); if (b) b.focus(); jobsFocus = null; }
       if (historyDlg && historyDlg.open) fillHistory();
@@ -3524,7 +3538,7 @@
           closeHistory();
         } catch (err) { toastError(err); }
       } }, t('jobs.clear'));
-      historyDlg.replaceChildren(el('div', { class: 'dialog-body' },
+      fill(historyDlg, el('div', { class: 'dialog-body' },
         el('h2', null, t('jobs.history_title')),
         finished.length ? el('ul', { class: 'jobs scroll-box' }, ...finished.map(jobRow)) : el('p', { class: 'muted' }, t('jobs.history_empty')),
         el('div', { class: 'form-actions' },
@@ -3774,7 +3788,7 @@
       }
 
       function draw() {
-        listBox.replaceChildren(versions.length
+        fill(listBox, versions.length
           ? el('ul', { class: 'ds-cards' }, ...versions.map(versionCard))
           : el('div', { class: 'ds-empty' }, icon('images', 28), el('p', { class: 'muted' }, t('ds.empty'))));
       }
@@ -3848,7 +3862,7 @@
           const parts = st.mode === 'split'
             ? [['train', int(train)], ['val', int(val)], ['test', int(test)]]
             : [['fold-0', 100 - (int(ktestInput) || 0)], ['test', int(ktestInput) || 0]];
-          ratioBar.replaceChildren(...parts.map(([cl, n]) => el('span', { class: `ds-seg ds-${cl}`, style: `flex-grow:${Number.isFinite(n) ? n : 0}` })));
+          fill(ratioBar, ...parts.map(([cl, n]) => el('span', { class: `ds-seg ds-${cl}`, style: `flex-grow:${Number.isFinite(n) ? n : 0}` })));
           if (st.mode === 'split') {
             const sum = [train, val, test].reduce((a, i) => a + (int(i) || 0), 0);
             sumText.className = `ds-sum ${sum === 100 ? 'ok' : 'bad'}`;
@@ -3859,7 +3873,7 @@
           }
         }
         function drawMode() {
-          modeBox.replaceChildren(
+          fill(modeBox,
             st.mode === 'split'
               ? el('div', { class: 'ds-nums' }, field(t('ds.pct_train'), train), field(t('ds.pct_val'), val), field(t('ds.pct_test'), test))
               : el('div', { class: 'ds-nums' }, field(t('ds.k'), kInput), field(t('ds.pct_test'), ktestInput)),
@@ -3915,7 +3929,7 @@
 
         // ---- live preview
         const previewBox = el('div', { class: 'ds-preview', 'aria-live': 'polite' });
-        const showMsg = (text, cl = 'muted') => previewBox.replaceChildren(el('p', { class: cl }, text));
+        const showMsg = (text, cl = 'muted') => fill(previewBox, el('p', { class: cl }, text));
 
         function renderPreview(d) {
           const items = partItems(normSizes(d), d.options);
@@ -3933,7 +3947,7 @@
           const body = el('tbody');
           const more = el('button', { type: 'button', class: 'btn small', 'aria-expanded': 'false', onclick: () => { all = !all; paint(); } });
           function paint() {
-            body.replaceChildren(
+            fill(body,
               row(t('ds.images'), items.map((x, i) => (per[i].images != null ? per[i].images : x.n)), 'strong'),
               bgTotal > 0 ? row(t('ds.background'), per.map((s) => s.background || 0)) : null,
               classRows.length ? el('tr', { class: 'sub' }, el('th', { scope: 'colgroup', colspan: String(items.length + 1) }, cls ? t('ds.images_per_class') : t('ds.objects_per_class'))) : null,
@@ -3945,7 +3959,7 @@
           paint();
           const warns = cleanWarnings(d.warnings, items).map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
           const infos = videoInfos(d.warnings).map((w) => el('li', { class: 'report-line ds-info' }, icon('info'), videoText(w)));
-          previewBox.replaceChildren(
+          fill(previewBox,
             el('h3', { class: 'section-title' }, t('ds.preview'), el('span', { class: 'muted' }, ` · ${tn('status.images_active', total)}`)),
             partsBar(items, barLabel(items)),
             legend(items),
@@ -4031,7 +4045,7 @@
       }
 
       const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'ds-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('ds.new'));
-      node.append(
+      add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-datasets' }, t('step.datasets')), el('p', { class: 'muted' }, t('ds.intro'))),
           newBtn),
@@ -4183,7 +4197,7 @@
         const ul = listBox.querySelector('ul.tr-cards');
         if (!runs.length) {
           cards.clear();
-          listBox.replaceChildren(el('div', { class: 'ds-empty' }, icon('chart', 28), el('p', { class: 'muted' }, t('tr.empty'))));
+          fill(listBox, el('div', { class: 'ds-empty' }, icon('chart', 28), el('p', { class: 'muted' }, t('tr.empty'))));
           return;
         }
         const list = ul || el('ul', { class: 'tr-cards' });
@@ -4203,8 +4217,8 @@
         });
         for (const k of [...cards.keys()]) if (!keep.has(k)) cards.delete(k);
         const same = nodes.length === list.children.length && nodes.every((n, i) => list.children[i] === n);
-        if (!same) list.replaceChildren(...nodes);
-        if (!ul) listBox.replaceChildren(list);
+        if (!same) fill(list, ...nodes);
+        if (!ul) fill(listBox, list);
         if (act && ownerNumber != null && cards.has(ownerNumber) && !list.contains(document.activeElement)) {
           const again = cards.get(ownerNumber).node.querySelector(`[data-act="${act}"]`);
           if (again) again.focus();
@@ -4330,7 +4344,7 @@
         function drawFolds() {
           const k = foldCount(versionOf());
           foldField.hidden = !k;
-          foldSel.replaceChildren(el('option', { value: 'all' }, t('tr.fold_all')), ...Array.from({ length: k }, (_, i) => el('option', { value: String(i) }, t('ds.fold', { n: i + 1 }))));
+          fill(foldSel, el('option', { value: 'all' }, t('tr.fold_all')), ...Array.from({ length: k }, (_, i) => el('option', { value: String(i) }, t('ds.fold', { n: i + 1 }))));
           st.fold = 'all';
         }
         datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); changed(); });
@@ -4346,7 +4360,7 @@
           if (!groups.has(key)) groups.set(key, { label: [kinds.size > 1 ? tr(`tr.kind.${m.task_kind}`, m.task_kind) : null, tr(`tr.family.${m.family}`, m.family)].filter(Boolean).join(' · '), items: [] });
           groups.get(key).items.push(m);
         }
-        for (const g of groups.values()) modelSel.append(el('optgroup', { label: g.label }, ...g.items.map((m) => el('option', { value: m.id }, m.label))));
+        for (const g of groups.values()) add(modelSel, el('optgroup', { label: g.label }, ...g.items.map((m) => el('option', { value: m.id }, m.label))));
         modelSel.setAttribute('aria-describedby', 'tr-model-note');
 
         // start
@@ -4387,7 +4401,7 @@
         const paramsBox = el('div', { class: 'tr-params' });
         const moreBox = el('details', { class: 'tr-more' }, el('summary', null, t('tr.more_params')));
         const moreInner = el('div', { class: 'tr-params' });
-        moreBox.append(moreInner);
+        add(moreBox, moreInner);
 
         function readParam(spec) {
           const grid = st.mode === 'grid';
@@ -4461,8 +4475,8 @@
           for (const k of Object.keys(errEls)) delete errEls[k];
           const common = active.filter((p) => p.group !== 'model');
           const own = active.filter((p) => p.group === 'model');
-          paramsBox.replaceChildren(...common.map(paramField));
-          moreInner.replaceChildren(...own.map(paramField));
+          fill(paramsBox, ...common.map(paramField));
+          fill(moreInner, ...own.map(paramField));
           moreBox.hidden = !own.length;
           changed();
         }
@@ -4481,7 +4495,7 @@
           const m = modelNow();
           modelNote.textContent = [m.notes, m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
           st.metric = m.default_metric;
-          metricSel.replaceChildren(...m.metrics.map((x) => el('option', { value: x, selected: x === st.metric }, metricName(x))));
+          fill(metricSel, ...m.metrics.map((x) => el('option', { value: x, selected: x === st.metric }, metricName(x))));
           initValues();
           drawStart();
           setMode(st.mode);
@@ -4874,7 +4888,7 @@
           if (s === sig) return;
           sig = s;
           const top = body.scrollTop;
-          keepFocus(body, () => body.replaceChildren(
+          keepFocus(body, () => fill(body,
             el('div', { class: 'tr-detail-head' },
               el('h2', null, t('tr.detail_title', { n: r.number })),
               badge(r),
@@ -4902,13 +4916,13 @@
         dlg.addEventListener('close', () => { clearTimeout(dtimer); dlg.remove(); load(true); });
         document.body.appendChild(dlg);
         dlg.showModal();
-        body.append(el('p', { class: 'muted' }, t('common.loading')));
+        add(body, el('p', { class: 'muted' }, t('common.loading')));
         refresh().then(() => { const close = dlg.querySelector('[data-act="close"]'); if (close) close.focus(); });
       }
 
       // ---------------------------------------------------------------- assemble
       const newBtn = el('button', { type: 'button', class: 'btn primary', id: 'tr-new', onclick: () => openNew(newBtn) }, icon('plus', 16), t('tr.new'));
-      node.append(
+      add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-training' }, t('step.training')), el('p', { class: 'muted' }, t('tr.intro'))),
           newBtn),
@@ -5113,7 +5127,7 @@
           return out;
         }
         function drawChoices() {
-          choices.replaceChildren(...data.models.map((m) => {
+          fill(choices, ...data.models.map((m) => {
             const id = `md-pub-${m.id}`;
             const input = el('input', { type: 'radio', name: 'md-pub', id, value: m.id, checked: m.id === st.id, onchange: () => { st.id = m.id; st.map = suggested(); drawMap(); } });
             return el('label', { class: `md-public-choice${m.id === st.id ? ' selected' : ''}`, for: id }, input,
@@ -5124,7 +5138,7 @@
         function drawMap() {
           drawChoices();
           const m = modelOf();
-          mapBox.replaceChildren(
+          fill(mapBox,
             el('p', { class: 'hint' }, t('md.mapping_help')),
             el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
               const id = `md-map-${cls}`;
@@ -5169,13 +5183,13 @@
         if (s === sig) return;
         sig = s;
         if (!models.length) {
-          box.replaceChildren(el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty')),
+          fill(box, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('md.empty')),
             el('div', { class: 'md-empty-actions' },
               el('a', { class: 'btn', href: '#training' }, t('md.go_training')),
               el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')))));
           return;
         }
-        refocus(() => box.replaceChildren(...[
+        refocus(() => fill(box, ...[
           el('ul', { class: 'tr-cards' }, ...models.map(card)),
           compareBlock(),
           models.some((m) => !isPublic(m)) ? el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help')) : null,
@@ -5196,7 +5210,7 @@
         if (!node.hidden && models.some(busy)) timer = setTimeout(() => load(true), 2000);
       }
 
-      node.append(
+      add(node,
         el('div', { class: 'ds-head' },
           el('div', null, el('h2', { id: 'h-models' }, t('step.models')), el('p', { class: 'muted' }, t('md.intro'))),
           el('div', { class: 'md-head-actions' },
@@ -5218,14 +5232,13 @@
     }
 
     ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel(), models: modelsPanel() };
-    panelsBox.append(gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
-    root.replaceChildren(headerBox, el('div', { class: 'project-body' }, stepper, panelsBox), jobsBox);
+    add(panelsBox, gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
+    fill(root, headerBox, el('div', { class: 'project-body' }, stepper, panelsBox), jobsBox);
     renderJobs();
     const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
     ctx.tab = STEPS.includes(startHash) ? startHash : 'images';
     refreshProject().then((ok) => {
       if (!ok) return;
-      showTab(ctx.tab);
       pollJobs();
       ctx.panels.datasets.count().then(() => { if (ctx.tab === 'training') showTab('training'); });
       ctx.panels.training.count();
@@ -5249,7 +5262,7 @@
     const sourceBox = el('section', { class: 'card import-source', 'aria-labelledby': 'h-source' });
     const listBox = el('section', { class: 'import-main', 'aria-live': 'polite' });
     const jobBox = el('section', { class: 'card import-job', 'aria-live': 'polite', hidden: true });
-    root.replaceChildren(sourceBox, listBox, jobBox);
+    fill(root, sourceBox, listBox, jobBox);
 
     async function loadTools() {
       try {
@@ -5262,7 +5275,7 @@
 
     function drawSource() {
       const focused = document.activeElement && document.activeElement.name === 'import-tool' ? document.activeElement.value : null;
-      sourceBox.replaceChildren(
+      fill(sourceBox,
         el('h2', { id: 'h-source' }, t('import.step_source')),
         el('div', { class: 'task-cards tool-cards', role: 'radiogroup', 'aria-labelledby': 'h-source' }, ...SOURCES.map((tool) => {
           const id = `import-tool-${tool}`;
@@ -5335,11 +5348,11 @@
     }
 
     function drawMain() {
-      if (!state.tool) { listBox.replaceChildren(); return; }
+      if (!state.tool) { fill(listBox); return; }
       const name = toolName(state.tool);
       if (state.error) {
         const notSet = state.error.status === 400;
-        listBox.replaceChildren(el('div', { class: 'card empty-note import-error', role: 'alert' }, icon('warning'),
+        fill(listBox, el('div', { class: 'card empty-note import-error', role: 'alert' }, icon('warning'),
           el('div', null,
             el('p', null, notSet ? t('import.not_configured', { tool: name }) : state.error.message),
             notSet && ready(state.tool) && state.error.message ? el('p', { class: 'muted' }, state.error.message) : null,
@@ -5349,7 +5362,7 @@
         return;
       }
       if (state.items === null) {
-        listBox.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', role: 'status' }, t('import.loading', { tool: name }))));
+        fill(listBox, el('div', { class: 'card' }, el('p', { class: 'muted', role: 'status' }, t('import.loading', { tool: name }))));
         return;
       }
       const search = el('input', { type: 'search', id: 'import-search', autocomplete: 'off', value: state.search, 'aria-label': t('import.search_label'), placeholder: t('import.search_label') });
@@ -5380,7 +5393,7 @@
       };
       const draw = () => {
         const rows = visible();
-        tableBox.replaceChildren(rows.length ? table(rows) : el('div', { class: 'empty-note' }, icon('info'),
+        fill(tableBox, rows.length ? table(rows) : el('div', { class: 'empty-note' }, icon('info'),
           el('p', null, state.items.length ? t('import.empty_search') : t('import.empty', { tool: name }))));
       };
       search.addEventListener('input', () => { state.search = search.value; draw(); });
@@ -5388,7 +5401,7 @@
       const listCard = el('div', { class: 'card import-list' },
         el('div', { class: 'import-list-head' }, el('h2', null, t('import.step_project')), search), tableBox);
       const side = el('aside', { class: 'card import-side', id: 'import-side', 'aria-label': t('import.panel_title') });
-      listBox.replaceChildren(el('div', { class: 'import-grid' }, listCard, side));
+      fill(listBox, el('div', { class: 'import-grid' }, listCard, side));
       drawSide(side);
     }
 
@@ -5406,7 +5419,7 @@
     function drawSide(side) {
       const item = state.selected;
       if (!item) {
-        side.replaceChildren(el('h2', null, t('import.panel_title')), el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('import.select_hint'))));
+        fill(side, el('h2', null, t('import.panel_title')), el('div', { class: 'empty-note' }, icon('info'), el('p', null, t('import.select_hint'))));
         return;
       }
       const tool = toolName(state.tool);
@@ -5438,7 +5451,7 @@
           toastError(err);
         }
       });
-      side.replaceChildren(el('h2', null, t('import.panel_title')), el('p', { class: 'import-picked' }, icon(state.tool, 20), el('strong', null, item.name)), form);
+      fill(side, el('h2', null, t('import.panel_title')), el('p', { class: 'import-picked' }, icon(state.tool, 20), el('strong', null, item.name)), form);
     }
 
     // ---- job
@@ -5496,7 +5509,7 @@
     }
 
     function drawFailed(message) {
-      jobBox.replaceChildren(
+      fill(jobBox,
         el('h2', { class: 'bad-title' }, icon('error', 22), t('import.failed_title')),
         el('p', { class: 'job-error', role: 'alert' }, message || ''),
         el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
@@ -5507,7 +5520,7 @@
       if (job.status === 'queued' || job.status === 'running') {
         const cancelBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('common.cancel'));
         cancelBtn.addEventListener('click', () => cancel(cancelBtn));
-        jobBox.replaceChildren(
+        fill(jobBox,
           el('h2', null, t('import.progress_title', { name })),
           el('p', { class: 'muted' }, t('import.progress_help')),
           el('div', { class: 'job-progress' }, progressBar(job.done, job.total, t('import.progress_title', { name })),
@@ -5518,7 +5531,7 @@
       }
       if (job.status === 'done') { drawResult(job.result || {}); return; }
       if (job.status === 'cancelled') {
-        jobBox.replaceChildren(el('p', { class: 'empty-note' }, icon('info'), t('import.cancelled')),
+        fill(jobBox, el('p', { class: 'empty-note' }, icon('info'), t('import.cancelled')),
           el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
         return;
       }
@@ -5529,7 +5542,7 @@
       const classes = Array.isArray(r.classes) ? r.classes.length : Number(r.classes) || 0;
       const fact = (label, value) => el('div', null, el('dt', null, label), el('dd', null, value));
       const problems = r.problems || [];
-      jobBox.replaceChildren(...[  /* replaceChildren would print a null as text */
+      fill(jobBox, ...[
         el('h2', { class: 'ok-title' }, icon('check', 22), t('import.done_title')),
         el('p', null, el('strong', null, r.name || (state.job && state.job.name) || '')),
         el('dl', { class: 'facts result-facts' },
