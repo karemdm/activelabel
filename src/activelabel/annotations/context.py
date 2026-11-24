@@ -61,6 +61,19 @@ def declared_size(
     return w, h
 
 
+def _index(index: dict[str, list[ImageRecord]], key: str, rec: ImageRecord) -> None:
+    """Add ``rec`` under ``key``, once (two names of one image must not make the lookup ambiguous).
+
+    Args:
+        index: The lookup table, key to the images with that key.
+        key: The key.
+        rec: The image.
+    """
+    found = index.setdefault(key, [])
+    if rec not in found:
+        found.append(rec)
+
+
 class ParseContext:
     """Collects labels, classes and problems while a format parser runs."""
 
@@ -82,13 +95,14 @@ class ParseContext:
         self._base: dict[str, list[ImageRecord]] = {}
         self._stem_suffix: dict[str, list[ImageRecord]] = {}
         for rec in images:
-            n = norm_name(rec.name)
-            self._exact.setdefault(n, []).append(rec)
-            self._lower.setdefault(n.lower(), []).append(rec)
-            self._base.setdefault(n.rsplit("/", 1)[-1].lower(), []).append(rec)
-            parts = stem_parts(rec.name)
-            for k in range(len(parts)):
-                self._stem_suffix.setdefault("/".join(parts[k:]).lower(), []).append(rec)
+            for name in (rec.name, *rec.aliases):  # a repeated upload is also known by its other names
+                n = norm_name(name)
+                _index(self._exact, n, rec)
+                _index(self._lower, n.lower(), rec)
+                _index(self._base, n.rsplit("/", 1)[-1].lower(), rec)
+                parts = stem_parts(name)
+                for k in range(len(parts)):
+                    _index(self._stem_suffix, "/".join(parts[k:]).lower(), rec)
 
     # -- problems and classes ------------------------------------------------
     def problem(self, code: str, example: str | None = None, n: int = 1) -> None:

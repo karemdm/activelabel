@@ -34,6 +34,7 @@ def _lock_for(path: Path) -> threading.RLock:
 
 
 MAX_CACHED = 6
+MAX_ALIASES = 20  # other names kept per image (a repeated upload of the same file)
 _PARSED_LOCK = threading.Lock()
 _PARSED: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}  # file -> (mtime, size), its JSON
 
@@ -77,6 +78,8 @@ class ImageRecord:
         id: first 16 hex digits of the SHA-256 of the file (content id); for a video frame the hash also
             covers the video, frame index and task, so identical frames of different tasks stay apart.
         name: original file name, with its sub-folder inside the upload (``a/b.jpg``).
+        aliases: other names the same content was uploaded with (a repeated image keeps its first name as
+            ``name``); annotation files that use one of them still match the image.
         file: stored file, relative to the project folder (``images/<id>.<ext>``).
         width: pixels.
         height: pixels.
@@ -105,6 +108,7 @@ class ImageRecord:
     issues: list[str] = field(default_factory=list)
     phash: str = ""
     excluded_reason: str = ""
+    aliases: list[str] = field(default_factory=list)
     video: str = ""
     frame: int | None = None
     time: float | None = None
@@ -113,9 +117,14 @@ class ImageRecord:
         """JSON-ready form (not ``dataclasses.asdict``: that is several times slower on 50 000 images).
 
         Returns:
-            The fields of the record, with copies of the metrics and the issues.
+            The fields of the record, with copies of the metrics, the issues and the aliases.
         """
-        return {**self.__dict__, "metrics": dict(self.metrics), "issues": list(self.issues)}
+        return {
+            **self.__dict__,
+            "metrics": dict(self.metrics),
+            "issues": list(self.issues),
+            "aliases": list(self.aliases),
+        }
 
 
 class Manifest:
@@ -156,7 +165,12 @@ class Manifest:
         records = {}
         for item in self._items():
             records[item["id"]] = ImageRecord(
-                **{**item, "metrics": dict(item.get("metrics", {})), "issues": list(item.get("issues", []))}
+                **{
+                    **item,
+                    "metrics": dict(item.get("metrics", {})),
+                    "issues": list(item.get("issues", [])),
+                    "aliases": list(item.get("aliases", [])),
+                }
             )
         return records
 
@@ -230,6 +244,30 @@ class Manifest:
                 current[record.id] = record
             self.save(current)
             return added
+
+    def add_aliases(self, names: dict[str, list[str]]) -> None:
+        """Remember more names of images: ``{id: [name, ...]}``.
+
+        A name the image already has (as ``name`` or alias) is skipped, an unknown id is ignored, and an image
+        keeps at most ``MAX_ALIASES`` aliases.
+
+        Args:
+            names: The new names per image id.
+        """
+        with self._lock:
+            current = self.load()
+            for image_id, new in names.items():
+                record = current.get(image_id)
+                if record is None:
+                    continue
+                for name in new:
+                    if (
+                        name != record.name
+                        and name not in record.aliases
+                        and len(record.aliases) < MAX_ALIASES
+                    ):
+                        record.aliases.append(name)
+            self.save(current)
 
     def update(self, changes: dict[str, dict[str, Any]]) -> None:
         """Change fields of several images at once. Unknown ids are ignored.

@@ -68,7 +68,9 @@ flowchart TB
   SES["Edit session<br/>annotate.json"] --> IMG
 ```
 
-- Image ids are the first 16 hex digits of the SHA-256 of the file, so identical files are one image.
+- Image ids are the first 16 hex digits of the SHA-256 of the file, so identical files are one image. The image keeps
+  the name of its first upload; the other names it was uploaded with are kept as `aliases`, so annotation files
+  that use them still match.
 - A label is `{label, bbox | polygons | keypoints, score?, track?, model?}` with coordinates relative to
   the image (0 to 1). A `score` marks a pre-annotation that nobody reviewed.
 - Numbers (projects, tasks, dataset versions, runs, models) are never reused.

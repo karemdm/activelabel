@@ -52,6 +52,14 @@ def test_duplicates_within_and_across_uploads(manifest, tmp_path):
     assert len(manifest.all()) == 1
 
 
+def test_a_repeated_image_keeps_its_other_names_as_aliases(manifest, tmp_path):
+    a = _bytes(tmp_path, "a.jpg", seed=1)
+    ingest_files(manifest, [("a.jpg", io.BytesIO(a)), ("copy.jpg", io.BytesIO(a)), ("a.jpg", io.BytesIO(a))])
+    ingest_files(manifest, [("other/copy.jpg", io.BytesIO(a)), ("copy.jpg", io.BytesIO(a))])
+    (record,) = manifest.all()
+    assert record.name == "a.jpg" and record.aliases == ["copy.jpg", "other/copy.jpg"]
+
+
 def test_corrupt_small_and_unsupported(manifest, tmp_path):
     bad = make_corrupt(tmp_path / "bad.jpg").read_bytes()
     tiny = tmp_path / "tiny.png"

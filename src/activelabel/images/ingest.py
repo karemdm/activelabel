@@ -178,6 +178,7 @@ class _Ingester:
         self.report = IngestReport()
         self.known: set[str] = set(manifest.load())
         self.pending: list[ImageRecord] = []
+        self.aliases: dict[str, list[str]] = {}  # names of repeated files, by the id of the image they repeat
         self.last_id: str | None = None  # image of the file just stored (also when it was a duplicate)
         self.done = 0
         self.total = 0
@@ -197,10 +198,13 @@ class _Ingester:
             self.progress.update(self.done, self.total, message)
 
     def flush(self) -> None:
-        """Write pending records to the manifest in one go."""
+        """Write the pending records, and the names of repeated files, to the manifest in one go."""
         if self.pending:
             batch, self.pending = self.pending, []
             self.manifest.add(batch)
+        if self.aliases:
+            names, self.aliases = self.aliases, {}
+            self.manifest.add_aliases(names)
 
     def reject(self, name: str, reason: str) -> None:
         """Record a file that was not stored.
@@ -291,6 +295,7 @@ class _Ingester:
             self.last_id = image_id
             if image_id in self.known:
                 self.report.duplicates.append(name)
+                self.aliases.setdefault(image_id, []).append(name)
                 return size
             try:
                 width, height, ext = _read_image(tmp)
