@@ -383,7 +383,8 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .job-top .btn { margin-left: auto; }
 .job-top .btn + .btn { margin-left: 0; }
 .status { font-size: var(--font-xs); font-weight: 700; padding: 0 var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border); }
-.status-running, .status-queued { color: var(--primary); border-color: var(--primary); }
+/* running is not a status colour and not the area: neutral, told apart by its word (and the pulsing dot) */
+.status-running, .status-queued { color: var(--text); border-color: var(--muted); }
 .status-done { color: var(--ok); border-color: var(--ok); }
 .status-failed { color: var(--danger); border-color: var(--danger); }
 .job-progress { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.3rem; }
@@ -414,7 +415,7 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 .toast-error .icon-error { color: var(--danger); }
 .toast-success { border-left-color: var(--ok); }
 .toast-success .icon-check { color: var(--ok); }
-.toast-info { border-left-color: var(--primary); }
+.toast-info { border-left-color: var(--muted); }
 .toast .icon-btn { width: 28px; height: 28px; border: 0; background: transparent; }
 
 /* ---- small screens ---- */
@@ -749,7 +750,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 /* state of a job in the linked CVAT project */
 .job-row.has-state { grid-template-columns: 3rem 3.8rem minmax(2rem, 1fr) 2.8rem 7rem; }
 .job-state { justify-self: end; padding: 0.1rem var(--space-2); border-radius: var(--radius-pill); font-size: var(--font-xs); font-weight: 600; white-space: nowrap; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
-.job-state.state-in_progress { color: var(--primary); border-color: var(--primary); }
+.job-state.state-in_progress { color: var(--text); border-color: var(--muted); }
 .job-state.state-completed { color: var(--ok); border-color: var(--ok); }
 .job-state.state-rejected { color: var(--danger); border-color: var(--danger); }
 @media (max-width: 480px) { .job-row.has-state { grid-template-columns: 3rem 4rem minmax(2rem, 1fr) 2.8rem; } .job-row.has-state .job-state { grid-column: 1 / -1; justify-self: start; } }
@@ -854,7 +855,7 @@ dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: auto; }
 .tr-del { margin-left: auto; width: 32px; height: 32px; }
 .tr-badge { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0.1rem 0.7rem; font-size: var(--font-sm); font-weight: 700; background: var(--surface-2); color: var(--muted); }
-.tr-badge.running { color: var(--primary); border-color: var(--primary); background: var(--primary-soft); }
+.tr-badge.running { color: var(--text); border-color: var(--muted); background: var(--surface-2); }
 .tr-badge.done { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
 .tr-badge.failed { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .tr-badge.cancelled { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }

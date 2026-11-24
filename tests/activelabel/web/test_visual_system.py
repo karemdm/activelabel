@@ -60,3 +60,10 @@ def test_type_has_no_uppercase_and_uses_mono_for_ids_and_metrics():
     mono = re.search(r"^\.project-id, ([^{]*)\{ font-family: var\(--mono\)", CSS, re.M)
     assert mono and ".thumb-name" in mono.group(1) and ".step-status" not in mono.group(1)
     assert re.search(r"^\.stat-tile dd \{[^}]*font-family: var\(--mono\)", CSS, re.M)
+
+
+def test_running_badges_and_info_toasts_are_neutral():
+    """VISUAL 2.3: the area colour is for place, not for state; running is told by its word."""
+    for selector in (r"\.status-running, \.status-queued", r"\.tr-badge\.running", r"\.toast-info"):
+        rule = re.search(rf"^{selector} \{{([^}}]*)\}}", CSS, re.M)
+        assert rule and "--primary" not in rule.group(1) and "--area" not in rule.group(1), selector
