@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from activelabel.constants import ACTIVE, EXCLUDED
 from activelabel.storage import read_json, write_json
 
 _LOCKS: dict[Path, threading.RLock] = {}
@@ -45,10 +46,6 @@ def _stamp(path: Path) -> tuple[int, int] | None:
     except OSError:
         return None
     return info.st_mtime_ns, info.st_size
-
-
-ACTIVE = "active"
-EXCLUDED = "excluded"
 
 
 @dataclass

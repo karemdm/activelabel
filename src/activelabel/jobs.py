@@ -16,11 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from activelabel.constants import CANCELLED, DONE, FAILED, FINISHED, QUEUED, RUNNING
 from activelabel.storage import now
 from activelabel.textcheck import message_of
-
-QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
-FINISHED = (DONE, FAILED, CANCELLED)
 
 
 def readable_error(exc: BaseException) -> str:
