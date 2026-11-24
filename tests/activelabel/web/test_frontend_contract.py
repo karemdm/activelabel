@@ -286,3 +286,11 @@ def test_changing_only_the_step_in_the_address_closes_the_open_windows():
     handler = re.search(r"addEventListener\('hashchange', \(\) => \{.*?\n    \}\);", JS, re.S)
     assert handler and "closeOpenDialogs();" in handler.group(0)
     assert "dispatchEvent(new Event('cancel', { cancelable: true }))" in JS
+
+
+def test_the_new_task_dialog_says_cancel_until_something_was_done():
+    """Like the other dialogs, its foot is "Cancel"; only a finished upload or video turns it into "Close"."""
+    button = re.search(r"id: 'new-task-close'.*?\n", JS).group(0)
+    assert "t('common.cancel')" in button
+    stage = re.search(r"function setStage\(stage\) \{.*?\n      \}", JS, re.S).group(0)
+    assert "closeBtn.textContent = t(stage === 'done' ? 'common.close' : 'common.cancel')" in stage

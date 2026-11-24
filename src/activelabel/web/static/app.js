@@ -2368,6 +2368,7 @@
           if (vid.pollFails >= POLL_LOST && !vRun.querySelector('.poll-lost')) {
             /* the server does not answer: say so, and let the person leave (the job goes on and shows in the activity bar) */
             add(vRun, el('p', { class: 'report-line bad poll-lost', role: 'alert' }, icon('warning'), t('video.poll_lost')));
+            closeBtn.textContent = t('common.close');
             closeBtn.hidden = false;
             closeX.hidden = false;
           }
@@ -2407,10 +2408,11 @@
             if (vid.video) { vSel.hidden = false; schedulePlan(); } else vDrop.hidden = false;
           } }, t('video.back'))));
         if (ok) { vid.video = null; vid.taskMade = true; }
+        closeBtn.textContent = t(ok ? 'common.close' : 'common.cancel');
         closeBtn.hidden = false;
         closeX.hidden = false;
       }
-      const closeBtn = el('button', { type: 'button', class: 'btn', id: 'new-task-close', onclick: () => newDlg.close() }, t('common.close'));
+      const closeBtn = el('button', { type: 'button', class: 'btn', id: 'new-task-close', onclick: () => newDlg.close() }, t('common.cancel'));
       const closeX = el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), title: t('common.close'), onclick: () => newDlg.close() }, icon('close', 18));
       const newDlg = el('dialog', { class: 'dialog wide new-task-dialog', 'aria-label': t('tasks.new_title') },
         el('div', { class: 'dialog-body' },
@@ -2430,6 +2432,7 @@
         formBox.hidden = stage !== 'form';
         progressBox.hidden = stage !== 'uploading';
         closeBtn.hidden = stage === 'uploading';
+        closeBtn.textContent = t(stage === 'done' ? 'common.close' : 'common.cancel');  // "Fechar" only once something was done
         closeX.hidden = stage === 'uploading';
       }
 
