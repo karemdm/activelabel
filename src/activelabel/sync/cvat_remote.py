@@ -533,14 +533,6 @@ class CvatRemote:
         loose.sort(key=lambda g: (-len(g["tasks"]), g["pattern"]))
         return {"projects": list(projects.values()), "loose": loose}
 
-    def server_answers(self, settings: ToolSettings) -> bool:
-        """Whether the CVAT server answers (``/api/server/about``): tells "deleted" from "wrong server"."""
-        try:
-            self._api(settings).get("/api/server/about")
-        except ToolError:
-            return False
-        return True
-
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
         """Delete a CVAT task with its frames and annotations (nothing when it is already gone)."""
         api = self._api(settings)

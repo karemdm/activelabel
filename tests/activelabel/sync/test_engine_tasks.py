@@ -644,23 +644,6 @@ def test_untouched_model_label_keeps_its_score_on_pull(synced):
     assert (dog.score, dog.model) == (None, None)  # edited by a person: reviewed
 
 
-def test_link_is_dropped_only_when_the_project_is_really_gone(synced, monkeypatch):
-    env = synced
-    project = env.project
-    args = (env.store, project, "cvat", SETTINGS, env.remote)
-    env.remote.fail = "Something was not found on the way"  # a plain ToolError, not a 404
-    assert engine.existing_remote(*args)["linked"] is True
-    assert links.get_link(env.dir, "cvat") is not None
-    env.remote.fail = ""
-    env.remote.projects.pop(env.rid)
-    monkeypatch.setattr(env.remote, "server_answers", lambda settings: False, raising=False)
-    assert engine.existing_remote(*args)["linked"] is True  # the server does not answer: wrong address
-    assert links.get_link(env.dir, "cvat") is not None
-    monkeypatch.setattr(env.remote, "server_answers", lambda settings: True, raising=False)
-    assert engine.existing_remote(*args) is None  # really deleted
-    assert links.get_link(env.dir, "cvat") is None
-
-
 def test_remote_frames_with_the_same_base_name_or_the_same_content_are_all_linked(synced):
     env = synced
     new = env.remote.new_task(

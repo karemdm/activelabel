@@ -82,6 +82,6 @@ class AnnotationTool(Protocol):
         """
         ...
 
-    def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any], delete_remote: bool) -> None:
-        """Forget the session in the tool (and delete remote tasks if asked). Never raises if gone."""
+    def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
+        """Forget the session in the tool. Never raises if gone."""
         ...

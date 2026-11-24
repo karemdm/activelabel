@@ -66,7 +66,7 @@ class FiftyOneTool:
                 out[image_id] = labels_from_fo(value, project.task)
         return out
 
-    def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any], delete_remote: bool) -> None:
+    def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
         """Delete the saved view."""
         name = ref.get("view")
         if dataset is not None and name and dataset.has_saved_view(name):

@@ -131,9 +131,8 @@ stable `code` and the `params` the translated text needs:
 Status codes: 400 (rejected input), 404 (not found), 409 (conflict: a job of the project is running, or the
 state changed since the person looked), 422 (the body or a parameter has the wrong shape; `detail` is the
 list FastAPI gives) and 500 only for a damaged data file (`code: "file_damaged"`, `params.file`; the project
-list itself survives one damaged project). Three 409/400 answers carry an object in `detail` with its own
-`code` the interface acts on: `task_change_annotations` and `classes_in_use` (PATCH of a project),
-`remote_exists` (send to a tool) and `no_images_added` (a task created from files that add nothing, with
+list itself survives one damaged project). Two 409/400 answers carry an object in `detail` with its own
+`code` the interface acts on: `task_change_annotations` and `classes_in_use` (PATCH of a project) and `no_images_added` (a task created from files that add nothing, with
 the upload `report`). The `code` values of the other errors are:
 
 | Status | Codes |

@@ -16,7 +16,7 @@ class FakeTool:
 
     def __init__(self):
         self.pulled: dict[str, list[Label]] = {}
-        self.closed: list[tuple[dict, bool]] = []
+        self.closed: list[dict] = []
         self.fail = ""
 
     def check(self, settings):
@@ -32,8 +32,8 @@ class FakeTool:
     def pull(self, dataset, image_ids, project, settings, ref):
         return {i: self.pulled.get(i, []) for i in image_ids}
 
-    def close(self, dataset, settings, ref, delete_remote):
-        self.closed.append((ref, delete_remote))
+    def close(self, dataset, settings, ref):
+        self.closed.append(ref)
 
 
 @pytest.fixture
@@ -131,8 +131,8 @@ def test_full_flow(env):
     listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
     assert listed[0]["status"] == "applied"
 
-    r = env.client.request("DELETE", base, json={"delete_remote": True})
-    assert r.json() == {"closed": True} and env.tool.closed[0][1] is True
+    r = env.client.delete(base)
+    assert r.json() == {"closed": True} and env.tool.closed == [{"anno_key": session["id"]}]
     assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
     assert env.client.delete(base).status_code == 404
 
@@ -175,29 +175,13 @@ def test_apply_refused_when_local_labels_changed_since_pull(env):
     assert env.client.post(f"{base}/apply").status_code == 200
 
 
-def test_link_after_send_failure_is_a_warning(env, monkeypatch, remotes):
-    from activelabel.sync import registry as sync_registry
-
-    monkeypatch.setitem(sync_registry.OVERRIDES, "fiftyone", remotes["cvat"])
-    monkeypatch.setattr(annotate_api, "SYNC_TOOLS", ("fiftyone",))
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("link broke")
-
-    monkeypatch.setattr(annotate_api.sync_engine, "link_after_send", boom)
-    monkeypatch.setattr(annotate_api.sync_engine, "existing_remote", lambda *a, **k: None)
-    job = wait(env, start(env, scope="all").json())
-    assert job["status"] == "done", job
-    assert "link broke" in job["result"]["warning"] and job["result"]["session"]["status"] == "open"
-
-
-def _legacy_cvat_session(env):
-    """A session an old workspace may hold: made when ActiveLabel could still review through CVAT."""
+def _legacy_session(env, tool):
+    """A session an old workspace may hold: made when ActiveLabel still had edit sessions in other tools."""
     from activelabel.annotate import sessions
 
     return sessions.create(
         env.state.store.dir(env.pid),
-        "cvat",
+        tool,
         "all",
         env.ids,
         [{"label": "Task", "url": "http://cvat/tasks/1"}],
@@ -205,21 +189,22 @@ def _legacy_cvat_session(env):
     )
 
 
-def test_cvat_is_not_a_session_tool_any_more(env):
-    r = start(env)
-    assert r.status_code == 200  # the fiftyone fake still works
-    r = env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "cvat"})
+@pytest.mark.parametrize("tool", ["cvat", "labelstudio"])
+def test_only_fiftyone_opens_edit_sessions(env, tool):
+    assert start(env).status_code == 200  # the fiftyone fake still works
+    r = env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": tool})
     assert r.status_code == 400 and r.json()["code"] == "tool_unsupported"
     assert env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "nope"}).status_code == 404
 
 
-def test_old_cvat_session_is_listed_and_closed_without_touching_the_remote(env, remotes):
-    old = _legacy_cvat_session(env)
+@pytest.mark.parametrize("tool", ["cvat", "labelstudio"])
+def test_old_session_of_a_removed_tool_is_listed_and_closed_without_contacting_anything(env, remotes, tool):
+    old = _legacy_session(env, tool)
     listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
-    assert [x["id"] for x in listed] == [old["id"]] and listed[0]["tool"] == "cvat"
+    assert [x["id"] for x in listed] == [old["id"]] and listed[0]["tool"] == tool
     base = f"/api/projects/{env.pid}/annotate/{old['id']}"
     assert env.client.post(f"{base}/pull").json()["code"] == "tool_unsupported"
-    r = env.client.request("DELETE", base, json={"delete_remote": True})
+    r = env.client.request("DELETE", base, json={"delete_remote": True})  # an old client may still send this
     assert r.status_code == 200 and r.json() == {"closed": True}
     assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
-    assert not env.tool.closed and not remotes["cvat"].calls  # nothing was sent to a server
+    assert not env.tool.closed and not remotes["cvat"].calls  # no tool was contacted
