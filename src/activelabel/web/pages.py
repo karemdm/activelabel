@@ -25,7 +25,11 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 
 def compute_asset_version() -> str:
-    """Short hash of the static files, so a changed file always gets a new URL."""
+    """Short hash of the static files, so a changed file always gets a new URL.
+
+    Returns:
+        Ten hexadecimal characters.
+    """
     digest = hashlib.sha256()
     for path in sorted(STATIC_DIR.rglob("*")):
         if path.is_file():
@@ -43,6 +47,9 @@ def asset_version() -> str:
 
     The static files are served from disk, so after an update of the code (``git pull``) a running
     server already serves the new ones; their URLs must change too, or browsers keep old copies.
+
+    Returns:
+        The version stamp of the static files.
     """
     stamp = tuple(
         (p.as_posix(), p.stat().st_mtime_ns, p.stat().st_size)
@@ -82,7 +89,17 @@ def _bound_translate(lang: str) -> Callable[..., str]:
 
 
 def render(request: Request, template: str, status_code: int = 200, **extra: Any) -> HTMLResponse:
-    """Render a template with the language, translations and asset version in its context."""
+    """Render a template with the language, translations and asset version in its context.
+
+    Args:
+        request: The request (language from the query, cookie or header).
+        template: Name of the template.
+        status_code: HTTP status of the answer.
+        **extra: More values for the template context.
+
+    Returns:
+        The HTML page.
+    """
     settings = getattr(request.app.state, "settings", None)
     default = getattr(settings, "language", DEFAULT)
     query = request.query_params.get("lang")
@@ -106,25 +123,54 @@ def render(request: Request, template: str, status_code: int = 200, **extra: Any
 
 @router.get("/", response_class=HTMLResponse)
 def projects_page(request: Request) -> HTMLResponse:
-    """List of projects."""
+    """List of projects.
+
+    Args:
+        request: The request.
+
+    Returns:
+        The HTML page.
+    """
     return render(request, "projects.html")
 
 
 @router.get("/projects/new", response_class=HTMLResponse)
 def new_project_page(request: Request) -> HTMLResponse:
-    """Form to create a project."""
+    """Form to create a project.
+
+    Args:
+        request: The request.
+
+    Returns:
+        The HTML page.
+    """
     return render(request, "new_project.html")
 
 
 @router.get("/projects/import", response_class=HTMLResponse)
 def import_project_page(request: Request) -> HTMLResponse:
-    """Import a project from CVAT."""
+    """Import a project from CVAT.
+
+    Args:
+        request: The request.
+
+    Returns:
+        The HTML page.
+    """
     return render(request, "import_project.html")
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
 def project_page(request: Request, project_id: str) -> HTMLResponse:
-    """Page of one project (images, annotations, curation)."""
+    """Page of one project (images, annotations, curation).
+
+    Args:
+        request: The request.
+        project_id: Id of the project, as in the address.
+
+    Returns:
+        The HTML page, or the not-found page (404) when the id is not a number.
+    """
     if not (project_id.isascii() and project_id.isdigit()):
         return render(request, "notfound.html", status_code=404)
     return render(request, "project.html", project_id=int(project_id), vl={"projectId": int(project_id)})
