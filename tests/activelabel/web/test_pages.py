@@ -132,9 +132,8 @@ def test_dynamic_translation_keys_exist():
     wanted += ["job.kind.import_folder", "job.kind.analyze", "job.kind.fiftyone"]
     wanted += ["job.kind.annotate_send", "job.kind.annotate_pull"]
     wanted += ["job.kind.sync_plan", "job.kind.sync_plan_generic", "job.kind.sync_apply"]
-    tools = ("fiftyone", "cvat", "labelstudio")
-    wanted += [f"annotate.tool.{x}" for x in tools]
-    wanted += [f"annotate.setup_help.{x}" for x in ("cvat", "labelstudio")]
+    wanted += [f"annotate.tool.{x}" for x in ("fiftyone", "cvat")]
+    wanted += ["annotate.setup_help.cvat", "annotate.tool_removed"]
     wanted += [f"annotate.scope.{x}" for x in ("all", "unlabeled", "selected", "issue")]
     wanted += [f"annotate.status.{x}" for x in ("open", "pulled", "applied", "discarded", "closed")]
     try:

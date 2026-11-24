@@ -1,6 +1,9 @@
 import json
 
+import pytest
+
 from activelabel.annotate import credentials as cred
+from activelabel.annotate.base import ToolError
 
 
 def test_secret_only_in_keyring(tmp_path, fake_keyring):
@@ -23,9 +26,9 @@ def test_secret_only_in_keyring(tmp_path, fake_keyring):
 
 
 def test_secret_kept_when_not_given(tmp_path):
-    cred.save_settings(tmp_path, "labelstudio", "http://ls", "", "tok")
-    cred.save_settings(tmp_path, "labelstudio", "http://ls", "", None)
-    assert cred.load_settings(tmp_path, "labelstudio").secret == "tok"
+    cred.save_settings(tmp_path, "cvat", "http://c", "u", "tok")
+    cred.save_settings(tmp_path, "cvat", "http://c", "u", None)
+    assert cred.load_settings(tmp_path, "cvat").secret == "tok"
 
 
 def test_needs_and_configured(tmp_path):
@@ -36,9 +39,22 @@ def test_needs_and_configured(tmp_path):
         "username": "",
         "needs": [],
     }
-    cred.save_settings(tmp_path, "labelstudio", "http://ls", "", None)
-    view = cred.public_view(cred.load_settings(tmp_path, "labelstudio"))
-    assert view["configured"] is False and view["needs"] == ["url", "secret"]
+    cred.save_settings(tmp_path, "cvat", "http://c", "u", None)
+    view = cred.public_view(cred.load_settings(tmp_path, "cvat"))
+    assert view["configured"] is False and view["needs"] == ["url", "username", "secret"]
+
+
+def test_an_old_workspace_with_settings_of_a_removed_tool_keeps_working(tmp_path, fake_keyring):
+    """``tools.json`` may still hold an entry (and the keyring a secret) of a tool that is gone."""
+    (tmp_path / "tools.json").write_text(
+        '{"labelstudio": {"url": "http://ls", "username": ""}}', encoding="utf-8"
+    )
+    fake_keyring.store[("activelabel", "labelstudio:http://ls")] = "old-token"
+    with pytest.raises(ToolError, match="Unknown annotation tool"):
+        cred.load_settings(tmp_path, "labelstudio")
+    cred.save_settings(tmp_path, "cvat", "http://c", "u", "pw")  # saving another tool does not break it
+    assert cred.load_settings(tmp_path, "cvat").url == "http://c"
+    assert fake_keyring.store[("activelabel", "labelstudio:http://ls")] == "old-token"  # never touched
 
 
 def test_forget(tmp_path, fake_keyring):

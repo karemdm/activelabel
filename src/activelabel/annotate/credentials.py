@@ -20,7 +20,6 @@ SERVICE = "activelabel"
 NEEDS = {
     "fiftyone": [],
     "cvat": ["url", "username", "secret"],
-    "labelstudio": ["url", "secret"],
 }
 _lock = threading.RLock()
 

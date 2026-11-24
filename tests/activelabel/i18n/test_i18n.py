@@ -123,7 +123,7 @@ def test_progress_messages_are_translated():
     assert "Measuring images" in texts
     for lang in ("en", "pt"):
         messages = load(lang)
-        listed = {"Listing CVAT data", "Listing Label Studio data"}  # shape "Listing {tool} data"
+        listed = {"Listing CVAT data"}  # shape "Listing {tool} data"
         missing = [m for m in sorted(texts - listed) if f"jobmsg.{m}" not in messages]
         assert missing == [], lang
     for key in (

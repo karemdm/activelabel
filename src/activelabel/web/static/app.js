@@ -92,7 +92,6 @@
     moon: '<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',
     fiftyone: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
     cvat: '<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
-    labelstudio: '<path d="M5 19l-1-4L15 4l5 5L9 20z"/><path d="M13 6l5 5"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     chart: '<path d="M4 20V4M4 20h16M8 15l4-5 3 3 5-7"/>',
@@ -333,16 +332,18 @@
   /* "Imported from CVAT"; the remote name is the tooltip. */
   const originBadge = (origin) => {
     if (!origin || !origin.tool) return null;
-    const label = t('project.imported_from', { tool: toolName(origin.tool) });
+    const known = TOOLS.includes(origin.tool);
+    const label = known ? t('project.imported_from', { tool: toolName(origin.tool) }) : t('project.origin_removed');
     return el('span', { class: 'badge origin-badge', title: origin.name ? String(origin.name) : label, tabindex: '0', 'aria-label': origin.name ? `${label}: ${origin.name}` : label },
-      icon(origin.tool, 14), label);
+      icon(known ? origin.tool : 'info', 14), label);
   };
 
   /* "Linked to CVAT"; the remote project name is the tooltip. */
   const linkBadge = (link) => {
-    const label = t('project.linked_to', { tool: toolName(link.tool) });
+    const known = TOOLS.includes(link.tool);
+    const label = known ? t('project.linked_to', { tool: toolName(link.tool) }) : t('project.link_removed');
     return el('span', { class: 'badge origin-badge link-badge', title: link.remote_name ? String(link.remote_name) : label, tabindex: '0', 'aria-label': link.remote_name ? `${label}: ${link.remote_name}` : label },
-      icon(link.tool, 14), label);
+      icon(known ? link.tool : 'info', 14), label);
   };
 
   const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
@@ -747,11 +748,12 @@
   }
 
   // ---------------------------------------------------------------- annotation sessions (shared bits)
-  const TOOLS = ['fiftyone', 'cvat', 'labelstudio'];
+  const TOOLS = ['fiftyone', 'cvat'];
   /* tools that run edit sessions; a session of another one (an old workspace may hold one) can only be closed */
   const SESSION_TOOLS = ['fiftyone'];
-  const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
-  const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
+  const DEFAULT_URLS = { cvat: 'https://app.cvat.ai' };
+  /* a tool this version no longer has (an old workspace may still mention one) is named generically */
+  const toolName = (tool) => (TOOLS.includes(tool) ? tr(`annotate.tool.${tool}`, tool) : t('annotate.tool_removed'));
   const statusText = (status) => tr(`job.status.${status}`, status);
   /* progress messages the server writes in English; the ones that carry a tool name are matched by shape */
   const JOB_MESSAGE_SHAPES = [
@@ -1314,12 +1316,15 @@
           b.disabled = true;
           try { await startSync(tool); } catch (err) { b.disabled = false; toastError(err); }
         } }, t('sync.run'));
+        const removed = link.supported === false;
         const unlink = el('button', { type: 'button', class: 'btn danger-outline', onclick: async () => {
-          const ok = await confirmDialog({ title: t('sync.unlink_title', { tool: toolName(tool) }), text: t('sync.unlink_text', { tool: toolName(tool) }), confirmLabel: t('sync.unlink') });
+          const ok = await confirmDialog(removed
+            ? { title: t('sync.unlink_title_removed'), text: t('sync.unlink_text_removed'), confirmLabel: t('sync.unlink') }
+            : { title: t('sync.unlink_title', { tool: toolName(tool) }), text: t('sync.unlink_text', { tool: toolName(tool) }), confirmLabel: t('sync.unlink') });
           if (!ok) return;
           try {
             await api('DELETE', `/projects/${projectId}/links/${tool}`);
-            toast(t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
+            toast(removed ? t('sync.unlinked_removed') : t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
             await refreshProject();
             draw(true);
           } catch (err) { toastError(err); }
@@ -1328,10 +1333,10 @@
           el('div', { class: 'session-head' },
             el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, toolName(tool)))),
           el('dl', { class: 'facts link-facts' },
-            el('div', null, el('dt', null, t('sync.remote_project', { tool: toolName(tool) })), el('dd', null, open)),
+            el('div', null, el('dt', null, removed ? t('sync.remote_project_removed') : t('sync.remote_project', { tool: toolName(tool) })), el('dd', null, open)),
             el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
             el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never')))),
-          link.supported === false ? el('p', { class: 'muted' }, t('sync.link_unsupported', { tool: toolName(tool) })) : null,
+          removed ? el('p', { class: 'muted' }, t('sync.link_unsupported')) : null,
           el('div', { class: 'session-actions' }, run, unlink));
       }
 
@@ -2708,6 +2713,7 @@
           ? t('annotate.scope_issue_named', { issue: issueName(s.issue) })
           : tr(`annotate.scope.${s.scope}`, s.scope || '');
         const legacy = !SESSION_TOOLS.includes(tool);
+        const legacyTool = !TOOLS.includes(tool);  // links to a tool this version does not have are not offered
         const live = !legacy && (s.status === 'open' || s.status === 'pulled');
         const act = (label, cls, fn) => {
           const b = el('button', { type: 'button', class: `btn ${cls}` }, label);
@@ -2752,11 +2758,11 @@
             el('span', null, tn('annotate.images_n', imagesOf(s))),
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
             el('time', { datetime: s.created || null }, fmtDateTime(s.created))),
-          links.length
+          links.length && !legacyTool
             ? el('p', { class: 'session-links' }, ...links.map((l) => el('a', { class: 'btn small', href: l.url, target: '_blank', rel: 'noopener' },
                 links.length === 1 ? t('annotate.open_in', { tool: toolName(tool) }) : l.label || t('annotate.open_in', { tool: toolName(tool) }), icon('external', 14))))
             : null,
-          legacy ? el('p', { class: 'muted' }, t('annotate.legacy_note', { tool: toolName(tool) })) : null,
+          legacy ? el('p', { class: 'muted' }, t('annotate.legacy_note')) : null,
           s.status === 'open' && !legacy ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
           diffShown ? diffView(projectId, s.diff) : null,
           el('div', { class: 'session-actions' }, ...buttons));

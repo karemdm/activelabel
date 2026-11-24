@@ -78,7 +78,7 @@ def start(env, **body):
 def test_tools_settings_never_return_secret(env, remotes):
     assert "pw-123" not in str(configure(env))
     tools = env.client.get("/api/annotation-tools").json()
-    assert [t["tool"] for t in tools] == ["fiftyone", "cvat", "labelstudio"]
+    assert [t["tool"] for t in tools] == ["fiftyone", "cvat"]
     assert "pw-123" not in str(tools) and next(t for t in tools if t["tool"] == "cvat")["configured"]
     assert "pw-123" not in (env.state.settings.workspace / "tools.json").read_text()
     ok = env.client.post("/api/annotation-tools/cvat/test").json()
@@ -90,6 +90,8 @@ def test_tools_settings_never_return_secret(env, remotes):
     assert not after["configured"]
     assert env.client.put("/api/annotation-tools/cvat", json={"url": ""}).status_code == 400
     assert env.client.put("/api/annotation-tools/nope", json={}).status_code == 404
+    old = env.client.put("/api/annotation-tools/labelstudio", json={"url": "http://ls", "secret": "x"})
+    assert old.status_code == 404 and old.json()["code"] == "tool_unknown"  # a tool that was removed
 
 
 def test_send_requires_a_selection(env):
@@ -189,11 +191,13 @@ def _legacy_session(env, tool):
     )
 
 
-@pytest.mark.parametrize("tool", ["cvat", "labelstudio"])
-def test_only_fiftyone_opens_edit_sessions(env, tool):
+@pytest.mark.parametrize(
+    ("tool", "status", "code"), [("cvat", 400, "tool_unsupported"), ("labelstudio", 404, "tool_unknown")]
+)
+def test_only_fiftyone_opens_edit_sessions(env, tool, status, code):
     assert start(env).status_code == 200  # the fiftyone fake still works
     r = env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": tool})
-    assert r.status_code == 400 and r.json()["code"] == "tool_unsupported"
+    assert r.status_code == status and r.json()["code"] == code
     assert env.client.post(f"/api/projects/{env.pid}/annotate", json={"tool": "nope"}).status_code == 404
 
 

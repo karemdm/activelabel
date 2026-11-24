@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -146,3 +147,13 @@ def test_get_job_any_project(env):
     assert wait(client, job.id)["result"] == {"ok": 1}
     zero = state.jobs.submit(0, "import_project", lambda progress: {"ok": 2})
     assert wait(client, zero.id)["project_id"] == 0
+
+
+def test_a_project_imported_before_from_a_removed_tool_still_opens(env):
+    client, state, _ = env
+    pid = client.post("/api/projects", json={"name": "Old", "task": "detection"}).json()["id"]
+    origin = {"tool": "labelstudio", "url": "http://ls", "remote_id": "7", "kind": "project", "name": "Pets"}
+    (state.store.dir(pid) / "origin.json").write_text(json.dumps(origin), encoding="utf-8")
+    shown = client.get(f"/api/projects/{pid}")
+    assert shown.status_code == 200 and shown.json()["origin"]["tool"] == "labelstudio"
+    assert client.get("/api/projects").status_code == 200
