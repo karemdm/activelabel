@@ -95,7 +95,8 @@ project is its *type*.)
      ([docs/VIDEO.md](docs/VIDEO.md)).
 
    Label Studio is switched off in the interface for now: only *importing a project* from it is
-   offered. Its code stays (docs/SYNC.md, docs/ANNOTATION.md).
+   offered. Its code and the CVAT edit session of the API (docs/ANNOTATION.md) are still in the repository
+   but are planned for removal: for CVAT, review through the synchronisation (docs/SYNC.md).
 3. **Curation**: *Analyze images* measures brightness, contrast, sharpness, size and a
    perceptual hash of each image. Filters per issue (blurry, dark, bright, low contrast, small, odd
    aspect ratio, grayscale, near duplicate) show the flagged images; *Select suggested* picks the

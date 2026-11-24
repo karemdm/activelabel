@@ -15,7 +15,8 @@ reviews a summary of the changes and applies it.
 In the interface, this is the step **2 · Annotations** (*Anotações*): the tab *CVAT* (synchronisation,
 docs/SYNC.md) and the tab *FiftyOne* (edit sessions, described here). The edit sessions of this page
 are what the interface offers for FiftyOne; CVAT is handled by the synchronisation of the *CVAT* tab,
-although the API below still accepts `cvat` (and `labelstudio`) as a tool. Label Studio is switched
+although the API below still accepts `cvat` (and `labelstudio`) as a tool; the CVAT and Label Studio
+sessions are planned for removal, and CVAT work is meant to go through the synchronisation only. Label Studio is switched
 off in the interface for now (only importing a project from it is offered, docs/IMPORT.md); the code
 and the API stay.
 
