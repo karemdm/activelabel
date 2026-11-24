@@ -15,7 +15,7 @@ from activelabel.projects import Project
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
-from activelabel.training.models import ModelStore
+from activelabel.training.models import WEIGHTS, ModelStore
 from activelabel.training.runner import EXTRA_PACKAGES
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.errors import ApiError, bad_request
@@ -271,18 +271,29 @@ def _tail(path: Path, count: int, chunk: int = 64 * 1024) -> list[str]:
 
 @router.get("/projects/{project_id}/runs")
 def list_runs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Every run of the project, newest first.
+    """Every run of the project, newest first, with its model number and whether it still has its weights.
+
+    The weights move to the model when a run is saved, and go with it when the model is deleted.
 
     Args:
         project_id: Id of the project.
         state: The shared state of the application.
 
     Returns:
-        ``{runs}``, newest first.
+        ``{runs}``, newest first; each run has ``model`` and ``has_weights``.
     """
     store = _store(state, project_id)
     saved = {m["run"]: m["number"] for m in ModelStore(state.store.dir(project_id)).list()}
-    return {"runs": [{**_summary(store, r), "model_number": saved.get(r["number"])} for r in store.list()]}
+    return {
+        "runs": [
+            {
+                **_summary(store, r),
+                "model_number": saved.get(r["number"]),
+                "has_weights": (store.path(r["number"]) / WEIGHTS).exists(),
+            }
+            for r in store.list()
+        ]
+    }
 
 
 @router.post("/projects/{project_id}/runs")

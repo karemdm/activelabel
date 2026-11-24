@@ -1010,7 +1010,7 @@
       openWhenDone: new Set(),
       pollTimer: null,
       panels: {},
-      weightless: new Set(),  // runs whose weights went with a deleted model (the server does not say so in the run list)
+      weightless: new Set(),  // runs whose weights just went with a deleted model (until the list says has_weights: false)
       links: [],
       syncTool: {},
       syncDismissed: new Set(),
@@ -4529,7 +4529,7 @@
         const meta = r.config_error ? [] : [datasetText(r), startName(r.start), r.mode === 'grid' ? t('tr.mode_grid') : null, r.trainings ? tn('tr.trainings', r.trainings) : null].filter(Boolean);
         const facts = [durationOf(r), deviceOf(r)].filter(Boolean);
         const act = (name, label, fn, cls = '') => el('button', { type: 'button', class: `btn small ${cls}`, 'data-act': name, onclick: fn }, label);
-        const noWeights = r.status === 'done' && !r.model_number && ctx.weightless.has(r.number);
+        const noWeights = r.status === 'done' && !r.model_number && (r.has_weights === false || ctx.weightless.has(r.number));
         const saveButton = act('save', t('md.save'), () => saveModel(r), 'primary');
         if (noWeights) {
           saveButton.disabled = true;
