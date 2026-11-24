@@ -23,13 +23,28 @@ class ApiError(HTTPException):
     """An HTTP error with a stable ``code`` and ``params`` next to its English ``detail``."""
 
     def __init__(self, status_code: int, code: str, message: str, **params: Any) -> None:
+        """Keep the code and the values next to the HTTP error.
+
+        Args:
+            status_code: HTTP status code.
+            code: Stable code the interface translates.
+            message: Readable English text (``detail``).
+            **params: Values for the translated text.
+        """
         super().__init__(status_code, message)
         self.code = code
         self.params = params
 
 
 def bad_request(exc: Exception) -> HTTPException:
-    """HTTP 400 for a rejected input (keeps the code of a :class:`~activelabel.errors.CodedError`)."""
+    """HTTP 400 for a rejected input (keeps the code of a :class:`~activelabel.errors.CodedError`).
+
+    Args:
+        exc: The error that rejected the input.
+
+    Returns:
+        A coded API error (HTTP 400) when ``exc`` has a code, else a plain HTTP 400.
+    """
     if isinstance(exc, CodedError):
         return ApiError(400, exc.code, message_of(exc), **exc.params)
     return HTTPException(400, message_of(exc))
@@ -70,6 +85,10 @@ async def damaged_file(request: Request, exc: Exception) -> JSONResponse:
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Answer an :class:`ApiError` with its code and a damaged data file with HTTP 500 and a readable text."""
+    """Answer an :class:`ApiError` with its code and a damaged data file with HTTP 500 and a readable text.
+
+    Args:
+        app: The application to add the handlers to.
+    """
     app.add_exception_handler(ApiError, api_error)
     app.add_exception_handler(DamagedFile, damaged_file)
