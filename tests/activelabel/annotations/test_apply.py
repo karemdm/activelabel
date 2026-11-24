@@ -185,3 +185,33 @@ def test_old_staging_is_removed(tmp_path):
     os.utime(folder / "staging" / old, (past, past))
     stage(folder, [("c.json", io.BytesIO(b"[]"))])
     assert not (folder / "staging" / old).exists() and (folder / "staging" / recent).exists()
+
+
+def _yolo_files(names, lines):
+    return [
+        ("data.yaml", io.BytesIO(f"names: [{names}]\n".encode())),
+        ("labels/a.txt", io.BytesIO(lines.encode())),
+    ]
+
+
+def test_merge_adds_only_classes_that_received_labels(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="detection", classes=["cão"])
+    ids = {r.name: r.id for r in manifest.all()}
+    save_annotations(
+        store.dir(project.id),
+        AnnotationSet(Task.DETECTION, ["cão"], {ids["a.png"]: [Label("cão", bbox=[0, 0, 1, 1])]}, {}),
+    )
+    # a.png already has labels, so the "cao" label of the file is skipped: no new class either
+    token = stage(store.dir(project.id), _yolo_files("cao", "0 0.5 0.5 0.2 0.4\n"))
+    summary = apply(store, project.id, manifest, token, "import", mode="merge")
+    assert summary["labels_imported"] == 0 and summary["classes_added"] == []
+    assert store.get(project.id).classes == ["cão"]
+    assert load_annotations(store.dir(project.id)).classes == ["cão"]  # type: ignore[union-attr]
+
+
+def test_merge_adds_the_class_of_a_label_that_was_imported(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="detection", classes=["cão"])
+    token = stage(store.dir(project.id), _yolo_files("cao", "0 0.5 0.5 0.2 0.4\n"))
+    save_annotations(store.dir(project.id), AnnotationSet(Task.DETECTION, ["cão"], {}, {}))
+    summary = apply(store, project.id, manifest, token, "import", mode="merge")
+    assert summary["labels_imported"] == 1 and summary["classes_added"] == ["cao"]
