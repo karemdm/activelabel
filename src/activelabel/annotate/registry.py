@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from activelabel.annotate.base import AnnotationTool, ToolError
+from activelabel.annotate.fiftyone_tool import FiftyOneTool
 
 OVERRIDES: dict[str, AnnotationTool] = {}  # tests register fakes here
 
@@ -16,7 +17,5 @@ def get_tool(name: str) -> AnnotationTool:
     if name in OVERRIDES:
         return OVERRIDES[name]
     if name == "fiftyone":
-        from activelabel.annotate.fiftyone_tool import FiftyOneTool
-
         return FiftyOneTool()
     raise ToolError(f"The tool '{name}' is not available.")

@@ -11,6 +11,7 @@ from typing import Any
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.labels import load_annotations
+from activelabel.preannotate import unreviewed_images
 from activelabel.storage import now, read_json, write_json
 
 SCOPES = ("all", "unlabeled", "selected", "issue", "preannotated")
@@ -53,8 +54,6 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
         wanted = set(ids or [])
         chosen = [r.id for r in active if r.id in wanted]
     elif scope == "preannotated":  # labelled by a model, not reviewed yet
-        from activelabel.preannotate import unreviewed_images
-
         pending = set(unreviewed_images(manifest.project_dir))
         chosen = [r.id for r in active if r.id in pending]
     elif scope == "issue":

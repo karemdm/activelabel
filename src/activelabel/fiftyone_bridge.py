@@ -19,7 +19,9 @@ from typing import Any
 
 import fiftyone as fo
 from fiftyone import ViewField as F
+from fiftyone.core.utils import to_slug
 
+from activelabel.annotate import sessions
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
@@ -310,8 +312,6 @@ def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
 
 def open_session_images(project_dir: Any) -> set[str]:
     """Images of open FiftyOne annotation sessions: their ``ground_truth`` is left as it is."""
-    from activelabel.annotate import sessions
-
     return sessions.protected_images(project_dir)
 
 
@@ -412,8 +412,6 @@ def _slug(dataset: fo.Dataset, view: str) -> str:
         data = info if isinstance(info, dict) else info.to_dict()
         if data.get("name") == view and data.get("slug"):
             return str(data["slug"])
-    from fiftyone.core.utils import to_slug
-
     return str(to_slug(view))
 
 

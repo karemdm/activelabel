@@ -1,5 +1,5 @@
 import pytest
-from ann_helpers import write
+from ann_helpers import make_manifest, write
 
 from activelabel.annotations import VideoTarget, detect_format, parse
 from activelabel.images.manifest import ImageRecord
@@ -196,8 +196,6 @@ def test_coco_vid_picks_the_video_by_name(tmp_path, target):
 
 
 def test_coco_without_target_still_matches_names(tmp_path):
-    from ann_helpers import make_manifest
-
     manifest = make_manifest(tmp_path / "p", ["a/frame_000010.jpg"], size=(W, H))
     path = write(tmp_path / "f", "c.json", COCO)
     res = parse([path], "coco", manifest.all())

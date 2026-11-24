@@ -1,7 +1,9 @@
 import pytest
 from import_fakes import FakeKeyring
+from sync_fakes import FakeRemote
 
 from activelabel.annotate import credentials
+from activelabel.sync import registry
 
 
 @pytest.fixture(autouse=True)
@@ -14,9 +16,6 @@ def fake_keyring(monkeypatch):
 @pytest.fixture(autouse=True)
 def remotes(monkeypatch):
     """In-memory remote projects instead of the real adapters (never reach a server)."""
-    from sync_fakes import FakeRemote
-
-    from activelabel.sync import registry
 
     fakes = {"cvat": FakeRemote("cvat")}
     for tool, fake in fakes.items():

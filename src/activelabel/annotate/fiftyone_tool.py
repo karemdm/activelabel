@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from fiftyone import ViewField as F
+
+from activelabel import fiftyone_bridge
 from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings, need_dataset
 from activelabel.annotate.fo_labels import labels_from_fo
 from activelabel.labels import Label
@@ -28,10 +31,6 @@ class FiftyOneTool:
         self, dataset: Any, image_ids: list[str], project: Project, settings: ToolSettings, session_id: str
     ) -> Sent:
         """Save a view with the images and open the App on it."""
-        from fiftyone import ViewField as F
-
-        from activelabel import fiftyone_bridge
-
         need_dataset(dataset)
         name = view_name(session_id)
         view = dataset.match(F("image_id").is_in(list(image_ids)))
@@ -53,8 +52,6 @@ class FiftyOneTool:
         ref: dict[str, Any],
     ) -> dict[str, list[Label]]:
         """Read ``ground_truth`` of the session images."""
-        from fiftyone import ViewField as F
-
         need_dataset(dataset)
         dataset.reload()
         wanted = set(image_ids)

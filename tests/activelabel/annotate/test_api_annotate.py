@@ -5,9 +5,10 @@ import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
-from activelabel.annotate import registry
+from activelabel.annotate import registry, sessions
 from activelabel.annotate.base import Sent, ToolError
-from activelabel.labels import Label, load_annotations
+from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.tasks import Task
 from activelabel.web import annotate_api
 
 
@@ -160,9 +161,6 @@ def _pulled_session(env):
 
 
 def test_apply_refused_when_local_labels_changed_since_pull(env):
-    from activelabel.labels import AnnotationSet, save_annotations
-    from activelabel.tasks import Task
-
     base = _pulled_session(env)
     other = {env.ids[1]: [Label("cat", bbox=[0.2, 0.2, 0.2, 0.2])]}  # e.g. a sync or an import
     save_annotations(env.state.store.dir(env.pid), AnnotationSet(Task.DETECTION, ["cat"], other, {}))
@@ -179,7 +177,6 @@ def test_apply_refused_when_local_labels_changed_since_pull(env):
 
 def _legacy_session(env, tool):
     """A session an old workspace may hold: made when ActiveLabel still had edit sessions in other tools."""
-    from activelabel.annotate import sessions
 
     return sessions.create(
         env.state.store.dir(env.pid),

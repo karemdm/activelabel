@@ -18,9 +18,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import fiftyone as fo
 import requests
+from fiftyone.utils import cvat as fouc
 
 from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.annotate.fo_labels import labels_from_fo
 from activelabel.annotations.models import Problem
 from activelabel.images.ingest import ingest_folder
 from activelabel.images.manifest import Manifest
@@ -216,9 +219,6 @@ def _download(settings: ToolSettings, kind: str, remote_id: str, data_dir: Path)
 
     The temporary FiftyOne dataset is deleted before returning.
     """
-    import fiftyone as fo
-    from fiftyone.utils import cvat as fouc
-
     where: dict[str, Any] = (
         {"project_id": int(remote_id)} if kind == "project" else {"task_ids": [int(remote_id)]}
     )
@@ -247,8 +247,6 @@ def _download(settings: ToolSettings, kind: str, remote_id: str, data_dir: Path)
 
 
 def _labels_of(values: list[Any]) -> list[Label]:
-    from activelabel.annotate.fo_labels import labels_from_fo
-
     out: list[Label] = []
     for value in values:
         if value is not None:

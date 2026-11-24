@@ -3,6 +3,7 @@ from sync_fakes import box
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label
 from activelabel.sync import links
+from activelabel.sync.links import match_by_name, same_labels
 from activelabel.sync.remote import RemoteItem
 
 
@@ -68,19 +69,12 @@ def test_match_by_name_ambiguous_base_name_is_left_out():
 
 
 def test_match_by_name_accepts_the_stored_file_name():
-    from activelabel.images.manifest import ImageRecord
-    from activelabel.sync.links import match_by_name
-    from activelabel.sync.remote import RemoteItem
-
     record = ImageRecord("6875cde5e28f5618", "000002.jpg", "images/6875cde5e28f5618.jpg", 10, 10, 1, "t")
     item = RemoteItem("1:0", "6875cde5e28f5618.jpg", 10, 10)
     assert match_by_name([record], [item]) == {"6875cde5e28f5618": item}
 
 
 def test_same_labels_tolerates_round_trip_noise():
-    from activelabel.labels import Label
-    from activelabel.sync.links import same_labels
-
     a = [Label("cat", bbox=[0.1, 0.2, 0.3, 0.4]), Label("dog", bbox=[0.5, 0.5, 0.1, 0.1])]
     noisy = [Label("dog", bbox=[0.5008, 0.4995, 0.1, 0.1]), Label("cat", bbox=[0.1001, 0.2, 0.3, 0.4])]
     assert same_labels(a, noisy)
