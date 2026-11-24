@@ -3287,18 +3287,31 @@
           const id = `th-${k}`;
           return el('div', { class: 'field inline' }, el('label', { for: id }, tr(`threshold.${k}`, k)), el('input', { id, name: k, type: 'number', step: 'any', value: String(v) }));
         });
-        const form = el('form', { class: 'th-form' }, el('p', { class: 'muted' }, t('cur.thresholds_help')), el('div', { class: 'th-grid' }, ...inputs),
+        const formError = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
+        const form = el('form', { class: 'th-form', novalidate: true }, el('p', { class: 'muted' }, t('cur.thresholds_help')), el('div', { class: 'th-grid' }, ...inputs), formError,
           el('div', { class: 'form-actions' }, el('button', { type: 'submit', class: 'btn primary' }, t('cur.thresholds_apply'))));
+        const fail = (message) => { formError.textContent = message; formError.hidden = false; };
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
+          formError.hidden = true;
           const body = {};
-          for (const input of form.querySelectorAll('input')) body[input.name] = Number(input.value);
+          for (const input of form.querySelectorAll('input')) {
+            input.removeAttribute('aria-invalid');
+            const value = input.value.trim();
+            if (value === '' || !Number.isFinite(Number(value))) {  /* Number('') is 0: an emptied field must not become a threshold */
+              input.setAttribute('aria-invalid', 'true');
+              input.focus();
+              fail(t('cur.threshold_number', { name: tr(`threshold.${input.name}`, input.name) }));
+              return;
+            }
+            body[input.name] = Number(value);
+          }
           try {
             summary = await api('PUT', `/projects/${projectId}/curation/thresholds`, { json: body });
             toast(t('cur.thresholds_saved'), 'success', 3000);
             await load();
           } catch (err) {
-            toastError(err);
+            fail(err.message);  /* the server explains a refused value (out of range) next to the fields */
           }
         });
         const open = advBox.open;

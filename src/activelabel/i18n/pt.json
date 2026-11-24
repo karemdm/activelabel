@@ -240,6 +240,7 @@
   "cur.thresholds_help": "Mudar um limite remarca as imagens sem medi-las de novo.",
   "cur.thresholds_apply": "Aplicar limites",
   "cur.thresholds_saved": "Limites salvos.",
+  "cur.threshold_number": "Informe um número para \"{name}\".",
   "threshold.dark": "Escura: brilho abaixo de",
   "threshold.bright": "Clara: brilho acima de",
   "threshold.low_contrast": "Baixo contraste: contraste abaixo de",
