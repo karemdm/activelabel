@@ -227,3 +227,13 @@ def test_the_split_screen_uses_the_protections_the_api_offers():
     card = JS[start : JS.index("function draw()", start)]
     assert "trainBlockReason" in card
     assert "disabled: !!v.incomplete || !!noTrain" in card
+
+
+def test_no_text_says_segmentation_pre_annotation_comes_later():
+    """Pre-annotation of segmentation exists: the "no usable model" message says what is needed instead."""
+    assert "kind_later" not in JS
+    assert "pre.none_supported" in JS
+    for lang in ("pt", "en"):
+        texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
+        assert "kind_later" not in texts
+        assert not re.search(r"segmentation models comes later|segmentação virá depois", texts)
