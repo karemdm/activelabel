@@ -122,8 +122,22 @@
   const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
   // ---------------------------------------------------------------- toasts
+  /** Where toasts go: the page's own box, or one inside the open modal dialog (a modal sits in the top layer
+   *  above everything else, and makes the rest of the page inert, so a toast outside it would be unseen). */
+  function toastBox() {
+    const modals = document.querySelectorAll('dialog:modal');
+    const dialog = modals.length ? modals[modals.length - 1] : null;
+    if (!dialog) return document.getElementById('toasts');
+    let box = dialog.querySelector(':scope > .toasts');
+    if (!box) {
+      box = el('div', { class: 'toasts', 'aria-live': 'polite' });
+      dialog.appendChild(box);
+    }
+    return box;
+  }
+
   function toast(message, kind = 'info', ms = 7000) {
-    const box = document.getElementById('toasts');
+    const box = toastBox();
     if (!box) return;
     const node = el(
       'div',
