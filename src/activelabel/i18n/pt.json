@@ -1348,5 +1348,6 @@
   "pre.none_supported": "Nenhum dos modelos salvos pode pré-anotar este projeto: é preciso um modelo que gere o mesmo tipo de rótulo do projeto (a família YOLO ainda não é aceita).",
   "md.delete_text_current": "Este é o modelo atual do projeto: depois de excluí-lo, o projeto fica sem modelo atual.",
   "md.no_weights": "Os pesos deste treino foram junto com o modelo excluído, por isso ele não pode ser salvo como modelo de novo. Para ter um modelo, treine outra vez.",
-  "md.delete_text_public": "O modelo e as exportações dele são apagados do projeto. Você pode adicioná-lo de novo pela lista de modelos públicos."
+  "md.delete_text_public": "O modelo e as exportações dele são apagados do projeto. Você pode adicioná-lo de novo pela lista de modelos públicos.",
+  "md.empty_no_public": "Nenhum modelo ainda. Salve um treino concluído como modelo: ainda não há modelos públicos para este tipo de projeto."
 }

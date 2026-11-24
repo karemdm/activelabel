@@ -1348,5 +1348,6 @@
   "pre.none_supported": "None of the saved models can pre-annotate this project: it needs a model that makes the same kind of label as the project (the YOLO family is not supported yet).",
   "md.delete_text_current": "This is the project's current model: once it is deleted, the project has no current model.",
   "md.no_weights": "The weights of this run went with the deleted model, so it cannot be saved as a model again. To have a model, train again.",
-  "md.delete_text_public": "The model and its exports are removed from the project. You can add it again from the list of public models."
+  "md.delete_text_public": "The model and its exports are removed from the project. You can add it again from the list of public models.",
+  "md.empty_no_public": "No models yet. Save a finished training run as a model: there are no public models for this project type yet."
 }

@@ -257,3 +257,11 @@ def test_every_select_has_the_field_look():
     assert rule, "there is no base rule for select"
     assert "border: 1px solid var(--border)" in rule.group(1)
     assert "background: var(--surface)" in rule.group(1)
+
+
+def test_the_public_model_button_is_hidden_when_the_type_has_no_public_model():
+    """The models step asks the catalogue once and drops "add a public model" when it is empty."""
+    models = JS[JS.index("let publicAvailable") :]
+    assert "public-catalog" in models[:600]
+    assert "publicBtn.hidden = publicAvailable === false" in models
+    assert "md.empty_no_public" in models

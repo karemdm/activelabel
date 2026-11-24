@@ -5353,6 +5353,15 @@
       const scalarsOf = (part) => Object.entries(part || {}).filter(([, v]) => typeof v === 'number');
       const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
 
+      /* whether the catalogue has public models for this project type (asked once; null = not known yet) */
+      let publicAvailable = null;
+      async function ensurePublic() {
+        if (publicAvailable !== null) return;
+        try {
+          publicAvailable = ((await api('GET', `/projects/${projectId}/models/public-catalog`)).models || []).length > 0;
+        } catch (err) { publicAvailable = true; }  // the button stays and says why when it is used
+      }
+
       async function ensureLabels() {
         if (Object.keys(labels).length) return;
         try {
@@ -5594,14 +5603,15 @@
       }
 
       function draw() {
-        const s = JSON.stringify(models);
+        const s = JSON.stringify(models) + publicAvailable;
         if (s === sig) return;
         sig = s;
+        publicBtn.hidden = publicAvailable === false;  // no public model for this type: nothing to add
         if (!models.length) {
           mdActions.hidden = true;  // the two ways to get a model are offered in the empty state instead
-          fill(box, emptyState('star', t('md.empty'),
-            el('button', { type: 'button', class: 'btn primary', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
-            el('a', { class: 'btn', href: '#training' }, t('md.go_training'))));
+          fill(box, emptyState('star', publicAvailable === false ? t('md.empty_no_public') : t('md.empty'),
+            publicAvailable === false ? null : el('button', { type: 'button', class: 'btn primary', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
+            el('a', { class: publicAvailable === false ? 'btn primary' : 'btn', href: '#training' }, t('md.go_training'))));
           return;
         }
         mdActions.hidden = false;
@@ -5616,6 +5626,7 @@
         clearTimeout(timer);
         try {
           await ensureLabels();
+          await ensurePublic();
           const d = await api('GET', `/projects/${projectId}/models`);
           models = d.models || [];
           ctx.modelCount = models.length;
@@ -5626,8 +5637,9 @@
         if (!node.hidden && models.some(busy)) timer = setTimeout(() => load(true), 2000);
       }
 
+      const publicBtn = el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button'));
       const mdActions = el('div', { class: 'md-head-actions' },
-        el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button')),
+        publicBtn,
         el('a', { class: 'btn', href: '#training' }, t('md.go_training')));
       add(node,
         el('div', { class: 'ds-head' },
@@ -5640,6 +5652,7 @@
       /** The project changed (its task type may have): model names come from the new catalogue. */
       panel.refresh = () => {
         for (const id of Object.keys(labels)) delete labels[id];
+        publicAvailable = null;
         if (panel.mounted) load(true);
       };
       panel.count = async () => {
