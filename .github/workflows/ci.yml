@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Manual run (Actions tab > ci > Run workflow) adds macOS, which costs more minutes.
   workflow_dispatch:
 
 jobs:
@@ -13,11 +12,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON('["ubuntu-latest", "windows-latest"]') }}
+        # macos-latest is Apple silicon (arm64)
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.12"]
         include:
           - os: ubuntu-latest
             python: "3.10"
+          # Python 3.13 is tried, but does not fail the run: it depends on the wheels of FiftyOne and its
+          # dependencies for 3.13. Remove "experimental" when this leg is green.
+          - os: ubuntu-latest
+            python: "3.13"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental == true }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +50,36 @@ jobs:
           path: coverage.xml
       - name: Command line
         run: activelabel --help
+
+  paths:
+    # a workspace folder with accents and spaces (users' names, "Área de Trabalho"): the temporary folders of
+    # the tests are inside such a path too
+    name: path with accents and spaces (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      TMPDIR: ${{ github.workspace }}/pasta temporária ção
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: área de trabalho/projeto ação
+          fetch-depth: 0  # the version comes from the git tags (setuptools-scm)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and run the unit tests from that folder
+        shell: bash
+        working-directory: ${{ github.workspace }}/área de trabalho/projeto ação
+        run: |
+          mkdir -p "$TMPDIR"
+          export TMP="$TMPDIR" TEMP="$TMPDIR"
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pytest -q -m "not integration"
+          activelabel --help
 
   fiftyone:
     # FiftyOne's bundled database does not run on every runner image: use a MongoDB service
