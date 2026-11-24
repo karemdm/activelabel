@@ -450,6 +450,16 @@ def _merge_frame(
     return kept_shapes, kept_tags
 
 
+def _audit_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
+    """One CVAT task as the audit lists it: id, name, number of images and its address on the server."""
+    return {
+        "id": str(task["id"]),
+        "name": str(task.get("name", "")),
+        "size": int(task.get("size") or 0),
+        "url": f"{base_url}/tasks/{task['id']}",
+    }
+
+
 def _split_key(key: str) -> tuple[int, int]:
     task, _, frame = str(key).partition(":")
     if not (task.isdigit() and frame.isdigit()):
@@ -499,14 +509,6 @@ class CvatRemote:
         """
         api = self._api(settings)
 
-        def entry(t: dict[str, Any]) -> dict[str, Any]:
-            return {
-                "id": str(t["id"]),
-                "name": str(t.get("name", "")),
-                "size": int(t.get("size") or 0),
-                "url": f"{api.url}/tasks/{t['id']}",
-            }
-
         projects: dict[str, dict[str, Any]] = {
             str(p["id"]): {
                 "id": str(p["id"]),
@@ -524,9 +526,9 @@ class CvatRemote:
                 projects.setdefault(
                     pid, {"id": pid, "name": "", "url": f"{api.url}/projects/{pid}", "tasks": []}
                 )
-                projects[pid]["tasks"].append(entry(t))
+                projects[pid]["tasks"].append(_audit_task(t, api.url))
             else:
-                groups.setdefault(task_pattern(str(t.get("name", ""))), []).append(entry(t))
+                groups.setdefault(task_pattern(str(t.get("name", ""))), []).append(_audit_task(t, api.url))
         loose = [{"pattern": pattern, "tasks": found} for pattern, found in groups.items()]
         loose.sort(key=lambda g: (-len(g["tasks"]), g["pattern"]))
         return {"projects": list(projects.values()), "loose": loose}
