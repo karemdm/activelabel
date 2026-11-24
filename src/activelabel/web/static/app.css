@@ -1085,3 +1085,28 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   /* the remove-class X: a 44px target that overlaps the chip's padding, so the chip keeps its size */
   .chip-x { padding: 16px; margin: -14px -10px -14px -12px; }
 }
+
+/* #337: parts that did not fit a phone */
+/* sideways scrollers (step tabs, wide tables) show a shadow on the side that has more: the surface-coloured
+   covers scroll with the content and hide the fixed shadows at the ends */
+.step-tabs, .tr-table-wrap, .ds-table-wrap, .table-wrap {
+  --edge: light-dark(rgba(20, 30, 50, 0.22), rgba(0, 0, 0, 0.7));
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--edge), transparent) left / 0.9rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--edge), transparent) right / 0.9rem 100% no-repeat scroll;
+}
+.step-tab { background: transparent; }
+@media (max-width: 760px) {
+  /* wide tables keep their first column (metric, class, image) in view while the rest scrolls */
+  .tr-table-wrap th:first-child, .ds-table-wrap th:first-child, .table-wrap th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+  .tr-rank tr.best th:first-child { background: var(--area-soft); }
+  .tr-table-wrap th[scope="row"] { max-width: 11rem; }
+}
+@media (max-width: 480px) {
+  /* segmented choices stack, one full-width option per line, instead of breaking 1 + 2 inside one border */
+  .seg, .pre-scope .seg, .tr-seg, .cvat-dir .seg { display: flex; flex-direction: column; flex-wrap: nowrap; width: 100%; max-width: 100%; }
+  .seg-opt, .field .seg-opt, .pre-scope .seg-opt { white-space: normal; min-height: 44px; }
+  .seg-opt + .seg-opt { border-left: 0; border-top: 1px solid var(--border); }
+}

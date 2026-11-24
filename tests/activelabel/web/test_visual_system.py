@@ -92,3 +92,11 @@ def test_phone_targets_are_44_px_wide_as_well_as_high():
         assert selector in block, selector
     assert re.search(r"\.thumb-check \{ padding: 10px", block)  # 22px box + 2 x 10px + border = 44px
     assert re.search(r"\.chip-x \{ padding: 16px; margin: -", block)
+
+
+def test_phone_segmented_controls_stack_and_scrollers_show_their_hidden_side():
+    """#337 items 1-3: .seg stacks below 480 px; scrollers show an edge shadow; first column sticks."""
+    block = CSS[CSS.index("/* #337: parts that did not fit a phone */") :]
+    assert re.search(r"\.seg, [^{]*\{ display: flex; flex-direction: column", block)
+    assert re.search(r"\.step-tabs, \.tr-table-wrap, [^{]*\{[^}]*no-repeat local", block)
+    assert re.search(r"\.tr-table-wrap th:first-child, [^{]*\{ position: sticky; left: 0", block)
