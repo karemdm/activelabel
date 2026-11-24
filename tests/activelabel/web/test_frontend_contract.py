@@ -140,3 +140,9 @@ def test_model_cards_and_the_public_mapping_stay_short_and_lead_to_pre_annotatio
     """The class list opens on demand, and a model card can open pre-annotation on that model."""
     assert "md.mapping_summary" in JS and "md.classes_n" in JS
     assert "preannotateWith(m.number)" in JS and "panel.preannotateWith" in JS
+
+
+def test_the_import_report_replaces_the_drop_zone_and_offers_other_files_when_nothing_is_usable():
+    """The report is seen first; with nothing usable the way on is another file, not only Discard."""
+    assert "drop.hidden = true" in JS and "drop.hidden = false" in JS
+    assert "ann.choose_other" in JS and "ann.nothing_usable" in JS

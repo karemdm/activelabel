@@ -116,6 +116,8 @@
   "ann.drop_title": "Solte aqui os arquivos de anotação ou um .zip",
   "ann.drop_help": "O formato é detectado sozinho e os nomes são conferidos com as imagens da task escolhida.",
   "ann.choose": "Escolher arquivos",
+  "ann.choose_other": "Escolher outros arquivos",
+  "ann.nothing_usable": "Nada destes arquivos pode ser importado. Escolha outros ou descarte.",
   "ann.checking": "Conferindo os arquivos…",
   "ann.report_title": "O que encontramos",
   "ann.task_none": "Nenhuma anotação utilizável foi encontrada.",
