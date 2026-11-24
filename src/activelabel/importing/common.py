@@ -1,4 +1,4 @@
-"""Shared steps of the CVAT and Label Studio imports.
+"""Shared steps of the CVAT import.
 
 Unique project name, task inference (majority vote, polygon -> box conversion, kinds that do not
 fit are dropped and counted), creation of the project and its rollback when the import fails or is
@@ -26,7 +26,6 @@ from activelabel.projects import MAX_DESCRIPTION, MAX_NAME, Project, ProjectStor
 from activelabel.storage import now, read_json, write_json
 from activelabel.tasks import Task
 
-TOOL_NAMES = {"cvat": "CVAT", "labelstudio": "Label Studio"}
 ORIGIN_FILE = "origin.json"
 # Order used to break ties between kinds with the same number of annotations (richest first).
 KIND_ORDER = (Task.KEYPOINTS, Task.SEGMENTATION, Task.DETECTION, Task.CLASSIFICATION)

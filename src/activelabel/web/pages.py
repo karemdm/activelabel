@@ -98,7 +98,7 @@ def new_project_page(request: Request) -> HTMLResponse:
 
 @router.get("/projects/import", response_class=HTMLResponse)
 def import_project_page(request: Request) -> HTMLResponse:
-    """Import a project from CVAT or Label Studio."""
+    """Import a project from CVAT."""
     return render(request, "import_project.html")
 
 

@@ -18,7 +18,7 @@ def remotes(monkeypatch):
 
     from activelabel.sync import registry
 
-    fakes = {"cvat": FakeRemote("cvat"), "labelstudio": FakeRemote("labelstudio")}
+    fakes = {"cvat": FakeRemote("cvat")}
     for tool, fake in fakes.items():
         monkeypatch.setitem(registry.OVERRIDES, tool, fake)
     return fakes

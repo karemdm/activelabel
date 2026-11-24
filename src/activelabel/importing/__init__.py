@@ -1,1 +1,1 @@
-"""Import a project from CVAT or Label Studio (see docs/IMPORT.md)."""
+"""Import a project from CVAT (see docs/IMPORT.md)."""

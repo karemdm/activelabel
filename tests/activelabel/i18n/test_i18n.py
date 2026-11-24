@@ -143,7 +143,7 @@ def test_every_import_problem_code_has_a_text():
         source = path.read_text(encoding="utf-8")
         codes |= set(re.findall(r"_problem\(\s*\"(\w+)\"", source))
         codes |= set(re.findall(r"Problem\(\s*\"\w+\",\s*\"(\w+)\"", source))
-    assert {"converted_to_box", "task_without_image", "images_missing", "dropped_other_kind"} <= codes
+    assert {"converted_to_box", "images_missing", "dropped_other_kind"} <= codes
     for lang in ("en", "pt"):
         messages = load(lang)
         assert [c for c in sorted(codes) if f"problem.{c}" not in messages] == [], lang

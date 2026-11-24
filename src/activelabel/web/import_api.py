@@ -1,4 +1,4 @@
-"""HTTP API of importing a project from CVAT or Label Studio (see docs/IMPORT.md)."""
+"""HTTP API of importing a project from CVAT (see docs/IMPORT.md)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from activelabel.annotate import credentials
 from activelabel.annotate.base import ToolError, ToolSettings
-from activelabel.importing import cvat_import, labelstudio_import
+from activelabel.importing import cvat_import
 from activelabel.importing.common import RemoteNotFound
 from activelabel.jobs import Progress
 from activelabel.sync import engine as sync_engine
@@ -21,8 +21,8 @@ from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
-IMPORTERS: dict[str, ModuleType] = {"cvat": cvat_import, "labelstudio": labelstudio_import}
-KINDS = {"cvat": ("project", "task"), "labelstudio": ("project",)}
+IMPORTERS: dict[str, ModuleType] = {"cvat": cvat_import}
+KINDS = {"cvat": ("project", "task")}
 
 
 class ImportBody(BaseModel):
@@ -38,7 +38,7 @@ class ImportBody(BaseModel):
 
 def _importer(tool: str) -> ModuleType:
     if tool not in IMPORTERS:
-        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat or labelstudio).", tool=tool)
+        raise ApiError(404, "tool_unknown", f"Unknown tool '{tool}' (use cvat).", tool=tool)
     return IMPORTERS[tool]
 
 
