@@ -236,3 +236,21 @@ def test_warning_event(det_project, tmp_path):
             runner._handle(line, target, None, log, "val_map50_95", state)
     assert store.get(n)["warnings"] == ["boxes only"]
     assert (tmp_path / "log.txt").read_text(encoding="utf-8").count("boxes only") == 2
+
+
+def test_oks_and_keypoint_map(w):
+    gt = np.array([[[10, 10, 2], [30, 10, 2], [20, 40, 0]]], dtype=np.float32)
+    area = np.array([30.0 * 30.0])
+    same = w.oks_matrix(gt.copy(), gt, area)
+    assert same.shape == (1, 1) and same[0, 0] == pytest.approx(1.0)
+    near = w.oks_matrix(gt + np.array([1, 1, 0], dtype=np.float32), gt, area)[0, 0]
+    far = w.oks_matrix(gt + np.array([100, 100, 0], dtype=np.float32), gt, area)[0, 0]
+    assert 0.9 < near < 1.0 and far < 0.01  # the unlabelled third point does not count
+    assert w.oks_matrix(gt, np.zeros((1, 3, 3)), area)[0, 0] == 0.0
+    assert w.oks_matrix(np.zeros((0, 3, 3)), gt, area).shape == (0, 1)
+    acc = w.APAccumulator(1)
+    acc.add([0.9], [0], [0], same)
+    assert acc.summary(["a"])["map50_95"] == pytest.approx(1.0)
+    wrong = w.APAccumulator(1)
+    wrong.add([0.9], [0], [0], far)
+    assert wrong.summary(["a"])["map50"] == 0.0

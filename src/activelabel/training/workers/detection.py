@@ -343,6 +343,27 @@ def match_pairs(
     return pairs
 
 
+def oks_matrix(pred: Array, gt: Array, areas: Array) -> Array:
+    """``(detections, ground truth)`` object keypoint similarity (OKS), as in COCO.
+
+    ``pred`` and ``gt`` are ``(N, K, 3)`` absolute ``[x, y, visibility]``; ``areas`` is the scale
+    ``s**2`` of each ground-truth object (its box area). Every point has the same tolerance
+    ``sigma = 1 / K`` (COCO's per-point values exist only for the 17 body points); only the ground
+    truth's labelled points count. An object without labelled points matches nothing (OKS 0).
+    """
+    pred, gt = np.asarray(pred, dtype=np.float64), np.asarray(gt, dtype=np.float64)
+    if not len(pred) or not len(gt):
+        return np.zeros((len(pred), len(gt)))
+    visible = gt[..., 2] > 0
+    variance = (2.0 / gt.shape[1]) ** 2
+    squared = ((pred[:, None, :, :2] - gt[None, :, :, :2]) ** 2).sum(-1)  # (D, G, K)
+    scale = 2.0 * variance * (np.asarray(areas, dtype=np.float64) + np.spacing(1))
+    similarity = np.exp(-squared / scale[None, :, None])
+    counts = visible.sum(1)
+    total = (similarity * visible[None]).sum(-1)
+    return np.where(counts > 0, total / np.maximum(counts, 1), 0.0)
+
+
 def pck_counts(
     pred: dict[str, Array], gt: dict[str, Array], min_score: float = 0.5, alpha: float = 0.1
 ) -> tuple[int, int]:
@@ -598,10 +619,11 @@ def train_epoch(
 
 
 def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: Any) -> dict[str, Any]:
-    """Box mAP (plus mask mAP for instance, PCK@0.1 for keypoints) of a loader of images."""
+    """Box mAP (plus mask mAP for instance; keypoint OKS mAP and PCK@0.1 for keypoints) of a loader."""
     task, classes = spec["task"], spec["classes"]
     boxes_ap = APAccumulator(len(classes))
     masks_ap = APAccumulator(len(classes)) if task == "instance" else None
+    points_ap = APAccumulator(len(classes)) if task == "keypoints" else None
     correct = total = 0
     model.eval()
     with torch.no_grad():
@@ -620,8 +642,11 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
                     masks = (out["masks"][:, 0] > 0.5).cpu().numpy()
                     ious = mask_iou(masks, gt["masks"])
                     masks_ap.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious)
-                if task == "keypoints":
+                if points_ap is not None:
                     pred["keypoints"] = out["keypoints"].cpu().numpy()
+                    areas = (gt["boxes"][:, 2] - gt["boxes"][:, 0]) * (gt["boxes"][:, 3] - gt["boxes"][:, 1])
+                    ious = oks_matrix(pred["keypoints"], gt["keypoints"], areas)
+                    points_ap.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious)
                     hit, seen = pck_counts(pred, gt)
                     correct, total = correct + hit, total + seen
     result: dict[str, Any] = boxes_ap.summary(classes)
@@ -630,7 +655,10 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
         result["mask_map50"] = masks_summary["map50"]
         result["mask_map50_95"] = masks_summary["map50_95"]
         result["mask_per_class"] = masks_summary["per_class"]
-    if task == "keypoints":
+    if points_ap is not None:
+        points_summary = points_ap.summary(classes)
+        result["kp_map50"] = points_summary["map50"]
+        result["kp_map50_95"] = points_summary["map50_95"]
         result["pck"] = correct / total if total else 0.0
     return result
 
@@ -638,7 +666,7 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
 def epoch_scores(result: dict[str, Any]) -> dict[str, float]:
     """Metrics of an evaluation as the ``val_*`` fields of an ``epoch`` event."""
     fields = {"val_map50": result["map50"], "val_map50_95": result["map50_95"]}
-    for key in ("mask_map50", "mask_map50_95", "pck"):
+    for key in ("mask_map50", "mask_map50_95", "kp_map50", "kp_map50_95", "pck"):
         if key in result:
             fields[f"val_{key}"] = result[key]
     return fields
