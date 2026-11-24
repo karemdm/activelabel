@@ -19,6 +19,7 @@ from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.errors import CodedError
 from activelabel.storage import now, read_json, write_json
 from activelabel.training.catalog import get_model
+from activelabel.training.public_models import get_public
 from activelabel.training.runs import DONE, RunStore
 
 FORMATS = ("onnx",)
@@ -180,8 +181,6 @@ class ModelStore:
             ModelError: unknown public model, an empty mapping, or a category or class that does not
                 exist.
         """
-        from activelabel.training.public_models import get_public
-
         model = get_public(public_id)
         if model is None:
             raise ModelError("public_model_not_found", "This public model does not exist.")

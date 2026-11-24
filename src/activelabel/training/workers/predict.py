@@ -29,6 +29,12 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import torch
+import torchvision
+from PIL import Image, ImageOps
+from torchvision.transforms.functional import pil_to_tensor
+
 KINDS = ("classification", "detection", "keypoints", "instance", "semantic")
 DETECTION_KINDS = ("detection", "keypoints", "instance")
 MAX_MASK_SIDE = 512
@@ -61,8 +67,6 @@ def encode_mask(mask: Any) -> dict[str, Any]:
     ``counts`` are the lengths of the alternating runs of the flattened (row by row) mask, the first
     one of zeros (possibly 0 long).
     """
-    import numpy as np
-
     flat = np.asarray(mask, dtype=bool).reshape(-1)
     changes = np.flatnonzero(flat[1:] != flat[:-1]) + 1
     bounds = np.concatenate(([0], changes, [len(flat)]))
@@ -85,8 +89,6 @@ def semantic_labels(
     The score of a class is the mean confidence of its pixels; classes below ``threshold`` are left
     out. The label has only a mask: ActiveLabel splits it into one polygon object per region.
     """
-    import numpy as np
-
     out = []
     for index in np.unique(classes_map):
         if index < 1 or index > len(classes) or classes[int(index) - 1] is None:
@@ -163,10 +165,6 @@ def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device:
     The image is resized to the training size, like in evaluation, and the logits are scaled back
     to the (reduced) size of the photo before the argmax.
     """
-    import numpy as np
-    import torch
-    from PIL import Image
-
     width, height = image.size
     step = mask_step(width, height)
     small = image.resize((size, size), Image.Resampling.BILINEAR)
@@ -185,9 +183,6 @@ def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device:
 
 def predict(spec: dict[str, Any]) -> dict[str, int]:
     """Run the model over every item, emitting one ``prediction`` per image."""
-    import torch
-    from PIL import Image, ImageOps
-
     task = spec["task"]
     if task not in KINDS:
         raise ValueError(f"Pre-annotation with {task} models is not available yet.")
@@ -196,7 +191,6 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
     if public:
         # a public pretrained model: torchvision downloads its weights (into the run's temporary
         # folder, removed afterwards); its categories become project classes through the mapping
-        import torchvision
 
         model = getattr(torchvision.models.detection, public["builder"])(weights="DEFAULT")
         classes: list[str | None] = [public["mapping"].get(c) for c in public["categories"][1:]]
@@ -251,8 +245,6 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                 )
                 labels = semantic_labels(classes_map, confidence, classes, threshold, name)
             elif task in DETECTION_KINDS:
-                from torchvision.transforms.functional import pil_to_tensor
-
                 tensor = (pil_to_tensor(image).float() / 255.0).to(device)
                 out = model([tensor])[0]
                 labels = detection_labels(

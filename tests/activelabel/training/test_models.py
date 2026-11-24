@@ -163,6 +163,7 @@ def test_detection_export_comes_later(models, tmp_path):
 
 
 def test_export_worker_key_check():
+    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
     path = Path(__file__).parents[3] / "src/activelabel/training/workers/export_onnx.py"
     spec = importlib.util.spec_from_file_location("export_onnx_under_test", path)
     module = importlib.util.module_from_spec(spec)

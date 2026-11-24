@@ -10,6 +10,7 @@ WORKERS = Path(__file__).parents[3] / "src" / "activelabel" / "training" / "work
 
 
 def _worker(name):
+    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
     spec = importlib.util.spec_from_file_location(f"{name}_worker_exif", WORKERS / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -28,6 +28,13 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import torch
+
+try:
+    import onnx
+except ImportError:  # the export installs onnx on demand; report it as an error event
+    onnx = None
+
 OPSET = 17
 KINDS = ("classification", "semantic")  # detection graphs break in ONNX Runtime: later
 
@@ -55,8 +62,6 @@ def check_keys(missing: list[str], unexpected: list[str]) -> None:
 
 def export(spec: dict[str, Any]) -> dict[str, Any]:
     """Rebuild the network, load the weights and write the ONNX file. Returns ``{"size", "inputs"}``."""
-    import torch
-
     task = spec["task"]
     if task not in KINDS:
         raise ValueError(f"ONNX export of {task} models is not available yet.")
@@ -97,8 +102,8 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
             dynamic_axes={"images": {0: "batch"}, "logits": {0: "batch"}},
         )
     inputs = {"images": ["batch", "3", str(size), str(size)]}
-    import onnx
-
+    if onnx is None:
+        raise ImportError("onnx is not installed in the training environment.")
     onnx.checker.check_model(str(tmp))
     os.replace(tmp, out)
     return {"size": out.stat().st_size, "inputs": inputs, "opset": OPSET, "image_size": size}

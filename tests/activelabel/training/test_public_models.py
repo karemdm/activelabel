@@ -125,6 +125,7 @@ def test_add_public_model_and_preannotate(det):
 
 
 def test_worker_skips_unmapped_categories():
+    pytest.importorskip("torch", reason="the training workers import torch, absent from the app environment")
     path = Path(__file__).parents[3] / "src/activelabel/training/workers/predict.py"
     spec = importlib.util.spec_from_file_location("predict_public_under_test", path)
     module = importlib.util.module_from_spec(spec)
