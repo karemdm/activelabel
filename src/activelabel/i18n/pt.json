@@ -41,6 +41,7 @@
   "project.images": "Imagens",
   "project.annotations": "Anotações",
   "project.created": "Criado em",
+  "project.coverage": "{done} de {total} imagens anotadas",
   "project.edit": "Editar",
   "project.delete": "Excluir",
   "project.saved": "Projeto salvo.",
