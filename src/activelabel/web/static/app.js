@@ -4750,6 +4750,9 @@
         // model
         const modelSel = sel('tr-model');
         const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
+        /* what a change of model did to the hyperparameters, in one line; read out by screen readers */
+        const modelChanges = el('p', { class: 'hint tr-model-changes', id: 'tr-model-changes', role: 'status' });
+        let shownModel = null;   // the model the form holds values of
         const groups = new Map();
         const kinds = new Set(models.map((m) => m.task_kind));
         for (const m of models) {
@@ -4758,7 +4761,7 @@
           groups.get(key).items.push(m);
         }
         for (const g of groups.values()) add(modelSel, el('optgroup', { label: g.label }, ...g.items.map((m) => el('option', { value: m.id }, m.label))));
-        modelSel.setAttribute('aria-describedby', 'tr-model-note');
+        modelSel.setAttribute('aria-describedby', 'tr-model-note tr-model-changes');
 
         // start
         const startHelp = el('p', { class: 'hint', 'aria-live': 'polite' });
@@ -4862,12 +4865,49 @@
           return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), input, hint, err);
         }
 
-        function initValues() {
-          for (const spec of modelNow().params) {
+        function setDefault(spec) {
+          if (spec.kind === 'choice') st.sel[spec.name] = [spec.default];
+          else st.vals[spec.name] = spec.kind === 'bool' ? !!spec.default : String(spec.default);
+        }
+        /* a valid value that is not the default of `spec`: the person chose it */
+        function edited(spec) {
+          const r = readParam(spec);
+          return !r.error && r.list.join() !== String([spec.default]);
+        }
+        /* Values for the model now shown, coming from `prev` (null on opening): a value the person chose is
+           kept when the new model has the parameter and accepts it; the rest takes the new model's default.
+           Returns the lines that say what changed. */
+        function carryValues(prev) {
+          const m = modelNow();
+          const notes = [];
+          const kept = [];
+          for (const spec of m.params) {
             if (spec.name === 'start') continue;
-            if (spec.kind === 'choice') st.sel[spec.name] = [spec.default];
-            else st.vals[spec.name] = spec.kind === 'bool' ? !!spec.default : String(spec.default);
+            const old = prev && prev.params.find((p) => p.name === spec.name);
+            const name = paramName(spec.name);
+            if (!old) {
+              setDefault(spec);
+              if (prev) notes.push(t('tr.chg_new', { p: name }));
+              continue;
+            }
+            if (edited(old)) {
+              const before = readParam(old).list;
+              if (spec.kind === 'choice') st.sel[spec.name] = st.sel[spec.name].filter((c) => spec.choices.includes(c));
+              if (!readParam(spec).error) { kept.push(name); continue; }
+              setDefault(spec);
+              notes.push(t('tr.chg_reset', { p: name, v: valueText(spec, spec.default), old: before.map((v) => valueText(spec, v)).join(', ') }));
+              continue;
+            }
+            setDefault(spec);
+            if (String(old.default) !== String(spec.default)) notes.push(t('tr.chg_default', { p: name, v: valueText(spec, spec.default) }));
           }
+          if (prev) {
+            for (const old of prev.params) {
+              if (old.name !== 'start' && !m.params.some((p) => p.name === old.name)) notes.push(t('tr.chg_gone', { p: paramName(old.name) }));
+            }
+          }
+          if (kept.length) notes.push(t('tr.chg_kept', { list: kept.join(', ') }));
+          return notes;
         }
         function drawParams() {
           const m = modelNow();
@@ -4895,10 +4935,20 @@
         function drawModel() {
           const m = modelNow();
           modelNote.textContent = [m.notes, m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
-          st.metric = m.default_metric;
+          const notes = carryValues(shownModel);
+          if (!m.metrics.includes(st.metric)) {   // a metric the person chose stays while the new model has it
+            if (shownModel && st.metric) notes.push(t('tr.chg_default', { p: t('tr.select_metric'), v: metricName(m.default_metric) }));
+            st.metric = m.default_metric;
+          }
           fill(metricSel, ...m.metrics.map((x) => el('option', { value: x, selected: x === st.metric }, metricName(x))));
-          initValues();
+          const start = st.start;
           drawStart();
+          if (shownModel && st.start !== start) notes.push(t('tr.chg_default', { p: t('tr.start'), v: startName(st.start) }));
+          if (shownModel) {
+            const shown = notes.length > 4 ? [...notes.slice(0, 4), t('tr.params_more', { n: notes.length - 4 })] : notes;
+            modelChanges.textContent = notes.length ? `${t('tr.chg_title', { model: m.label })} ${shown.join(' · ')}` : t('tr.chg_none', { model: m.label });
+          }
+          shownModel = m;
           setMode(st.mode);
         }
         modelSel.addEventListener('change', () => { st.model = modelSel.value; drawModel(); });
@@ -4936,10 +4986,17 @@
           advLine.textContent = changedLine();
         }
 
+        /* one value of a parameter as the person reads it: exact, with the decimal sign of the fields (0,0001) */
+        const exact = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 20, useGrouping: false });
+        function valueText(spec, v) {
+          if (spec.kind === 'choice') return choiceName(v);
+          if (typeof v === 'boolean') return v ? '✓' : '✗';
+          return exact.format(Number(v));
+        }
         /* "epochs 20 · batch size 8": only what is not the default; the grid lists show as they are */
         function changedLine() {
           const diffs = active.filter((spec) => reads[spec.name] && reads[spec.name].join() !== String([spec.default]))
-            .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => (spec.kind === 'choice' ? choiceName(v) : typeof v === 'boolean' ? (v ? '✓' : '✗') : plain(v))).join(', ')}`);
+            .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => valueText(spec, v)).join(', ')}`);
           if (!diffs.length) return t('tr.params_default');
           return diffs.length > 3 ? `${diffs.slice(0, 3).join(' · ')} · ${t('tr.params_more', { n: diffs.length - 3 })}` : diffs.join(' · ');
         }
@@ -4961,7 +5018,7 @@
             el('div', { class: 'tr-col' },
               el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel),
               foldField,
-              el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote),
+              el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote, modelChanges),
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
             el('div', { class: 'tr-col' },
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
