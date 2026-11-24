@@ -39,6 +39,16 @@ class DeleteDataset(BaseModel):
 
 
 def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
+    """The split plan the request asks for, or HTTP 400 when the options are wrong.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        body: The split options.
+
+    Returns:
+        The split plan.
+    """
     project = state.project(project_id)
     project_dir = state.store.dir(project_id)
     data = body.model_dump(exclude={"note", "allow_empty"})
@@ -50,11 +60,28 @@ def _plan(state: AppState, project_id: int, body: DatasetBody) -> Plan:
 
 
 def _numbers(runs: list[int]) -> str:
+    """Run numbers as readable text.
+
+    Args:
+        runs: Run numbers.
+
+    Returns:
+        The numbers as text (``r1, r2``).
+    """
     return ", ".join(f"r{n}" for n in runs)
 
 
 def _runs_using(state: AppState, project_id: int, version: int) -> tuple[list[int], list[int]]:
-    """Numbers of the unfinished and of the finished training runs that use a dataset version."""
+    """Numbers of the unfinished and of the finished training runs that use a dataset version.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        version: Number of the dataset version.
+
+    Returns:
+        ``(unfinished, finished)``: numbers of the runs that use the version.
+    """
     runs = RunStore(state.store.dir(project_id))
     active: list[int] = []
     finished: list[int] = []
@@ -69,19 +96,45 @@ def _runs_using(state: AppState, project_id: int, version: int) -> tuple[list[in
 
 
 def _store(state: AppState, project_id: int) -> DatasetStore:
+    """The dataset store of a project.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The dataset store of the project.
+    """
     state.project(project_id)
     return DatasetStore(state.store.dir(project_id))
 
 
 @router.get("/projects/{project_id}/datasets")
 def list_datasets(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Every dataset version of the project, newest first."""
+    """Every dataset version of the project, newest first.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{versions}``, newest first.
+    """
     return {"versions": _store(state, project_id).versions()}
 
 
 @router.post("/projects/{project_id}/datasets/preview")
 def preview_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) -> dict[str, Any]:
-    """What a version would contain (sizes, stats, warnings); nothing is saved."""
+    """What a version would contain (sizes, stats, warnings); nothing is saved.
+
+    Args:
+        project_id: Id of the project.
+        body: The split options.
+        state: The shared state of the application.
+
+    Returns:
+        Sizes, statistics and warnings of the version.
+    """
     return _plan(state, project_id, body).preview()
 
 
@@ -91,6 +144,14 @@ def create_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) 
 
     A hold-out split whose training or validation part (asked to have images) ended up empty is
     refused with 409 unless the body has ``allow_empty: true``: such a version cannot train a model.
+
+    Args:
+        project_id: Id of the project.
+        body: The split options, a note and ``allow_empty``.
+        state: The shared state of the application.
+
+    Returns:
+        The summary of the new version.
     """
     plan = _plan(state, project_id, body)
     blocked = [p for p in plan.empty_parts() if p in ("train", "val")]
@@ -111,7 +172,16 @@ def create_dataset(project_id: int, body: DatasetBody, state: AppState = STATE) 
 
 @router.get("/projects/{project_id}/datasets/{number}")
 def get_dataset(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """One version without its copy of the labels."""
+    """One version without its copy of the labels.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the dataset version.
+        state: The shared state of the application.
+
+    Returns:
+        The version, without its copy of the labels.
+    """
     try:
         return _store(state, project_id).get(number)
     except DatasetNotFound:
@@ -127,6 +197,15 @@ def delete_dataset(
     Refused with 409 while a queued or running training run uses the version. Finished runs that use
     it cannot be repeated afterwards (saved models keep working): they must be acknowledged with
     ``{"confirm_runs": true}``, otherwise the answer is 409 naming them.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the dataset version.
+        body: The confirmation.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted: true}``.
     """
     store = _store(state, project_id)
     if not (body and body.confirm):

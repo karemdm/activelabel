@@ -37,11 +37,26 @@ class DeleteRun(BaseModel):
 
 
 def start_run(state: AppState, project_id: int, number: int) -> None:
-    """Hand a queued run to the runner (it starts when no other run is running)."""
+    """Hand a queued run to the runner (it starts when no other run is running).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        number: Number of the run.
+    """
     state.runner.enqueue(project_id, number)
 
 
 def _store(state: AppState, project_id: int) -> RunStore:
+    """The run store of a project.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The run store of the project.
+    """
     state.project(project_id)
     return RunStore(state.store.dir(project_id))
 
@@ -51,6 +66,13 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
 
     When ``config.yaml`` cannot be read the run has ``config_error`` (``config_missing`` or
     ``config_damaged``) and a plain ``config_message``; the detail (which may name a path) goes to the log.
+
+    Args:
+        store: The run store.
+        run: The run record.
+
+    Returns:
+        The run with the main fields of its configuration.
     """
     try:
         config = store.config(run["number"])
@@ -70,7 +92,16 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
 
 
 def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
-    """Validate against the catalogue and the dataset version; fill in its fingerprint."""
+    """Validate against the catalogue and the dataset version; fill in its fingerprint.
+
+    Args:
+        state: The shared state of the application.
+        project: The project.
+        config: The configuration to check.
+
+    Returns:
+        The configuration, validated and with the dataset fingerprint.
+    """
     try:
         version = DatasetStore(state.store.dir(project.id)).get(config.dataset)
     except DatasetNotFound:
@@ -118,6 +149,16 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
 
 
 def _create(state: AppState, project: Project, config: RunConfig) -> dict[str, Any]:
+    """Store a validated configuration as a queued run and hand it to the runner.
+
+    Args:
+        state: The shared state of the application.
+        project: The project.
+        config: The validated configuration.
+
+    Returns:
+        The new run, queued.
+    """
     store = _store(state, project.id)
     run = store.create(_checked(state, project, config))
     start_run(state, project.id, run["number"])
@@ -126,7 +167,14 @@ def _create(state: AppState, project: Project, config: RunConfig) -> dict[str, A
 
 @router.get("/training/catalog")
 def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the query parameter is named type
-    """Models (with their hyperparameter specs) a project type offers; all without ``type``."""
+    """Models (with their hyperparameter specs) a project type offers; all without ``type``.
+
+    Args:
+        type: Project type to list the models of (all when omitted).
+
+    Returns:
+        ``{models, common, metrics}``.
+    """
     if type is not None and type not in PROJECT_TYPES:
         raise ApiError(
             400,
@@ -147,6 +195,13 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
 
     With ``model`` (a catalogue id) the answer also has ``missing`` (packages that model needs and the
     environment lacks) and ``install_needed``: true when the first run with it will install packages.
+
+    Args:
+        model: Catalogue id of a model, to also list what it is missing.
+        state: The shared state of the application.
+
+    Returns:
+        ``{exists, packages, gpu}`` (plus ``missing`` and ``install_needed`` with ``model``).
     """
     env = TrainingEnvironment(state.settings.workspace)
     gpu = env.gpu()
@@ -169,7 +224,17 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
 
 @router.get("/projects/{project_id}/runs/{number}/log")
 def run_log(project_id: int, number: int, lines: int = 200, state: AppState = STATE) -> dict[str, Any]:
-    """The last ``lines`` lines of a run's log (1..2000)."""
+    """The last ``lines`` lines of a run's log (1..2000).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        lines: How many lines (1 to 2000).
+        state: The shared state of the application.
+
+    Returns:
+        ``{lines}``: the end of the log.
+    """
     store = _store(state, project_id)
     try:
         folder = store._require(number)  # noqa: SLF001 - folder of an existing run
@@ -180,7 +245,16 @@ def run_log(project_id: int, number: int, lines: int = 200, state: AppState = ST
 
 
 def _tail(path: Path, count: int, chunk: int = 64 * 1024) -> list[str]:
-    """The last ``count`` lines of a text file, reading only its end."""
+    """The last ``count`` lines of a text file, reading only its end.
+
+    Args:
+        path: The text file.
+        count: How many lines.
+        chunk: Bytes read per step from the end.
+
+    Returns:
+        The last lines (empty when the file does not exist).
+    """
     if not path.exists():
         return []
     with path.open("rb") as handle:
@@ -197,7 +271,15 @@ def _tail(path: Path, count: int, chunk: int = 64 * 1024) -> list[str]:
 
 @router.get("/projects/{project_id}/runs")
 def list_runs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Every run of the project, newest first."""
+    """Every run of the project, newest first.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{runs}``, newest first.
+    """
     store = _store(state, project_id)
     saved = {m["run"]: m["number"] for m in ModelStore(state.store.dir(project_id)).list()}
     return {"runs": [{**_summary(store, r), "model_number": saved.get(r["number"])} for r in store.list()]}
@@ -205,7 +287,16 @@ def list_runs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
 @router.post("/projects/{project_id}/runs")
 def create_run(project_id: int, body: dict[str, Any], state: AppState = STATE) -> dict[str, Any]:
-    """Validate a configuration and store the run as queued."""
+    """Validate a configuration and store the run as queued.
+
+    Args:
+        project_id: Id of the project.
+        body: The run configuration.
+        state: The shared state of the application.
+
+    Returns:
+        The new run, queued.
+    """
     project = state.project(project_id)
     try:
         config = RunConfig.from_dict(body)
@@ -216,7 +307,16 @@ def create_run(project_id: int, body: dict[str, Any], state: AppState = STATE) -
 
 @router.get("/projects/{project_id}/runs/{number}")
 def get_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """Configuration, status, metrics per epoch and results of a run."""
+    """Configuration, status, metrics per epoch and results of a run.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        state: The shared state of the application.
+
+    Returns:
+        The run with its configuration, metrics and results.
+    """
     store = _store(state, project_id)
     try:
         run = store.get(number)
@@ -240,7 +340,17 @@ def get_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, 
 
 @router.get("/projects/{project_id}/runs/{number}/children/{child}")
 def get_child(project_id: int, number: int, child: str, state: AppState = STATE) -> dict[str, Any]:
-    """One training of a grid or all-folds run: its status, configuration, metrics and results."""
+    """One training of a grid or all-folds run: its status, configuration, metrics and results.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        child: Id of the child training.
+        state: The shared state of the application.
+
+    Returns:
+        The child with its configuration, metrics and results.
+    """
     store = _store(state, project_id)
     try:
         entry = next((c for c in store.get(number).get("children") or [] if c.get("id") == child), None)
@@ -260,7 +370,17 @@ def get_child(project_id: int, number: int, child: str, state: AppState = STATE)
 def delete_run(
     project_id: int, number: int, body: DeleteRun | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Delete a run (needs ``{"confirm": true}``); a running run cannot be deleted."""
+    """Delete a run (needs ``{"confirm": true}``); a running run cannot be deleted.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        body: The confirmation.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted: true}``.
+    """
     store = _store(state, project_id)
     if not (body and body.confirm):
         raise ApiError(400, "confirm_required", "Confirm the deletion of this run.")
@@ -277,7 +397,16 @@ def delete_run(
 
 @router.post("/projects/{project_id}/runs/{number}/reproduce")
 def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """A new run with the same configuration."""
+    """A new run with the same configuration.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        state: The shared state of the application.
+
+    Returns:
+        The new run, queued.
+    """
     project = state.project(project_id)
     try:
         config = _store(state, project_id).config(number)
@@ -292,7 +421,16 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
 
 @router.post("/projects/{project_id}/runs/{number}/cancel")
 def cancel_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """Cancel a queued or running run (a finished run is left as it is)."""
+    """Cancel a queued or running run (a finished run is left as it is).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        state: The shared state of the application.
+
+    Returns:
+        The run.
+    """
     store = _store(state, project_id)
     try:
         state.runner.cancel(project_id, number)

@@ -58,17 +58,39 @@ class ExportModel(BaseModel):
 
 
 def _store(state: AppState, project_id: int) -> ModelStore:
+    """The model store of a project.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The model store of the project.
+    """
     state.project(project_id)
     return ModelStore(state.store.dir(project_id))
 
 
 def _missing() -> ApiError:
+    """The HTTP 404 error for a model that does not exist.
+
+    Returns:
+        The 404 error for a model that does not exist.
+    """
     return ApiError(404, "model_not_found", "This model does not exist.")
 
 
 @router.get("/projects/{project_id}/models")
 def list_models(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Every saved model of the project (newest first) with its results, and the current one."""
+    """Every saved model of the project (newest first) with its results, and the current one.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{models, current}``.
+    """
     store = _store(state, project_id)
     models = [{**card, "results": store.results(card["number"])} for card in store.list()]
     return {"models": models, "current": store.current()}
@@ -76,7 +98,15 @@ def list_models(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
 @router.get("/projects/{project_id}/models/public-catalog")
 def public_catalog(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Public pretrained models for this project's type, each with a suggested mapping to its classes."""
+    """Public pretrained models for this project's type, each with a suggested mapping to its classes.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{models, project_classes}``: the public models for the project type, each with a suggested mapping.
+    """
     project = state.project(project_id)
     classes = list(project.classes)
     return {
@@ -89,7 +119,16 @@ def public_catalog(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
 @router.post("/projects/{project_id}/models/public")
 def add_public_model(project_id: int, body: PublicModelBody, state: AppState = STATE) -> dict[str, Any]:
-    """Add a public pretrained model to the project, with its category → class mapping."""
+    """Add a public pretrained model to the project, with its category → class mapping.
+
+    Args:
+        project_id: Id of the project.
+        body: The public model, the mapping to the project classes and a note.
+        state: The shared state of the application.
+
+    Returns:
+        The new model.
+    """
     project = state.project(project_id)
     model = get_public(body.public)
     if model is None:
@@ -108,7 +147,16 @@ def add_public_model(project_id: int, body: PublicModelBody, state: AppState = S
 
 @router.post("/projects/{project_id}/models")
 def save_model(project_id: int, body: SaveModel, state: AppState = STATE) -> dict[str, Any]:
-    """Save the best weights of a finished training run as the next model."""
+    """Save the best weights of a finished training run as the next model.
+
+    Args:
+        project_id: Id of the project.
+        body: The run to save the weights of and a note.
+        state: The shared state of the application.
+
+    Returns:
+        The new model.
+    """
     store = _store(state, project_id)
     try:
         return store.save_run(body.run, body.note.strip()[:500])
@@ -120,7 +168,16 @@ def save_model(project_id: int, body: SaveModel, state: AppState = STATE) -> dic
 
 @router.get("/projects/{project_id}/models/{number}")
 def get_model_card(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """The card of a model with its results."""
+    """The card of a model with its results.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the model.
+        state: The shared state of the application.
+
+    Returns:
+        The model with its results.
+    """
     store = _store(state, project_id)
     try:
         return {**store.get(number), "results": store.results(number)}
@@ -130,7 +187,17 @@ def get_model_card(project_id: int, number: int, state: AppState = STATE) -> dic
 
 @router.patch("/projects/{project_id}/models/{number}")
 def change_model(project_id: int, number: int, body: ChangeModel, state: AppState = STATE) -> dict[str, Any]:
-    """Change the note, or mark the model as current (``current: false`` leaves no current model)."""
+    """Change the note, or mark the model as current (``current: false`` leaves no current model).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the model.
+        body: The new note and/or whether the model is the current one.
+        state: The shared state of the application.
+
+    Returns:
+        The model.
+    """
     store = _store(state, project_id)
     try:
         if body.note is not None:
@@ -149,7 +216,17 @@ def change_model(project_id: int, number: int, body: ChangeModel, state: AppStat
 def delete_model(
     project_id: int, number: int, body: DeleteModel | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Delete a model and its files (needs ``{"confirm": true}``)."""
+    """Delete a model and its files (needs ``{"confirm": true}``).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the model.
+        body: The confirmation.
+        state: The shared state of the application.
+
+    Returns:
+        ``{deleted: true}``.
+    """
     store = _store(state, project_id)
     if not (body and body.confirm):
         raise ApiError(400, "confirm_required", "Confirm the deletion of this model.")
@@ -179,7 +256,17 @@ def delete_model(
 
 @router.post("/projects/{project_id}/models/{number}/export")
 def export_model(project_id: int, number: int, body: ExportModel, state: AppState = STATE) -> dict[str, Any]:
-    """Queue an export of the model (ONNX); it runs when no training or other export is running."""
+    """Queue an export of the model (ONNX); it runs when no training or other export is running.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the model.
+        body: The export format.
+        state: The shared state of the application.
+
+    Returns:
+        The queued export.
+    """
     _store(state, project_id)
     try:
         return state.runner.enqueue_export(project_id, number, body.format)
@@ -191,7 +278,17 @@ def export_model(project_id: int, number: int, body: ExportModel, state: AppStat
 
 @router.get("/projects/{project_id}/models/{number}/download/{kind}")
 def download_model(project_id: int, number: int, kind: str, state: AppState = STATE) -> FileResponse:
-    """The weights (``pytorch``) or an export (``onnx``) of a model, as a file download."""
+    """The weights (``pytorch``) or an export (``onnx``) of a model, as a file download.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the model.
+        kind: ``pytorch`` (weights) or ``onnx`` (export).
+        state: The shared state of the application.
+
+    Returns:
+        The file to download.
+    """
     store = _store(state, project_id)
     name = DOWNLOADS.get(kind)
     if name is None:

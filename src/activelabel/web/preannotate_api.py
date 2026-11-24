@@ -35,6 +35,15 @@ class AcceptBody(BaseModel):
 
 
 def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
+    """The models of a project that can pre-annotate.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        The models of the project that can pre-annotate, each with its details.
+    """
     project_task = state.project(project_id).task
     out = []
     for card in ModelStore(state.store.dir(project_id)).list():
@@ -65,7 +74,15 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
 
 @router.get("/projects/{project_id}/preannotations")
 def overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """Models that can pre-annotate, tasks with their counts, and the runs (newest first)."""
+    """Models that can pre-annotate, tasks with their counts, and the runs (newest first).
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{models, tasks, runs}``.
+    """
     state.project(project_id)
     project_dir = state.store.dir(project_id)
     return {
@@ -77,7 +94,16 @@ def overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
 @router.post("/projects/{project_id}/preannotations")
 def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str, Any]:
-    """Queue a pre-annotation of one task's images with a saved model."""
+    """Queue a pre-annotation of one task's images with a saved model.
+
+    Args:
+        project_id: Id of the project.
+        body: The task, the model and the thresholds.
+        state: The shared state of the application.
+
+    Returns:
+        The queued pre-annotation run.
+    """
     state.project(project_id)
     project_dir = state.store.dir(project_id)
     try:
@@ -137,7 +163,16 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
 
 @router.post("/projects/{project_id}/preannotations/{number}/cancel")
 def cancel(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """Cancel a queued or running pre-annotation (nothing is written)."""
+    """Cancel a queued or running pre-annotation (nothing is written).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the pre-annotation run.
+        state: The shared state of the application.
+
+    Returns:
+        The pre-annotation run.
+    """
     state.project(project_id)
     store = preannotate.PreannotationStore(state.store.dir(project_id))
     try:
@@ -149,7 +184,16 @@ def cancel(project_id: int, number: int, state: AppState = STATE) -> dict[str, A
 
 @router.post("/projects/{project_id}/preannotations/accept")
 def accept(project_id: int, body: AcceptBody, state: AppState = STATE) -> dict[str, Any]:
-    """Keep the pre-annotations of a task (or of every task) as they are, marked as reviewed."""
+    """Keep the pre-annotations of a task (or of every task) as they are, marked as reviewed.
+
+    Args:
+        project_id: Id of the project.
+        body: The task to accept (every task when omitted).
+        state: The shared state of the application.
+
+    Returns:
+        ``{accepted}``: how many images were marked as reviewed.
+    """
     state.project(project_id)
     project_dir = state.store.dir(project_id)
     try:
