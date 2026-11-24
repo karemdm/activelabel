@@ -16,10 +16,6 @@ SOURCE = Path(__file__).resolve().parents[2] / "src" / "activelabel"
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 BASELINE = {
-    "annotate/diff.py:_compare_all.bump",
-    "annotate/diff.py:_compare_all.problem",
-    "annotations/videoformats.py:_read_cvat_video.size",
-    "annotations/videoformats.py:_read_cvat_video.video_frame",
     "curation/issues.py:_group_duplicates.find",
     "curation/quality.py:measure_images.save",
     "curation/quality.py:measure_images.work",
@@ -32,10 +28,6 @@ BASELINE = {
     "datasets.py:plan_split.attempt",
     "datasets.py:plan_split.frame_no",
     "datasets.py:plan_split.seconds",
-    "sync/cvat_remote.py:_same_geometry.close",
-    "sync/cvat_remote.py:labels_to_cvat.shape",
-    "sync/engine.py:apply_plan.ids_of",
-    "sync/engine.py:make_plan.remote_known",
     "training/catalog.py:_classification.m",
     "training/runner.py:TrainingRunner._export.step",
     "training/runner.py:TrainingRunner._preannotate.on_event",

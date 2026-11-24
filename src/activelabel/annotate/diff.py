@@ -170,6 +170,27 @@ _MESSAGES = {
 }
 
 
+@dataclass
+class _Tally:
+    """What :func:`_compare_all` counts while it goes over the images."""
+
+    names: dict[str, str]
+    per_class: dict[str, dict[str, int]] = field(default_factory=dict)
+    problems: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def problem(self, code: str, image_id: str, count: int = 1) -> None:
+        """Count a problem and keep the name of the image as an example (a few per code)."""
+        entry = self.problems.setdefault(code, {"count": 0, "examples": []})
+        entry["count"] += count
+        name = self.names.get(image_id, image_id)
+        if name not in entry["examples"] and len(entry["examples"]) < MAX_PROBLEM_EXAMPLES:
+            entry["examples"].append(name)
+
+    def bump(self, label: Label, kind: str) -> None:
+        """Count a label as added, removed or edited under its class."""
+        self.per_class.setdefault(label.label, {"added": 0, "removed": 0, "edited": 0})[kind] += 1
+
+
 def _compare_all(
     project_dir: Path,
     image_ids: list[str],
@@ -180,37 +201,26 @@ def _compare_all(
     old_all = annotations.images if annotations else {}
     names = {r.id: r.name for r in Manifest(project_dir).all()}
     known = {c.lower() for c in project.classes}
-    per_class: dict[str, dict[str, int]] = {}
+    tally = _Tally(names)
     totals = {"added": 0, "removed": 0, "edited": 0}
     unknown: dict[str, None] = {}
     examples: list[dict[str, Any]] = []
-    problems: dict[str, dict[str, Any]] = {}
     cleaned: dict[str, list[Label]] = {}
     changed = 0
 
-    def problem(code: str, image_id: str, count: int = 1) -> None:
-        entry = problems.setdefault(code, {"count": 0, "examples": []})
-        entry["count"] += count
-        name = names.get(image_id, image_id)
-        if name not in entry["examples"] and len(entry["examples"]) < MAX_PROBLEM_EXAMPLES:
-            entry["examples"].append(name)
-
-    def bump(label: Label, kind: str) -> None:
-        per_class.setdefault(label.label, {"added": 0, "removed": 0, "edited": 0})[kind] += 1
-
     for image_id in image_ids:
         if image_id not in new_labels:
-            problem("missing_images", image_id)
+            tally.problem("missing_images", image_id)
             continue
         labels, dropped = clean_labels(project, new_labels[image_id])
         cleaned[image_id] = labels
         for code, count in dropped.items():
             if count:
-                problem(code, image_id, count)
+                tally.problem(code, image_id, count)
         for label in labels:
             if label.label.lower() not in known:
                 unknown.setdefault(label.label)
-                problem("unknown_class", image_id)
+                tally.problem("unknown_class", image_id)
         changes = compare_image(project.task, old_all.get(image_id, []), labels)
         if changes:
             changed += 1
@@ -218,7 +228,7 @@ def _compare_all(
                 items = getattr(changes, kind)
                 totals[kind] += len(items)
                 for label in items:
-                    bump(label, kind)
+                    tally.bump(label, kind)
             if len(examples) < MAX_EXAMPLES:
                 examples.append(
                     {
@@ -232,11 +242,11 @@ def _compare_all(
     result = {
         "images_changed": changed,
         **totals,
-        "per_class": per_class,
+        "per_class": tally.per_class,
         "unknown_classes": list(unknown),
         "problems": [
             {"level": "warning", "code": code, "message": _MESSAGES[code], **entry}
-            for code, entry in problems.items()
+            for code, entry in tally.problems.items()
         ],
         "examples": examples,
     }

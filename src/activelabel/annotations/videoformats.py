@@ -20,7 +20,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -107,34 +107,56 @@ def parse_cvat_video(ctx: ParseContext, files: list[Path]) -> None:
         _read_cvat_video(ctx, root)
 
 
-def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
-    task = root.find("meta/task")
-    start, step, relative = 0, 1, False
-    width = height = 0.0
+@dataclass
+class _Grid:
+    """How a CVAT video file numbers its frames and how big it says the frames are."""
+
+    start: int = 0
+    step: int = 1
+    relative: bool = False  # numbers are task frames 0..size-1, converted to video frames
+    width: float = 0.0
+    height: float = 0.0
     last: int | None = None
+
+    def frame(self, ctx: ParseContext, value: Any) -> int | None:
+        """Video frame of a number in the file; None (and a problem) when it is not a frame number."""
+        number = _int(value)
+        if number is None or number < 0:
+            ctx.problem("invalid_annotation", f"frame {value}")
+            return None
+        return self.start + number * self.step if self.relative else number
+
+    def size(self, rec_width: int, rec_height: int) -> tuple[float, float]:
+        """The size written in the file, else the stored size of the image."""
+        if self.width > 0 and self.height > 0:
+            return self.width, self.height
+        return float(rec_width), float(rec_height)
+
+
+def _read_grid(root: ET.Element) -> _Grid:
+    task = root.find("meta/task")
+    grid = _Grid()
     if task is not None:
         first_text = (task.findtext("start_frame") or "").strip()
         filter_text = (task.findtext("frame_filter") or "").strip()
-        start = _int(first_text) or 0
-        step = _filter_step(filter_text)
-        last = _int((task.findtext("stop_frame") or "").strip())
-        relative = bool(first_text or filter_text) and _task_numbered(root, start, step, last)
-        width, height = _f(task.findtext("original_size/width")), _f(task.findtext("original_size/height"))
+        grid.start = _int(first_text) or 0
+        grid.step = _filter_step(filter_text)
+        grid.last = _int((task.findtext("stop_frame") or "").strip())
+        grid.relative = bool(first_text or filter_text) and _task_numbered(
+            root, grid.start, grid.step, grid.last
+        )
+        grid.width = _f(task.findtext("original_size/width"))
+        grid.height = _f(task.findtext("original_size/height"))
+    return grid
+
+
+def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
+    grid = _read_grid(root)
     for labels in root.iter("labels"):
         for declared in labels.findall("label"):
             name = (declared.findtext("name") or "").strip()
             if name:
                 ctx.add_class(name)
-
-    def video_frame(value: Any) -> int | None:
-        number = _int(value)
-        if number is None or number < 0:
-            ctx.problem("invalid_annotation", f"frame {value}")
-            return None
-        return start + number * step if relative else number
-
-    def size(rec_width: int, rec_height: int) -> tuple[float, float]:
-        return (width, height) if width > 0 and height > 0 else (float(rec_width), float(rec_height))
 
     seen: list[int] = []
     for track in root.findall("track"):
@@ -142,7 +164,7 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
         for shape in track:
             if shape.tag not in TRACK_SHAPES | UNSUPPORTED_SHAPES | {"skeleton"}:
                 continue
-            frame = video_frame(shape.get("frame"))
+            frame = grid.frame(ctx, shape.get("frame"))
             if frame is None or shape.get("outside") == "1":
                 continue
             seen.append(frame)
@@ -153,12 +175,12 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
             if rec is None:
                 continue
             shape.set("label", name)
-            w, h = size(rec.width, rec.height)
+            w, h = grid.size(rec.width, rec.height)
             label = _shape(ctx, shape, w, h, f"track {track_id} frame {frame}")
             if label is not None:
                 ctx.add_label(rec, replace(label, track=track_id))
     for image in root.findall("image"):
-        frame = video_frame(image.get("id"))
+        frame = grid.frame(ctx, image.get("id"))
         if frame is None:
             continue
         seen.append(frame)
@@ -166,14 +188,14 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
         if rec is None:
             continue
         ctx.labels.setdefault(rec.id, [])
-        w, h = size(rec.width, rec.height)
+        w, h = grid.size(rec.width, rec.height)
         for shape in image:
             label = _shape(ctx, shape, w, h, f"frame {frame}")
             if label is not None:
                 ctx.add_label(rec, label)
     if seen:
-        if relative and last is not None:
-            _cover(ctx, start, last)
+        if grid.relative and grid.last is not None:
+            _cover(ctx, grid.start, grid.last)
         else:
             _cover(ctx, min(seen), max(seen))
 

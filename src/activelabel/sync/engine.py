@@ -344,17 +344,13 @@ def make_plan(
             linked_tasks |= {_key_task(e["key"]) for e in link_items.values() if e.get("key")}
         known_tasks = set(known_tasks) | (linked_tasks - rtask_ids - {"None", ""})
 
-    def remote_known(key: str) -> bool:
-        """Whether the remote side of this key was read (a missing item then means removed)."""
-        return _key_task(key) in known_tasks
-
     # candidates: images of the scope, plus (project/task scope) linked images deleted locally
     in_tasks = {i for t in local_tasks for i in t.images}
     candidates = list(scope_ids)
     if scope != "job":
         for image_id, link_entry in link_items.items():
             key = link_entry.get("key", "")
-            if image_id not in in_tasks and key and remote_known(key):
+            if image_id not in in_tasks and key and _key_task(key) in known_tasks:
                 candidates.append(image_id)
     linked = {i for i in candidates if (link_items.get(i) or {}).get("key")}
     used = {link_items[i]["key"] for i in linked}
@@ -373,7 +369,7 @@ def make_plan(
         rec = records.get(image_id)
         entry = link_items.get(image_id)
         key = (entry or {}).get("key", "")
-        if key and not remote_known(key):
+        if key and _key_task(key) not in known_tasks:
             continue
         item = by_key.get(key) if key else by_name.get(image_id)
         if not key and item is None:
@@ -619,6 +615,11 @@ def _check_unchanged(
             raise RemoteChanged(CHANGED_LOCAL)
 
 
+def _ids_of(final_action: dict[str, str], *actions: str) -> list[str]:
+    """Images whose final action is one of ``actions``."""
+    return [i for i, a in final_action.items() if a in actions]
+
+
 def apply_plan(
     store: ProjectStore,
     project_id: int,
@@ -677,9 +678,6 @@ def apply_plan(
         ]:
             del final_action[image_id]
 
-    def ids_of(*actions: str) -> list[str]:
-        return [i for i, a in final_action.items() if a in actions]
-
     project = store.get(project_id)
     manifest = Manifest(project_dir)
     tstore = TaskStore(project_dir)
@@ -700,14 +698,14 @@ def apply_plan(
     checked = [i for i, a in final_action.items() if a not in (SAME, GONE, ADD)]
     _check_unchanged(decisions, current, project, local, records, checked)
     dropping = _safe_drops(remote, settings, plan, decisions, final_action, delete_tasks, warnings)
-    for image_id in ids_of(ADD):
+    for image_id in _ids_of(final_action, ADD):
         if (
             image_id not in records
             or links.label_hash(local.get(image_id, [])) != decisions[image_id]["local_hash"]
         ):
             raise RemoteChanged(CHANGED_LOCAL)
 
-    pull_ids = ids_of(PULL, RESTORE_LOCAL)
+    pull_ids = _ids_of(final_action, PULL, RESTORE_LOCAL)
     new_labels = {
         i: links.carry_predictions(
             local.get(i, []), [Label.from_dict(x) for x in plan["remote_labels"].get(decisions[i]["key"], [])]
@@ -726,8 +724,8 @@ def apply_plan(
     keep = old is not None and str(old["remote_id"]) == rid
     items: dict[str, dict[str, Any]] = dict(old["items"]) if old and keep else {}
     tmap: dict[str, Any] = dict(old.get("tasks", {})) if old and keep else {}
-    push_ids = ids_of(PUSH, RESTORE_REMOTE)
-    if push_ids or ids_of(ADD) or plan.get("tasks_create"):
+    push_ids = _ids_of(final_action, PUSH, RESTORE_REMOTE)
+    if push_ids or _ids_of(final_action, ADD) or plan.get("tasks_create"):
         remote.ensure_classes(settings, rid, classes_after)
 
     # tasks never sent: created whole, in order, with jobs of job_size; excluded images -> deleted frames
@@ -756,19 +754,21 @@ def apply_plan(
                 items[image_id] = links.base_entry(keys[image_id], local.get(image_id, []), removed)
         created += 1
     new_keys: dict[str, str] = {}
-    if ids_of(ADD):
-        uploads = [(records[i], manifest.file_path(records[i]), local.get(i, [])) for i in ids_of(ADD)]
+    if _ids_of(final_action, ADD):
+        uploads = [
+            (records[i], manifest.file_path(records[i]), local.get(i, [])) for i in _ids_of(final_action, ADD)
+        ]
         new_keys = remote.add(settings, rid, project, uploads)
     if push_ids:
         remote.write(settings, rid, project, {decisions[i]["key"]: local.get(i, []) for i in push_ids})
 
     # frames removed / restored in the tool (not for tasks that are deleted whole)
     frames: dict[str, tuple[list[int], list[int]]] = {}
-    for image_id in ids_of(REMOVE_REMOTE):
+    for image_id in _ids_of(final_action, REMOVE_REMOTE):
         key = decisions[image_id]["key"]
         if _key_task(key) not in dropping:
             frames.setdefault(_key_task(key), ([], []))[0].append(_key_frame(key))
-    for image_id in ids_of(RESTORE_REMOTE):
+    for image_id in _ids_of(final_action, RESTORE_REMOTE):
         key = decisions[image_id]["key"]
         frames.setdefault(_key_task(key), ([], []))[1].append(_key_frame(key))
     for rtask_id, (delete, restore) in frames.items():
@@ -793,10 +793,10 @@ def apply_plan(
     counts: dict[str, Any] = {"new_classes": [], "backup": "", "skipped": 0}
     if pull_ids:
         counts = diffing.apply(store, project_id, manifest, pull_ids, new_labels)
-    removed_here = ids_of(REMOVE_LOCAL)
+    removed_here = _ids_of(final_action, REMOVE_LOCAL)
     if removed_here:
         manifest.set_status(removed_here, EXCLUDED, f"deleted in {tool}")
-    restored_here = [i for i in ids_of(RESTORE_LOCAL) if i in records]
+    restored_here = [i for i in _ids_of(final_action, RESTORE_LOCAL) if i in records]
     if restored_here:
         manifest.set_status(restored_here, ACTIVE)
 
@@ -857,18 +857,18 @@ def apply_plan(
     if path is not None:
         path.unlink(missing_ok=True)
     return {
-        "pulled": len(ids_of(PULL)),
-        "pushed": len(ids_of(PUSH)),
+        "pulled": len(_ids_of(final_action, PULL)),
+        "pushed": len(_ids_of(final_action, PUSH)),
         "added": len(new_keys),
-        "removed_remote": len(ids_of(REMOVE_REMOTE)),
+        "removed_remote": len(_ids_of(final_action, REMOVE_REMOTE)),
         "removed_local": len(removed_here),
-        "restored_remote": len(ids_of(RESTORE_REMOTE)),
+        "restored_remote": len(_ids_of(final_action, RESTORE_REMOTE)),
         "restored_local": len(restored_here),
         "tasks_created": created,
         "tasks_imported": imported,
         "tasks_deleted": deleted_tasks,
         "conflicts_left": conflicts_left,
-        "unchanged": len(ids_of(SAME, GONE)),
+        "unchanged": len(_ids_of(final_action, SAME, GONE)),
         "new_classes": counts["new_classes"],
         "backup": counts["backup"],
         "skipped": counts["skipped"],
