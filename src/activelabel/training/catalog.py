@@ -57,10 +57,10 @@ class ParamSpec:
         """Validate ``value`` and return it in the right Python type.
 
         Args:
-            value: the value to check (a ``bool``, a choice or a number, according to ``kind``).
+            value: the value a configuration gives.
 
         Returns:
-            The value as a ``bool``, a choice, an ``int`` or a ``float``.
+            The value as ``bool``, ``str``, ``int`` or ``float``.
 
         Raises:
             CodedError: with a readable message.
@@ -104,7 +104,7 @@ class ParamSpec:
         """JSON-ready form.
 
         Returns:
-            The parameter as a dict (``choices`` as a list).
+            The parameter as plain data for the API.
         """
         return {
             "name": self.name,
@@ -134,6 +134,8 @@ class ModelSpec:
         notes: one line (licence, caveats).
         params: model-specific hyperparameters.
         defaults: replacements for the default of common parameters (for example ``lr``).
+        limits: replacements for the (min, max) of common parameters, where the model accepts less
+            (for example a fixed input size).
     """
 
     id: str
@@ -147,29 +149,31 @@ class ModelSpec:
     notes: str = ""
     params: tuple[ParamSpec, ...] = ()
     defaults: dict[str, Any] = field(default_factory=dict)
+    limits: dict[str, tuple[float, float]] = field(default_factory=dict)
 
     def param_specs(self) -> list[ParamSpec]:
-        """Common parameters (with this model's defaults) followed by the model's own.
+        """Common parameters (with this model's defaults and limits) followed by the model's own.
 
         Returns:
-            The parameter specs (the ``image_size`` default is the model's ``image_size``).
+            The effective specs, in the order the form shows them.
         """
         out = []
         for spec in COMMON_PARAMS:
             default = (
                 self.image_size if spec.name == "image_size" else self.defaults.get(spec.name, spec.default)
             )
-            out.append(replace(spec, default=default))
+            low, high = self.limits.get(spec.name, (spec.min, spec.max))
+            out.append(replace(spec, default=default, min=low, max=high))
         return out + list(self.params)
 
     def param(self, name: str) -> ParamSpec | None:
         """One parameter by name (common or model-specific).
 
         Args:
-            name: name of the parameter.
+            name: the parameter's key in ``params``.
 
         Returns:
-            The parameter spec with this model's default, or ``None`` when there is none with that name.
+            Its effective spec, or ``None`` when this model has no such parameter.
         """
         return next((p for p in self.param_specs() if p.name == name), None)
 
@@ -177,7 +181,7 @@ class ModelSpec:
         """Default selection metric of this model's kind of task.
 
         Returns:
-            The metric name (for example ``accuracy``).
+            A metric name of :data:`METRICS`.
         """
         return METRICS[self.task_kind][1]
 
@@ -185,7 +189,7 @@ class ModelSpec:
         """JSON-ready form, with the effective parameter specs and selection metrics.
 
         Returns:
-            The model as a dict, with ``params``, ``metrics`` and ``default_metric``.
+            The model as plain data for the API.
         """
         metrics, default = METRICS[self.task_kind]
         return {
@@ -269,79 +273,90 @@ _TRANSFORMER = {"lr": 0.0001}
 _TV_DET = {"optimizer": "sgd", "lr": 0.005, "batch_size": 4, "weight_decay": 0.0005}
 _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
+_FIXED_224: dict[str, tuple[float, float]] = {"image_size": (224, 224)}
+_FIXED_320: dict[str, tuple[float, float]] = {"image_size": (320, 320)}
 
 
 def _classifier(
-    id_: str, label: str, family: str, size: int = 224, defaults: dict[str, Any] | None = None
+    id_: str,
+    label: str,
+    family: str,
+    size: int = 224,
+    defaults: dict[str, Any] | None = None,
+    limits: dict[str, tuple[float, float]] | None = None,
 ) -> ModelSpec:
-    """One image classifier of the catalogue (from torchvision or timm).
+    """A classification model of torchvision or timm.
 
     Args:
-        id_: model id.
+        id_: model id (the torchvision builder or the timm model name).
         label: name shown to people.
-        family: ``torchvision`` or ``timm`` (decides the packages).
-        size: default input size in pixels.
+        family: ``torchvision`` or ``timm``.
+        size: default input size, in pixels.
         defaults: replacements for the default of common parameters.
+        limits: replacements for the (min, max) of common parameters.
 
     Returns:
-        The model spec, with the ``label_smoothing`` parameter.
+        The model spec.
     """
-    packages = _TV if family == "torchvision" else _TIMM
     return ModelSpec(
         id_,
         label,
         ("classification",),
         family,
         "classification",
-        packages,
+        _TV if family == "torchvision" else _TIMM,
         size,
         params=(_LABEL_SMOOTHING,),
         defaults=defaults or {},
+        limits=limits or {},
     )
 
 
 def _classification() -> list[ModelSpec]:
-    """The image classifiers of the catalogue.
+    """The classification models.
 
     Returns:
-        The classifier model specs.
+        One spec per model, torchvision and timm.
     """
-    m = _classifier
     return [
-        m("resnet18", "ResNet-18", "torchvision"),
-        m("resnet50", "ResNet-50", "torchvision"),
-        m("efficientnet_b0", "EfficientNet-B0", "timm"),
-        m("efficientnet_b3", "EfficientNet-B3", "timm", 288),
-        m("convnext_tiny", "ConvNeXt-T", "torchvision", defaults=_TRANSFORMER),
-        m("vit_b_16", "ViT-B/16", "torchvision", defaults=_TRANSFORMER),
-        m("swin_t", "Swin-T", "torchvision", defaults=_TRANSFORMER),
-        m("mobilenet_v3_large", "MobileNetV3 Large", "torchvision"),
+        _classifier("resnet18", "ResNet-18", "torchvision"),
+        _classifier("resnet50", "ResNet-50", "torchvision"),
+        _classifier("efficientnet_b0", "EfficientNet-B0", "timm"),
+        _classifier("efficientnet_b3", "EfficientNet-B3", "timm", 288),
+        _classifier("convnext_tiny", "ConvNeXt-T", "torchvision", defaults=_TRANSFORMER),
+        # torchvision's ViT has fixed position embeddings: it only takes 224 pixel images
+        _classifier("vit_b_16", "ViT-B/16", "torchvision", defaults=_TRANSFORMER, limits=_FIXED_224),
+        _classifier("swin_t", "Swin-T", "torchvision", defaults=_TRANSFORMER),
+        _classifier("mobilenet_v3_large", "MobileNetV3 Large", "torchvision"),
     ]
 
 
 def _tv(id_: str, label: str, ptype: str, kind: str, size: int, defaults: dict[str, Any]) -> ModelSpec:
-    """One torchvision model that is not a classifier (detection, segmentation or pose).
+    """A detection or segmentation model of torchvision.
 
     Args:
-        id_: model id.
+        id_: torchvision builder name.
         label: name shown to people.
         ptype: project type that offers it.
-        kind: kind of task (``detection``, ``semantic``, ``instance`` or ``keypoints``).
-        size: default input size in pixels.
+        kind: kind of task (detection, semantic, instance or keypoints).
+        size: default input size, in pixels.
         defaults: replacements for the default of common parameters.
 
     Returns:
-        The model spec; the object kinds also get ``trainable_backbone_layers`` and ``score_thresh``.
+        The model spec; object models add the backbone layers and score threshold parameters.
     """
     extra = (_TRAINABLE_LAYERS, _SCORE_THRESH) if kind in ("detection", "instance", "keypoints") else ()
-    return ModelSpec(id_, label, (ptype,), "torchvision", kind, _TV, size, params=extra, defaults=defaults)
+    limits = _FIXED_320 if id_.startswith("ssdlite320") else {}  # the worker does not resize SSDlite's input
+    return ModelSpec(
+        id_, label, (ptype,), "torchvision", kind, _TV, size, params=extra, defaults=defaults, limits=limits
+    )
 
 
 def _torchvision_models() -> list[ModelSpec]:
-    """The torchvision detection, segmentation and pose models of the catalogue.
+    """The torchvision detection, segmentation and keypoint models.
 
     Returns:
-        The model specs.
+        One spec per model.
     """
     det, seg = "detection", "segmentation"
     return [
@@ -367,10 +382,10 @@ def _torchvision_models() -> list[ModelSpec]:
 
 
 def _yolo_models() -> list[ModelSpec]:
-    """The Ultralytics YOLOv8 and YOLO11 models (detection, segmentation and pose; sizes n, s, m, l).
+    """The Ultralytics YOLO models: listed, not trainable yet (no worker reads their parameters).
 
     Returns:
-        The model specs.
+        One spec per generation, size and task.
     """
     out = []
     variants = (
@@ -403,24 +418,24 @@ _BY_ID = {m.id: m for m in MODELS}
 
 
 def get_model(model_id: str) -> ModelSpec | None:
-    """One model by id, or ``None``.
+    """One model by id.
 
     Args:
-        model_id: id of the model.
+        model_id: the model's id.
 
     Returns:
-        The model spec, or ``None`` when the id is unknown.
+        Its spec, or ``None`` when the catalogue has no such model.
     """
     return _BY_ID.get(model_id)
 
 
 def models_for(project_type: str | None = None) -> list[ModelSpec]:
-    """Models a project of this type offers (every model without a type).
+    """Models a project of this type offers.
 
     Args:
-        project_type: project type, or ``None`` for every model.
+        project_type: a project type, or ``None`` for every model.
 
     Returns:
-        The matching model specs, in catalogue order.
+        The specs, in catalogue order.
     """
     return [m for m in MODELS if project_type is None or project_type in m.types]
