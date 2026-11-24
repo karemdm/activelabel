@@ -56,7 +56,14 @@ _LOCKS_GUARD = threading.Lock()
 
 
 def _lock_for(path: Path) -> threading.RLock:
-    """One lock per folder, shared by every store object of the same project."""
+    """One lock per folder, shared by every store object of the same project.
+
+    Args:
+        path: the folder to lock (resolved, so every spelling of it shares one lock).
+
+    Returns:
+        The re-entrant lock of that folder.
+    """
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
@@ -90,7 +97,11 @@ class DatasetOptions:
     gap_seconds: float = 0.5
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON-ready form."""
+        """JSON-ready form.
+
+        Returns:
+            The options as a plain dict (the list and the dict are copies).
+        """
         return {
             "tasks": list(self.tasks),
             "split": dict(self.split),
@@ -103,6 +114,18 @@ class DatasetOptions:
 
 
 def _whole(value: Any, what: str) -> int:
+    """Check that a value is a whole number (a ``bool`` is not one).
+
+    Args:
+        value: the value to check.
+        what: how to call the value in the error message.
+
+    Returns:
+        ``value`` itself, as an ``int``.
+
+    Raises:
+        CodedError: ``value`` is not an ``int``.
+    """
     if isinstance(value, bool) or not isinstance(value, int):
         raise CodedError("not_whole_number", f"{what} must be a whole number.", what=what)
     return value
@@ -110,6 +133,13 @@ def _whole(value: Any, what: str) -> int:
 
 def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> DatasetOptions:
     """Validate the options given by a person (missing ones take the defaults).
+
+    Args:
+        data: the options as sent by the person (None = all defaults).
+        existing_tasks: ids of the tasks of the project, to check ``tasks`` against.
+
+    Returns:
+        The validated options (task ids without repeats, gap as a float).
 
     Raises:
         CodedError: percentages not whole numbers or not summing to 100, train empty, K-fold outside
@@ -178,10 +208,18 @@ class _DisjointSets:
     """Union-find over strings: items join the structure when first seen."""
 
     def __init__(self) -> None:
+        """Start with no items."""
         self._parent: dict[str, str] = {}
 
     def find(self, item: str) -> str:
-        """The representative of the set that holds ``item`` (a new item is a set of its own)."""
+        """The representative of the set that holds ``item`` (a new item is a set of its own).
+
+        Args:
+            item: the item to look up.
+
+        Returns:
+            The item that stands for its set (the path walked is compressed).
+        """
         parent = self._parent
         parent.setdefault(item, item)
         while parent[item] != item:
@@ -190,7 +228,12 @@ class _DisjointSets:
         return item
 
     def union(self, a: str, b: str) -> None:
-        """Merge the sets of ``a`` and ``b``."""
+        """Merge the sets of ``a`` and ``b``.
+
+        Args:
+            a: an item of the first set.
+            b: an item of the second set.
+        """
         ra, rb = self.find(a), self.find(b)
         if ra != rb:
             self._parent[rb] = ra
@@ -208,6 +251,17 @@ def build_groups(
     ``videos`` maps image ids (candidates or not) to their video. ``segment_of`` maps the images of
     videos being split to ``(video, segment number)``: those join their segment instead of the whole
     video, and near-duplicate links between two frames of the same split video are ignored.
+
+    Args:
+        candidates: ids of the images to split, in order (the groups keep this order).
+        videos: image id -> video id (images that come from no video are absent or empty).
+        duplicate_of: duplicate image id -> id of the image it repeats.
+        classes_of: image id -> classes of its labels.
+        segment_of: image id -> ``(video, segment number)`` for the videos being split.
+
+    Returns:
+        The groups, each with its images (in candidate order) and the count of images per class.
+        A group that is exactly one segment of a split video has ``video`` and ``index`` set.
     """
     segment_of = segment_of or {}
     split_videos = {v for v, _ in segment_of.values()}
@@ -242,6 +296,14 @@ class _Placement:
     def __init__(
         self, groups: list[Group], fractions: dict[str, float], rng: random.Random, rest: str | None
     ) -> None:
+        """Compute the class totals and the image targets of every part.
+
+        Args:
+            groups: every group that will be placed.
+            fractions: part name -> share of the images it should get (0..1).
+            rng: random generator that breaks ties.
+            rest: the part that keeps the segments of a video not given to the others (None = none).
+        """
         self.parts = list(fractions)
         self.fractions = fractions
         self.rng = rng
@@ -256,7 +318,16 @@ class _Placement:
         self.got: dict[str, Counter[str]] = {p: Counter() for p in self.parts}
 
     def score(self, p: str, names: list[str]) -> tuple[float, float, float]:
-        """How far part ``p`` is below its targets: for the rarest class, the other classes, the images."""
+        """How far part ``p`` is below its targets: for the rarest class, the other classes, the images.
+
+        Args:
+            p: the part to score.
+            names: the classes of the group, rarest first.
+
+        Returns:
+            Three deficits (rounded, higher = further below target): the rarest class, the sum of the
+            other classes, and the images.
+        """
         deficits = [self.totals[c] * self.fractions[p] - self.got[p][c] for c in names]
         return (
             round(deficits[0], 6) if deficits else 0.0,
@@ -265,19 +336,36 @@ class _Placement:
         )
 
     def pick(self, g: Group, candidates: list[str]) -> str:
-        """The candidate part furthest below its targets for ``g`` (ties broken with the random generator)."""
+        """The candidate part furthest below its targets for ``g`` (ties broken with the random generator).
+
+        Args:
+            g: the group to place.
+            candidates: the parts it may go to.
+
+        Returns:
+            The chosen part.
+        """
         names = sorted(g.classes, key=lambda c: (self.totals[c], c))
         best = max(self.score(p, names) for p in candidates)
         return self.rng.choice([p for p in candidates if self.score(p, names) == best])
 
     def put(self, g: Group, p: str) -> None:
-        """Give group ``g`` to part ``p``."""
+        """Give group ``g`` to part ``p``.
+
+        Args:
+            g: the group to place.
+            p: the part that gets it.
+        """
         self.out[p].append(g)
         self.got_images[p] += len(g.images)
         self.got[p].update(g.classes)
 
     def place_video(self, segs: list[Group]) -> None:
-        """Share the segments of one video (in time order) among the parts."""
+        """Share the segments of one video (in time order) among the parts.
+
+        Args:
+            segs: the segments of the video, sorted by ``index``.
+        """
         rest, parts, want_images, got_images = self.rest, self.parts, self.want_images, self.got_images
         m = len(segs)
         movable = [p for p in parts if p != rest]
@@ -338,6 +426,16 @@ def assign(
     segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
     same way, neighbours going to different parts. Which part gets which chosen segment follows the
     class stratification.
+
+    Args:
+        groups: the groups to place.
+        fractions: part name -> share of the images it should get (0..1).
+        rng: random generator for shuffling and for breaking ties.
+        rest: the part that takes the segments of a split video that the others do not need (None, as
+            in K-fold, shares every segment among the parts).
+
+    Returns:
+        Part name -> the groups it got (every part of ``fractions`` is a key).
     """
     parts = list(fractions)
     by_video: dict[str, list[Group]] = {}
@@ -366,7 +464,16 @@ def assign(
 def fingerprint(
     parts: dict[str, list[str]], folds: list[list[str]] | None, labels: dict[str, list[dict[str, Any]]]
 ) -> str:
-    """SHA-256 of a canonical JSON of the parts, folds and labels."""
+    """SHA-256 of a canonical JSON of the parts, folds and labels.
+
+    Args:
+        parts: part name -> image ids.
+        folds: image ids of each fold, or None without K-fold.
+        labels: image id -> its labels as dicts.
+
+    Returns:
+        The hash as 64 hex digits.
+    """
     canonical = json.dumps(
         {"parts": parts, "folds": folds, "labels": labels}, sort_keys=True, separators=(",", ":")
     )
@@ -391,7 +498,11 @@ class Plan:
     foldable: int = 0
 
     def empty_parts(self) -> list[str]:
-        """Parts that were asked to have images (a share above 0) and have none (``fold`` for a fold)."""
+        """Parts that were asked to have images (a share above 0) and have none (``fold`` for a fold).
+
+        Returns:
+            The names of those parts.
+        """
         if self.folds is not None:
             empty = ["fold"] * any(not f for f in self.folds)
             return (["test"] if self.options.split["test"] > 0 and not self.parts["test"] else []) + empty
@@ -401,21 +512,37 @@ class Plan:
         """Largest K the images allow (at most 10): the groups left for the folds once the test part is taken.
 
         Below 2 K-fold is not possible.
+
+        Returns:
+            The number of folds the groups allow, at most 10.
         """
         return min(10, self.foldable)
 
     def sizes(self) -> dict[str, Any]:
-        """Images per part (``{test, folds: [...]}`` with K-fold)."""
+        """Images per part (``{test, folds: [...]}`` with K-fold).
+
+        Returns:
+            The number of images of each part (or of the test part and of every fold).
+        """
         if self.folds is not None:
             return {"test": len(self.parts["test"]), "folds": [len(f) for f in self.folds]}
         return {p: len(self.parts[p]) for p in PARTS}
 
     def fingerprint(self) -> str:
-        """SHA-256 of the parts (or folds) and the labels."""
+        """SHA-256 of the parts (or folds) and the labels.
+
+        Returns:
+            The hash as 64 hex digits.
+        """
         return fingerprint(self.parts, self.folds, self.labels)
 
     def preview(self) -> dict[str, Any]:
-        """What the interface shows before saving."""
+        """What the interface shows before saving.
+
+        Returns:
+            A JSON-ready dict with the type, options, sizes, stats, warnings, videos, empty parts,
+            number of groups and the largest K-fold.
+        """
         return {
             "type": self.type,
             "options": self.options.as_dict(),
@@ -431,6 +558,15 @@ class Plan:
 
 
 def _part_stats(ids: list[str], labels: dict[str, list[Label]]) -> dict[str, Any]:
+    """Counts of one part: images, images without labels and objects per class.
+
+    Args:
+        ids: image ids of the part.
+        labels: image id -> its usable labels.
+
+    Returns:
+        ``{"images": n, "background": n, "objects": {class: n}}`` with the classes sorted.
+    """
     objects: Counter[str] = Counter()
     background = 0
     for image_id in ids:
@@ -449,7 +585,20 @@ def _slot_warnings(
     classes: list[str],
     labels: dict[str, list[Label]],
 ) -> list[dict[str, Any]]:
-    """Warnings of one part: a part with a share above 0 is expected to have images and every class."""
+    """Warnings of one part: a part with a share above 0 is expected to have images and every class.
+
+    Args:
+        key: how the part is named in the warnings (``{"part": ...}``, plus ``fold`` for a fold).
+        ids: image ids of the part.
+        fraction: the share of the images the part was asked for (0..1).
+        total: number of images split.
+        biggest: size of the largest group and what made it (``video`` or ``duplicates``).
+        classes: every class of the split.
+        labels: image id -> its usable labels.
+
+    Returns:
+        Warnings as dicts with a ``code`` (empty when the share is 0 or there are no images).
+    """
     if fraction <= 0 or not total:
         return []
     out: list[dict[str, Any]] = []
@@ -473,6 +622,15 @@ def _slot_warnings(
 
 
 def _flatten(groups: list[Group], position: dict[str, int]) -> list[str]:
+    """Image ids of some groups, in candidate order.
+
+    Args:
+        groups: the groups to flatten.
+        position: image id -> its place in the candidate order.
+
+    Returns:
+        The ids of all the groups, sorted by ``position``.
+    """
     return sorted((i for g in groups for i in g.images), key=position.__getitem__)
 
 
@@ -481,6 +639,12 @@ def _chunks(frames: int) -> list[tuple[int, int]]:
 
     Length = ``frames / 10`` rounded up, at least 2 and at most 30 frames (so a video gives about
     10 segments, more when it is long); a last piece of 1 frame joins the previous segment.
+
+    Args:
+        frames: number of frames of the video.
+
+    Returns:
+        The ``(start, stop)`` frame positions of each segment (``stop`` excluded), in order.
     """
     length = min(SEGMENT_MAX_FRAMES, max(SEGMENT_MIN_FRAMES, -(-frames // SEGMENTS_PER_VIDEO)))
     out = [(a, min(frames, a + length)) for a in range(0, frames, length)]
@@ -490,7 +654,16 @@ def _chunks(frames: int) -> list[tuple[int, int]]:
 
 
 def _video_meta(project_dir: Path, tasks: list[Any]) -> tuple[dict[str, str], dict[str, float]]:
-    """Names and frame rates of the project's videos (``{id: name}``, ``{id: fps}``)."""
+    """Names and frame rates of the project's videos (``{id: name}``, ``{id: fps}``).
+
+    Args:
+        project_dir: folder of the project.
+        tasks: its tasks; a video missing from the store takes its frame rate from the task that
+            has it as ``source``.
+
+    Returns:
+        The names and the frame rates, by video id.
+    """
     names: dict[str, str] = {}
     fps: dict[str, float] = {}
     try:
@@ -514,7 +687,18 @@ def _gap_ids(
     droppable: set[str],
     seconds: float,
 ) -> dict[str, set[str]]:
-    """Per video, the droppable frames within ``seconds`` of a protected frame (needs every frame's time)."""
+    """Per video, the droppable frames within ``seconds`` of a protected frame (needs every frame's time).
+
+    Args:
+        frames_of: video id -> its candidate frames.
+        times: image id -> time in its video in seconds (None = unknown).
+        protected: frames that keep their neighbourhood (val/test).
+        droppable: frames that may be left out (train or the folds).
+        seconds: the safety gap (0 or less = no frame is dropped).
+
+    Returns:
+        Video id -> the frames to leave out; videos with none, or with a frame of unknown time, are absent.
+    """
     out: dict[str, set[str]] = {}
     if seconds <= 0:
         return out
@@ -544,7 +728,17 @@ def _gap_ids(
 def _segments(
     video: str, ids: list[str], segment_of: dict[str, tuple[str, int]], where: dict[str, dict[str, Any]]
 ) -> list[tuple[list[str], dict[str, Any]]]:
-    """Segments of a cut video as ``(frames in time order, part key)``; every frame of one is in one part."""
+    """Segments of a cut video as ``(frames in time order, part key)``; every frame of one is in one part.
+
+    Args:
+        video: id of the video.
+        ids: its candidate frames, in time order.
+        segment_of: image id -> ``(video, segment number)``.
+        where: image id -> key of the part it is in (``{"part": ...}``, plus ``fold`` for a fold).
+
+    Returns:
+        One entry per segment, in segment order, with the part of its first frame.
+    """
     found: dict[int, list[str]] = {}
     for i in ids:
         if i in segment_of and segment_of[i][0] == video:
@@ -553,7 +747,15 @@ def _segments(
 
 
 def _too_few(slots: list[tuple[dict[str, Any], list[str], float]], total: int) -> bool:
-    """True when a requested part is empty or has less than half of its share."""
+    """True when a requested part is empty or has less than half of its share.
+
+    Args:
+        slots: ``(part key, image ids, requested share)`` of every part.
+        total: number of images split.
+
+    Returns:
+        Whether some part with a share above 0 is too small.
+    """
     return any(share > 0 and len(ids) / total < share / 2 for _, ids, share in slots)
 
 
@@ -572,7 +774,14 @@ class _Attempt:
 
 
 def common_count(sizes: Iterable[int]) -> int | None:
-    """The most frequent of the numbers of points of pose labels (None when there are none)."""
+    """The most frequent of the numbers of points of pose labels (None when there are none).
+
+    Args:
+        sizes: the number of points of each pose label (0 = no points, not counted).
+
+    Returns:
+        The most frequent non-zero number, or None when there is none.
+    """
     found = Counter(n for n in sizes if n)
     return found.most_common(1)[0][0] if found else None
 
@@ -585,6 +794,10 @@ def usable_labels(
     Labels without the shape the task needs, with a polygon of fewer than 3 points, with an invalid
     box or (pose) with another number of points than most are dropped; a classification image keeps
     only its first label (the class training uses). Images left without labels are not in the result.
+
+    Args:
+        task: the kind of task (project type) that sets the shape a label needs.
+        labels: image id -> its labels.
 
     Returns:
         The usable labels per image and ``{"unusable": labels dropped, "keypoints": expected number of
@@ -647,7 +860,17 @@ class _Splitter:
     test_share: float
 
     def attempt(self, split_ids: set[str]) -> _Attempt:
-        """Split with the videos in ``split_ids`` cut into segments (the others stay whole)."""
+        """Split with the videos in ``split_ids`` cut into segments (the others stay whole).
+
+        Args:
+            split_ids: ids of the videos to cut into segments.
+
+        Returns:
+            The parts, folds and numbers of this way of splitting.
+
+        Raises:
+            CodedError: K-fold has fewer groups than folds.
+        """
         options, candidates, shares, test_share = self.options, self.candidates, self.shares, self.test_share
         position, frames_of = self.position, self.frames_of
         segment_of: dict[str, tuple[str, int]] = {}
@@ -708,7 +931,15 @@ class _Splitter:
 
 
 def _seconds(record: Any, fps: dict[str, float]) -> float | None:
-    """The time of an image in its video (seconds), or None when it cannot be known."""
+    """The time of an image in its video (seconds), or None when it cannot be known.
+
+    Args:
+        record: the image's manifest record (``time``, ``frame`` and ``video`` are used).
+        fps: video id -> frames per second.
+
+    Returns:
+        Its ``time``, else its frame divided by the video's frame rate, else None.
+    """
     if record.time is not None:
         return float(record.time)
     if record.frame is not None and fps.get(record.video):
@@ -717,15 +948,33 @@ def _seconds(record: Any, fps: dict[str, float]) -> float | None:
 
 
 def _frame_no(record: Any, position: int) -> int:
-    """The frame number of an image: the one in the manifest, or its position in the video's order."""
+    """The frame number of an image: the one in the manifest, or its position in the video's order.
+
+    Args:
+        record: the image's manifest record.
+        position: its position among the frames of its video.
+
+    Returns:
+        The frame number.
+    """
     return position if record.frame is None else record.frame
 
 
 def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> Plan:
     """Compute a split (nothing is saved).
 
+    Args:
+        project_dir: folder of the project.
+        project: the project (its type and classes).
+        options: the validated options of the version.
+
+    Returns:
+        The plan: parts, folds, labels, statistics and warnings.
+
     Raises:
         CodedError: no image to split, or fewer image groups than K-fold needs.
+        ValueError: a split attempt failed (K-fold with too few groups surfaces this way, as a
+            ``CodedError``) and no other way of splitting is left to try.
     """
     tasks = TaskStore(project_dir).load()
     wanted = set(options.tasks) if options.tasks else {t.id for t in tasks}
@@ -901,7 +1150,15 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
 
 
 def _summary(data: dict[str, Any], manifest_ids: set[str]) -> dict[str, Any]:
-    """Summary of a stored version (without parts and labels)."""
+    """Summary of a stored version (without parts and labels).
+
+    Args:
+        data: the stored file of the version.
+        manifest_ids: ids of the images the project has now.
+
+    Returns:
+        The summary; ``incomplete`` is true when some image of the version is no longer in the project.
+    """
     folds = data.get("folds")
     if folds is not None:
         sizes: dict[str, Any] = {"test": len(data["parts"].get("test", [])), "folds": [len(f) for f in folds]}
@@ -927,23 +1184,53 @@ class DatasetStore:
     """Dataset versions of one project, saved in ``<project>/datasets/v<N>.json``."""
 
     def __init__(self, project_dir: Path) -> None:
+        """Point the store at ``<project_dir>/datasets``.
+
+        Args:
+            project_dir: folder of the project.
+        """
         self.project_dir = project_dir
         self.dir = project_dir / "datasets"
         self._lock = _lock_for(self.dir)
 
     def _file(self, number: int) -> Path:
+        """File of a version.
+
+        Args:
+            number: the version number.
+
+        Returns:
+            Its path (it may not exist).
+        """
         return self.dir / f"v{number}.json"
 
     def _numbers(self) -> list[int]:
+        """Numbers of the versions on disk.
+
+        Returns:
+            The numbers in ascending order.
+        """
         if not self.dir.exists():
             return []
         return sorted(int(p.stem[1:]) for p in self.dir.glob("v*.json") if p.stem[1:].isdigit())
 
     def _manifest_ids(self) -> set[str]:
+        """Ids of the images the project has now.
+
+        Returns:
+            The ids in the manifest (excluded images included).
+        """
         return set(Manifest(self.project_dir).load())
 
     def create(self, plan: Plan, note: str = "") -> dict[str, Any]:
-        """Save a plan as the next version (a number is never reused). Returns its summary.
+        """Save a plan as the next version (a number is never reused).
+
+        Args:
+            plan: the plan to save.
+            note: free text for the version (stripped).
+
+        Returns:
+            The summary of the new version.
 
         Raises:
             CodedError: note too long.
@@ -977,7 +1264,11 @@ class DatasetStore:
         return _summary(data, self._manifest_ids())
 
     def versions(self) -> list[dict[str, Any]]:
-        """Summaries of every version, newest first."""
+        """Summaries of every version, newest first.
+
+        Returns:
+            One summary per readable version file.
+        """
         ids = self._manifest_ids()
         out = []
         for n in reversed(self._numbers()):
@@ -988,6 +1279,12 @@ class DatasetStore:
 
     def read(self, number: int) -> dict[str, Any]:
         """The stored file of a version, with the label copy.
+
+        Args:
+            number: the version number.
+
+        Returns:
+            A copy of the stored data.
 
         Raises:
             DatasetNotFound: unknown number.
@@ -1000,6 +1297,12 @@ class DatasetStore:
     def get(self, number: int) -> dict[str, Any]:
         """A version without the label copy, plus its summary fields (``sizes``, ``incomplete``).
 
+        Args:
+            number: the version number.
+
+        Returns:
+            The stored data without ``labels``, updated with its summary.
+
         Raises:
             DatasetNotFound: unknown number.
         """
@@ -1009,6 +1312,9 @@ class DatasetStore:
 
     def delete(self, number: int) -> None:
         """Remove a version (its number is not reused).
+
+        Args:
+            number: the version number.
 
         Raises:
             DatasetNotFound: unknown number.
@@ -1023,6 +1329,14 @@ class DatasetStore:
 
         With K-fold, ``fold`` i and part ``val`` give fold i, part ``train`` gives the other folds;
         ``fold`` alone means its validation part.
+
+        Args:
+            number: the version number.
+            part: ``train``, ``val`` or ``test`` (None = every part).
+            fold: fold index of a K-fold version (None = not by fold).
+
+        Returns:
+            The image ids.
 
         Raises:
             DatasetNotFound: unknown number.

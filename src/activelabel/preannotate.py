@@ -59,12 +59,27 @@ _GUARD = threading.Lock()
 
 
 def _lock(path: Path) -> threading.RLock:
+    """One lock per file, shared by every store object that uses it.
+
+    Args:
+        path: the file to lock (resolved, so every spelling of it shares one lock).
+
+    Returns:
+        The re-entrant lock of that file.
+    """
     with _GUARD:
         return _LOCKS.setdefault(path.resolve(), threading.RLock())
 
 
 def is_preannotation(label: Label) -> bool:
-    """True for a label made by a model and not reviewed yet."""
+    """True for a label made by a model and not reviewed yet.
+
+    Args:
+        label: the label to check.
+
+    Returns:
+        Whether the label has a ``score``.
+    """
     return label.score is not None
 
 
@@ -73,6 +88,13 @@ def image_state(images: dict[str, list[Label]], image_id: str) -> str:
 
     An image listed with no labels is ``human``: a person reviewed it and found nothing (a background
     image), for example after deleting a model's wrong box; it is never pre-annotated again.
+
+    Args:
+        images: image id -> its labels (the annotations of the project).
+        image_id: the image to look up.
+
+    Returns:
+        The state of the image.
     """
     if image_id not in images:
         return "none"
@@ -83,7 +105,17 @@ def image_state(images: dict[str, list[Label]], image_id: str) -> str:
 
 
 def decode_mask(mask: dict[str, Any]) -> Any:
-    """Boolean 2-D array of a run-length mask (``size`` ``[h, w]``, alternating ``counts``, zeros first)."""
+    """Boolean 2-D array of a run-length mask (``size`` ``[h, w]``, alternating ``counts``, zeros first).
+
+    Args:
+        mask: ``{"size": [height, width], "counts": [run lengths]}``.
+
+    Returns:
+        The array of shape ``(height, width)``, true where the mask is set.
+
+    Raises:
+        ValueError: the runs do not add up to ``height * width``.
+    """
     height, width = mask["size"]
     values = np.arange(len(mask["counts"])) % 2 == 1
     flat = np.repeat(values, mask["counts"])
@@ -97,6 +129,12 @@ def mask_polygons(mask: Any) -> list[list[list[float]]]:
 
     Regions below ``MIN_REGION`` of the image are dropped and every outline is simplified
     (Douglas-Peucker, tolerance ``SIMPLIFY`` of its perimeter, at least 1 pixel).
+
+    Args:
+        mask: a boolean 2-D array.
+
+    Returns:
+        One ring per region: points ``[x, y]`` relative to the width and height (0..1), at least 3 each.
     """
     height, width = mask.shape
     found, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -112,6 +150,14 @@ def mask_polygons(mask: Any) -> list[list[list[float]]]:
 
 
 def _box_of(rings: list[list[list[float]]]) -> list[float]:
+    """Bounding box of some rings.
+
+    Args:
+        rings: rings of relative ``[x, y]`` points (at least one point).
+
+    Returns:
+        The relative box ``[x, y, width, height]``.
+    """
     xs = [p[0] for ring in rings for p in ring]
     ys = [p[1] for ring in rings for p in ring]
     return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
@@ -123,6 +169,16 @@ def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
     An item with a box is one object (an instance): all the regions of its mask are its rings. An
     item without a box (the mask of a whole class, from a semantic model) becomes one object per
     region. Items whose mask has no region left are dropped.
+
+    Args:
+        items: predictions as dicts (``label`` and ``score``/``model``/``bbox``; ``mask`` is optional).
+
+    Returns:
+        The labels: an item without ``mask`` is converted as it is, the others get polygons and a box
+        computed from the mask.
+
+    Raises:
+        ValueError: a mask does not fit its size.
     """
     out: list[Label] = []
     for item in items:
@@ -141,19 +197,42 @@ def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
 
 
 def project_keypoints(project_dir: Path) -> int | None:
-    """Points per object most pose labels of the project have (None when there are none)."""
+    """Points per object most pose labels of the project have (None when there are none).
+
+    Args:
+        project_dir: folder of the project (only labels made by people are counted).
+
+    Returns:
+        The most frequent number of points, or None.
+    """
     annotations = load_annotations(project_dir)
     labels = (lb for items in (annotations.images if annotations else {}).values() for lb in items)
     return common_count(len(lb.keypoints or []) for lb in labels if lb.score is None)
 
 
 def fits(kind: str, project_task: Task) -> bool:
-    """True when a model of this kind makes the labels a project of this type uses."""
+    """True when a model of this kind makes the labels a project of this type uses.
+
+    Args:
+        kind: the kind of model (one of ``KINDS``).
+        project_task: the type of the project.
+
+    Returns:
+        Whether the kind maps to that project type.
+    """
     return KIND_TASK.get(kind) is project_task
 
 
 def targets(project_dir: Path, task_id: int, scope: str) -> list[str]:
     """Active images of a task that a pre-annotation with ``scope`` would fill.
+
+    Args:
+        project_dir: folder of the project.
+        task_id: id of the task.
+        scope: ``unlabeled`` (images without labels) or ``unreviewed`` (images with only pre-annotations).
+
+    Returns:
+        The image ids, in the task's order.
 
     Raises:
         CodedError: ``scope_invalid`` or ``task_not_found``.
@@ -177,7 +256,15 @@ def targets(project_dir: Path, task_id: int, scope: str) -> list[str]:
 
 
 def task_counts(project_dir: Path) -> list[dict[str, Any]]:
-    """Per task: active images, images without labels and images with only pre-annotations."""
+    """Per task: active images, images without labels and images with only pre-annotations.
+
+    Args:
+        project_dir: folder of the project.
+
+    Returns:
+        One dict per task with ``id``, ``name``, ``images``, ``unlabeled``, ``unreviewed`` and the
+        ``models`` (sorted) that made its pre-annotations.
+    """
     manifest = Manifest(project_dir).load()
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}
@@ -210,6 +297,12 @@ def apply_predictions(
     labelled (or reviewed as empty) meanwhile, with ``unreviewed`` an image that now has a reviewed
     label, and an image deleted or excluded meanwhile. Only labels of the project's CURRENT classes and
     with the shape its task needs are kept; the others are counted, not written.
+
+    Args:
+        project_dir: folder of the project.
+        project: the project (its type and classes).
+        predictions: image id -> the model's labels (each with a ``score``).
+        scope: ``unlabeled`` or ``unreviewed``: what the run was allowed to fill.
 
     Returns:
         ``{"images": written, "objects": labels written, "skipped": images left as they were,
@@ -258,7 +351,15 @@ def apply_predictions(
 
 
 def accept(project_dir: Path, image_ids: list[str]) -> int:
-    """Mark the pre-annotations of these images as reviewed (kept as they are). Returns how many images."""
+    """Mark the pre-annotations of these images as reviewed (kept as they are).
+
+    Args:
+        project_dir: folder of the project.
+        image_ids: the images to accept (those without pre-annotations are ignored).
+
+    Returns:
+        How many images changed.
+    """
     with annotations_lock(project_dir):
         annotations = load_annotations(project_dir)
         if not annotations:
@@ -278,7 +379,18 @@ def accept(project_dir: Path, image_ids: list[str]) -> int:
 
 
 def unreviewed_images(project_dir: Path, task_id: int | None = None) -> list[str]:
-    """Active images whose labels are all pre-annotations (of one task, or of the project)."""
+    """Active images whose labels are all pre-annotations (of one task, or of the project).
+
+    Args:
+        project_dir: folder of the project.
+        task_id: the task to look at (None = the whole project).
+
+    Returns:
+        The image ids.
+
+    Raises:
+        CodedError: ``task_not_found`` (from :func:`targets`) for an unknown ``task_id``.
+    """
     if task_id is not None:
         return targets(project_dir, task_id, "unreviewed")
     manifest = Manifest(project_dir).load()
@@ -299,18 +411,38 @@ class PreannotationStore:
     """Pre-annotation runs of a project: ``preannotations.json``."""
 
     def __init__(self, project_dir: Path) -> None:
+        """Point the store at ``<project_dir>/preannotations.json``.
+
+        Args:
+            project_dir: folder of the project.
+        """
         self.file = project_dir / "preannotations.json"
         self._lock = _lock(self.file)
 
     def _read(self) -> dict[str, Any]:
+        """The stored data.
+
+        Returns:
+            ``{"next": number of the next run, "runs": [...]}`` (a fresh one when nothing is stored).
+        """
         return dict(read_json(self.file, {"next": 1, "runs": []}) or {"next": 1, "runs": []})
 
     def list(self) -> builtins.list[dict[str, Any]]:
-        """Runs, newest first."""
+        """Runs, newest first.
+
+        Returns:
+            Every run, by descending number.
+        """
         return sorted(self._read()["runs"], key=lambda r: r["number"], reverse=True)
 
     def get(self, number: int) -> dict[str, Any]:
         """One run.
+
+        Args:
+            number: the run number.
+
+        Returns:
+            A copy of the run.
 
         Raises:
             RunNotFound: unknown number.
@@ -321,7 +453,15 @@ class PreannotationStore:
         raise RunNotFound(number)
 
     def create(self, **fields: Any) -> dict[str, Any]:
-        """Store a new queued run."""
+        """Store a new queued run.
+
+        Args:
+            **fields: the fields of the run (they may override the defaults ``status``, ``created``,
+                ``done``, ``total`` and ``error``).
+
+        Returns:
+            The stored run, with its new ``number``.
+        """
         with self._lock:
             data = self._read()
             number = int(data.get("next", 1))
@@ -341,6 +481,13 @@ class PreannotationStore:
 
     def update(self, number: int, **fields: Any) -> dict[str, Any]:
         """Change fields of a run.
+
+        Args:
+            number: the run number.
+            **fields: the fields to set (``number`` and ``created`` are never changed).
+
+        Returns:
+            A copy of the updated run.
 
         Raises:
             RunNotFound: unknown number.
