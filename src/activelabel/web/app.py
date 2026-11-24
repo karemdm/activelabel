@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from activelabel import __version__
+from activelabel.annotations import cleanup_staging
 from activelabel.config import Settings
 from activelabel.web import (
     annotate_api,
@@ -37,6 +38,8 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         state.runner.recover()
+        for project in state.store.list():  # staged annotation files nobody applied or discarded
+            cleanup_staging(state.store.dir(project.id))
         yield
         state.jobs.shutdown()
         state.runner.shutdown()

@@ -91,3 +91,53 @@ def test_pull_exclusions_needs_dataset(tmp_path):
     client, _ = setup_project(tmp_path)
     response = client.post("/api/projects/1/fiftyone/pull-exclusions")
     assert response.status_code in (200, 400)
+
+
+def staged(state):
+    folder = state.store.dir(1) / "staging"
+    return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+
+
+def test_files_that_cannot_be_imported_are_not_kept_aside(tmp_path):
+    client, state = setup_project(tmp_path)
+    nothing = [("files", ("instances.json", coco(["nope1.png", "nope2.png"]).encode()))]  # matches no image
+    report = client.post("/api/projects/1/annotations", files=nothing).json()
+    assert report["options"] == ["discard"] and staged(state) == []
+    assert (
+        client.post(
+            f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "discard"}
+        ).status_code
+        == 200
+    )
+    good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    kept = client.post("/api/projects/1/annotations", files=good).json()
+    assert staged(state) == [kept["token"]]
+
+
+def test_old_staging_is_cleaned_at_the_next_check_and_at_start(tmp_path):
+    import os
+
+    from activelabel.annotations import cleanup_staging
+
+    client, state = setup_project(tmp_path)
+    good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    old = client.post("/api/projects/1/annotations", files=good).json()["token"]
+    client.post("/api/projects/1/annotations", files=good)
+    assert len(staged(state)) == 2
+    folder = state.store.dir(1) / "staging"
+    long_ago = time.time() - 25 * 3600
+    os.utime(folder / old, (long_ago, long_ago))
+    cleanup_staging(state.store.dir(1))
+    assert old not in staged(state) and len(staged(state)) == 1
+
+
+def test_ground_truth_class_names_follow_the_project_classes(tmp_path):
+    client, _ = setup_project(tmp_path)
+    files = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    token = client.post("/api/projects/1/annotations", files=files).json()["token"]
+    client.post(f"/api/projects/1/annotations/{token}/apply", json={"action": "import"})
+    assert client.get("/api/projects/1/annotations").json()["class_names"] == ["cat"]
+    client.patch("/api/projects/1", json={"classes": ["cat", "dog"]})
+    assert client.get("/api/projects/1/annotations").json()["class_names"] == ["cat", "dog"]
+    client.patch("/api/projects/1", json={"classes": ["dog"], "classes_action": "remove_annotations"})
+    assert client.get("/api/projects/1/annotations").json()["class_names"] == ["dog"]
