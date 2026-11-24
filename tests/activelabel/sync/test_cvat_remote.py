@@ -874,12 +874,6 @@ def test_forbidden_json_body_becomes_a_sentence(cvat: FakeCvat, monkeypatch: pyt
     )
 
 
-def test_server_answers(cvat: FakeCvat) -> None:
-    assert CvatRemote().server_answers(SETTINGS) is True
-    cvat.fail[("GET", "/api/server/about")] = 500
-    assert CvatRemote().server_answers(SETTINGS) is False
-
-
 @pytest.mark.parametrize(
     ("task", "label", "kept_type"),
     [

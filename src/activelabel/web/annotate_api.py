@@ -17,18 +17,13 @@ from activelabel.jobs import Progress
 from activelabel.labels import Label, annotations_lock, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
-from activelabel.sync import engine as sync_engine
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
-SESSION_TOOLS = (
-    "fiftyone",
-    "labelstudio",
-)  # tools that open edit sessions (CVAT is reviewed through the sync)
-SYNC_TOOLS = ("labelstudio",)
+SESSION_TOOLS = ("fiftyone",)  # the tools that open edit sessions (CVAT is reviewed through the sync)
 STATE = Depends(get_state)
 
 
@@ -48,12 +43,6 @@ class SendBody(BaseModel):
     scope: str = "all"
     ids: list[str] = []
     issue: str = ""
-
-
-class CloseBody(BaseModel):
-    """Body of DELETE /projects/{id}/annotate/{session}."""
-
-    delete_remote: bool = False
 
 
 # -- dataset access (replaced in tests, FiftyOne is slow to start) --------------
@@ -106,8 +95,7 @@ def _session_tool(name: str) -> Any:
         raise ApiError(
             400,
             "tool_unsupported",
-            f"Sessions of '{name}' are no longer supported: close this session. "
-            "Review in CVAT goes through the synchronisation of the CVAT tab.",
+            f"Sessions of '{name}' are no longer supported: close this session.",
             tool=name,
         )
     return _tool(name)
@@ -212,15 +200,6 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     project_dir = state.store.dir(project_id)
-    remote = None
-    if body.tool in SYNC_TOOLS:
-        try:
-            remote = get_remote(body.tool)
-            detail = sync_engine.existing_remote(state.store, project, body.tool, settings, remote)
-        except ToolError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        if detail is not None:
-            raise HTTPException(409, detail)
 
     def run(progress: Progress) -> dict[str, Any]:
         progress.update(message="Preparing the FiftyOne dataset")
@@ -237,16 +216,6 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
             "links": sent.links,
             "step": "annotate",
         }
-        if remote is not None:
-            try:  # the link is a convenience: a failure here must not undo a send that worked
-                sync_engine.link_after_send(
-                    state.store, project, body.tool, settings, remote, sent.ref, image_ids
-                )
-            except Exception as exc:  # noqa: BLE001
-                result["warning"] = (
-                    f"The images were sent, but the project could not be linked to {body.tool} "
-                    f"({exc}). Synchronisation will not see this task until it is linked."
-                )
         if kept:
             result["kept_fiftyone_edits"] = kept
         return result
@@ -342,42 +311,21 @@ def discard_session(project_id: int, session_id: str, state: AppState = STATE) -
 
 
 @router.delete("/projects/{project_id}/annotate/{session_id}")
-def close_session(
-    project_id: int, session_id: str, body: CloseBody | None = None, state: AppState = STATE
-) -> dict[str, bool]:
-    """Forget a session (and delete the remote tasks when asked).
+def close_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, bool]:
+    """Forget a session.
 
-    A session of a tool that has no edit sessions any more (an old CVAT one) is only forgotten: the
-    remote is never touched.
+    A session of a tool that has no edit sessions any more (an old workspace may still hold one) is only
+    forgotten: no tool is contacted.
     """
     session = _session(state, project_id, session_id)
     state.busy(project_id)
-    project = state.project(project_id)
-    settings = credentials.load_settings(state.settings.workspace, session["tool"])
-    delete_remote = bool(body and body.delete_remote)
     if session["tool"] in SESSION_TOOLS:
+        settings = credentials.load_settings(state.settings.workspace, session["tool"])
         try:
             _tool(session["tool"]).close(
-                open_dataset(project, state), settings, session.get("ref", {}), delete_remote
+                open_dataset(state.project(project_id), state), settings, session.get("ref", {})
             )
         except ToolError as exc:
             raise HTTPException(400, str(exc)) from exc
     sessions.close(state.store.dir(project_id), session_id)
-    if delete_remote and session["tool"] in SYNC_TOOLS:
-        _drop_link_if_gone(state, project_id, session["tool"], settings)
     return {"closed": True}
-
-
-def _drop_link_if_gone(state: AppState, project_id: int, tool: str, settings: ToolSettings) -> None:
-    """After deleting remote tasks: forget the sync link when its remote project went with them."""
-    from activelabel.sync import links
-
-    project_dir = state.store.dir(project_id)
-    link = links.get_link(project_dir, tool)
-    if not link:
-        return
-    try:
-        get_remote(tool).get(settings, str(link["remote_id"]))
-    except ToolError as err:
-        if sync_engine.remote_gone(err):
-            links.remove_link(project_dir, tool)

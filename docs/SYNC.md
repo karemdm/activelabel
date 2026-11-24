@@ -21,8 +21,6 @@ links written by older versions only have the hash and are compared exactly.
 
 A link is created:
 - when a project is **imported** (the remote project/task it came from; every image mapped);
-- when the person **sends** to CVAT/Label Studio and no link exists yet (the remote project is
-  created and linked);
 - when the person chooses *Synchronise* (*Sincronizar*) for an existing remote project with the same name
   (images matched by file name; unmatched ones are reported).
 
@@ -35,21 +33,11 @@ The *Tasks on the server* (*Tasks no servidor*) button of the *CVAT* tab opens a
 to one of ours, and the tasks that are in no project grouped by name pattern (digits shown as `#`, e.g.
 `street_round_#`). It never moves or deletes anything.
 
-## Send when the remote project already exists
+## A linked project that was deleted in CVAT
 
-`POST /api/projects/{id}/annotate` with a CVAT/Label Studio tool first checks for a link or a
-remote project with the same name (`"ActiveLabel <id> - <name>"`, or the imported remote name).
-If one exists → **409** with detail
-`{code: "remote_exists", tool, remote: {id, name, url, images}, linked: bool, options: ["cancel", "sync"]}`
-and nothing is sent. The interface asks: *Cancel* or *Synchronise* (opens the sync preview).
-
-A link whose remote project was deleted in the tool (the tool answers "not found") is dropped, and
-the send goes on as if there were no link; when the tool cannot be reached the link stands. When
-the person compares (*Synchronise*) with a linked project that was deleted in CVAT, nothing is
-changed: the *CVAT* tab of *Annotations* says the project no longer exists and suggests *Unlink* (*Desvincular*);
-after unlinking, a new comparison creates a new project in CVAT. Closing
-an annotation session with *delete in the tool* also drops the link when its remote project went
-with the session.
+When the person compares (*Synchronise*) with a linked project that was deleted in CVAT, nothing is
+changed: the *CVAT* tab of *Annotations* says the project no longer exists and suggests *Unlink*
+(*Desvincular*); after unlinking, a new comparison creates a new project in CVAT.
 
 ## Synchronise
 

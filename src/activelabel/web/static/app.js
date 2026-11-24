@@ -748,11 +748,8 @@
 
   // ---------------------------------------------------------------- annotation sessions (shared bits)
   const TOOLS = ['fiftyone', 'cvat', 'labelstudio'];
-  /* Label Studio is paused: its tool card is hidden; existing links and sessions are still shown */
-  const LABEL_STUDIO_ENABLED = false;
-  const EDIT_TOOLS = LABEL_STUDIO_ENABLED ? ['fiftyone', 'labelstudio'] : ['fiftyone'];
-  /* tools that still run edit sessions; a session of another one (CVAT, in an old workspace) can only be closed */
-  const SESSION_TOOLS = ['fiftyone', 'labelstudio'];
+  /* tools that run edit sessions; a session of another one (an old workspace may hold one) can only be closed */
+  const SESSION_TOOLS = ['fiftyone'];
   const DEFAULT_URLS = { cvat: 'https://app.cvat.ai', labelstudio: 'http://localhost:8080' };
   const toolName = (tool) => tr(`annotate.tool.${tool}`, tool || '?');
   const statusText = (status) => tr(`job.status.${status}`, status);
@@ -1281,21 +1278,6 @@
       if (job && job.id) ctx.syncTool[job.id] = tool;
       toast(t('sync.started', { tool: toolName(tool) }), 'info', 3000);
       await jobStarted(job);
-    }
-
-    /* sending found a project with the same name: synchronise or cancel */
-    async function remoteExistsDialog(d) {
-      const tool = d.tool;
-      const remote = d.remote || {};
-      const choice = await choiceDialog({
-        title: t('sync.exists_title', { tool: toolName(tool) }),
-        text: `${tn('sync.exists_text', Number(remote.images) || 0, { name: remote.name || '', tool: toolName(tool) })} ${d.linked ? t('sync.exists_linked') : t('sync.exists_unlinked')}`,
-        choices: [{ value: 'sync', primary: true, label: t('sync.run'), help: t('sync.exists_help') }],
-      });
-      if (choice !== 'sync') return;
-      try {
-        await startSync(tool, d.linked || remote.id == null ? {} : { remote_id: remote.id });
-      } catch (err) { toastError(err); }
     }
 
     function syncBlock() {
@@ -2461,14 +2443,8 @@
 
     // ================================================================ step 2: annotate in an external tool
     function annotateBlock() {
-      const storeKey = `al-annotate-tool-${projectId}`;
-      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', tool: 'fiftyone', loaded: false, cvat: { scope: 'project', task: null, job: null, direction: 'both' } };
-      try {
-        const saved = localStorage.getItem(storeKey);
-        if (EDIT_TOOLS.includes(saved)) state.tool = saved;
-      } catch (e) { /* no storage */ }
+      const state = { tools: {}, sessions: [], issues: {}, scope: null, issue: '', loaded: false, cvat: { scope: 'project', task: null, job: null, direction: 'both' } };
 
-      const toolsBox = el('div', { class: 'tool-cards-wrap' });
       const cvatScopeBox = el('div', { class: 'scope-wrap' });
       const cvatInfoBox = el('div', { class: 'cvat-info' });
       const cvatDirBox = el('div', { class: 'cvat-dir' });
@@ -2484,7 +2460,7 @@
         cvatCtaBox, cvatCard, sync.node);
       const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
         el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-        toolsBox, scopeBox, sendBox,
+        scopeBox, sendBox,
         el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
           el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
           sessionsBox));
@@ -2506,41 +2482,6 @@
       function defaultScope() {
         if (unlabeledCount() > 0 && unlabeledCount() < (counts().active || 0)) return 'unlabeled';
         return 'all';
-      }
-
-      // ---- tool cards
-      function drawTools() {
-        toolsBox.hidden = EDIT_TOOLS.length < 2;
-        if (toolsBox.hidden) { fill(toolsBox); return; }
-        const focused = document.activeElement && document.activeElement.name === 'annotate-tool' ? document.activeElement.value : null;
-        fill(toolsBox, el('fieldset', { class: 'field' },
-          el('legend', null, t('annotate.tool_title')),
-          el('div', { class: 'task-cards tool-cards', role: 'radiogroup' }, ...EDIT_TOOLS.map((tool) => {
-            const id = `annotate-tool-${tool}`;
-            const ready = isReady(tool);
-            const input = el('input', { type: 'radio', name: 'annotate-tool', id, value: tool, class: 'sr-only' });
-            input.checked = tool === state.tool;
-            input.addEventListener('change', () => {
-              state.tool = tool;
-              try { localStorage.setItem(storeKey, tool); } catch (e) { /* no storage */ }
-              drawTools();
-              drawScope();
-              drawSend();
-              toolsBox.querySelector(`input[value="${tool}"]`).focus();
-            });
-            return el('div', { class: `tool-card${tool === state.tool ? ' selected' : ''}`, 'data-tool': tool },
-              el('label', { for: id, class: 'tool-card-main' },
-                input, icon(tool, 28),
-                el('span', { class: 'task-card-title' }, toolName(tool)),
-                el('span', { class: 'task-card-help' }, t(`annotate.tool.${tool}.help`))),
-              el('div', { class: 'tool-card-foot' },
-                el('span', { class: `ready-badge ${ready ? 'ok' : 'todo'}` }, icon(ready ? 'check' : 'info', 14), ready ? t('annotate.ready') : t('annotate.not_ready')),
-                tool === 'fiftyone'
-                  ? null
-                  : el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: toolName(tool) }), onclick: () => openSetup(tool) },
-                      ready ? t('annotate.settings') : t('annotate.setup'))));
-          }))));
-        if (focused) { const f = toolsBox.querySelector(`input[value="${focused}"]`); if (f) f.focus(); }
       }
 
       // ---- which images
@@ -2730,18 +2671,16 @@
 
       function drawSendDefault() {
         if (!state.loaded) { fill(sendBox); return; }
-        const tool = state.tool;
+        const tool = 'fiftyone';
         const n = scopeCount(state.scope);
-        const ready = isReady(tool);
         fill(sendBox,
           el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
-            icon(tool, 20), ready ? t('annotate.send', { tool: toolName(tool) }) : t('annotate.setup_and_send', { tool: toolName(tool) })),
+            icon(tool, 20), t('annotate.send', { tool: toolName(tool) })),
           el('p', { class: 'muted', 'aria-live': 'polite' }, n ? tn('annotate.will_send', n, { tool: toolName(tool) }) : t('annotate.nothing_to_send')));
       }
 
       async function send(button) {
-        const tool = state.tool;
-        if (!isReady(tool)) { openSetup(tool); return; }
+        const tool = 'fiftyone';
         const body = { tool, scope: state.scope };
         if (state.scope === 'selected') body.ids = selectedIds();
         if (state.scope === 'issue') body.issue = state.issue;
@@ -2751,9 +2690,7 @@
           toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
           await jobStarted(job);
         } catch (err) {
-          const d = err.detail;
-          if (err.status === 409 && d && d.code === 'remote_exists') await remoteExistsDialog(d);
-          else toastError(err);
+          toastError(err);
         } finally {
           drawSend();
         }
@@ -2825,8 +2762,6 @@
       }
 
       async function closeSession(s) {
-        const remote = s.tool === 'labelstudio';
-        const check = remote ? el('input', { type: 'checkbox', id: 'close-remote' }) : null;
         const ok = await new Promise((resolve) => {
           const okBtn = el('button', { type: 'submit', value: 'ok', class: 'btn danger' }, t('annotate.close_confirm'));
           const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel'));
@@ -2834,7 +2769,6 @@
             el('form', { method: 'dialog', class: 'dialog-body' },
               el('h2', null, t('annotate.close_title')),
               el('p', null, t('annotate.close_text')),
-              remote ? el('label', { class: 'radio-row', for: 'close-remote' }, check, el('span', null, t('annotate.close_remote', { tool: toolName(s.tool) }))) : null,
               el('div', { class: 'form-actions' }, okBtn, cancelBtn)));
           dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'ok'); });
           document.body.appendChild(dlg);
@@ -2843,7 +2777,7 @@
         });
         if (!ok) return;
         try {
-          await api('DELETE', `/projects/${projectId}/annotate/${encodeURIComponent(s.id)}`, { json: { delete_remote: !!(check && check.checked) } });
+          await api('DELETE', `/projects/${projectId}/annotate/${encodeURIComponent(s.id)}`);
           toast(t('annotate.closed'), 'success', 4000);
           await loadSessions();
         } catch (err) { toastError(err); }
@@ -2863,7 +2797,6 @@
           state.tools = {};
           (Array.isArray(list) ? list : []).forEach((x) => { state.tools[x.tool] = x; });
         } catch (err) { toastError(err); }
-        drawTools();
         drawSend();
         cvatDraw(true);
       }
@@ -2907,7 +2840,6 @@
         if (card) { card.focus({ preventScroll: true }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2500); }
       };
 
-      drawTools();
       return {
         cvatSection,
         fiftyoneSection,
