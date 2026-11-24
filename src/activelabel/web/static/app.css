@@ -4,7 +4,10 @@
 
    Scales (use these, not raw values):
      spacing  --space-1..6   0.25 / 0.5 / 0.75 / 1 / 1.5 / 2 rem
-     type     --font-xs..xl  0.8 / 0.875 / 1 / 1.1 / 1.3 rem (weights 400 and 600)
+     type     --font-xs..xl  0.8 / 0.875 / 1 / 1.1 / 1.3 rem (weights 400 and 600); body 15px.
+              --font (sans) for text; --mono for kickers, ids (#2, v2), counts, metrics and step
+              summaries, always with tabular numbers. No uppercase (it breaks pt accents and
+              names like mAP50-95): a kicker is told apart by mono, colour and letter spacing.
      radius   --radius-sm 8px, --radius 10px, --radius-pill
      touch    --touch 36px (interactive targets; 44px on small screens)
    Breakpoints (media queries cannot use variables): 480px phone, 760px small, 900px medium, 1100px wide.
@@ -47,6 +50,7 @@
   --shadow: 0 8px 28px light-dark(rgba(20, 30, 50, 0.14), rgba(0, 0, 0, 0.55)), 0 1px 3px light-dark(rgba(20, 30, 50, 0.08), transparent);
   --area-fade: 0.24s ease;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -79,18 +83,24 @@ body {
   /* a soft wash of the area colour behind the header and the step bar */
   background: linear-gradient(var(--area-soft), var(--bg)) top / 100% 340px no-repeat, var(--bg);
   color: var(--text);
-  font: 16px/1.5 var(--font);
+  font: 15px/1.5 var(--font);
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4 { line-height: 1.25; margin: 0 0 var(--space-2); }
-h1 { font-size: 1.6rem; }
-h2 { font-size: var(--font-xl); }
+h1, h2, h3, h4 { line-height: 1.25; margin: 0 0 var(--space-2); text-wrap: balance; }
+h1 { font-size: 28px; line-height: 1.2; font-weight: 700; }
+h2 { font-size: 18px; line-height: 1.3; font-weight: 600; }
 h3 { font-size: var(--font-lg); }
+/* the title of each step (Imagens, Curadoria...) */
+.panel h2[id^="h-"] { font-size: 24px; line-height: 1.25; font-weight: 700; }
+.panel h2[id^="h-"] + p, .ds-head p { max-width: 72ch; text-wrap: pretty; }
+/* mono: ids, counts and metrics line up digit by digit */
+.project-id, .count, .count-badge, .step-tab-count, .step-status, .bar-value, .job-count, .task-progress-text,
+.thumb-name, .tr-chips li, .ds-legend, .ds-sum, .tr-combos { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 h4 { font-size: var(--font-sm); margin-top: 1.1rem; }
 p { margin: 0 0 var(--space-3); }
 a { color: var(--primary); }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; word-break: break-all; }
+code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 .muted { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -173,7 +183,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .chip-x:hover { background: var(--surface-2); color: var(--text); }
 .chip.is-new { border-color: var(--ok); background: var(--ok-soft); }
 .chip .count { color: var(--muted); font-size: var(--font-xs); }
-.new-mark { font-size: var(--font-xs); font-weight: 700; text-transform: uppercase; color: var(--ok); }
+.new-mark { font-family: var(--mono); font-size: var(--font-xs); font-weight: 700; letter-spacing: 0.04em; color: var(--ok); }
 .class-list { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.4rem 0 0; min-width: 0; }
 
 /* ---- project list ---- */
@@ -219,7 +229,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .step-group[data-group="model"] { --group: var(--modelo); --group-soft: var(--modelo-soft); }
 .step-group:has(.step.current) { border-color: var(--group); box-shadow: inset 0 3px 0 var(--group); }
 .step-group > .step { flex: 1 1 auto; width: auto; }
-.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: var(--font-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--group, var(--muted)); }
+.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-family: var(--mono); font-size: 12px; line-height: 1.2; font-weight: 600; letter-spacing: 0.08em; color: var(--group, var(--muted)); }
 .step { display: flex; align-items: center; gap: 0.65rem; text-align: left; padding: var(--space-2) 0.65rem; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; min-width: 0; width: 100%; transition: background-color var(--area-fade), border-color var(--area-fade); }
 .step:hover { background: var(--surface-2); border-color: var(--border); }
 .step:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
@@ -289,7 +299,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 
 .stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 220px)); gap: var(--space-3); margin: var(--space-3) 0; }
 .stat-tile { display: flex; flex-direction: column-reverse; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
-.stat-tile dd { margin: 0; font-size: var(--font-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-tile dd { margin: 0; font-family: var(--mono); font-size: 26px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat-tile dt { color: var(--muted); font-size: var(--font-sm); }
 .stat-tile.is-attention { border-color: var(--warn); background: var(--warn-soft); }
 .stat-tile.is-attention dd, .stat-tile.is-attention dt { color: var(--warn); }
@@ -429,6 +439,7 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
   .hist-axis span:nth-child(2) { display: none; }
 }
 @media (max-width: 480px) {
+  h1 { font-size: 22px; }
   .page { padding-left: var(--space-3); padding-right: var(--space-3); }
   .jobs-bar { right: var(--space-2); left: var(--space-2); bottom: var(--space-2); width: auto; }
   .jobs-pill { width: 100%; justify-content: center; }
@@ -503,7 +514,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .diff { border-top: 1px solid var(--border); padding-top: 0.8rem; margin-top: 0.4rem; }
 .diff-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; }
 .stat { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) 0.8rem; background: var(--surface-2); }
-.stat strong { font-size: 1.5rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat strong { font-family: var(--mono); font-size: 26px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: var(--font-sm); }
 .stat.add strong, td.add, .example-counts .add { color: var(--ok); }
 .stat.edit strong, td.edit, .example-counts .edit { color: var(--warn); }
@@ -919,7 +930,7 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.6rem; margin: var(--space-3) 0; }
 .tr-stat { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
 .tr-stat dt { color: var(--muted); font-size: var(--font-sm); }
-.tr-stat dd { margin: 0; font-size: var(--font-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.tr-stat dd { margin: 0; font-family: var(--mono); font-size: 26px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tr-block { margin-top: var(--space-4); min-width: 0; }
 .tr-block h4 { margin: 0 0 0.3rem; }
 .tr-note { margin: 0 0 var(--space-2); font-size: var(--font-sm); }
