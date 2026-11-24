@@ -14,7 +14,9 @@ from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
+from activelabel.training.environment import TrainingEnvironment
 from activelabel.training.models import ModelStore
+from activelabel.training.runner import EXTRA_PACKAGES
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
@@ -146,9 +148,6 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
     With ``model`` (a catalogue id) the answer also has ``missing`` (packages that model needs and the
     environment lacks) and ``install_needed``: true when the first run with it will install packages.
     """
-    from activelabel.training.environment import TrainingEnvironment
-    from activelabel.training.runner import EXTRA_PACKAGES
-
     env = TrainingEnvironment(state.settings.workspace)
     gpu = env.gpu()
     exists = env.exists()

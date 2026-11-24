@@ -10,10 +10,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from activelabel.annotate import credentials
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import load_annotations
 from activelabel.preannotate import image_state
+from activelabel.sync import links
+from activelabel.sync.registry import get_remote
 from activelabel.tasks_store import (
     ImageTask,
     TaskNotFound,
@@ -123,10 +126,6 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     not configured or cannot be reached (the task list must never fail or hang because of CVAT: any
     failure, and a wait longer than ``REMOTE_TIMEOUT``, is remembered for ``REMOTE_TTL`` seconds).
     """
-    from activelabel.annotate import credentials
-    from activelabel.sync import links
-    from activelabel.sync.registry import get_remote
-
     link = links.get_link(state.store.dir(project_id), "cvat")
     tmap: dict[str, Any] = (link or {}).get("tasks") or {}
     if not link or not tmap:
