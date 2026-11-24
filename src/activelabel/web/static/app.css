@@ -715,6 +715,10 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .ds-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.35rem; }
 .ds-badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .ds-badge { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0.1rem 0.6rem; font-size: var(--font-xs); font-weight: 600; }
+.ds-warn-group > summary { display: inline-flex; align-items: center; gap: var(--space-1); cursor: pointer; padding: 0.1rem 0.7rem; min-height: 28px; border: 1px solid var(--warn); border-radius: var(--radius-pill); background: var(--warn-soft); color: var(--warn); font-size: var(--font-xs); font-weight: 600; max-width: 100%; }
+.ds-warn-group > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.ds-warn-group[open] > summary { margin-bottom: var(--space-2); }
+.ds-train-with { margin-left: auto; }
 .ds-badge.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
 .ds-badge.bad { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
 .ds-view { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: auto; }
