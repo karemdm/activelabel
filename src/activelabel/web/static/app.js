@@ -3965,7 +3965,7 @@
           ...items.filter((x) => x.n > 0).map((x) => el('span', { class: `ds-seg ds-${x.cls}`, style: `flex-grow:${x.n}`, title: `${x.label}: ${num(x.n)}` })));
       }
       const legend = (items) => el('ul', { class: 'ds-legend' }, ...items.map((x) => el('li', null,
-        el('span', { class: `ds-dot ds-${x.cls}`, 'aria-hidden': 'true' }), `${x.label} `, el('strong', null, num(x.n)),
+        el('span', { class: `ds-dot ds-${x.cls}`, 'aria-hidden': 'true' }), `${x.label}: `, el('strong', null, num(x.n)),
         el('span', { class: 'muted' }, ` · ${pctOf(x.n, totalOf(items))}%`))));
       const barLabel = (items) => items.map((x) => `${x.label} ${num(x.n)}`).join(', ');
 
