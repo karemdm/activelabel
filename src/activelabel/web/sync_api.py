@@ -72,7 +72,7 @@ def cvat_audit(state: AppState = STATE) -> dict[str, Any]:
     try:
         found = _remote("cvat").audit(settings)
     except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise ApiError(400, "tool_error", str(exc), tool="cvat", reason=str(exc)) from exc
     linked: dict[str, dict[str, Any]] = {}
     for project in state.store.list():
         link = links.get_link(state.store.dir(project.id), "cvat")

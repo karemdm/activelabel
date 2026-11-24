@@ -105,7 +105,7 @@ def _remote(tool: str) -> Any:
     try:
         return get_remote(tool)
     except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise ApiError(400, "tool_error", str(exc), tool=tool, reason=str(exc)) from exc
 
 
 def _session(state: AppState, project_id: int, session_id: str) -> dict[str, Any]:
