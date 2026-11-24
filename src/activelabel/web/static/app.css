@@ -353,7 +353,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .tabs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-2); }
 .tab { border: 0; background: var(--surface); color: var(--text); font: inherit; padding: 0.4rem var(--space-4); cursor: pointer; font-weight: 600; min-height: 38px; }
 .tab.active { background: var(--primary); color: var(--primary-text); }
-.toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: var(--space-2) 0; position: sticky; top: 56px; background: var(--surface); padding: 0.4rem 0; z-index: 5; }
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: var(--space-2) 0; position: sticky; top: 60px; background: var(--surface); padding: 0.4rem 0; z-index: 5; }  /* top: the height of the top bar with its 3px band */
 .advanced { margin: 0 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem var(--space-4); }
 .th-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3) var(--space-4); margin-top: var(--space-2); }
 .field.inline { margin: 0; }
@@ -424,7 +424,7 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
   .topbar-inner { gap: var(--space-2); }
   .thumb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
   .bars li { grid-template-columns: 90px 1fr 3rem; }
-  .toolbar { top: 50px; flex-wrap: nowrap; overflow-x: auto; }
+  .toolbar { top: 68px; flex-wrap: nowrap; overflow-x: auto; }
   .toolbar > * { flex: none; white-space: nowrap; }
   .cur-select-hint { display: none; }
   .btn, .chip-btn, .tab, .icon-btn, select, .lang-switch a { min-height: 44px; }
