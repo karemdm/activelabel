@@ -105,6 +105,7 @@
   "lightbox.title": "Image",
   "lightbox.prev": "Previous image",
   "lightbox.next": "Next image",
+  "lightbox.classes": "Class",
   "lightbox.issues": "Issues",
   "lightbox.no_issues": "No issues flagged.",
   "lightbox.not_analyzed": "Not analyzed yet.",

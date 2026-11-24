@@ -755,6 +755,8 @@
               el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
             img.width ? el('p', { class: 'muted' }, `${img.width} × ${img.height} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
             img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
+            (img.classes || []).length ? el('h3', null, t('lightbox.classes')) : null,
+            (img.classes || []).length ? el('p', { class: 'thumb-tags' }, ...img.classes.map((c) => el('span', { class: 'chip static' }, c))) : null,
             el('h3', null, t('lightbox.issues')),
             (img.issues || []).length
               ? el('p', { class: 'thumb-tags' }, ...img.issues.map((x) => el('span', { class: `tag tag-${x}`, title: tr(`issue.${x}.help`, '') }, issueTag(x))))
