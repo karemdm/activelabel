@@ -19,7 +19,6 @@ SOURCE = ROOT / "src" / "activelabel"
 TESTS = ROOT / "tests" / "activelabel"
 
 BASELINE = {
-    "__init__.py",
     "annotate/base.py",
     "annotate/registry.py",
     "annotations/coco.py",
@@ -34,18 +33,13 @@ BASELINE = {
     "annotations/videoformats.py",
     "annotations/xmlformats.py",
     "annotations/yolo.py",
-    "cli.py",
     "curation/issues.py",
     "curation/quality.py",
     "curation/summary.py",
-    "errors.py",
     "fiftyone_names.py",
-    "i18n/__init__.py",
     "preannotate.py",
     "sync/registry.py",
     "sync/remote.py",
-    "tasks.py",
-    "textcheck.py",
     "training/catalog.py",
     "training/config.py",
     "training/runs.py",
