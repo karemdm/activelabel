@@ -251,3 +251,31 @@ def test_selection_too_big_or_without_disk_space_is_refused(tmp_path, monkeypatc
     full = client.post("/api/projects/1/tasks/from-video", json={"video": video, "step": 1})
     assert full.status_code == 400 and "free disk space" in full.json()["detail"]
     assert not TaskStore(state.store.dir(1)).load()
+
+
+def test_video_errors_have_codes_and_one_file_per_upload(tmp_path):
+    client, state, path = _setup(tmp_path)
+    data = path.read_bytes()
+    two = client.post("/api/projects/1/videos", files=[("file", ("a.mp4", data)), ("file", ("b.mp4", data))])
+    assert two.status_code == 400 and two.json()["code"] == "one_file_only"
+    assert client.get("/api/projects/1/videos").json() == {"videos": []}  # nothing was kept
+    wrong = client.post("/api/projects/1/videos", files={"file": ("a.txt", b"hello")})
+    assert wrong.json()["code"] == "video_type_unsupported" and ".mp4" in wrong.json()["params"]["allowed"]
+    bad = client.post("/api/projects/1/videos", files={"file": ("a.mp4", b"not a video at all")})
+    assert bad.json()["code"] == "video_unreadable"
+    video = _upload(client, path).json()["id"]
+    assert (
+        client.get("/api/projects/1/videos/nope/frame", params={"n": 0}).json()["code"] == "video_not_found"
+    )
+    far = client.get(f"/api/projects/1/videos/{video}/frame", params={"n": 9999})
+    assert far.json()["code"] == "frame_out_of_range"
+    plan = client.post(f"/api/projects/1/videos/{video}/plan", json={"start": 5, "stop": 2})
+    assert plan.json()["code"] == "video_range_invalid" and plan.json()["params"]["frames"] == 60
+
+
+def test_two_tasks_from_one_video_get_different_names(tmp_path):
+    client, state, path = _setup(tmp_path)
+    video = _upload(client, path).json()["id"]
+    first = _make_task(client, video=video, step=30)["result"]["task"]["name"]
+    second = _make_task(client, video=video, step=30)["result"]["task"]["name"]
+    assert first == "clip" and second == "clip (2)"

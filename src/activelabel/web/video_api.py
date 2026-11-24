@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from pydantic import BaseModel
 
 from activelabel.images.ingest import ingest_frames
@@ -24,6 +24,7 @@ from activelabel.images.video import (
 )
 from activelabel.jobs import Progress
 from activelabel.tasks_store import TaskStore, check_job_size, clean_name
+from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 from activelabel.web.tasks_api import _view
 
@@ -58,27 +59,36 @@ def _find(videos: VideoStore, video_id: str) -> VideoInfo:
     try:
         return videos.get(video_id)
     except KeyError:
-        raise HTTPException(404, "This video does not exist.") from None
+        raise ApiError(404, "video_not_found", "This video does not exist.") from None
 
 
 def _select(info: VideoInfo, body: Selection) -> tuple[int, int, int]:
     try:
         return resolve_selection(info, body.start, body.stop, body.step, body.every_seconds)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
 
 
 @router.post("/projects/{project_id}/videos")
 def upload_video(
-    project_id: int, file: Annotated[UploadFile, File()], state: AppState = STATE
+    project_id: int, files: Annotated[list[UploadFile], File(alias="file")], state: AppState = STATE
 ) -> dict[str, Any]:
-    """Store one video (streamed to disk, hashed while written) and read its properties."""
+    """Store one video (streamed to disk, hashed while written) and read its properties.
+
+    The request has exactly one ``file`` part; a second one is refused (400 ``one_file_only``).
+    """
+    if len(files) != 1:
+        raise ApiError(400, "one_file_only", "Send one video per request.")
+    file = files[0]
     videos = _videos(state, project_id)
     name = file.filename or "video"
     ext = Path(name).suffix.lower()
     if ext not in VIDEO_EXTENSIONS:
-        raise HTTPException(
-            400, f"Unsupported video type; use one of: {', '.join(sorted(VIDEO_EXTENSIONS))}."
+        raise ApiError(
+            400,
+            "video_type_unsupported",
+            f"Unsupported video type; use one of: {', '.join(sorted(VIDEO_EXTENSIONS))}.",
+            allowed=sorted(VIDEO_EXTENSIONS),
         )
     videos.folder.mkdir(parents=True, exist_ok=True)
     tmp = videos.folder / f".{uuid.uuid4().hex}.part"
@@ -91,7 +101,7 @@ def upload_video(
                 out.write(chunk)
         info = videos.add(Path(name).name, ext, tmp, digest.hexdigest()[:16], size)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
     finally:
         tmp.unlink(missing_ok=True)
     return info.public()
@@ -109,11 +119,15 @@ def delete_video(project_id: int, video_id: str, state: AppState = STATE) -> dic
     videos = _videos(state, project_id)
     _find(videos, video_id)
     if any(j.kind == "video_task" for j in state.jobs.active(project_id)):
-        raise HTTPException(409, "A task is being made from a video: wait for it to finish, then delete.")
+        raise ApiError(
+            409,
+            "video_task_running",
+            "A task is being made from a video: wait for it to finish, then delete.",
+        )
     tasks = TaskStore(state.store.dir(project_id))
     with tasks.locked():
         if not videos.drop_if_unused(video_id, tasks.load()):
-            raise HTTPException(409, "A task uses this video: delete the task first.")
+            raise ApiError(409, "video_in_use", "A task uses this video: delete the task first.")
     return {"deleted": video_id}
 
 
@@ -129,11 +143,16 @@ def video_frame(
     videos = _videos(state, project_id)
     info = _find(videos, video_id)
     if n >= info.frames:
-        raise HTTPException(400, f"The video has {info.frames} frames (0 to {info.frames - 1}).")
+        raise ApiError(
+            400,
+            "frame_out_of_range",
+            f"The video has {info.frames} frames (0 to {info.frames - 1}).",
+            frames=info.frames,
+        )
     try:
         data = frame_jpeg(videos.file(info), n, w)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
     return Response(data, media_type="image/jpeg")
 
 
@@ -154,7 +173,7 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
         size = check_job_size(body.job_size)
         task_name = clean_name(body.name) if body.name and body.name.strip() else None
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
     manifest = state.manifest(project_id)
     tasks = TaskStore(state.store.dir(project_id))
     video_file = videos.file(info)
@@ -162,7 +181,7 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
     try:
         check_extraction(info, planned, videos.folder)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+        raise bad_request(exc) from None
     stem = (Path(info.name).stem or "video").replace("/", "_").replace("\\", "_")
 
     def run(progress: Progress) -> dict[str, Any]:
