@@ -4617,6 +4617,9 @@
 
         // parameters
         const paramsBox = el('div', { class: 'tr-params' });
+        /* the settings stay closed: the line on the bar says what differs from the defaults */
+        const advLine = el('span', { class: 'muted tr-adv-line' });
+        const advBox = el('details', { class: 'tr-adv' }, el('summary', null, el('strong', null, t('tr.params')), advLine));
         const moreBox = el('details', { class: 'tr-more' }, el('summary', null, t('tr.more_params')));
         const moreInner = el('div', { class: 'tr-params' });
         add(moreBox, moreInner);
@@ -4707,6 +4710,7 @@
             }
           }
           modeHelp.textContent = t(mode === 'grid' ? 'tr.mode_grid_help' : 'tr.mode_single_help');
+          if (mode === 'grid') advBox.open = true;  // a grid search is about the values: show them
           drawParams();
         }
         function drawModel() {
@@ -4749,6 +4753,16 @@
           else if (folds > 1) { summary.textContent = t('tr.folds_runs', { k: folds }); summary.classList.add('ok'); }
           create.disabled = blocked;
           formError.hidden = true;
+          if (bad) advBox.open = true;  // the field with the problem must be in view
+          advLine.textContent = changedLine();
+        }
+
+        /* "epochs 20 · batch size 8": only what is not the default; the grid lists show as they are */
+        function changedLine() {
+          const diffs = active.filter((spec) => reads[spec.name] && reads[spec.name].join() !== String([spec.default]))
+            .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => (spec.kind === 'choice' ? choiceName(v) : typeof v === 'boolean' ? (v ? '✓' : '✗') : plain(v))).join(', ')}`);
+          if (!diffs.length) return t('tr.params_default');
+          return diffs.length > 3 ? `${diffs.slice(0, 3).join(' · ')} · ${t('tr.params_more', { n: diffs.length - 3 })}` : diffs.join(' · ');
         }
 
         function requestBody() {
@@ -4769,14 +4783,14 @@
               el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel),
               foldField,
               el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote),
-              el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp),
-              el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
-              el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help')))),
+              el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
             el('div', { class: 'tr-col' },
-              el('h3', { class: 'section-title' }, t('tr.params')),
-              paramsBox, moreBox)),
+              el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
+              el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help'))))),
+          el('div', { class: 'tr-adv-wrap' }, advBox),
           formError,
           el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
+        add(advBox, paramsBox, moreBox);
         const dlg = el('dialog', { class: 'dialog wide tr-dialog', 'aria-label': t('tr.new_title') }, form);
 
         form.addEventListener('submit', async (e) => {
