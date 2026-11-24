@@ -72,12 +72,17 @@ project deletes its recorded dataset (and the plain-named one only when it holds
 
 ## Screens
 
-1. **Projects** — cards: name, `#id`, type, images (active / excluded), annotation status,
-   date. Buttons *New project* and *Import project*.
-2. **New project** (like Label Studio / CVAT) — name, description (the id is automatic);
-   type as four cards with an icon and one line each (classification, detection,
-   segmentation, keypoints); classes (optional, can come from the annotations).
-3. **Project page** — header (name, `#id`, type, edit, delete) and the six steps (the three below,
+1. **Projects** — cards that fill the row: name, `#id`, type, images (active / excluded), annotation
+   coverage ("{done} of {total} images annotated"), date. Buttons *New project* and *Import project*.
+2. **New project** (like Label Studio / CVAT) — two columns: name and description (the id is automatic),
+   then type as four cards with an icon and one line each (classification, detection,
+   segmentation, keypoints) and classes (optional, can come from the annotations). Editing a project
+   uses the same layout.
+3. **Project page** — header (name, `#id`, type, edit, delete; the classes stay on one line with *See all*
+   opening the full list) and the six steps in a compact **step bar**: two groups (*Data*, *Model*), a marker
+   on each step (done, needs attention, in progress) and the current step scrolled into view on a narrow
+   screen. Texts and dialogs share one pattern (title with a close button, sticky footer, Cancel focused in
+   destructive ones, touch targets of at least 36 px, text of at least 12 px). The steps (the three below,
    then *Data split*, *Training* and *Models*, see [DATASETS.md](DATASETS.md) and
    [TRAINING.md](TRAINING.md); the *Annotations* step also has the tabs *Pre-annotate*, *CVAT* and
    *FiftyOne*, see [PREANNOTATE.md](PREANNOTATE.md), [SYNC.md](SYNC.md) and
@@ -85,19 +90,24 @@ project deletes its recorded dataset (and the plain-named one only when it holds
    - **Images**: tabs *Gallery* and *Tasks and jobs*; drop zone for files, folders and .zip; upload
      in chunks with a progress bar and *Cancel*; result: added, duplicates, rejected with reasons;
      annotation files found in the upload lead to step 2. Paged grid of thumbnails.
-   - **Annotations**: tab *Import annotations*: upload files or a .zip → validation report: format,
+   - **Annotations**: the tab *Summary* shows tiles (images annotated, annotations, classes with
+     annotations, to review), the top classes with *Search class* and *Show all ({n})*. Tab
+     *Import annotations*: upload files or a .zip → validation report (it takes the place of the drop zone;
+     with nothing usable it offers *Choose other files* or *Discard*): format,
      type found vs project type (clear sentence), images matched, classes (new ones marked), problems
      with examples; then the possible actions as buttons with one-line explanations
      (*Import*, *Change the type to {task} and import*, *Convert to {task} and import*,
      *Discard*); *Replace* or *Merge* when the project already has annotations. When the project
      has video tasks, a *For task* selector matches files made for a video by frame number
      (docs/VIDEO.md, *Loading annotations of a video*).
-   - **Curation**: *Analyze images* (job) → chips with counts per issue (filter the grid),
-     thumbnails with issue tags and checkboxes, *Select suggested*, *Exclude selected*,
-     *Restore selected*, *Delete permanently* (confirmation); *Excluded* tab; thresholds (*Advanced:
-     thresholds*, collapsed; changing them re-flags without measuring again); *Reset analysis*
-     (forgets measures, flags and duplicate groups); *Open in FiftyOne* (opens the saved view of the
-     current filter); *Bring exclusions from FiftyOne*. The issues are: blurry, dark, bright, low
+   - **Curation**: the actions are at the top of the step: *Analyze images* (job), *Reset analysis*,
+     *Open in FiftyOne*, *Bring exclusions from FiftyOne*; then chips with counts per issue (filter the
+     grid; *Only with issues* shows the flagged images first), histograms with an axis legend,
+     thumbnails with issue tags and checkboxes, a compact selection row (*All in filter*, *Suggested*,
+     *Exclude selected*, *Restore selected*, *Delete permanently* with confirmation; *Select suggested*
+     needs the analysis); *Excluded* tab; thresholds (*Thresholds*, collapsed; changing them re-flags
+     without measuring again). *Reset analysis* forgets measures, flags and duplicate groups; *Open in
+     FiftyOne* opens the saved view of the current filter. The issues are: blurry, dark, bright, low
      contrast, small, odd aspect ratio, grayscale, near duplicate. (Corrupt files are rejected at
      upload and never become images.)
 4. **Activities card** — a small card in the bottom-right corner (minimisable, closable) with the running
@@ -128,9 +138,9 @@ the upload `report`). The `code` values of the other errors are:
 
 | Status | Codes |
 | --- | --- |
-| 400 | `project_name_empty`, `project_name_taken`, `project_name_too_long`, `description_too_long`, `class_name_invalid`, `class_name_too_long`, `too_many_classes`, `task_name_empty`, `task_name_taken`, `task_name_too_long`, `job_size_invalid`, `control_characters`, `url_invalid`, `url_required`, `confirm_required`, `no_images`, `task_required`, `job_required`, `dataset_required`, `scope_invalid`, `scope_unknown`, `direction_invalid`, `resolution_invalid`, `unknown_thresholds`, `tool_not_configured`, `name_mismatch`, `annotation_format_unknown`, `annotation_unreadable`, `annotations_not_convertible`, `video_task_required`, `pull_first`, `fiftyone_not_opened` |
-| 404 | `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
-| 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `annotations_changed`, `session_finished` |
+| 400 | **Projects, tasks, text:** `project_name_empty`, `project_name_taken`, `project_name_too_long`, `description_too_long`, `class_name_invalid`, `class_name_too_long`, `too_many_classes`, `task_name_empty`, `task_name_taken`, `task_name_too_long`, `job_size_invalid`, `control_characters`, `url_invalid`, `url_required`, `confirm_required`, `no_images`, `task_required`, `job_required`, `name_mismatch`. **Annotation files:** `annotation_format_unknown`, `annotation_unreadable`, `annotations_not_convertible`, `video_task_required`. **Curation, scopes, sync, tools:** `unknown_thresholds`, `scope_invalid`, `scope_unknown`, `direction_invalid`, `resolution_invalid`, `tool_not_configured`, `pull_first`, `fiftyone_not_opened`. **Videos:** `one_file_only`, `video_type_unsupported`, `video_unreadable`, `video_no_frames`, `video_too_many_frames`, `video_not_enough_disk`, `video_range_invalid`, `video_seconds_range`, `video_step_range`, `frame_out_of_range`, `frame_unreadable`. **Data split** (docs/DATASETS.md): `dataset_required`, `not_whole_number`, `split_percentage_range`, `split_sum`, `split_train_empty`, `split_unknown_part`, `kfold_range`, `kfold_test_too_big`, `kfold_too_few_groups`, `background_not_bool`, `videos_mode`, `gap_not_number`, `gap_range`, `tasks_not_list`, `nothing_to_split`, `no_usable_labels`, `note_too_long`, `part_unknown`, `fold_required`, `fold_not_found`, `version_has_no_folds`. **Training and pre-annotation:** `dataset_classes_removed`, `model_kind_mismatch`, `model_not_in_catalogue`, `preannotation_kind_unsupported`, `threshold_range`, `no_images_for_choice` |
+| 404 | `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `model_not_found`, `preannotation_not_found`, `video_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
+| 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `annotations_changed`, `session_finished`, `dataset_part_empty`, `dataset_in_use`, `dataset_used_by_runs`, `preannotation_running`, `video_in_use`, `video_task_running` |
 
 Texts the interface does not know a code for are shown as the English `detail`.
 
@@ -174,7 +184,7 @@ running.
 | POST | `/projects/{id}/images/delete` | `{ids, confirm: true}` | `{deleted}` |
 | GET | `/projects/{id}/jobs` | | running and recent jobs, newest first |
 | DELETE | `/projects/{id}/jobs` | | `{removed}`: the finished jobs leave the list |
-| GET | `/jobs/{job_id}` | | the job (of any project; imports belong to project 0) |
+| GET | `/jobs/{job_id}` | | the job (of any project; imports belong to project 0); `params` says what it is about (for example `{"number": 3}` for the run, export or pre-annotation it belongs to) |
 | POST | `/jobs/{job_id}/cancel` | | job |
 
 ### Annotations and curation
