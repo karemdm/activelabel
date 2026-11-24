@@ -41,6 +41,12 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 - Jobs are not stored: job *k* (1-based) of a task is `images[(k-1)*job_size : k*job_size]`.
 - `open` is true while a chunked upload may still append images (see below); `source` is set for a
   task made from a video (docs/VIDEO.md) and `null` otherwise.
+- Task names are unique within the project and at most 100 characters (400 `task_name_taken`,
+  `task_name_too_long`); the default name "Task <id>" is always free. The job size is a whole number
+  from 1 to 100,000 (`job_size_invalid`).
+- A task is never empty: an upload that adds nothing (no readable image, only duplicates) creates no task;
+  `POST …/tasks` answers 400 `no_images_added` with the upload report when the task is created closed, and
+  the interface shows the reason of each rejected file.
 - Ids are never reused; a deleted task's id is not given again.
 - **Migration**: a project without `tasks.json` that has images gets one task, `"Task 1"`, with
   every image in manifest order and `job_size: null`. Done on first read, then saved.
