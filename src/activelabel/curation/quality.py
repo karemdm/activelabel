@@ -40,7 +40,14 @@ _DCT = np.array(
 
 
 def perceptual_hash(gray: np.ndarray) -> str:
-    """64-bit DCT perceptual hash of a gray image (2-D array), as 16 hex digits."""
+    """64-bit DCT perceptual hash of a gray image (2-D array), as 16 hex digits.
+
+    Args:
+        gray: the gray image, values 0..255.
+
+    Returns:
+        The hash.
+    """
     small = Image.fromarray(gray.astype(np.uint8)).resize((_HASH_SIZE, _HASH_SIZE), Image.Resampling.LANCZOS)
     pixels = np.asarray(small, dtype=np.float64)
     low = (_DCT @ pixels @ _DCT.T)[:8, :8]
@@ -50,12 +57,26 @@ def perceptual_hash(gray: np.ndarray) -> str:
 
 
 def hamming(a: str, b: str) -> int:
-    """Number of different bits between two hashes."""
+    """Number of different bits between two hashes.
+
+    Args:
+        a: a hash as hex digits.
+        b: another hash as hex digits.
+
+    Returns:
+        The Hamming distance.
+    """
     return (int(a, 16) ^ int(b, 16)).bit_count()
 
 
 def measure_file(path: Path) -> tuple[dict[str, float], str]:
     """Metrics and perceptual hash of one image file.
+
+    Args:
+        path: the image file.
+
+    Returns:
+        The metrics (see the module docstring) and the perceptual hash.
 
     Raises:
         OSError: the file cannot be read as an image.
@@ -86,7 +107,16 @@ def measure_file(path: Path) -> tuple[dict[str, float], str]:
 
 
 def _measure_record(manifest: Manifest, record: ImageRecord) -> tuple[str, dict[str, Any] | None]:
-    """Measure one image: ``(id, values)``, with ``values`` None when the file cannot be read."""
+    """Measure one image: ``(id, values)``, with ``values`` None when the file cannot be read.
+
+    Args:
+        manifest: images of the project (it locates the file).
+        record: the image to measure.
+
+    Returns:
+        The image id and ``{"metrics": ..., "phash": ...}``, or None for the values when the file is
+        unreadable, damaged or too large.
+    """
     try:
         metrics, phash = measure_file(manifest.file_path(record))
     except (OSError, ValueError, Image.DecompressionBombError):
@@ -95,7 +125,12 @@ def _measure_record(manifest: Manifest, record: ImageRecord) -> tuple[str, dict[
 
 
 def _save_pending(manifest: Manifest, pending: dict[str, dict[str, Any]]) -> None:
-    """Write the measures waiting in ``pending`` to the manifest and empty it."""
+    """Write the measures waiting in ``pending`` to the manifest and empty it.
+
+    Args:
+        manifest: images of the project.
+        pending: image id -> values to store; cleared after saving (nothing happens when empty).
+    """
     if pending:
         manifest.update(pending)
         pending.clear()

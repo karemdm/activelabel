@@ -14,7 +14,15 @@ HISTOGRAM_METRICS = ("brightness", "contrast", "sharpness")
 
 
 def _histogram(values: list[float]) -> dict[str, list[float]]:
-    """``BINS`` equal bins between the minimum and maximum (a single bin of data if all equal)."""
+    """``BINS`` equal bins between the minimum and maximum (a single bin of data if all equal).
+
+    Args:
+        values: the measured values.
+
+    Returns:
+        ``{"edges": [...], "counts": [...]}`` (both empty without values; when all values are equal the
+        range is that value to that value plus 1).
+    """
     if not values:
         return {"edges": [], "counts": []}
     low, high = min(values), max(values)
@@ -26,6 +34,9 @@ def _histogram(values: list[float]) -> dict[str, list[float]]:
 
 def summary(manifest: Manifest) -> dict[str, Any]:
     """Overview of the quality of a project (excluded images are not counted in issues or charts).
+
+    Args:
+        manifest: images of the project.
 
     Returns:
         ``{"totals": {images, active, excluded, measured}, "issues": {name: count},
@@ -54,6 +65,14 @@ def summary(manifest: Manifest) -> dict[str, Any]:
 
 
 def _worth_excluding(record: ImageRecord) -> bool:
+    """Whether an image has issues that make it a good candidate for exclusion.
+
+    Args:
+        record: the image.
+
+    Returns:
+        True for a near duplicate, or a blurry image that is also dark, bright or low contrast.
+    """
     issues = set(record.issues)
     return NEAR_DUPLICATE in issues or (BLURRY in issues and bool(issues & {DARK, BRIGHT, LOW_CONTRAST}))
 
@@ -62,5 +81,11 @@ def suggest_exclusions(manifest: Manifest) -> list[str]:
     """Ids of active images the user will most likely want to remove (never excludes anything).
 
     Conservative: near duplicates, and blurry images that are also dark, overexposed or flat.
+
+    Args:
+        manifest: images of the project.
+
+    Returns:
+        The ids of the active images worth excluding.
     """
     return [r.id for r in manifest.active() if _worth_excluding(r)]
