@@ -100,3 +100,10 @@ def test_phone_segmented_controls_stack_and_scrollers_show_their_hidden_side():
     assert re.search(r"\.seg, [^{]*\{ display: flex; flex-direction: column", block)
     assert re.search(r"\.step-tabs, \.tr-table-wrap, [^{]*\{[^}]*no-repeat local", block)
     assert re.search(r"\.tr-table-wrap th:first-child, [^{]*\{ position: sticky; left: 0", block)
+
+
+def test_long_image_names_keep_their_end():
+    """#338: a thumbnail name is cut at the start, so frame numbers and extensions stay visible."""
+    assert re.search(r"^\.thumb-name \{ direction: rtl; text-align: left; \}", CSS, re.M)
+    assert r'.thumb-name::before, .thumb-name::after { content: "\200E"; }' in CSS  # LTR marks
+    assert "el('span', { class: 'thumb-name', title: img.name }" in JS  # the full name stays in the title
