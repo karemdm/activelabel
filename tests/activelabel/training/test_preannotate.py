@@ -383,3 +383,36 @@ def test_classes_the_project_lost_are_reported_or_refuse_the_run(pre):
     body["scope"] = "unreviewed"
     run = _finished(client, client.post("/api/projects/1/preannotations", json=body).json()["number"])
     assert run["status"] == "failed" and "None of the classes of this model" in run["error"]
+
+
+def test_preannotation_errors_have_codes_and_accept_of_an_unknown_task_is_404(pre):
+    client, state, runner, empty = pre
+    unknown = client.post("/api/projects/1/preannotations/accept", json={"task": 99})
+    assert unknown.status_code == 404 and unknown.json()["code"] == "task_not_found"
+    task_id = TaskStore(state.store.dir(1)).load()[0].id
+    base = {"model": 1, "task": task_id}
+    assert (
+        client.post("/api/projects/1/preannotations", json={**base, "threshold": 2}).json()["code"]
+        == "threshold_range"
+    )
+    assert (
+        client.post("/api/projects/1/preannotations", json={**base, "model": 9}).json()["code"]
+        == "model_not_found"
+    )
+    wrong = client.post("/api/projects/1/preannotations", json={**base, "scope": "everything"})
+    assert wrong.status_code == 400 and wrong.json()["code"] == "scope_invalid"
+    assert client.post("/api/projects/1/preannotations/9/cancel").json()["code"] == "preannotation_not_found"
+
+
+def test_status_constants_are_shared():
+    from activelabel import jobs
+    from activelabel.training import runs
+
+    assert preannotate.QUEUED is jobs.QUEUED
+    assert runs.RUNNING is jobs.RUNNING and runs.STATUSES == (
+        jobs.QUEUED,
+        jobs.RUNNING,
+        jobs.DONE,
+        jobs.FAILED,
+        jobs.CANCELLED,
+    )

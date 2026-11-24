@@ -24,7 +24,9 @@ import cv2
 import numpy as np
 
 from activelabel.datasets import common_count
+from activelabel.errors import CodedError
 from activelabel.images.manifest import ACTIVE, Manifest
+from activelabel.jobs import QUEUED
 from activelabel.labels import (
     AnnotationSet,
     Label,
@@ -51,7 +53,6 @@ KIND_TASK = {
 }
 MIN_REGION = 0.0002  # a mask region smaller than this share of the image is noise, not an object
 SIMPLIFY = 0.004  # polygon simplification: tolerance as a share of the region's perimeter (min. 1 pixel)
-QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _GUARD = threading.Lock()
@@ -155,13 +156,15 @@ def targets(project_dir: Path, task_id: int, scope: str) -> list[str]:
     """Active images of a task that a pre-annotation with ``scope`` would fill.
 
     Raises:
-        ValueError: unknown scope or task.
+        CodedError: ``scope_invalid`` or ``task_not_found``.
     """
     if scope not in SCOPES:
-        raise ValueError(f"The images must be one of: {', '.join(SCOPES)}.")
+        raise CodedError(
+            "scope_invalid", f"The images must be one of: {', '.join(SCOPES)}.", scopes=list(SCOPES)
+        )
     task = next((t for t in TaskStore(project_dir).load() if t.id == task_id), None)
     if task is None:
-        raise ValueError("This task does not exist.")
+        raise CodedError("task_not_found", "This task does not exist.", task=task_id)
     manifest = Manifest(project_dir).load()
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}

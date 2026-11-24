@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from activelabel.preannotate import QUEUED, RUNNING, PreannotationStore
+from activelabel.jobs import QUEUED, RUNNING
+from activelabel.preannotate import PreannotationStore
 from activelabel.training.models import EXPORT_FILES, WEIGHTS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public, public_for, suggest_mapping
 from activelabel.training.runs import RunNotFound
