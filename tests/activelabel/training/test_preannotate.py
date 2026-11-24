@@ -162,6 +162,7 @@ def test_preannotate_end_to_end(pre):
             "dropped_class": 0,
             "dropped_geometry": 0,
             "unreadable": 0,
+            "removed_classes": [],
         }
         and run["done"] == 6
     )
@@ -359,3 +360,26 @@ def test_nothing_is_written_when_the_project_changed_during_the_run(pre, monkeyp
     )
     assert run["status"] == "failed" and "nothing was written" in run["error"]
     assert not [i for i in load_annotations(state.store.dir(1)).images if i in empty]
+
+
+def _finished(client, number):
+    return wait_for(
+        lambda: (
+            (r := client.get("/api/projects/1/preannotations").json()["runs"][0])["number"] == number
+            and r["status"] in ("done", "failed")
+            and r
+        )
+    )
+
+
+def test_classes_the_project_lost_are_reported_or_refuse_the_run(pre):
+    client, state, runner, empty = pre
+    task_id = TaskStore(state.store.dir(1)).load()[0].id
+    body = {"model": 1, "task": task_id, "threshold": 0.4}
+    state.store.update(1, classes=["a"])  # the model also knows "b"
+    run = _finished(client, client.post("/api/projects/1/preannotations", json=body).json()["number"])
+    assert run["status"] == "done" and run["counts"]["removed_classes"] == ["b"]
+    state.store.update(1, classes=["c"])  # nothing of the model is left
+    body["scope"] = "unreviewed"
+    run = _finished(client, client.post("/api/projects/1/preannotations", json=body).json()["number"])
+    assert run["status"] == "failed" and "None of the classes of this model" in run["error"]

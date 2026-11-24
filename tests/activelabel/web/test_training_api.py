@@ -196,3 +196,13 @@ def test_deleting_a_version_checks_the_runs_that_use_it(tmp_path):
     assert asked.status_code == 409 and f"r{queued}" in asked.json()["detail"]
     assert client.get(path).status_code == 200
     assert client.request("DELETE", path, json={"confirm": True, "confirm_runs": True}).status_code == 200
+
+
+def test_a_version_with_classes_the_project_lost_cannot_train(tmp_path):
+    client, state = _setup(tmp_path)
+    state.store.update(1, classes=["a"])  # the version has "a" and "b"
+    refused = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"})
+    assert refused.status_code == 400 and refused.json()["code"] == "dataset_classes_removed"
+    assert refused.json()["params"]["classes"] == ["b"]
+    state.store.update(1, classes=["a", "b", "c"])  # a class that was only added is fine
+    assert client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).status_code == 200
