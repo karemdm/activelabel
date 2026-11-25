@@ -420,7 +420,6 @@ def test_oks_worked_example(det):
     assert det.oks_matrix(pred, blind, areas)[0, 0] == 0.0
 
 
-@pytest.mark.xfail(strict=True, reason="#345: COCO ignores objects without labelled keypoints")
 def test_keypoint_map_ignores_objects_without_points(det):
     """An object with no labelled keypoint should not count as a missed object in the keypoint mAP."""
     torch = pytest.importorskip("torch")

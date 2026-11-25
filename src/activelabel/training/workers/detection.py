@@ -317,7 +317,9 @@ class APAccumulator:
     """Collects detections image by image and computes per-class AP (COCO protocol).
 
     AP is averaged over IoU thresholds .50:.05:.95 (``ap50_95``) and also reported at .50 (``ap50``);
-    the mean is taken over the classes that have ground truth.
+    the mean is taken over the classes that have ground truth. Ground-truth objects marked as ignored
+    (as COCO does for a pose without labelled points) are not counted, and a detection that only
+    matches an ignored object is dropped (neither a true nor a false positive).
     """
 
     def __init__(self, n_classes: int, thresholds: Array = IOU_THRESHOLDS) -> None:
@@ -329,27 +331,29 @@ class APAccumulator:
         """
         self.n_classes = n_classes
         self.thresholds = [float(t) for t in thresholds]
-        self._records: list[list[tuple[Array, Array]]] = [[] for _ in range(n_classes)]
+        self._records: list[list[tuple[Array, Array, Array]]] = [[] for _ in range(n_classes)]
         self._n_gt = [0] * n_classes
 
-    def add(self, scores: Array, labels: Array, gt_labels: Array, ious: Array) -> None:
+    def add(self, scores: Array, labels: Array, gt_labels: Array, ious: Array, ignore: Array = None) -> None:
         """Add one image.
 
         Args:
             scores: Confidence of each detection.
             labels: 0-based class of each detection.
             gt_labels: 0-based class of each ground-truth object.
-            ious: ``(detections, ground truth)`` IoU matrix (of boxes or of masks).
+            ious: ``(detections, ground truth)`` IoU matrix (of boxes, masks or keypoints).
+            ignore: Per ground-truth object, True when it must be ignored (None = none is).
         """
         scores, labels, gt_labels = np.asarray(scores), np.asarray(labels), np.asarray(gt_labels)
         ious = np.asarray(ious).reshape(len(labels), len(gt_labels))
+        ignored = np.zeros(len(gt_labels), dtype=bool) if ignore is None else np.asarray(ignore, dtype=bool)
         for c in {int(x) for x in labels} | {int(x) for x in gt_labels}:
             if not 0 <= c < self.n_classes:
                 continue
             pred, truth = np.where(labels == c)[0], np.where(gt_labels == c)[0]
-            self._n_gt[c] += len(truth)
+            self._n_gt[c] += int((~ignored[truth]).sum())
             if len(pred):
-                self._records[c].append((scores[pred], ious[np.ix_(pred, truth)]))
+                self._records[c].append((scores[pred], ious[np.ix_(pred, truth)], ignored[truth]))
 
     def _hits(self, c: int, threshold: float) -> tuple[Array, Array]:
         """Scores and true-positive flags of class ``c`` at an IoU ``threshold`` (greedy matching).
@@ -359,23 +363,26 @@ class APAccumulator:
             threshold: Lowest IoU for a detection to match a ground-truth object.
 
         Returns:
-            ``(scores, hits)`` of the class's detections, each image's detections sorted by score.
+            ``(scores, hits)`` of the class's detections, each image's detections sorted by score;
+            detections that only match an ignored object are left out.
         """
         all_scores: list[Array] = []
         all_hits: list[Array] = []
-        for scores, ious in self._records[c]:
+        for scores, ious, ignored in self._records[c]:
             order = np.argsort(-scores, kind="stable")
             used = np.zeros(ious.shape[1], dtype=bool)
             hits = np.zeros(len(scores), dtype=bool)
-            if ious.shape[1]:
-                for rank, i in enumerate(order):
-                    candidates = np.where(used, -1.0, ious[i])
-                    j = int(np.argmax(candidates))
-                    if candidates[j] >= threshold:
+            keep = np.ones(len(scores), dtype=bool)
+            for rank, i in enumerate(order):
+                for pool in (~ignored, ignored):  # objects that count first, as in COCO
+                    candidates = np.where(used | ~pool, -1.0, ious[i])
+                    j = int(np.argmax(candidates)) if len(candidates) else -1
+                    if j >= 0 and candidates[j] >= threshold:
                         used[j] = True
-                        hits[rank] = True
-            all_scores.append(scores[order])
-            all_hits.append(hits)
+                        hits[rank], keep[rank] = not ignored[j], not ignored[j]
+                        break
+            all_scores.append(scores[order][keep])
+            all_hits.append(hits[keep])
         if not all_scores:
             return np.zeros(0), np.zeros(0, dtype=bool)
         return np.concatenate(all_scores), np.concatenate(all_hits)
@@ -440,18 +447,21 @@ def match_pairs(
     return pairs
 
 
-def oks_matrix(pred: Array, gt: Array, areas: Array) -> Array:
+def oks_matrix(pred: Array, gt: Array, areas: Array, boxes: Array = None) -> Array:
     """``(detections, ground truth)`` object keypoint similarity (OKS), as in COCO.
 
     ``pred`` and ``gt`` are ``(N, K, 3)`` absolute ``[x, y, visibility]``; ``areas`` is the scale
     ``s**2`` of each ground-truth object (its box area). Every point has the same tolerance
     ``sigma = 1 / K`` (COCO's per-point values exist only for the 17 body points); only the ground
-    truth's labelled points count. An object without labelled points matches nothing (OKS 0).
+    truth's labelled points count. An object without labelled points has OKS 0, or, with ``boxes``,
+    COCO's value: every predicted point is measured to the object's box enlarged to three times its
+    size (0 inside it), so a detection on such an object can match it and be ignored with it.
 
     Args:
         pred: Predicted keypoints, ``(N, K, 3)``.
         gt: Ground-truth keypoints, ``(M, K, 3)``.
         areas: Box area of each ground-truth object.
+        boxes: ``(M, 4)`` xyxy boxes of the ground truth (None = no fallback for objects without points).
 
     Returns:
         The ``(N, M)`` OKS matrix.
@@ -466,7 +476,16 @@ def oks_matrix(pred: Array, gt: Array, areas: Array) -> Array:
     similarity = np.exp(-squared / scale[None, :, None])
     counts = visible.sum(1)
     total = (similarity * visible[None]).sum(-1)
-    return np.where(counts > 0, total / np.maximum(counts, 1), 0.0)
+    out = np.where(counts > 0, total / np.maximum(counts, 1), 0.0)
+    if boxes is not None and not counts.all():
+        box = np.asarray(boxes, dtype=np.float64).reshape(-1, 4)
+        size = box[:, 2:] - box[:, :2]
+        low, high = box[:, :2] - size, box[:, 2:] + size  # COCO: x - w .. x + 2w
+        points = pred[:, None, :, :2]  # (D, 1, K, 2)
+        outside = np.maximum(0.0, low[None, :, None] - points) + np.maximum(0.0, points - high[None, :, None])
+        fallback = np.exp(-(outside**2).sum(-1) / scale[None, :, None]).mean(-1)
+        out = np.where(counts > 0, out, fallback)
+    return out
 
 
 def pck_counts(
@@ -874,8 +893,9 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
                 if points_ap is not None:
                     pred["keypoints"] = out["keypoints"].cpu().numpy()
                     areas = (gt["boxes"][:, 2] - gt["boxes"][:, 0]) * (gt["boxes"][:, 3] - gt["boxes"][:, 1])
-                    ious = oks_matrix(pred["keypoints"], gt["keypoints"], areas)
-                    points_ap.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious)
+                    ious = oks_matrix(pred["keypoints"], gt["keypoints"], areas, gt["boxes"])
+                    unlabelled = ~(gt["keypoints"][..., 2] > 0).any(1)  # COCO ignores poses without points
+                    points_ap.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious, unlabelled)
                     hit, seen = pck_counts(pred, gt)
                     correct, total = correct + hit, total + seen
     result: dict[str, Any] = boxes_ap.summary(classes)
