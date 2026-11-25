@@ -538,3 +538,13 @@ def wait_job(client, job_id):
             return job
         time.sleep(0.05)
     raise AssertionError("job did not finish")
+
+
+def test_import_project_keeps_the_typed_name_and_description(tasks_remote, tmp_path):
+    """#565: the name typed in the form ("meu_dataset_round_1") must not become the CVAT name."""
+    store = ProjectStore(tmp_path / "projects")
+    result = run(
+        store, tmp_path, kind="project", remote_id="1", name="meu_dataset_round_1", description="Minha"
+    )
+    project = store.get(result["project_id"])
+    assert (result["name"], project.name, project.description) == ("meu_dataset_round_1",) * 2 + ("Minha",)
