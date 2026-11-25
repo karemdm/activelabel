@@ -399,14 +399,22 @@ def _find_remote(
 
     Raises:
         SyncError: there is no remote project and ``create`` is not set.
+        RemoteNotFound: the linked remote project was deleted in the tool (code ``remote_gone``).
     """
     if link:
-        return remote.get(settings, str(link["remote_id"]))
+        try:
+            return remote.get(settings, str(link["remote_id"]))
+        except RemoteNotFound:
+            raise RemoteNotFound(
+                "The remote project linked to this project no longer exists.", "remote_gone"
+            ) from None
     if remote_id:
         return remote.get(settings, str(remote_id))
     info = remote.find(settings, remote_name(project))
     if info is None and not create:
-        raise SyncError("There is no remote project to synchronise with. Send the images first.")
+        raise SyncError(
+            "There is no remote project to synchronise with. Send the images first.", "sync_no_remote"
+        )
     return info
 
 
@@ -452,17 +460,17 @@ def _scope(
         SyncError: the scope is unknown, or the task or job does not exist.
     """
     if scope not in SCOPES:
-        raise SyncError("The scope must be project, task or job.")
+        raise SyncError("The scope must be project, task or job.", "scope_unknown", scope=str(scope))
     if scope == "project":
         return tasks, [i for t in tasks for i in t.images]
     found = next((t for t in tasks if t.id == task_id), None)
     if found is None:
-        raise SyncError("This task does not exist (it may have been deleted).")
+        raise SyncError("This task does not exist (it may have been deleted).", "task_not_found")
     if scope == "task":
         return [found], list(found.images)
     chosen = next((j for j in task_jobs(found) if j.n == job), None)
     if chosen is None:
-        raise SyncError("This job does not exist in the task.")
+        raise SyncError("This job does not exist in the task.", "job_not_found")
     return [found], list(chosen.image_ids)
 
 
@@ -539,7 +547,7 @@ def make_plan(
         ToolError: the tool's own problems (readable message).
     """
     if direction not in DIRECTIONS:
-        raise SyncError("The direction must be both, pull or push.")
+        raise SyncError("The direction must be both, pull or push.", "direction_invalid")
     project = store.get(project_id)
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
@@ -870,7 +878,7 @@ def _choice(value: Any, what: str) -> str | None:
     if value in (None, ""):
         return None
     if value not in CHOICES:
-        raise SyncError(f"{what} must be 'local' or 'remote'.")
+        raise SyncError(f"{what} must be 'local' or 'remote'.", "resolution_invalid")
     return str(value)
 
 
@@ -909,7 +917,7 @@ def _check_unchanged(
         d = decisions[image_id]
         item = current.get(d["key"])
         if (item is not None) != d.get("there", item is not None):
-            raise RemoteChanged(CHANGED_REMOTE)
+            raise RemoteChanged(CHANGED_REMOTE, "sync_remote_changed")
         rec = records.get(image_id)
         mine = local.get(image_id, []) if rec is not None else []
         entry = link_items.get(image_id)
@@ -919,12 +927,12 @@ def _check_unchanged(
             else []
         )
         if item is not None and links.label_hash(theirs) != d["remote_hash"]:
-            raise RemoteChanged(CHANGED_REMOTE)
+            raise RemoteChanged(CHANGED_REMOTE, "sync_remote_changed")
         here = rec is not None and rec.status == ACTIVE
         if here != d.get("here", here):
-            raise RemoteChanged(CHANGED_LOCAL)
+            raise RemoteChanged(CHANGED_LOCAL, "sync_local_changed")
         if rec is not None and links.label_hash(local.get(image_id, [])) != d["local_hash"]:
-            raise RemoteChanged(CHANGED_LOCAL)
+            raise RemoteChanged(CHANGED_LOCAL, "sync_local_changed")
 
 
 def _ids_of(final_action: dict[str, str], *actions: str) -> list[str]:
@@ -983,9 +991,10 @@ def apply_plan(
     project_dir = store.dir(project_id)
     plan = load_plan(project_dir, plan_id)
     if plan is None or plan.get("tool") != tool:
-        raise SyncError("This comparison no longer exists. Synchronise again.")
+        raise SyncError("This comparison no longer exists. Synchronise again.", "plan_not_found")
     if "link" in plan and plan["link"] != _link_token(links.get_link(project_dir, tool)):
-        raise RemoteChanged(CHANGED_LINK)  # another synchronisation (or a send) ran after this comparison
+        # another synchronisation (or a send) ran after this comparison
+        raise RemoteChanged(CHANGED_LINK, "sync_link_changed")
     fallback = _choice(default, "The default")
     decisions: dict[str, dict[str, Any]] = plan["decisions"]
     final_action: dict[str, str] = {}
@@ -1022,7 +1031,7 @@ def apply_plan(
     current: dict[str, RemoteItem] = {}
     if to_create:
         if remote.find(settings, remote_name(project)) is not None:
-            raise RemoteChanged(CHANGED_REMOTE)
+            raise RemoteChanged(CHANGED_REMOTE, "sync_remote_changed")
     else:
         wanted = sorted({_key_task(d["key"]) for d in decisions.values() if d["key"]})
         if wanted:
@@ -1036,7 +1045,7 @@ def apply_plan(
             image_id not in records
             or links.label_hash(local.get(image_id, [])) != decisions[image_id]["local_hash"]
         ):
-            raise RemoteChanged(CHANGED_LOCAL)
+            raise RemoteChanged(CHANGED_LOCAL, "sync_local_changed")
 
     # classes renamed in the tool (checked again now): renamed here too, so they are not created again
     old_link = links.get_link(project_dir, tool) or {}
@@ -1273,7 +1282,10 @@ def _safe_drops(
         if extra:
             raise RemoteChanged(
                 f"The task '{spec.get('name') or rt}' in the tool has {len(extra)} image(s) that were added "
-                "after the last synchronisation, so it is not deleted. Synchronise again."
+                "after the last synchronisation, so it is not deleted. Synchronise again.",
+                "sync_task_has_new_images",
+                task=str(spec.get("name") or rt),
+                count=len(extra),
             )
         drop.add(rt)
     return drop

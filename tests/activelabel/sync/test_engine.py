@@ -3,6 +3,7 @@ from sync_fakes import SETTINGS, FakeRemote, box, make_project, progress
 
 from activelabel.annotate import diff as diffing
 from activelabel.images.manifest import Manifest
+from activelabel.importing.common import RemoteNotFound
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
 from activelabel.sync import engine, links
 
@@ -314,3 +315,10 @@ def test_a_class_renamed_in_the_tool_is_renamed_here_and_not_created_again(env):
     assert "cat" not in env.remote.projects[env.rid]["classes"]
     assert [lb.label for lb in env.remote.labels(env.rid, "img2.png")] == ["kitten"]
     assert list(env.dir.glob("annotations.*.rename.bak.json"))
+
+
+def test_a_linked_project_deleted_in_the_tool_says_remote_gone(env):
+    del env.remote.projects[env.rid]
+    with pytest.raises(RemoteNotFound) as gone:
+        plan(env)
+    assert gone.value.code == "remote_gone"

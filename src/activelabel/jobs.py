@@ -8,6 +8,7 @@ calls ``progress.check()`` between steps: when someone cancels the job, ``check`
 from __future__ import annotations
 
 import builtins
+import logging
 import threading
 import traceback
 import uuid
@@ -20,9 +21,11 @@ from activelabel.constants import CANCELLED, DONE, FAILED, FINISHED, QUEUED, RUN
 from activelabel.storage import now
 from activelabel.textcheck import message_of
 
+LOG = logging.getLogger(__name__)
+
 
 def readable_error(exc: BaseException) -> str:
-    """Message shown to people: no class name (it stays in the traceback of the job result).
+    """Message shown to people: no class name (it stays in the log, with the traceback).
 
     FiftyOne database failures get a hint, with the technical detail at the end.
 
@@ -61,6 +64,8 @@ class Job:
     result: dict[str, Any] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)  # what the job is about (e.g. the run number)
     error: str = ""
+    error_code: str = ""  # stable code of a failure the interface translates (see web/errors.py)
+    error_params: dict[str, Any] = field(default_factory=dict)  # values for that translated text
     created: str = field(default_factory=now)
     started: str = ""
     finished: str = ""
@@ -176,8 +181,12 @@ class JobManager:
         except Cancelled:
             job.status = CANCELLED
         except Exception as exc:  # noqa: BLE001 - shown to the user, the service keeps running
+            LOG.error("Job %s (%s) failed: %s", job.id, job.kind, traceback.format_exc(limit=5))
             job.error = readable_error(exc)
-            job.result = {"traceback": traceback.format_exc(limit=5)}
+            code, params = getattr(exc, "code", ""), getattr(exc, "params", {})
+            job.error_code = code if isinstance(code, str) else ""
+            job.error_params = dict(params) if isinstance(params, dict) else {}
+            job.result = {}
             job.status = FAILED  # last: a reader that sees FAILED finds the error and the traceback
         job.finished = now()
 

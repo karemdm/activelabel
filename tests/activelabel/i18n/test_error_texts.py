@@ -18,6 +18,10 @@ CODED = {
     "CodedError": 0,
     "ConfigError": 0,
     "ModelError": 0,
+    "RemoteChanged": 1,
+    "RemoteNotFound": 1,
+    "SyncError": 1,
+    "ToolError": 1,
 }  # name -> position of the code
 LEGACY_BODIES = {"file_damaged", "task_change_annotations", "classes_in_use", "no_images_added"}
 
