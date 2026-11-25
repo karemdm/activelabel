@@ -28,7 +28,7 @@ from activelabel.storage import write_json
 from activelabel.sync import engine, links
 from activelabel.sync.cvat_remote import CvatRemote
 from activelabel.tasks import Task
-from activelabel.tasks_store import ImageTask
+from activelabel.tasks_store import ImageTask, TaskStore
 
 SETTINGS = ToolSettings("cvat", "https://cvat.test", "ana", "not-a-real-secret")
 W, H = 200, 100
@@ -1361,3 +1361,29 @@ def test_defect_rotated_keyframes_of_a_track_are_read_unrotated(video: Env) -> N
     sync(env)
     x0, y0, x1, y1 = rotated_box([20, 20, 60, 60], 45)
     assert track_boxes(env)[0] == pytest.approx(px(x0, y0, x1, y1), abs=1e-4)
+
+
+# -- task names (#393) ----------------------------------------------------------------------------------
+def test_a_task_renamed_here_sends_exactly_the_name_to_cvat(detection: Env) -> None:
+    first_push(detection)
+    env = detection
+    TaskStore(env.dir).rename(1, "Renamed here")
+    p, result = sync(env)
+    assert p["tasks_rename"] == [
+        {"task": 1, "remote_task": str(env.tid), "old": "T", "new": "Renamed here", "direction": "push"}
+    ]
+    assert result["tasks_renamed"] == 1 and result["warnings"] == []
+    (sent,) = env.server.calls("PATCH", f"/api/tasks/{env.tid}")
+    assert sent.path == f"/api/tasks/{env.tid}" and sent.body == {"name": "Renamed here"}
+    assert [t.name for t in env.remote.tasks(SETTINGS, env.rid)] == ["Renamed here"]
+    assert plan(env)["tasks_rename"] == []
+
+
+def test_a_task_renamed_in_cvat_is_renamed_here(detection: Env) -> None:
+    first_push(detection)
+    env = detection
+    env.remote.rename_task(SETTINGS, str(env.tid), "Renamed in CVAT")
+    p, result = sync(env)
+    assert [r["direction"] for r in p["tasks_rename"]] == ["pull"] and result["tasks_renamed"] == 1
+    assert TaskStore(env.dir).get(1).name == "Renamed in CVAT"
+    assert plan(env)["tasks_rename"] == []

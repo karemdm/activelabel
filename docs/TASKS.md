@@ -88,10 +88,19 @@ per ActiveLabel task (same name, same images in the same order, `segment_size = 
 jobs match one to one. The link (`links.json`, docs/SYNC.md) records the mapping:
 
 ```json
-"tasks": {"<task id>": {"remote_task": 123, "jobs": {"1": 456, "2": 457}}}
+"tasks": {"<task id>": {"remote_task": 123, "name": "Field trip", "jobs": {"1": 456, "2": 457}}}
 ```
 
-and items keep the key `"<remote task>:<frame>"`.
+and items keep the key `"<remote task>:<frame>"`. `name` is the task name as it was at the last
+synchronisation.
+
+**Task names** follow the same three-way rule as the labels, against that recorded name: renamed only
+here, the CVAT task is renamed (`PATCH /api/tasks/{id}` with the name only); renamed only in CVAT, the
+local task takes that name (not in a `push`); renamed on both sides to different names, both names are
+kept and the synchronisation reports a warning until one side is changed. `push` always sends the local
+name and `pull` always takes the CVAT one. A rename that fails (for example a name already used by
+another local task) is a warning and is tried again at the next synchronisation. Renaming a task here
+does not contact CVAT by itself: the new name reaches CVAT on the next synchronisation.
 
 **Sending to CVAT is synchronising.** The annotation sessions that created separate 50-image CVAT
 tasks are replaced, for CVAT, by the sync with the mirror project. The person chooses the scope:

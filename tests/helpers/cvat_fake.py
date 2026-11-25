@@ -677,6 +677,7 @@ class FakeCvatServer:
             (("GET", r"/api/tasks"), self._list_tasks),
             (("POST", r"/api/tasks"), self._post_task),
             (("GET", r"/api/tasks/(\d+)"), self._get_task),
+            (("PATCH", r"/api/tasks/(\d+)"), self._patch_task),
             (("DELETE", r"/api/tasks/(\d+)"), self._delete_task),
             (("POST", r"/api/tasks/(\d+)/data"), self._post_data),
             (("GET", r"/api/tasks/(\d+)/data"), self._get_frame),
@@ -1008,6 +1009,18 @@ class FakeCvatServer:
     def _get_task(self, params: dict[str, Any], kw: dict[str, Any], tid: str) -> Response:
         task = self.tasks.get(int(tid))
         return Response(200, self._task_json(task)) if task else Response(404, {"detail": "Not found."})
+
+    def _patch_task(self, params: dict[str, Any], kw: dict[str, Any], tid: str) -> Response:
+        task = self.tasks.get(int(tid))
+        if task is None:
+            return Response(404, {"detail": "Not found."})
+        body = kw.get("json") or {}
+        _unknown(body, {"name", "bug_tracker", "subset", "owner_id", "assignee_id"}, "task")
+        if "name" in body:
+            if not body["name"]:
+                raise BadRequest("task: name may not be blank")
+            task.name = body["name"]
+        return Response(200, self._task_json(task))
 
     def _delete_task(self, params: dict[str, Any], kw: dict[str, Any], tid: str) -> Response:
         task = self.tasks.pop(int(tid), None)

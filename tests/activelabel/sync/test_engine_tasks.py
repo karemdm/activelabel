@@ -660,3 +660,75 @@ def test_remote_frames_with_the_same_base_name_or_the_same_content_are_all_linke
     assert (
         again["remote_only"]["count"] == 1 and again["tasks_new"] == []
     )  # only the duplicate frame stays apart
+
+
+# -- task names (#393) ---------------------------------------------------------------
+def remote_name(env, local_id):
+    return next(t.name for t in env.remote.tasks(SETTINGS, env.rid) if t.id == env.tids[local_id])
+
+
+def test_a_task_renamed_here_is_renamed_in_the_tool(synced):
+    env = synced
+    TaskStore(env.dir).rename(1, "Alpha two")
+    p = plan(env)
+    assert p["tasks_rename"] == [
+        {"task": 1, "remote_task": env.tids[1], "old": "Alpha", "new": "Alpha two", "direction": "push"}
+    ]
+    result = apply(env, p["plan_id"])
+    assert result["tasks_renamed"] == 1 and result["warnings"] == []
+    assert ("rename_task", env.tids[1], "Alpha two") in env.remote.calls
+    assert remote_name(env, 1) == "Alpha two" and remote_name(env, 2) == "Beta"
+    assert links.get_link(env.dir, "cvat")["tasks"]["1"]["name"] == "Alpha two"
+    assert plan(env)["tasks_rename"] == []  # nothing left to send
+
+
+def test_a_task_renamed_in_the_tool_is_renamed_here(synced):
+    env = synced
+    env.remote.task_meta[env.rid][env.tids[2]]["name"] = "Beta in CVAT"
+    p = plan(env)
+    assert [(r["task"], r["new"], r["direction"]) for r in p["tasks_rename"]] == [(2, "Beta in CVAT", "pull")]
+    assert apply(env, p["plan_id"])["tasks_renamed"] == 1
+    assert [t.name for t in TaskStore(env.dir).load()] == ["Alpha", "Beta in CVAT"]
+    assert links.get_link(env.dir, "cvat")["tasks"]["2"]["name"] == "Beta in CVAT"
+    assert not any(c[0] == "rename_task" for c in env.remote.calls)
+    assert plan(env)["tasks_rename"] == []
+
+
+def test_a_task_renamed_on_both_sides_keeps_both_names_and_warns(synced):
+    env = synced
+    TaskStore(env.dir).rename(1, "Here")
+    env.remote.task_meta[env.rid][env.tids[1]]["name"] = "There"
+    p = plan(env)
+    assert p["tasks_rename"] == [] and p["tasks_rename_conflicts"][0]["local"] == "Here"
+    result = apply(env, p["plan_id"])
+    assert result["tasks_renamed"] == 0 and len(result["warnings"]) == 1
+    assert TaskStore(env.dir).get(1).name == "Here" and remote_name(env, 1) == "There"
+    assert plan(env)["tasks_rename_conflicts"]  # still reported until one side is changed
+
+
+def test_direction_decides_a_task_name_difference(synced):
+    env = synced
+    TaskStore(env.dir).rename(1, "Here")
+    env.remote.task_meta[env.rid][env.tids[2]]["name"] = "There"
+    p = plan(env, direction="push")
+    assert [(r["task"], r["direction"]) for r in p["tasks_rename"]] == [(1, "push"), (2, "push")]
+    p = plan(env, direction="pull")
+    assert [(r["task"], r["new"], r["direction"]) for r in p["tasks_rename"]] == [
+        (1, "Alpha", "pull"),
+        (2, "There", "pull"),
+    ]
+
+
+def test_a_task_rename_that_fails_is_a_warning(synced, monkeypatch):
+    env = synced
+    TaskStore(env.dir).rename(1, "Alpha two")
+
+    def refuse(settings, task_id, name):
+        raise ToolError("CVAT refused the name.")
+
+    monkeypatch.setattr(env.remote, "rename_task", refuse)
+    result = apply(env, plan(env)["plan_id"])
+    assert result["tasks_renamed"] == 0
+    assert "Alpha two" in result["warnings"][0] and "CVAT refused" in result["warnings"][0]
+    assert links.get_link(env.dir, "cvat")["tasks"]["1"]["name"] == "Alpha"  # still to send next time
+    assert plan(env)["tasks_rename"][0]["new"] == "Alpha two"

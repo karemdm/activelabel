@@ -1392,6 +1392,19 @@ class CvatRemote:
             if not isinstance(err, RemoteNotFound):
                 raise
 
+    def rename_task(self, settings: ToolSettings, task_id: str, name: str) -> None:
+        """Change the name of a CVAT task (``PATCH /api/tasks/{id}`` with the name only).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            task_id: The CVAT task id.
+            name: The new name.
+
+        Raises:
+            ToolError: CVAT refuses the request, the task is gone or CVAT cannot be reached.
+        """
+        self._api(settings).request("PATCH", f"/api/tasks/{task_id}", json={"name": name})
+
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
         """The original image of one frame.
 
