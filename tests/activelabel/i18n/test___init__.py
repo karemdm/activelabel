@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
+from frontend import js_source
 
 from activelabel import i18n
 
@@ -75,7 +76,7 @@ def test_messages_follow_changes_to_the_files(tmp_path, monkeypatch):
 def test_every_key_the_screen_uses_exists():
     """Keys written literally in app.js and the templates (dynamic ones are checked by their tests)."""
     web = Path(i18n.__file__).parents[1] / "web"
-    js = (web / "static" / "app.js").read_text(encoding="utf-8")
+    js = js_source()
     html = "".join(p.read_text(encoding="utf-8") for p in (web / "templates").glob("*.html"))
     used = set(re.findall(r"(?<![\w.])tr?\(\s*'([A-Za-z0-9_.]+)'", js)) | set(
         re.findall(r"(?<![\w.])t\(\s*['\"]([A-Za-z0-9_.]+)['\"]", html)
@@ -89,7 +90,7 @@ SRC = Path(i18n.__file__).parents[1]
 
 def test_every_plural_key_has_both_forms():
     """``tn('key', n)`` reads ``key_one`` and ``key_other``: a missing form would show the raw key."""
-    js = (SRC / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    js = js_source()
     keys = set(re.findall(r"(?<![\w.])tn\(\s*'([A-Za-z0-9_.]+)'", js))
     assert len(keys) > 20
     en = load("en")
