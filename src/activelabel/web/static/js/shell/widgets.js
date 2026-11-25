@@ -1,7 +1,7 @@
 /* Small shared widgets: chips input, class chips, progress bar and empty state. */
 import { openModal } from './dialogs.js';
 import { add, el, fill, icon } from './dom.js';
-import { num, t } from './i18n.js';
+import { num, t, tr } from './i18n.js';
 
 /** Chips input: type a name and press Enter (or comma); click x to remove. */
 export function chipsInput(id, initial) {
@@ -119,4 +119,18 @@ export function progressBar(done, total, label) {
 /* An empty list says what is missing and puts the action in the same place; the header button is hidden then. */
 export function emptyState(iconName, text, ...actions) {
   return el('div', { class: 'ds-empty' }, icon(iconName, 28), el('p', { class: 'muted' }, text), actions.length ? el('div', { class: 'ds-empty-actions' }, ...actions) : null);
+}
+
+/** One problem of an import or check report: its message, how many times, and up to five examples. */
+export function problemRow(p) {
+  const message = tr(`problem.${p.code}`, p.message || p.code);
+  const examples = (p.examples || []).slice(0, 5);
+  const head = el('span', { class: `problem-head ${p.level === 'error' ? 'bad' : 'warn'}` },
+    icon(p.level === 'error' ? 'error' : 'warning'),
+    el('span', { class: 'problem-msg' }, message),
+    p.count ? el('span', { class: 'count' }, `×${num(p.count)}`) : null);
+  if (!examples.length) return el('li', { class: 'problem' }, head);
+  return el('li', { class: 'problem' },
+    el('details', null, el('summary', null, head),
+      el('ul', { class: 'plain examples' }, ...examples.map((x) => el('li', null, el('code', null, x))))));
 }

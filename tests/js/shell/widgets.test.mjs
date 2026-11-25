@@ -11,7 +11,7 @@ if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { chipsInput, classList, classLine, progressBar, emptyState } = await import(
+const { chipsInput, classList, classLine, problemRow, progressBar, emptyState } = await import(
   '../../../src/activelabel/web/static/js/shell/widgets.js'
 );
 
@@ -65,4 +65,17 @@ test('progressBar rounds and caps the percentage; emptyState shows its actions',
   assert.equal(empty.querySelector('p').textContent, 'Nothing here');
   assert.ok(empty.querySelector('.ds-empty-actions button'));
   assert.equal(emptyState('info', 'Nothing').querySelector('.ds-empty-actions'), null);
+});
+
+test('problemRow shows the translated problem, its count and up to five examples', () => {
+  setMessages({ 'problem.bad_box': 'Box outside the image' }, 'en');
+  const row = problemRow({ code: 'bad_box', level: 'error', count: 7, examples: ['a', 'b', 'c', 'd', 'e', 'f'] });
+  assert.equal(row.querySelector('.problem-msg').textContent, 'Box outside the image');
+  assert.ok(row.querySelector('.problem-head.bad'));
+  assert.equal(row.querySelector('.count').textContent, '×7');
+  assert.equal(row.querySelectorAll('.examples li').length, 5);
+  const plain = problemRow({ code: 'unknown', message: 'Server words', level: 'warning' });
+  assert.equal(plain.querySelector('details'), null);
+  assert.equal(plain.querySelector('.problem-msg').textContent, 'Server words');
+  assert.ok(plain.querySelector('.problem-head.warn'));
 });
