@@ -9,6 +9,7 @@ import pytest
 from frontend import js_source
 
 from activelabel import i18n
+from activelabel.annotate import diff
 
 I18N_DIR = Path(i18n.__file__).parent
 
@@ -171,7 +172,6 @@ def test_session_scopes_have_a_label():
 
 def test_every_problem_of_a_pulled_session_has_a_text():
     """The problems of a diff (``annotate/diff.py``) are shown by ``problem.<code>``, not by their message."""
-    from activelabel.annotate import diff
 
     for lang in ("en", "pt"):
         messages = load(lang)
