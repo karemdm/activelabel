@@ -897,6 +897,10 @@
   };
   const statusLabel = (st) => tr(`annotate.status.${st}`, st || '?');
   const isHttp = (u) => /^https?:\/\//i.test(String(u || ''));
+  /** The host of a server address (the address itself when it cannot be read). */
+  const serverName = (url) => {
+    try { return new URL(url).host; } catch (e) { return String(url); }
+  };
   const imagesOf = (s) => (Array.isArray(s.images) ? s.images.length : Number(s.images) || 0);
 
   /** Read-only dialog with the tasks of the CVAT server, per project and the loose ones grouped by name. */
@@ -946,7 +950,7 @@
   function openToolSetup(tool, entry, onChange) {
     entry = entry || {};
     const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
-    const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
+    const urlInput = el('input', { id: 'tool-url', type: 'text', inputmode: 'url', autocomplete: 'off', value: entry.url || '', placeholder: DEFAULT_URLS[tool] || '', 'aria-describedby': 'tool-url-help' });
     const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
     const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: entry.configured ? '••••••••' : null, 'aria-describedby': 'tool-secret-help' });
     const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
@@ -2816,6 +2820,10 @@
             ready ? el('button', { type: 'button', class: 'btn small', id: 'cvat-audit', onclick: openCvatAudit }, t('audit.button')) : null,
             link ? unlink : null,
             el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: name }), onclick: () => openSetup('cvat') }, t('annotate.settings'))));
+        const entry = state.tools.cvat || {};
+        const connected = ready && entry.url
+          ? el('p', { class: 'muted small cvat-connected' }, t('annotate.connected_as', { server: serverName(entry.url), user: entry.username || '?' }))
+          : null;
         const facts = link
           ? el('dl', { class: 'facts link-facts' },
               el('div', null, el('dt', null, t('sync.remote_project', { tool: name })), el('dd', null,
@@ -2825,7 +2833,7 @@
               el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
               el('div', null, el('dt', null, t('sync.last')), el('dd', null, link.last_sync ? fmtDateTime(link.last_sync) : t('sync.never'))))
           : el('p', { class: 'muted' }, t('sync.creates', { tool: name }));
-        fill(cvatInfoBox, head, facts);
+        fill(cvatInfoBox, head, connected, facts);
       }
 
       function drawCvatDirection() {
@@ -2858,7 +2866,7 @@
       let cvatSig = null;
       function cvatDraw(force) {
         if (!state.loaded) return;
-        const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length]);
+        const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length, state.tools.cvat]);
         if (!force && sig === cvatSig) return;
         cvatSig = sig;
         drawCvatInfo();
