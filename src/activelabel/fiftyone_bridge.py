@@ -325,12 +325,30 @@ def _apply(
     sample["time"] = record.time if record.video else None
     tags = [t for t in sample.tags if t != EXCLUDED_TAG]
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
-    if protected and is_edited(sample, task):  # edits not brought back yet: FiftyOne keeps its version
-        return
+    if is_edited(sample, task) if protected else edited_outside_session(sample, task):
+        return  # edits not brought back yet: FiftyOne keeps its version
     labels = annotations.images.get(record.id, []) if annotations else []
     sample[GROUND_TRUTH] = _ground_truth(task, labels)
     sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
     sample[WRITTEN_LABELS] = label_hash(labels)
+
+
+def edited_outside_session(sample: fo.Sample, task: Task) -> bool:
+    """Whether a sample of no open session was edited in FiftyOne since ActiveLabel wrote it.
+
+    The App can edit any view (a task opened for a look, a curation view), not only a session's: such
+    edits are kept, not overwritten, until a session that holds the image brings them back.
+
+    Args:
+        sample: the sample.
+        task: task of the project.
+
+    Returns:
+        True when a fingerprint was recorded and the ``ground_truth`` no longer matches it (a sample
+        without a fingerprint was written by an earlier version and is refreshed as before).
+    """
+    written = sample[WRITTEN] if sample.has_field(WRITTEN) else None
+    return written is not None and fingerprint(sample[GROUND_TRUTH], task) != written
 
 
 def is_edited(sample: fo.Sample, task: Task) -> bool:
@@ -516,6 +534,8 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     tasks = TaskStore(manifest.project_dir).load()
     where = _placement(manifest.project_dir, tasks)
     protected = set() if reset else open_session_images(manifest.project_dir)
+    if reset and len(dataset):  # a new type of ground truth: no sample holds edits of the old one
+        dataset.set_values(WRITTEN, [None] * len(dataset))
 
     known: dict[str, str] = {}
     stale: list[str] = []
@@ -551,8 +571,38 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     dataset.classes = {GROUND_TRUTH: list(project.classes)}
     dataset.info = {**dataset.info, "project_id": project.id, "project_name": project.name}
     dataset.save()
+    enable_editing(dataset, project)
     _save_views(dataset, tasks)
     return dataset
+
+
+def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
+    """Let the App's *Annotate* mode edit ``ground_truth``, choosing classes from the project's list.
+
+    The FiftyOne App (1.22) only edits a field that has an active *label schema*; without one its Annotate
+    tab only offers to "Add schema". The App can edit classifications, boxes and polygons of images, not
+    keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne).
+
+    Args:
+        dataset: the project's dataset (with its samples, so its media type is known).
+        project: the project (task and classes).
+
+    Returns:
+        Whether ``ground_truth`` can be edited in the App.
+    """
+    if project.task is Task.KEYPOINTS or dataset.media_type != "image":
+        return False
+    try:
+        schema = dict(dataset.generate_label_schemas(GROUND_TRUTH, scan_samples=False))
+        if project.classes:
+            schema.update(classes=list(project.classes), component="dropdown")
+        dataset.update_label_schema(GROUND_TRUTH, schema)
+        if GROUND_TRUTH not in dataset.active_label_schemas:
+            dataset.active_label_schemas = [*dataset.active_label_schemas, GROUND_TRUTH]
+    except Exception:  # noqa: BLE001 - FiftyOne refused the schema: the labels can still be seen
+        log.warning("Could not enable editing of ground_truth in the FiftyOne App", exc_info=True)
+        return False
+    return True
 
 
 def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:

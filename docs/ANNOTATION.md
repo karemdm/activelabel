@@ -6,7 +6,7 @@ summary of the changes and applies it.
 
 | Tool | What it is | Used for |
 | --- | --- | --- |
-| FiftyOne | The FiftyOne App, *Annotate* mode (draw/edit boxes, polygons, keypoints; change class; delete) | **edit sessions** (this page) |
+| FiftyOne | The FiftyOne App, *Annotate* mode (draw/edit boxes and polygons, change class, delete; keypoints are shown but not edited) | **edit sessions** (this page) |
 | CVAT | CVAT (online or self-hosted) | **synchronisation** of the linked project (docs/SYNC.md); it has no edit sessions |
 
 FiftyOne is the hub for inspection: every project has a FiftyOne dataset, named
@@ -21,7 +21,17 @@ imported-from records: they are shown as belonging to a discontinued tool and ca
 (sessions) or **unlinked** (links); nothing is changed in the tool, and no request to it is made.
 
 Same functions in the tool: add, edit, delete, change class — for classification (one class per image),
-detection (bounding boxes), segmentation (polygons) and keypoints.
+detection (bounding boxes) and segmentation (polygons). **Keypoints cannot be edited in the FiftyOne App**
+(its Annotate mode edits classifications, boxes and polygons of images only): a keypoints project sees its
+points in FiftyOne and is edited in CVAT (docs/SYNC.md).
+
+**How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
+gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
+in a list), so nothing has to be set up: open the session's link, click an image, choose the *Annotate*
+tab of the image window, pick `ground_truth` and draw, move, relabel or delete. Edits are saved in the
+dataset as you make them; bring them back from the *FiftyOne* tab. Edits made in a view that is not a
+session (a task or a curation view opened for a look) are kept too — a refresh never overwrites a sample
+edited in FiftyOne — and come back with the next session that holds those images.
 
 The FiftyOne App runs on port 5161 (or the next free one). Its links point to `http://localhost:<port>`;
 inside a GitHub Codespace (`CODESPACE_NAME` and `GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` set) they
