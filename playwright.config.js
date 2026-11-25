@@ -20,7 +20,8 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // PW_CHANNEL=chrome (CI: the runner's own Google Chrome) or msedge (Windows) avoids downloading a browser.
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: process.env.PW_CHANNEL || undefined } }],
   webServer: {
     command: `${PYTHON} -m activelabel.cli serve --host 127.0.0.1 --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/`,
