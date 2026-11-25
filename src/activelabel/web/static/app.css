@@ -1045,8 +1045,8 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 /* tabs inside a step: one subject per tab */
 .step-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); margin: var(--space-1) 0 var(--space-4); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
   /* a fade at the edge that still has tabs to scroll to (the first two layers move with the content and hide the fade at the ends) */
-  background: linear-gradient(to right, var(--bg) 30%, transparent) 0 0 / 2.5rem 100% no-repeat local,
-    linear-gradient(to left, var(--bg) 30%, transparent) 100% 0 / 2.5rem 100% no-repeat local,
+  background: linear-gradient(to right, var(--surface) 30%, transparent) 0 0 / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 30%, transparent) 100% 0 / 2.5rem 100% no-repeat local,
     linear-gradient(to right, var(--border), transparent) 0 0 / 1rem 100% no-repeat scroll,
     linear-gradient(to left, var(--border), transparent) 100% 0 / 1rem 100% no-repeat scroll; }
 .tasks-head:has(.tasks-title.sr-only) { justify-content: flex-end; }
