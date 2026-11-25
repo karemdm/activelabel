@@ -115,8 +115,10 @@ def test_fiftyone_uses_the_tests_database_while_a_foreign_service_runs() -> None
         foreign.wait()
     assert probe.returncode == 0, probe.stderr
     found = json.loads(probe.stdout.strip().splitlines()[-1])
-    port = int(os.environ["FIFTYONE_DATABASE_URI"].rsplit(":", 1)[1])
-    assert found == {"address": ["127.0.0.1", port], "service": False}
+    host, port = os.environ["FIFTYONE_DATABASE_URI"].split("//", 1)[1].rsplit(":", 1)
+    loopback = {"127.0.0.1", "localhost"}  # CI gives localhost, a local run 127.0.0.1
+    assert found["service"] is False and found["address"][1] == int(port)
+    assert found["address"][0] == host or {found["address"][0], host} <= loopback
 
 
 def test_a_test_server_gets_its_own_database_and_workspace(tmp_path: Path) -> None:
