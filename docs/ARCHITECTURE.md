@@ -32,7 +32,8 @@ flowchart TB
 
 Arrows mean "calls or uses". The browser talks to the routers over HTTP (`/api`, `/static`, pages); the
 domain code reads and writes the workspace (section 2) and reaches CVAT and FiftyOne through
-`sync/cvat_remote.py`, `annotate/cvat_tool.py` and `fiftyone_bridge.py`; the runner creates and fills the
+`sync/cvat_remote.py` (synchronisation and import), `annotate/fiftyone_tool.py` (edit sessions) and
+`fiftyone_bridge.py`; the runner creates and fills the
 training environment, starts the workers as subprocesses with a `spec.json` and reads their JSON lines.
 
 Rules that shape the design:
@@ -42,9 +43,15 @@ Rules that shape the design:
 - There is **one heavy process at a time** for the whole app (`TrainingRunner`), shared by training runs,
   ONNX exports and pre-annotation. The light `JobManager` has one worker too; `AppState.busy(project)`
   answers 409 to calls that change a project while one of its jobs is queued or running.
-- Workers never import ActiveLabel: they read a `spec.json` and talk back with one JSON object per line
-  (`log`, `warning`, `progress`, `epoch`, `done`, `error`; `prediction` for pre-annotation).
+- Workers do not need ActiveLabel (the training environment does not have it): they read a `spec.json`,
+  share only their sibling helper modules (`options.py`, `augment.py`) and talk back with one JSON object per
+  line (`log`, `warning`, `setup`, `progress`, `epoch`, `done`, `error`; `prediction` for pre-annotation).
+- The device (`auto`, `cpu`, `cuda:N`, `mps`) is chosen per run or pre-annotation and checked against the
+  computer when it is created; it is recorded in `run.json`, never in the configuration, so a configuration
+  repeats on any computer.
 - Secrets live only in the system keyring; `tools.json` has addresses and user names.
+- Every API error answers `{detail, code, params}` and a failed job carries `error_code` and `error_params`;
+  the interface translates the code (docs/DESIGN.md, *Errors*).
 
 ## 2. Data model on disk
 
@@ -132,11 +139,11 @@ sequenceDiagram
   UI->>API: POST /sync/cvat/plan_id/apply
   API->>E: job sync_apply
   E->>C: read again what it needs
-  alt remote, project or link changed since the plan
-    E-->>API: failed: Synchronise again
+  alt plan discarded, or remote, project or link changed since the plan
+    E-->>API: failed with a code: Synchronise again
   else unchanged
     E->>G: backup, then write pulled labels
-    E->>C: write pushed labels, add or remove tasks and images
+    E->>C: send differences, add, rename or remove tasks and images
     E->>L: new base labels, keys, last_sync, revision
     E-->>API: counts
   end
