@@ -482,9 +482,11 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
     new_labels = {i: [Label.from_dict(x) for x in items] for i, items in data.items()}
     project_dir = state.store.dir(project_id)
     with annotations_lock(project_dir):  # the check and the write see the same labels
-        session = _session(state, project_id, session_id)  # again: a second click may have applied it
+        session = _session(state, project_id, session_id)  # again: a second click or a discard came first
         if session["status"] == sessions.APPLIED:
             raise ApiError(409, "already_applied", "These annotations were already applied.")
+        if session["status"] == sessions.DISCARDED:
+            raise ApiError(409, "already_discarded", "These annotations were already discarded.")
         base: dict[str, str] = session.get("base") or {}
         current = _local_hashes(project_dir, session["image_ids"])
         changed = sum(1 for i, h in current.items() if base.get(i) != h)
@@ -507,6 +509,9 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
 def discard_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, bool]:
     """Throw away the pulled annotations (the project does not change).
 
+    The check and the change of status happen under the lock of the annotations, like in apply, so of
+    an apply and a discard of the same session exactly one wins and the other is refused (409).
+
     Args:
         project_id: Id of the project.
         session_id: Id of the annotation session.
@@ -515,12 +520,15 @@ def discard_session(project_id: int, session_id: str, state: AppState = STATE) -
     Returns:
         ``{discarded: true}``.
     """
-    session = _session(state, project_id, session_id)
-    if session["status"] == sessions.APPLIED:
-        raise ApiError(
-            409, "already_applied", "These annotations were already applied: there is nothing to discard."
-        )
-    sessions.update(state.store.dir(project_id), session_id, status=sessions.DISCARDED)
+    _session(state, project_id, session_id)
+    project_dir = state.store.dir(project_id)
+    with annotations_lock(project_dir):
+        session = _session(state, project_id, session_id)
+        if session["status"] == sessions.APPLIED:
+            raise ApiError(
+                409, "already_applied", "These annotations were already applied: there is nothing to discard."
+            )
+        sessions.update(project_dir, session_id, status=sessions.DISCARDED)
     return {"discarded": True}
 
 

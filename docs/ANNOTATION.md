@@ -110,8 +110,8 @@ spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexã
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
 | POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated", ids?, issue?}` | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
-| POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied |
-| POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; 409 when already applied |
+| POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
+| POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
 | DELETE | `/api/projects/{id}/annotate/{session}` | | `{closed: true}` (a session of a discontinued tool is only forgotten) |
 
 `diff` = `{images_changed, added, removed, edited, per_class: {name: {added, removed, edited}},

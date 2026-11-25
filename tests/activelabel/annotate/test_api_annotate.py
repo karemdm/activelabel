@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,7 @@ from sample_images import make_image
 
 from activelabel.annotate import registry, sessions
 from activelabel.annotate.base import Sent, ToolError
-from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
 from activelabel.tasks import Task
 from activelabel.web import annotate_api
 
@@ -175,6 +176,29 @@ def test_apply_refused_when_local_labels_changed_since_pull(env):
     assert listed["status"] == "pulled" and "base" not in listed
     wait(env, env.client.post(f"{base}/pull").json())  # pulling again records the new state
     assert env.client.post(f"{base}/apply").status_code == 200
+
+
+def test_apply_and_discard_of_the_same_session_cannot_both_succeed(env):
+    """Both wait for the annotations lock; the one that gets it first wins and the other is refused (409)."""
+    base = _pulled_session(env)
+    with ThreadPoolExecutor(max_workers=2) as pool, annotations_lock(env.state.store.dir(env.pid)):
+        apply = pool.submit(env.client.post, f"{base}/apply")
+        discard = pool.submit(env.client.post, f"{base}/discard")
+        time.sleep(0.5)  # both requests are past their first checks and wait for the lock
+    codes = sorted([apply.result().status_code, discard.result().status_code])
+    assert codes == [200, 409]
+    final = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"][0]["status"]
+    assert final == ("applied" if apply.result().status_code == 200 else "discarded")
+    saved = load_annotations(env.state.store.dir(env.pid))
+    assert bool(saved and saved.images.get(env.ids[0])) == (final == "applied")
+
+
+def test_apply_after_discard_is_refused(env):
+    base = _pulled_session(env)
+    assert env.client.post(f"{base}/discard").status_code == 200
+    r = env.client.post(f"{base}/apply")
+    assert r.status_code in (400, 409)
+    assert load_annotations(env.state.store.dir(env.pid)) is None
 
 
 def _legacy_session(env, tool):
