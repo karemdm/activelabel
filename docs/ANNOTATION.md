@@ -77,7 +77,8 @@ Only CVAT needs them. Set in the interface: the *Settings* (*Ajustes*) button on
 CVAT* (*Configurar o CVAT*) in the *CVAT* tab. URL and username are stored in
 `<workspace>/tools.json`; the password / token **only** in the system keyring (service
 `activelabel`, key `<tool>:<url>`). They are never written to a file, never returned by the API
-and never logged. *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login.
+and never logged. The URL is trimmed and must start with `http://` or `https://`, name a server and have no
+spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login.
 
 ## HTTP API
 
