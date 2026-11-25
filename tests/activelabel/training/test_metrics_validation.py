@@ -440,7 +440,6 @@ def test_keypoint_map_ignores_objects_without_points(det):
     assert result["kp_map50"] == 1.0
 
 
-@pytest.mark.xfail(strict=True, reason="#346: evaluation uses the model's score_thresh")
 def test_detection_map_does_not_depend_on_score_thresh(det):
     """A perfect low-score detection should count: evaluation must not inherit the model's score threshold."""
     torch = pytest.importorskip("torch")
@@ -456,8 +455,8 @@ def test_detection_map_does_not_depend_on_score_thresh(det):
     )
     spec = {"task": "detection", "classes": ["a"]}
     result = det.evaluate(model, single_box_loader(torch), spec, "cpu", torch)
-    # the detection (score 0.3) is dropped by the model's own 0.5 cut-off today -> mAP 0 instead of 1
-    assert result["map50"] == 1.0
+    # the detection (score 0.3) counts although the model's own cut-off is 0.5, which is put back
+    assert result["map50"] == 1.0 and model.roi_heads.score_thresh == 0.5
 
 
 # ---------------------------------------------------------------------------------------------------------

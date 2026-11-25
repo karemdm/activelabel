@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -67,6 +68,23 @@ def test_accumulator(w):
     miss = w.APAccumulator(1)
     miss.add(np.array([]), np.array([], int), np.array([0]), np.zeros((0, 1)))
     assert miss.summary(["a"])["map50"] == 0.0
+
+
+def test_accumulator_needs_the_half_iou_threshold(w):
+    """ap50 must be the AP at IoU 0.5, never another threshold standing in for it."""
+    with pytest.raises(ValueError, match="0.5"):
+        w.APAccumulator(1, thresholds=[0.75])
+    assert w.APAccumulator(1, thresholds=[0.5, 0.75]).thresholds == [0.5, 0.75]
+
+
+def test_score_threshold_is_read_and_set_on_both_model_kinds(w):
+    """Two-stage models keep it in roi_heads, one-stage ones on the model; a stand-in has none."""
+    two = SimpleNamespace(roi_heads=SimpleNamespace(score_thresh=0.5))
+    one = SimpleNamespace(score_thresh=0.3)
+    w.set_score_thresh(two, 0.0)
+    w.set_score_thresh(one, 0.0)
+    assert w.get_score_thresh(two) == 0.0 and w.get_score_thresh(one) == 0.0
+    assert w.get_score_thresh(SimpleNamespace()) is None
 
 
 def test_targets(w):
