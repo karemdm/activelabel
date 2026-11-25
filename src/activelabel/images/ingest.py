@@ -58,7 +58,8 @@ class IngestReport:
         added: images stored.
         duplicates: names of images already in the project (or repeated in the upload).
         rejected: ``{"name": ..., "reason": ...}`` for files that were not stored
-            (``corrupt``, ``too small``, ``too large``, ``unsupported``, ``unsafe path``, ...).
+            (``empty``, ``corrupt``, ``too small``, ``too large``, ``unsupported``, ``nested archive``,
+            ``unsafe path``, ...).
         other_files: names of annotation files (json, txt, xml, yaml) sent with the images or inside archives.
         ids: ids of the images stored by this import, in order (not part of :meth:`as_dict`).
         per_file: for every file handled at the top level (not the entries of a zip), in order: the id of
@@ -290,6 +291,9 @@ class _Ingester:
                         raise _ZipTooLarge
                     digest.update(chunk)
                     out.write(chunk)
+            if size == 0:
+                self.reject(name, "empty")
+                return 0
             digest.update(salt)
             image_id = digest.hexdigest()[:16]
             self.last_id = image_id
@@ -398,6 +402,8 @@ class _Ingester:
                 return 0
         if ext in ANNOTATION_EXTENSIONS:
             self.report.other_files.append(clean)
+        elif ext == ".zip":
+            self.reject(clean, "nested archive")
         else:
             self.reject(clean, "unsupported")
         return 0
