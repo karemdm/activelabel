@@ -213,9 +213,17 @@ Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos,
 | `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Onde ficam projetos, imagens e anotações |
 | `ACTIVELABEL_LANG` | `en` | Idioma padrão da interface (`en` ou `pt`) |
 | `ACTIVELABEL_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho (só pela API, sem botão na interface) |
+| `ACTIVELABEL_ALLOWED_HOSTS` | (nenhum) | Outros nomes, separados por vírgula, em que o servidor responde, por exemplo o nome desta máquina na rede local ao servir com `--host` |
 
 O endereço e o usuário do CVAT ficam em `<workspace>/tools.json`; senhas e tokens só no chaveiro
 do sistema.
+
+O servidor não tem login; por isso só atende chamadas feitas ao próprio endereço (`127.0.0.1`,
+`localhost`, `[::1]` ou o endereço de `--host`, com a porta dele), e uma alteração vinda de uma página do
+navegador só é aceita se vier das páginas dele mesmo. O resto recebe HTTP 403 (`host_not_allowed`,
+`origin_not_allowed`). Um script (`curl`, Python `requests`) não envia `Origin` nem `Referer` e funciona
+normalmente usando o endereço do servidor, por exemplo `http://127.0.0.1:8090/api/projects`. Para usar
+outro nome, inclua-o em `ACTIVELABEL_ALLOWED_HOSTS`.
 
 ## Licença
 

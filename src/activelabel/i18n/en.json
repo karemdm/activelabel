@@ -1474,6 +1474,8 @@
   "error.validation_error": "Some value sent is not valid.",
   "error.not_found": "This address does not exist.",
   "error.method_not_allowed": "This operation is not accepted at this address.",
+  "error.host_not_allowed": "This server only answers at its own address, not at {host}. Open it at http://127.0.0.1 with its port.",
+  "error.origin_not_allowed": "The change was refused because it came from another site ({origin}).",
   "error.split_incomplete": "Give the percentage of every part (missing: {parts}).",
   "error.seed_range": "The seed must be between 0 and {max}.",
   "error.split_unknown_part": "Unknown part in the split: {part}.",

@@ -17,11 +17,15 @@ class Settings:
         language: ``ACTIVELABEL_LANG``: default interface language (``en`` or ``pt``).
         import_root: ``ACTIVELABEL_IMPORT_ROOT``: folders on this machine that may be imported
             by path (besides uploads from the browser). Empty: importing by path is off.
+        allowed_hosts: ``ACTIVELABEL_ALLOWED_HOSTS``: host names, separated by commas, the server also
+            answers at (besides ``127.0.0.1``, ``localhost``, ``[::1]`` and the address it listens on), for
+            example a name of this machine on the local network.
     """
 
     workspace: Path = Path.home() / ".activelabel"
     language: str = "en"
     import_root: Path | None = None
+    allowed_hosts: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -41,6 +45,9 @@ class Settings:
             workspace=Path(workspace).expanduser() if workspace else default.workspace,
             language=env.get("ACTIVELABEL_LANG", "").strip() or default.language,
             import_root=Path(root).expanduser().resolve() if root else None,
+            allowed_hosts=tuple(
+                name.strip() for name in env.get("ACTIVELABEL_ALLOWED_HOSTS", "").split(",") if name.strip()
+            ),
         )
 
     @property

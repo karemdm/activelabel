@@ -18,3 +18,9 @@ def test_empty_workspace_means_not_set():
     assert Settings.from_env({"ACTIVELABEL_WORKSPACE": ""}).workspace == default
     assert Settings.from_env({"ACTIVELABEL_WORKSPACE": "  "}).workspace == default
     assert Settings.from_env({"ACTIVELABEL_LANG": ""}).language == "en"
+
+
+def test_allowed_hosts_are_a_comma_list():
+    assert Settings.from_env({}).allowed_hosts == ()
+    env = {"ACTIVELABEL_ALLOWED_HOSTS": " my-pc.local, ,Other.lan "}
+    assert Settings.from_env(env).allowed_hosts == ("my-pc.local", "Other.lan")

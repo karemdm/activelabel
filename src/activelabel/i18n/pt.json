@@ -1474,6 +1474,8 @@
   "error.validation_error": "Algum valor enviado não é válido.",
   "error.not_found": "Este endereço não existe.",
   "error.method_not_allowed": "Esta operação não é aceita neste endereço.",
+  "error.host_not_allowed": "Este servidor só responde no próprio endereço, não em {host}. Abra-o em http://127.0.0.1 com a porta dele.",
+  "error.origin_not_allowed": "A alteração foi recusada porque veio de outro site ({origin}).",
   "error.split_incomplete": "Informe a porcentagem de todas as partes (faltam: {parts}).",
   "error.seed_range": "A semente deve ficar entre 0 e {max}.",
   "error.split_unknown_part": "Parte desconhecida na divisão: {part}.",
