@@ -305,3 +305,20 @@ def test_a_keypoints_project_cannot_open_a_fiftyone_session(env):
             reply.text
         )
     assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
+
+
+def test_summary_source_says_the_labels_were_last_sessiond_by_a_fiftyone_session(env):
+    """#459: after an apply the annotations summary keeps the original source and names the session."""
+    save_annotations(
+        env.state.store.dir(env.pid),
+        AnnotationSet(Task.DETECTION, ["cat"], {}, {"format": "coco", "files": ["a.json"]}),
+    )
+    session = wait(env, start(env, scope="all").json())["result"]["session"]
+    base = f"/api/projects/{env.pid}/annotate/{session['id']}"
+    env.tool.pulled = {env.ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])]}
+    assert wait(env, env.client.post(f"{base}/pull").json())["status"] == "done"
+    assert env.client.post(f"{base}/apply").status_code == 200
+    source = env.client.get(f"/api/projects/{env.pid}/annotations").json()["source"]
+    assert source["format"] == "coco" and source["files"] == ["a.json"]  # the import is still told
+    assert source["last_session"]["tool"] == "fiftyone" and source["last_session"]["session"] == session["id"]
+    assert source["last_session"]["at"]

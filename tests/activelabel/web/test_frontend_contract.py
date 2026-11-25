@@ -507,3 +507,11 @@ def test_the_menu_texts_exist_in_both_languages():
     for lang in ("pt", "en"):
         texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         assert all(texts.get(k) for k in keys), lang
+
+
+def test_the_diff_table_does_not_repeat_the_per_class_heading():
+    """#459: the heading above the table says it; a caption with the same text read twice in a card."""
+    body = JS[JS.index("function diffView(") :]
+    body = body[: body.index("\n  }\n")]
+    assert "el('caption'" not in body
+    assert body.count("el('h4', null, t('annotate.diff_per_class'))") == 1

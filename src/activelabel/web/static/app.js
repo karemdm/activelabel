@@ -1045,8 +1045,7 @@
 
     const table = rows.length
       ? el('div', { class: 'table-wrap' },
-          el('table', { class: 'diff-table' },
-            el('caption', { class: 'sr-only' }, t('annotate.diff_per_class')),
+          el('table', { class: 'diff-table', 'aria-label': t('annotate.diff_per_class') },
             el('thead', null, el('tr', null,
               el('th', { scope: 'col' }, t('annotate.diff_class')),
               el('th', { scope: 'col', class: 'num' }, t('annotate.diff_added')),

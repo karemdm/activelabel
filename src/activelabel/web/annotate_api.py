@@ -19,7 +19,7 @@ from activelabel.errors import CodedError
 from activelabel.jobs import Progress
 from activelabel.labels import Label, annotations_lock, load_annotations
 from activelabel.projects import Project
-from activelabel.storage import read_json, write_json
+from activelabel.storage import now, read_json, write_json
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
 from activelabel.tasks import Task
@@ -556,7 +556,12 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
                 count=changed,
             )
         counts = diffing.apply(
-            state.store, project_id, state.manifest(project_id), session["image_ids"], new_labels
+            state.store,
+            project_id,
+            state.manifest(project_id),
+            session["image_ids"],
+            new_labels,
+            last_session={"tool": session["tool"], "session": session_id, "at": now()},
         )
         sessions.update(project_dir, session_id, status=sessions.APPLIED, applied=counts)
         _tell_tool(state, project_id, session, applied=True)

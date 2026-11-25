@@ -450,6 +450,7 @@ def apply(
     image_ids: list[str],
     new_labels: dict[str, list[Label]],
     reason: str = "apply",
+    last_session: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Make ``new_labels`` the ground truth of these images (after a backup of ``annotations.json``).
 
@@ -464,6 +465,8 @@ def apply(
         new_labels: labels brought back from the tool, by image id.
         reason: why the backup is made (see :data:`activelabel.backups.REASONS`): ``apply`` for a FiftyOne
             session, ``sync`` for a CVAT synchronisation.
+        last_session: the edit session applied (``{tool, session, at}``), recorded in the annotations'
+            ``source`` as ``last_session`` next to the original import information; None records nothing.
 
     Returns:
         Counts: the diff counts plus ``images_updated``, ``new_classes``, ``skipped`` and ``backup``.
@@ -473,7 +476,7 @@ def apply(
     existing = {r.id for r in manifest.all()}
     ids = [i for i in image_ids if i in existing]
     with annotations_lock(project_dir):
-        return _apply_locked(store, project_id, project, project_dir, ids, new_labels, reason)
+        return _apply_locked(store, project_id, project, project_dir, ids, new_labels, reason, last_session)
 
 
 def _apply_locked(
@@ -484,6 +487,7 @@ def _apply_locked(
     ids: list[str],
     new_labels: dict[str, list[Label]],
     reason: str,
+    last_session: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Do the work of :func:`apply` while the annotations file is locked.
 
@@ -495,6 +499,7 @@ def _apply_locked(
         ids: the images to update (already restricted to those of the manifest).
         new_labels: labels brought back from the tool, by image id.
         reason: why the backup is made, as in :func:`apply`.
+        last_session: the applied session, as in :func:`apply`.
 
     Returns:
         The same counts as :func:`apply`.
@@ -513,6 +518,8 @@ def _apply_locked(
     if new_classes:
         project = store.update(project_id, classes=[*project.classes, *new_classes])
     annotations.classes = list(project.classes)
+    if last_session:
+        annotations.source = {**annotations.source, "last_session": last_session}
     save_annotations(project_dir, annotations)
     skipped = sum(p["count"] for p in summary["problems"] if p["code"] in SKIPPED_ON_APPLY)
     return {
