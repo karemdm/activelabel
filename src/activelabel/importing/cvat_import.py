@@ -66,10 +66,15 @@ class _Http:
             ToolError: the address, username or password is missing, or the address is not http(s).
         """
         if not settings.url or not settings.username or not settings.secret:
-            raise ToolError("CVAT needs the server address, the username and the password.")
+            raise ToolError(
+                "CVAT needs the server address, the username and the password.", "cvat_config_missing"
+            )
         self.url = settings.url.strip().rstrip("/")
         if not self.url.startswith(("http://", "https://")):
-            raise ToolError("CVAT address must start with http:// or https:// (e.g. https://app.cvat.ai).")
+            raise ToolError(
+                "CVAT address must start with http:// or https:// (e.g. https://app.cvat.ai).",
+                "cvat_url_invalid",
+            )
         self._http = requests.Session()
         self._auth = (settings.username, settings.secret)
 
@@ -91,19 +96,21 @@ class _Http:
         try:
             r = self._http.get(f"{self.url}{path}", params=params, auth=self._auth, timeout=TIMEOUT)
         except requests.RequestException:
-            raise ToolError(f"Cannot reach CVAT at {self.url}: check the address and your network.") from None
+            raise common.unreachable(self.url) from None
         if r.status_code in (401, 403):
-            raise ToolError(f"CVAT login failed at {self.url}: check the username and password.")
+            raise common.login_failed(self.url)
         if r.status_code == 404:
-            raise RemoteNotFound(f"CVAT answered 'not found' for {path}: it may have been deleted.")
+            raise common.not_found(path)
         if r.status_code == 429:
-            raise ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
+            raise common.rate_limited()
         if r.status_code >= 400:
-            raise ToolError(f"CVAT error {r.status_code} on {path}.")
+            raise common.http_error(r.status_code, path)
         try:
             return r.json()
         except ValueError:  # e.g. the address of a web page that is not CVAT
-            raise ToolError(f"{self.url} did not answer as the CVAT API: check the address.") from None
+            raise ToolError(
+                f"{self.url} did not answer as the CVAT API: check the address.", "cvat_not_api", url=self.url
+            ) from None
 
     def paged(self, path: str, params: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         """Items of a paginated list, up to ``limit``.
@@ -179,25 +186,22 @@ def explain(err: Exception, url: str = "") -> ToolError:
     text = str(err)
     low = text.lower()
     name = type(err).__name__.lower()
-    where = f" at {url}" if url else ""
     if (
         "maximum number of" in low or "upgrade" in low
     ):  # a plan limit often comes as a 403: not a login problem
-        return ToolError(f"CVAT plan limit reached: {text.splitlines()[0] if text else 'see your plan'}")
+        return common.refused(text)
     if "auth/login" in low or _has_status(low, 401) or "unauthorized" in low:
-        return ToolError(f"CVAT login failed{where}: check the username and password.")
+        return common.login_failed(url)
     if _has_status(low, 403) or "forbidden" in low:
-        return ToolError(
-            f"CVAT refused the request{where}: the account is not allowed to do this "
-            f"({text.splitlines()[0] if text else 'forbidden'})."
-        )
+        return common.refused("")
     if _has_status(low, 429) or "too many requests" in low:
-        return ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
+        return common.rate_limited()
     if "connection" in name or "timeout" in name or "max retries" in low or "name or service" in low:
-        return ToolError(f"Cannot reach CVAT{where}: check the address and your network.")
+        return common.unreachable(url)
     if _has_status(low, 404) or "not found" in low or "invalidurl" in name or "missingschema" in name:
-        return ToolError(f"CVAT answered 'not found'{where}: check the address (or the task was deleted).")
-    return ToolError(f"CVAT error: {text.splitlines()[0] if text else type(err).__name__}")
+        return common.not_found(url or "the server")
+    reason = text.splitlines()[0] if text else type(err).__name__
+    return ToolError(f"CVAT error: {reason}", "cvat_error_other", reason=reason)
 
 
 def _created(item: dict[str, Any]) -> str:
@@ -269,7 +273,9 @@ def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str,
     if kind not in KINDS:
         raise ToolError("kind must be 'project' or 'task'.")
     if not str(remote_id).isdigit():
-        raise RemoteNotFound(f"CVAT has no {kind} '{remote_id}'.")
+        raise RemoteNotFound(
+            f"CVAT has no {kind} '{remote_id}'.", "cvat_item_not_found", what=kind, id=str(remote_id)
+        )
     http = _Http(settings)
     item = http.get(f"/api/{kind}s/{int(remote_id)}")
     param = "project_id" if kind == "project" else "task_id"
@@ -451,7 +457,9 @@ def _import_with_tasks(
     progress.update(message="Reading annotations")
     labels = _read_labels(remote, settings, rid, only)
     if not labels:
-        raise ToolError("CVAT returned no images for this " + origin.kind + ".")
+        raise ToolError(
+            "CVAT returned no images for this " + origin.kind + ".", "cvat_no_images", what=origin.kind
+        )
     plan = common.plan_task(labels, hint)
     names = list(declared) if plan.task is not Task.KEYPOINTS else []
     for items in plan.labels.values():
@@ -476,7 +484,9 @@ def _import_with_tasks(
             store, project.id, "cvat", settings, remote, summary["plan_id"], {}, None, progress
         )
         if not applied["tasks_imported"]:
-            raise ToolError("CVAT returned no images for this " + origin.kind + ".")
+            raise ToolError(
+                "CVAT returned no images for this " + origin.kind + ".", "cvat_no_images", what=origin.kind
+            )
         project_dir = store.dir(project.id)
         write_json(project_dir / common.ORIGIN_FILE, origin.as_dict())
         done = store.get(project.id)
@@ -552,7 +562,7 @@ def import_project(
         samples = _download(settings, kind, str(remote_id), data_dir)
         progress.check()
         if not samples:
-            raise ToolError("CVAT returned no images for this " + kind + ".")
+            raise ToolError("CVAT returned no images for this " + kind + ".", "cvat_no_images", what=kind)
         with common.new_project(store, origin, name, description, task) as project:
             progress.update(message="Creating the project")
             manifest = Manifest(store.dir(project.id))

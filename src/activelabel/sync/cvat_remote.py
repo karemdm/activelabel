@@ -64,6 +64,7 @@ from typing import Any
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import ImageRecord
 from activelabel.images.video import VIDEO_EXTENSIONS
+from activelabel.importing import common
 from activelabel.importing.common import RemoteNotFound
 from activelabel.importing.cvat_import import _Http
 from activelabel.labels import MISSING_CORNER, Label, clamp01
@@ -173,22 +174,20 @@ class _Api(_Http):
         try:
             r = self._http.request(method, f"{self.url}{path}", auth=self._auth, timeout=timeout, **kw)
         except Exception:  # noqa: BLE001 - network/timeouts: never echo the exception text
-            raise ToolError(f"Cannot reach CVAT at {self.url}: check the address and your network.") from None
+            raise common.unreachable(self.url) from None
         status = r.status_code
         where = path.split("?", 1)[0]
         if status == 401:
-            raise ToolError(f"CVAT login failed at {self.url}: check the username and password.")
-        if status == 403:  # logged in, not allowed (plan limits, permissions): say what CVAT says
-            reason = _forbidden_reason(r)
-            raise ToolError("CVAT refused the request." + (f" CVAT says: {reason}" if reason else ""))
+            raise common.login_failed(self.url)
+        if status == 403:  # logged in, not allowed (plan limits, permissions)
+            raise common.refused(_forbidden_reason(r))
         if status == 404:
-            raise RemoteNotFound(f"CVAT answered 'not found' for {where}: it may have been deleted.")
+            raise common.not_found(where)
         if status == 429:
-            raise ToolError("CVAT asked to slow down (too many requests): wait a minute and try again.")
+            raise common.rate_limited()
         if status >= 400:
             # CVAT explains validation problems in the body (never contains the login)
-            reason = " ".join((getattr(r, "text", "") or "").split())[:300]
-            raise ToolError(f"CVAT error {status} on {where}." + (f" CVAT says: {reason}" if reason else ""))
+            raise common.http_error(status, where, getattr(r, "text", "") or "")
         if not getattr(r, "content", b"x"):
             return None
         try:
@@ -1415,9 +1414,13 @@ class CvatRemote:
                 timeout=UPLOAD_TIMEOUT,
             )
         except Exception:  # noqa: BLE001 - never echo the exception text
-            raise ToolError(f"Cannot reach CVAT at {api.url}: check the address and your network.") from None
+            raise common.unreachable(api.url) from None
         if r.status_code >= 400:
-            raise ToolError(f"CVAT error {r.status_code} while downloading frame {frame} of task {task_id}.")
+            raise ToolError(
+                f"CVAT error {r.status_code} while downloading frame {frame} of task {task_id}.",
+                "cvat_download_failed",
+                http=r.status_code,
+            )
         return bytes(r.content)
 
     def video_source(
@@ -1446,29 +1449,34 @@ class CvatRemote:
         answer = api.request("POST", f"/api/tasks/{task_id}/backup/export", timeout=UPLOAD_TIMEOUT)
         rq_id = str((answer or {}).get("rq_id") or "") if isinstance(answer, dict) else ""
         if not rq_id:
-            raise ToolError("CVAT did not start the task backup.")
+            raise ToolError("CVAT did not start the task backup.", "cvat_backup_failed")
         url = ""
         for _ in range(MAX_POLLS):
             data = api.get(f"/api/requests/{rq_id}") or {}
             state = str(data.get("status", "")).lower()
             if state == "failed":
                 raise ToolError(
-                    f"CVAT could not make the task backup: {str(data.get('message') or '')[:200]}"
+                    f"CVAT could not make the task backup: {str(data.get('message') or '')[:200]}",
+                    "cvat_backup_failed",
                 )
             if state == "finished":
                 url = str(data.get("result_url") or "")
                 break
             _sleep(POLL_INTERVAL)
         if not url:
-            raise ToolError("CVAT did not finish the task backup in time.")
+            raise ToolError("CVAT did not finish the task backup in time.", "cvat_backup_timeout")
         if url.startswith("/"):
             url = f"{api.url}{url}"
         try:
             r = api._http.request("GET", url, auth=api._auth, timeout=UPLOAD_TIMEOUT)  # noqa: SLF001
         except Exception:  # noqa: BLE001 - never echo the exception text
-            raise ToolError(f"Cannot reach CVAT at {api.url}: check the address and your network.") from None
+            raise common.unreachable(api.url) from None
         if r.status_code >= 400:
-            raise ToolError(f"CVAT error {r.status_code} while downloading the backup of task {task_id}.")
+            raise ToolError(
+                f"CVAT error {r.status_code} while downloading the backup of task {task_id}.",
+                "cvat_download_failed",
+                http=r.status_code,
+            )
         dest_dir.mkdir(parents=True, exist_ok=True)
         archive = dest_dir / "backup.zip"
         archive.write_bytes(bytes(r.content))
@@ -1480,12 +1488,16 @@ class CvatRemote:
                     (n for n in names if Path(n).suffix.lower() in VIDEO_EXTENSIONS), None
                 )
                 if pick is None:
-                    raise ToolError("The task backup does not contain the original video.")
+                    raise ToolError(
+                        "The task backup does not contain the original video.", "cvat_backup_invalid"
+                    )
                 target = dest_dir / Path(pick).name  # the name only: nothing is written outside dest_dir
                 with zf.open(pick) as src, target.open("wb") as out:
                     shutil.copyfileobj(src, out)
         except zipfile.BadZipFile:
-            raise ToolError("The task backup from CVAT is not a valid archive.") from None
+            raise ToolError(
+                "The task backup from CVAT is not a valid archive.", "cvat_backup_invalid"
+            ) from None
         finally:
             archive.unlink(missing_ok=True)
         return target, {"start": start, "stop": stop, "step": step}
@@ -1861,7 +1873,9 @@ class CvatRemote:
             frames = self._frames(api, tid)
             for frame in per:
                 if not 0 <= frame < len(frames):
-                    raise ToolError(f"CVAT task {tid} has no frame {frame}: synchronise again.")
+                    raise ToolError(
+                        f"CVAT task {tid} has no frame {frame}: synchronise again.", "sync_remote_changed"
+                    )
             ann = api.get(f"/api/tasks/{tid}/annotations") or {}
             patch = _empty_patch()
             old_tracks = ann.get("tracks") or []
@@ -2078,10 +2092,15 @@ class CvatRemote:
         for position, (rec, _, labels) in enumerate(batch):
             frame = by_name.get(names[rec.id])
             if frame is None:
-                raise ToolError(f"CVAT did not register the image '{rec.name}': upload again.")
+                raise ToolError(
+                    f"CVAT did not register the image '{rec.name}': upload again.",
+                    "cvat_image_not_registered",
+                    name=rec.name,
+                )
             if job_size and frame != position:  # jobs only match when the order is kept
                 raise ToolError(
-                    f"CVAT changed the order of the images of task {tid}: its jobs would not match."
+                    f"CVAT changed the order of the images of task {tid}: its jobs would not match.",
+                    "cvat_order_changed",
                 )
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
@@ -2155,7 +2174,10 @@ class CvatRemote:
         if len(frames) != len(batch):
             raise ToolError(
                 f"CVAT made {len(frames)} frames from the video of task {tid}, the task has {len(batch)}: "
-                "its jobs would not match."
+                "its jobs would not match.",
+                "cvat_frames_mismatch",
+                frames=len(frames),
+                expected=len(batch),
             )
         keys: dict[str, str] = {}
         shapes: list[dict[str, Any]] = []
@@ -2217,9 +2239,12 @@ class CvatRemote:
                 done, failed, message = state == "finished", state == "failed", str(data.get("message") or "")
             if failed:
                 raise ToolError(
-                    f"CVAT could not process the uploaded images: {message[:200] or 'unknown error'}"
+                    f"CVAT could not process the uploaded images: {message[:200] or 'unknown error'}",
+                    "cvat_processing_failed",
                 )
             if done:
                 return
             _sleep(POLL_INTERVAL)
-        raise ToolError("CVAT took too long to process the uploaded images: try again later.")
+        raise ToolError(
+            "CVAT took too long to process the uploaded images: try again later.", "cvat_processing_timeout"
+        )

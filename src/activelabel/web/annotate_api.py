@@ -21,7 +21,7 @@ from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
-from activelabel.web.errors import ApiError, bad_request
+from activelabel.web.errors import ApiError, bad_request, tool_failure
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -263,9 +263,18 @@ def test_tool(tool: str, state: AppState = STATE) -> dict[str, Any]:
     settings = _settings(state, tool)
     try:
         checker = _remote(tool) if tool == "cvat" else _tool(tool)
-        return {"ok": True, "message": checker.check(settings)}
+        message = checker.check(settings)
     except ToolError as exc:
-        return {"ok": False, "message": str(exc)}
+        failure = tool_failure(exc, tool)
+        return {"ok": False, "message": str(exc), "code": failure.code, "params": failure.params}
+    if tool == "cvat":
+        return {
+            "ok": True,
+            "message": message,
+            "code": "test_connected",
+            "params": {"url": settings.url.rstrip("/"), "user": settings.username},
+        }
+    return {"ok": True, "message": message}
 
 
 @router.delete("/annotation-tools/{tool}")
