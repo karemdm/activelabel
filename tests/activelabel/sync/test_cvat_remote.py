@@ -1047,3 +1047,34 @@ def test_the_visibility_attribute_is_added_only_when_a_pose_needs_it(cvat: FakeC
             {"id": cvat.label_id(pid, "cat"), "name": "cat", "attributes": [cvat_remote._visibility_spec()]}
         ]
     }
+
+
+# -- classes that differ only in case, renamed classes (#364) -----------------------------------------
+def test_class_lookup_ignores_case_but_prefers_the_exact_name() -> None:
+    ids = {"cat": 1, "Cat": 2, "dog": 3}
+    assert cvat_remote.class_id(ids, "Cat") == 2 and cvat_remote.class_id(ids, "CAT") == 1
+    assert cvat_remote.class_id(ids, "bird") is None
+    assert cvat_remote.class_aliases(ids) == {1: 1, 2: 1, 3: 3}
+
+
+def test_ensure_does_not_create_a_class_that_differs_only_in_case(cvat: FakeCvat) -> None:
+    pid, _ = seeded(cvat)
+    CvatRemote().ensure_classes(SETTINGS, str(pid), ["Cat", "DOG"])
+    assert not [c for c in cvat.calls if c[0] == "PATCH"]
+
+
+def test_classes_lists_the_labels_by_id(cvat: FakeCvat) -> None:
+    pid, _ = seeded(cvat)
+    found = CvatRemote().classes(SETTINGS, str(pid))
+    assert found == {str(cvat.label_id(pid, "cat")): "cat", str(cvat.label_id(pid, "dog")): "dog"}
+
+
+def test_a_shape_of_a_label_that_differs_in_case_keeps_its_label(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    big = cvat.new_id()
+    cvat.labels.append({"id": big, "name": "Cat", "project_id": pid})
+    cvat.tasks[tid]["ann"]["shapes"] = [rect(0, big, [20, 10, 120, 60])]
+    moved = [Label("cat", bbox=[0.11, 0.1, 0.5, 0.5])]  # read as class cat, then moved a little
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": moved})
+    (shape,) = cvat.tasks[tid]["ann"]["shapes"]
+    assert shape["label_id"] == big and shape["points"] == pytest.approx([22, 10, 122, 60])

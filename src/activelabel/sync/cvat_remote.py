@@ -20,6 +20,8 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
 * Other shape types (polyline, ellipse, cuboid, mask, skeleton) are not converted: they are neither
   read nor touched when writing (tracks of those types are kept as they are).
 * Attributes are never invented (CVAT rejects attribute specs of another label): a new shape has none.
+* Class names are matched ignoring case, like the project's classes (:func:`class_id`): a shape of the
+  CVAT label ``Cat`` is the class ``cat`` and stays on its own label when it is written back.
 
 What :meth:`CvatRemote.write` touches, exactly. Only the frames it is given, and only through
 differences (``PATCH .../annotations?action=delete|update|create``, never a ``PUT`` of the task): every
@@ -432,6 +434,53 @@ def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) ->
     }
 
 
+def class_id(ids: dict[str, int], name: str) -> int | None:
+    """The CVAT label of a class: the one with exactly that name, else the first that differs only in case.
+
+    Args:
+        ids: CVAT label id of each label name of the project.
+        name: The class name.
+
+    Returns:
+        The label id, or None when the project has no such label.
+    """
+    if name in ids:
+        return ids[name]
+    folded = name.casefold()
+    return next((i for n, i in ids.items() if n.casefold() == folded), None)
+
+
+def class_aliases(ids: dict[str, int]) -> dict[int, int]:
+    """Every CVAT label id -> the id of the label of its class (labels differing only in case are one class).
+
+    Args:
+        ids: CVAT label id of each label name of the project.
+
+    Returns:
+        ``{label id: id of the first label with the same name ignoring case}``.
+    """
+    first: dict[str, int] = {}
+    for name, lid in ids.items():
+        first.setdefault(name.casefold(), lid)
+    return {lid: first[name.casefold()] for name, lid in ids.items()}
+
+
+def _same_class(a: Any, b: Any, aliases: dict[int, int] | None) -> bool:
+    """Whether two CVAT label ids are the same class (see :func:`class_aliases`).
+
+    Args:
+        a: A label id.
+        b: Another label id.
+        aliases: The class of each label id, or None to compare the ids themselves.
+
+    Returns:
+        True when both are the same class.
+    """
+    if aliases is None:
+        return bool(a == b)
+    return aliases.get(a, a) == aliases.get(b, b)
+
+
 def labels_to_cvat(
     labels: list[Label],
     ids: dict[str, int],
@@ -458,7 +507,7 @@ def labels_to_cvat(
     tags: list[dict[str, Any]] = []
 
     for lb in labels:
-        lid = ids.get(lb.label)
+        lid = class_id(ids, lb.label)
         if lid is None:
             continue
         if lb.polygons:
@@ -666,7 +715,7 @@ def _write_tracks(
                 rest.append(lb)
                 continue
             tr, kind, shown = found
-            if shapes[0]["type"] != kind or lb.label != names[tr["label_id"]]:
+            if shapes[0]["type"] != kind or lb.label.casefold() != names[tr["label_id"]].casefold():
                 rest.append(lb)
                 continue
             attached.add(lb.track)
@@ -721,7 +770,14 @@ ACTIONS = ("delete", "update", "create")  # order of the PATCH requests of a wri
 KINDS = ("tags", "shapes", "tracks")
 
 
-def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int, spec: int | None = None) -> bool:
+def _same_shape(
+    old: dict[str, Any],
+    new: dict[str, Any],
+    w: int,
+    h: int,
+    spec: int | None = None,
+    aliases: dict[int, int] | None = None,
+) -> bool:
     """Whether a shape CVAT has and a shape built from a label are the same (type, class, geometry).
 
     Args:
@@ -730,13 +786,16 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int, spec: 
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
         spec: Id of the :data:`VISIBILITY` attribute of the label, or None.
+        aliases: The class of each label id (:func:`class_aliases`); None compares the label ids.
 
     Returns:
         True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side
         (a turned rectangle is compared by its enclosing box, which is what the project has of it); points
         must also have the same visibility (:func:`visibility_of`).
     """
-    if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
+    if old.get("type") != new.get("type") or not _same_class(
+        old.get("label_id"), new.get("label_id"), aliases
+    ):
         return False
     a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
     if len(a) != len(b):
@@ -763,7 +822,7 @@ def _extent(points: list[float]) -> tuple[float, float, float, float]:
     return min(xs) - 1, min(ys) - 1, max(xs) + 1, max(ys) + 1
 
 
-def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
+def _overlap(old: dict[str, Any], new: dict[str, Any], aliases: dict[int, int] | None = None) -> float:
     """Intersection over union of the boxes around two shapes of the same type and class (0 otherwise).
 
     A turned rectangle counts with its enclosing box.
@@ -771,11 +830,14 @@ def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
     Args:
         old: A shape CVAT has (points in pixels).
         new: A shape built from a label (points in pixels).
+        aliases: The class of each label id (:func:`class_aliases`); None compares the label ids.
 
     Returns:
         The IoU, from 0 to 1.
     """
-    if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
+    if old.get("type") != new.get("type") or not _same_class(
+        old.get("label_id"), new.get("label_id"), aliases
+    ):
         return 0.0
     a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
     if len(a) < 2 or len(b) < 2:
@@ -886,6 +948,7 @@ def _merge_frame(
     w, h = size
     new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs)
     vis = specs or {}
+    aliases = class_aliases(ids)
     known = set(ids.values())
     kept_shapes: list[dict[str, Any]] = []
     convertible: list[dict[str, Any]] = []
@@ -897,13 +960,15 @@ def _merge_frame(
     unmatched: list[dict[str, Any]] = []
     for shape in new_shapes:
         spec = vis.get(shape["label_id"])
-        match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h, spec)), None)
+        match = next(
+            (i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h, spec, aliases)), None
+        )
         if match is None:
             unmatched.append(shape)
         else:
             kept_shapes.append(convertible.pop(match))
     for shape in unmatched:
-        scores = [_overlap(o, shape) for o in convertible]
+        scores = [_overlap(o, shape, aliases) for o in convertible]
         best = max(range(len(scores)), key=scores.__getitem__, default=None)
         if best is not None and scores[best] > MATCH_IOU:
             kept_shapes.append(_edited(convertible.pop(best), shape, w, h, vis.get(shape["label_id"])))
@@ -914,9 +979,16 @@ def _merge_frame(
     kept_tags = [t for t in old_tags if not any(t is o for o in old_known)]
     for tag in new_tags:
         if classification:
-            match = next((i for i, o in enumerate(old_known) if o.get("label_id") == tag["label_id"]), None)
+            match = next(
+                (
+                    i
+                    for i, o in enumerate(old_known)
+                    if _same_class(o.get("label_id"), tag["label_id"], aliases)
+                ),
+                None,
+            )
             kept_tags.append(old_known.pop(match) if match is not None else tag)
-        elif not any(o.get("label_id") == tag["label_id"] for o in kept_tags):
+        elif not any(_same_class(o.get("label_id"), tag["label_id"], aliases) for o in kept_tags):
             kept_tags.append(tag)
     return kept_shapes, kept_tags
 
@@ -1276,7 +1348,8 @@ class CvatRemote:
         rows = self._label_rows(api, rid)
         specs = visibility_specs(rows)
         names = {int(r["id"]): str(r.get("name", "")) for r in rows}
-        need = sorted({ids[lb.label] for lb in labels if _mixed(lb) and lb.label in ids} - set(specs))
+        wanted = {class_id(ids, lb.label) for lb in labels if _mixed(lb)}
+        need = sorted({lid for lid in wanted if lid is not None} - set(specs))
         if need:
             body = [
                 {"id": lid, "name": names.get(lid, ""), "attributes": [_visibility_spec()]} for lid in need
@@ -1349,6 +1422,18 @@ class CvatRemote:
         }
         return self._info(api, api.request("POST", "/api/projects", json=body))
 
+    def classes(self, settings: ToolSettings, remote_id: str) -> dict[str, str]:
+        """The top-level labels of the project by id, to notice a label renamed in CVAT (its id stays).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            remote_id: The CVAT project id.
+
+        Returns:
+            ``{label id: name}``.
+        """
+        return {str(i): n for n, i in self._labels(self._api(settings), remote_id).items()}
+
     def ensure_classes(self, settings: ToolSettings, remote_id: str, classes: list[str]) -> None:
         """Add the labels the project does not have yet (existing ones are not touched).
 
@@ -1360,7 +1445,7 @@ class CvatRemote:
         self._ensure(self._api(settings), remote_id, classes)
 
     def _ensure(self, api: _Api, rid: str, names: list[str]) -> dict[str, int]:
-        """Make sure the project has a label for each name.
+        """Make sure the project has a label for each name (a label that differs only in case counts).
 
         Args:
             api: The REST client.
@@ -1368,10 +1453,10 @@ class CvatRemote:
             names: The class names that must exist.
 
         Returns:
-            The CVAT label id of each class name of the project (not only of ``names``).
+            The CVAT label id of each label name of the project (not only of ``names``).
         """
         ids = self._labels(api, rid)
-        missing = [n for n in dict.fromkeys(names) if n not in ids]
+        missing = [n for n in dict.fromkeys(names) if class_id(ids, n) is None]
         if missing:
             api.request(
                 "PATCH", f"/api/projects/{rid}", json={"labels": [_label_payload(n) for n in missing]}

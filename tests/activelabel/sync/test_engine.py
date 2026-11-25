@@ -285,3 +285,32 @@ def test_a_remote_edit_after_the_plan_of_an_unchanged_image_is_pulled_next_time(
     set_remote(env, "img1.png", CAT2)
     apply(env, first["plan_id"])
     assert plan(env)["pull"] == 1
+
+
+def test_renamed_classes_found_by_their_id_in_the_tool(env):
+    project = env.store.get(env.project.id)  # classes cat, dog
+    assert engine.renamed_classes(project, {"1": "cat", "2": "dog"}, {"1": "kitten", "2": "dog"}) == [
+        {"from": "cat", "to": "kitten"}
+    ]
+    assert engine.renamed_classes(project, {"1": "cat"}, {"1": "Cat"}) == []  # only the case changed
+    assert engine.renamed_classes(project, {"1": "cat"}, {"1": "dog"}) == []  # two classes merged
+    assert engine.renamed_classes(project, {"1": "bird"}, {"1": "owl"}) == []  # not a class here
+    assert engine.renamed_classes(project, None, {"1": "kitten"}) == []  # no snapshot yet
+    assert engine.renamed_classes(project, {"1": "cat"}, {}) == []  # deleted there
+
+
+def test_a_class_renamed_in_the_tool_is_renamed_here_and_not_created_again(env):
+    assert links.get_link(env.dir, "cvat")["classes"] == {"0": "cat"}
+    env.remote.projects[env.rid]["classes"][0] = "kitten"
+    for i in range(2):  # the tool shows the new name on the frames it has
+        set_remote(env, f"img{i}.png", [box("kitten")])
+    set_local(env, 2, [box("cat", 0.5, 0.5)])  # edited here meanwhile
+    p = plan(env)
+    assert p["renamed_classes"] == [{"from": "cat", "to": "kitten"}]
+    result = apply(env, p["plan_id"])
+    assert result["renamed_classes"] == [{"from": "cat", "to": "kitten"}]
+    assert env.store.get(env.project.id).classes == ["kitten", "dog"]
+    assert [lb.label for i in range(3) for lb in local(env, i)] == ["kitten"] * 3
+    assert "cat" not in env.remote.projects[env.rid]["classes"]
+    assert [lb.label for lb in env.remote.labels(env.rid, "img2.png")] == ["kitten"]
+    assert list(env.dir.glob("annotations.*.rename.bak.json"))

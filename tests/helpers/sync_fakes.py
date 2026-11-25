@@ -246,6 +246,10 @@ class FakeRemote:
         for key, labels in updates.items():
             self.projects[remote_id]["items"][key].labels = copy.deepcopy(labels)
 
+    def classes(self, settings, remote_id):
+        self._check()
+        return {str(n): name for n, name in enumerate(self.projects[remote_id]["classes"])}
+
     def ensure_classes(self, settings, remote_id, classes):
         self._check()
         self.calls.append(("classes", list(classes)))
