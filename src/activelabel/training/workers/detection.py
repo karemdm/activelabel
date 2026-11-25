@@ -936,6 +936,23 @@ def epoch_scores(result: dict[str, Any]) -> dict[str, float]:
     return fields
 
 
+def batch_loss(model: Any, batch: Any, device: str) -> Any:
+    """Summed training losses of one ``(images, targets)`` batch (to find the batch size that fits the GPU).
+
+    Args:
+        model: The detection model in training mode.
+        batch: ``(images, targets)`` as the loader gives them.
+        device: Torch device name.
+
+    Returns:
+        The loss tensor.
+    """
+    images, targets = batch
+    images = [i.to(device) for i in images]
+    targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+    return sum(model(images, targets).values())
+
+
 def make_loader(
     items: list[dict[str, Any]],
     train_mode: bool,
@@ -1015,6 +1032,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     Raises:
         SpecError: A model the worker cannot use.
         options.DeviceError: The device the run asked for is not available.
+        options.OutOfMemory: Not even a batch of 1 image fits in the GPU memory.
         augment.AugmentError: A technique the worker cannot apply.
         RuntimeError: The loss is not finite.
     """
@@ -1053,6 +1071,20 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
+    if device.startswith("cuda"):  # the largest batch, up to the one asked for, that fits the GPU
+        try_batch = partial(
+            options.probe,
+            model=model,
+            loader_of=partial(loader, parts["train"], False),
+            loss_of=partial(batch_loss, device=device),
+            precision=precision,
+            optimizer=optimizer,
+        )
+        batch = options.fit_batch(try_batch, batch, emit, 1, torch.cuda.empty_cache)
+        seed_everything(int(spec.get("seed", p["seed"])), torch)  # the probe drew random numbers
+        loader = partial(loader, batch_size=batch)
+        train_loader, val_loader = loader(parts["train"], True), loader(parts["val"], False)
+    emit("setup", batch_size=batch)
     epochs, patience = int(p["epochs"]), int(p["patience"])
     schedule = options.LrSchedule(
         optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"])

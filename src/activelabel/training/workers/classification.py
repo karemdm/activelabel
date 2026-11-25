@@ -480,6 +480,22 @@ def run_epoch(
     return _ratio(total, count), truth, predicted
 
 
+def batch_loss(model: Any, batch: Any, device: str, loss_fn: Any) -> Any:
+    """Loss of one ``(images, labels)`` batch (used to find the batch size that fits the GPU).
+
+    Args:
+        model: The network.
+        batch: ``(images, labels)`` tensors.
+        device: Torch device name.
+        loss_fn: Loss function ``(output, labels)``.
+
+    Returns:
+        The loss tensor.
+    """
+    images, labels = batch
+    return loss_fn(model(images.to(device)), labels.to(device))
+
+
 def make_loader(
     items: list[dict[str, Any]], transform: Any, shuffle: bool, batch_size: int, workers: int, generator: Any
 ) -> Any:
@@ -545,6 +561,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     Raises:
         SpecError: A model or size the worker cannot use.
         options.DeviceError: The device the run asked for is not available.
+        options.OutOfMemory: Not even a batch of 1 image fits in the GPU memory.
         augment.AugmentError: A technique the worker cannot apply.
         ImportError: A timm model was asked for and timm is not installed.
     """
@@ -576,6 +593,23 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model.to(device)
     optimizer = make_optimizer(spec, model, head, torch)
     loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=float(p.get("label_smoothing", 0.0)))
+    if device.startswith("cuda"):  # the largest batch, up to the one asked for, that fits the GPU
+        try_batch = partial(
+            options.probe,
+            model=model,
+            loader_of=partial(loader, parts["train"], eval_tf, False),
+            loss_of=partial(batch_loss, device=device, loss_fn=loss_fn),
+            precision=precision,
+            optimizer=optimizer,
+        )
+        batch = options.fit_batch(try_batch, batch, emit, 1, torch.cuda.empty_cache)
+        seed_everything(int(spec.get("seed", p["seed"])), torch)  # the probe drew random numbers
+        loader = partial(loader, batch_size=batch)
+        train_loader, val_loader = (
+            loader(parts["train"], train_tf, True),
+            loader(parts["val"], eval_tf, False),
+        )
+    emit("setup", batch_size=batch)
 
     epochs, patience = int(p["epochs"]), int(p["patience"])
     schedule = options.LrSchedule(

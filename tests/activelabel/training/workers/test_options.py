@@ -212,3 +212,76 @@ def test_pick_device_auto_and_explicit(o):
 def test_pick_device_refuses_what_is_not_there(o, fake, choice, message):
     with pytest.raises(o.DeviceError, match=message):
         o.pick_device(fake, choice)
+
+
+# -- out of GPU memory (#329) -------------------------------------------------------
+
+
+class _Gpu:
+    """A training step that runs out of memory above ``fits`` images."""
+
+    def __init__(self, fits):
+        self.fits, self.tried, self.cleared = fits, [], 0
+
+    def step(self, batch):
+        self.tried.append(batch)
+        if batch > self.fits:
+            raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+
+    def clear(self):
+        self.cleared += 1
+
+
+class _Events:
+    def __init__(self):
+        self.seen = []
+
+    def __call__(self, event, **fields):
+        self.seen.append((event, fields))
+
+
+def test_batch_is_halved_until_it_fits_and_each_halving_warns(o):
+    gpu, events = _Gpu(fits=3), _Events()
+    assert o.fit_batch(gpu.step, 16, events, clear=gpu.clear) == 2
+    assert gpu.tried == [16, 8, 4, 2] and gpu.cleared == 3
+    assert [f["batch_to"] for _, f in events.seen] == [8, 4, 2]
+    assert events.seen[0][0] == "warning" and "batch of 16 images" in events.seen[0][1]["message"]
+    assert o.fit_batch(_Gpu(fits=99).step, 8, events) == 8
+
+
+def test_no_batch_fits_or_another_error(o):
+    with pytest.raises(o.OutOfMemory, match="Not even a batch of 2"):
+        o.fit_batch(_Gpu(fits=1).step, 8, _Events(), smallest=2)
+    with pytest.raises(ValueError, match="not memory"):
+        o.fit_batch(_broken, 8, _Events())
+    assert o.is_out_of_memory(RuntimeError("CUDA out of memory")) and not o.is_out_of_memory(ValueError("x"))
+
+
+def _broken(batch):
+    raise ValueError("not memory")
+
+
+class _Loader:
+    """Gives one random batch of the size asked for and remembers the sizes."""
+
+    def __init__(self, torch):
+        self.torch, self.sizes = torch, []
+
+    def __call__(self, batch_size):
+        self.sizes.append(batch_size)
+        return [self.torch.randn(batch_size, 3)]
+
+
+def _loss(model, batch):
+    return model(batch).sum()
+
+
+def test_probe_leaves_weights_statistics_and_gradients_as_they_were(o, torch):
+    model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.BatchNorm1d(4))
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    before = {k: v.clone() for k, v in model.state_dict().items()}
+    loader_of = _Loader(torch)
+    o.probe(4, model, loader_of, _loss, o.Precision(False), optimizer)
+    assert loader_of.sizes == [4]
+    assert all(torch.equal(before[k], v) for k, v in model.state_dict().items())
+    assert all(p.grad is None for p in model.parameters())

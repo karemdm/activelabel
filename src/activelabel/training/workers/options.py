@@ -17,7 +17,8 @@ warmup, then ``none``, ``cosine``, ``step``, ``onecycle`` (its own ramp up and d
 The device (:func:`pick_device`) is the one the run asked for (``auto``, ``cpu``, ``cuda:N`` or ``mps``),
 checked before anything is trained. Automatic mixed precision (:class:`Precision`) runs the training steps
 in float16 on a CUDA GPU (``amp`` ``auto`` or ``on``); on the CPU and on Apple GPUs (MPS) training stays in
-float32.
+float32. On CUDA the batch size is tried first (:func:`fit_batch`): when the GPU runs out of memory the batch
+is halved, down to the smallest the model accepts, with a warning.
 
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
@@ -56,6 +57,10 @@ AMP_CHOICES = ("auto", "on", "off")
 
 class DeviceError(ValueError):
     """The device asked for is not available to the training environment (the message is readable)."""
+
+
+class OutOfMemory(RuntimeError):
+    """Not even the smallest batch fits in the GPU memory (the message is readable)."""
 
 
 def fit_layout(width: int, height: int, size: int, policy: str) -> tuple[int, int, int, int]:
@@ -491,3 +496,83 @@ def pick_device(torch: Any, choice: str = "auto") -> str:
     if index >= count:
         raise DeviceError(f"GPU {index} does not exist: this computer has {count} (numbered from 0).")
     return choice
+
+
+def is_out_of_memory(exc: BaseException) -> bool:
+    """Whether an error is the GPU running out of memory.
+
+    Args:
+        exc: the error raised by a training step.
+
+    Returns:
+        True for ``torch.cuda.OutOfMemoryError`` or a runtime error that says "out of memory".
+    """
+    kind = getattr(torch.cuda, "OutOfMemoryError", None)
+    if kind is not None and isinstance(exc, kind):
+        return True
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
+
+
+def probe(batch: int, model: Any, loader_of: Any, loss_of: Any, precision: Precision, optimizer: Any) -> None:
+    """One forward and backward pass of a first batch, then all put back (weights, statistics, gradients).
+
+    Args:
+        batch: the batch size to try.
+        model: the network, on its device.
+        loader_of: function ``(batch_size=...)`` that gives a data loader of the training images.
+        loss_of: function ``(model, batch)`` that gives the loss of one batch.
+        precision: the mixed precision of the training.
+        optimizer: the optimizer (its gradients are cleared).
+    """
+    saved = {k: v.detach().clone() for k, v in model.state_dict().items()}
+    model.train()
+    try:
+        first = next(iter(loader_of(batch_size=batch)))
+        with precision.autocast():
+            loss = loss_of(model, first)
+        loss.backward()
+    finally:
+        optimizer.zero_grad(set_to_none=True)
+        model.load_state_dict(saved)
+
+
+def fit_batch(try_batch: Any, batch: int, emit: Any, smallest: int = 1, clear: Any = None) -> int:
+    """The batch size to train with: the one asked for, halved while the GPU runs out of memory.
+
+    Args:
+        try_batch: function ``(batch)`` that runs one training step with that batch (see :func:`probe`).
+        batch: the batch size asked for.
+        emit: function ``(event, **fields)`` that tells the runner (a ``warning`` per halving).
+        smallest: the smallest batch the model accepts.
+        clear: function that frees the GPU memory after a failure (``torch.cuda.empty_cache``).
+
+    Returns:
+        The batch size that fits.
+
+    Raises:
+        OutOfMemory: not even ``smallest`` fits.
+    """
+    while True:
+        try:
+            try_batch(batch)
+            return batch
+        except Exception as exc:  # noqa: BLE001 - only running out of memory is handled here
+            if not is_out_of_memory(exc):
+                raise
+            if clear is not None:
+                clear()
+            if batch <= smallest:
+                raise OutOfMemory(
+                    f"Not even a batch of {smallest} image(s) fits in the GPU memory: lower the image size "
+                    "or train on the CPU."
+                ) from None
+            smaller = max(smallest, batch // 2)
+            emit(
+                "warning",
+                message=f"The GPU ran out of memory with a batch of {batch} images: training goes on with "
+                f"{smaller}.",
+                code="batch_halved",
+                batch_from=batch,
+                batch_to=smaller,
+            )
+            batch = smaller
