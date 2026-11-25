@@ -6,6 +6,9 @@ import { el, fill, icon } from '../shell/dom.js';
 import { LOCALE, fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 
+/* A saved model suggests labels for new images; a person reviews them in CVAT or FiftyOne.
+   Three blocks, in the order of the work: pre-annotate, to review, history. */
+
 /** The pre-annotation tab. `hooks` are the callbacks of the Annotations step: `changed()` after a run ends or
  *  is accepted, `reviewCvat(taskId)` and `reviewFiftyone()`. Returns {node, load, choose}. */
 export function preannotateBlock(page, hooks) {
