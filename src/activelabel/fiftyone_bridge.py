@@ -600,6 +600,27 @@ def _slug(dataset: fo.Dataset, view: str) -> str:
     return str(to_slug(view))
 
 
+def app_origin(port: int) -> str:
+    """Address of the App on a port, as the person's browser reaches it.
+
+    In a GitHub Codespace opened in the browser, ``localhost`` is the person's own machine, so the
+    address is the codespace's forwarded one, ``https://<codespace>-<port>.<forwarding domain>``, built
+    from ``CODESPACE_NAME`` and ``GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN`` (the port must be forwarded,
+    see the devcontainer). Elsewhere it is ``http://localhost:<port>``.
+
+    Args:
+        port: port of the App.
+
+    Returns:
+        The scheme, host and port, without a trailing slash.
+    """
+    name = os.environ.get("CODESPACE_NAME", "").strip()
+    domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "").strip()
+    if name and domain:
+        return f"https://{name}-{port}.{domain}"
+    return f"http://localhost:{port}"
+
+
 def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
     """URL that opens the dataset (and saved view) directly, whichever server answers on the port.
 
@@ -609,9 +630,9 @@ def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
         port: port of the App.
 
     Returns:
-        The URL.
+        The URL (on the codespace's forwarded address inside a GitHub Codespace, see :func:`app_origin`).
     """
-    url = f"http://localhost:{port}/datasets/{dataset.name}"
+    url = f"{app_origin(port)}/datasets/{dataset.name}"
     return f"{url}?view={_slug(dataset, view)}" if view else url
 
 

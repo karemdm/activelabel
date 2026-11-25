@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import fiftyone as fo
 import pytest
@@ -353,3 +354,26 @@ def test_a_sample_without_a_fingerprint_counts_as_edited(tmp_path, project):
     sample[bridge.WRITTEN] = None
     sample.save()
     assert bridge.is_edited(sample, Task.DETECTION)
+
+
+@pytest.fixture
+def no_codespace(monkeypatch):
+    """Neither codespace variable is set, whatever machine runs the tests."""
+    monkeypatch.delenv("CODESPACE_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", raising=False)
+
+
+def test_app_url_is_localhost_outside_a_codespace(no_codespace):
+    assert bridge.app_origin(5161) == "http://localhost:5161"
+    assert bridge.app_url(SimpleNamespace(name="d"), None, 5161) == "http://localhost:5161/datasets/d"
+
+
+def test_app_url_uses_the_forwarded_address_in_a_codespace(no_codespace, monkeypatch):
+    monkeypatch.setenv("CODESPACE_NAME", "fuzzy-space-x7")
+    monkeypatch.setenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    assert (
+        bridge.app_url(SimpleNamespace(name="d"), None, 5162)
+        == "https://fuzzy-space-x7-5162.app.github.dev/datasets/d"
+    )
+    monkeypatch.setenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "")  # only one of the two: not a codespace
+    assert bridge.app_origin(5161) == "http://localhost:5161"
