@@ -432,3 +432,45 @@ def test_status_codes_are_matched_as_numbers_not_inside_ids():
     assert "slow down" in str(ci.explain(RuntimeError("Error 429")))
     for text in ("task 14031 failed", "/api/tasks/403/data broke", "id 4010 and 2401"):
         assert str(ci.explain(RuntimeError(text))) == f"CVAT error: {text}"
+
+
+def test_explain_gives_codes():
+    url = "https://cvat.example"
+    assert ci.explain(RuntimeError("HTTP 401 Unauthorized"), url).code == "cvat_login_failed"
+    assert ci.explain(RuntimeError("403 Forbidden"), url).code == "cvat_refused"
+    assert ci.explain(RuntimeError("please upgrade your plan"), url).code == "cvat_plan_limit"
+    assert ci.explain(RuntimeError("Error 429"), url).code == "cvat_rate_limited"
+    assert ci.explain(requests.ConnectionError("x"), url).params == {"url": url}
+    assert ci.explain(RuntimeError("HTTP 404"), url).code == "cvat_not_found"
+    other = ci.explain(RuntimeError("something odd"), url)
+    assert (other.code, other.params) == ("cvat_error_other", {"reason": "something odd"})
+
+
+def test_http_failures_of_the_import_client_carry_codes(monkeypatch):
+    def ask(status):
+        fake = FakeSession({("GET", "/api/projects"): FakeResp(status, {})}, BASE)
+        monkeypatch.setattr(requests, "Session", lambda: fake)
+        with pytest.raises(ToolError) as err:
+            ci.list_remote(SETTINGS)
+        return err.value
+
+    assert ask(401).code == "cvat_login_failed"
+    assert ask(429).code == "cvat_rate_limited"
+    server = ask(500)
+    assert (server.code, server.params) == ("cvat_error", {"http": 500})
+    assert ask(404).code == "cvat_not_found"
+    with pytest.raises(ToolError) as err:
+        ci.list_remote(ToolSettings("cvat", BASE, "", ""))
+    assert err.value.code == "cvat_config_missing"
+    with pytest.raises(ToolError) as err:
+        ci.list_remote(ToolSettings("cvat", "ftp://x", "u", "p"))
+    assert err.value.code == "cvat_url_invalid"
+
+
+def test_a_missing_remote_item_has_a_code(cvat):
+    with pytest.raises(RemoteNotFound) as err:
+        ci.check_remote(SETTINGS, "project", "99")
+    assert err.value.code == "cvat_not_found"
+    with pytest.raises(RemoteNotFound) as err:
+        ci.check_remote(SETTINGS, "project", "x")
+    assert err.value.code == "cvat_item_not_found"

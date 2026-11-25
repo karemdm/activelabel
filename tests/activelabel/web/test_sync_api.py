@@ -256,3 +256,13 @@ def test_a_project_deleted_in_the_tool_fails_the_comparison_with_a_code(env):
     assert failed["status"] == "failed"
     assert failed["error_code"] == "remote_gone"
     assert "traceback" not in failed["result"]
+
+
+def test_the_connection_test_answers_with_a_code_and_the_user(env):
+    configure(env)
+    ok = env.client.post("/api/annotation-tools/cvat/test").json()
+    assert ok["ok"] is True and ok["code"] == "test_connected"
+    assert ok["params"] == {"url": "http://remote", "user": "u"}
+    env.remote.fail = "boom"
+    bad = env.client.post("/api/annotation-tools/cvat/test").json()
+    assert bad["ok"] is False and bad["message"] == "boom" and bad["code"] == "tool_error"

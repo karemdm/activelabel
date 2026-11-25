@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from activelabel.annotate.base import ToolError
 from activelabel.errors import CodedError
 from activelabel.storage import DamagedFile
 from activelabel.textcheck import message_of
@@ -144,6 +145,23 @@ async def plain_http_error(request: Request, exc: Exception) -> Response:
     return JSONResponse(
         {"detail": exc.detail, "code": code, "params": {}}, status_code=exc.status_code, headers=exc.headers
     )
+
+
+def tool_failure(exc: ToolError, tool: str, status: int = 400) -> ApiError:
+    """An HTTP error for a problem of an annotation tool, with the code the tool's error carries.
+
+    Args:
+        exc: The error of the tool.
+        tool: Name of the tool (``cvat``), for an error that has no code of its own.
+        status: HTTP status of the answer.
+
+    Returns:
+        An :class:`ApiError` with the code and params of ``exc``; an error without a code becomes
+        ``tool_error`` with the tool and the English text as params.
+    """
+    if exc.code:
+        return ApiError(status, exc.code, str(exc), **exc.params)
+    return ApiError(status, "tool_error", str(exc), tool=tool, reason=str(exc))
 
 
 def install_error_handlers(app: FastAPI) -> None:
