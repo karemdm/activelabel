@@ -14,8 +14,8 @@ The person chooses:
 | Split | train 70 / val 20 / test 10 | percentages of images, summing to 100; val or test may be 0 |
 | K-fold | off | instead of one train/val split: K folds (2–10) of the non-test part; the test part stays apart |
 | Background images | off | include active images without annotations (negatives for detection / segmentation); classification never has them |
-| Videos | auto | `auto`: a video stays whole unless that makes the proportions unreachable, then it is cut into segments (see below); `whole`: a video always stays in one part |
-| Safety gap | 0.5 s | `gap_seconds` (0 or more): train frames this close (in time) to a val/test segment of the same video are left out of the version; 0 keeps them |
+| Videos | auto | `auto`: videos stay whole when there are enough of them for the proportions and for every class; otherwise the videos that block it are cut into spaced segments (see below); `whole`: a video always stays in one part |
+| Safety gap | 0.5 s | `gap_seconds` (0 or more): the least gap around the val/test segments of a cut video; it grows per video (see below); 0 keeps every frame |
 | Seed | 42 | the same options and seed always give the same split |
 | Note | — | free text kept with the version |
 
@@ -28,26 +28,45 @@ warnings. Nothing is saved until the person confirms.
   that curation found to be near duplicates (`duplicate_of` in `curation.json`, linked transitively)
   form one group, and a group goes whole to one part. Without curation analysis the near-duplicate
   rule cannot apply: the preview says so.
-- **Videos stay together, unless that breaks the proportions** (`videos: "auto"`, the default). The
-  split is first tried with every video whole. If a requested part (val/test, or a fold) ends up
-  empty or with less than half of its target share, the videos bigger than the smallest such target
-  (and with at least 4 frames) are cut into **contiguous segments** in frame order (`ImageRecord.frame`,
-  then `time`): length = frames / 10 rounded up, at least 2 and at most 30 frames, so a video gives
-  about 10 segments (more when long). Each segment then behaves like a group (class stratification
-  applies). For every cut video, each part other than train gets as many segments as it still needs
-  (proportional to its missing images); those are taken **evenly spread over the timeline** (the
-  centre of each of the q equal cells of the video, so never adjacent unless q is more than half of
-  the segments) and train gets the rest. With K-fold all segments are shared among the folds (and
-  test) the same way, neighbouring segments going to different parts. Near-duplicate links between
-  frames of the *same* cut video are ignored (consecutive frames are similar by nature); links to
-  other videos or images still group. `videos: "whole"` never cuts.
-- **Safety gap**: for a cut video, train frames (with K-fold: fold frames) within `gap_seconds` of a
-  frame of a val/test (with K-fold: test) segment are left out of the version, so near-identical
-  frames are not on both sides. Time is `ImageRecord.time`, or `frame / fps` of the video; if a
-  frame of the video has neither, that video has no gap. The distance is inclusive. Between folds
-  there is no gap. Left-out frames are counted per video and in `stats.gap`. A long gap on a
-  densely sampled video can leave little for train: the preview shows it.
-- **Stratified by class**: groups are assigned one by one, rarest classes first, to the part that is
+- **Videos: whole when possible, spaced segments otherwise** (`videos: "auto"`, the default). The
+  split is first tried with every video whole. It is tried again with some videos cut when a requested
+  part (val/test, or a fold) ends up empty or with less than half of its share (the videos bigger than
+  the smallest such target are cut), or when a class is missing from a requested part (the videos
+  holding such a class are cut); the cut split is kept only if it is better: first no part too small,
+  then fewer (part, class) pairs missing. So with many videos they stay whole, with one or two videos
+  (or a class found in too few videos) those videos are cut, and short clips that are not needed stay
+  whole. Videos with fewer than 4 frames never cut. A cut video is split into **contiguous segments**
+  in frame order (`ImageRecord.frame`, then `time`): about `classes / smallest share` segments (so the
+  smallest part can hold one segment per class of the video), at least 10 and at most 20, of 2 to 30
+  frames. For every cut video, each part other than train gets its share of the video's segments (no
+  more than it still needs); slot *k* of *q* aims at the centre of the *k*-th of *q* equal cells of
+  the timeline (beginning, middle and end, never one contiguous end). A segment holding the last frames
+  of a class train lacks is never taken; a segment holding a class a part still lacks is preferred over
+  the aimed position; then segments not next to one already taken. Each chosen segment's part follows
+  the class stratification, never the part of a neighbour. If a part still lacks a class that at least
+  as many segments as parts hold, it gets one more segment with that class (its share of the video
+  grows a little). Train gets the rest. With K-fold all segments are shared among the folds (and test),
+  neighbouring segments going to different parts. Near-duplicate links between frames of the *same*
+  cut video are ignored for grouping (they size the gap instead); links to other videos or images still
+  group. `videos: "whole"` never cuts.
+- **Safety gap**: for a cut video, train frames (with K-fold: fold frames) within the video's gap of a
+  frame of a val/test (with K-fold: test) segment are left out of the version, and so are val frames
+  within the gap of a test segment. The gap of each cut video (`videos[].gap_seconds`) is the largest
+  of: `gap_seconds`; one frame interval (median time between consecutive frames, so a sparse video
+  still loses its direct neighbours); the longest time between two frames of the video that curation
+  found to be near duplicates; but no more than a tenth of the video's duration (unless `gap_seconds`
+  asks for more). `gap_seconds: 0` turns the gap off. Time is `ImageRecord.time`, or `frame / fps`; if
+  a frame of the video has neither, that video has no gap. The distance is inclusive. Between folds
+  there is no gap. Left-out frames are counted per video and in `stats.gap`.
+- **Residual leakage**: segments of one video are in training and in validation/test even with the
+  gap: the scene, the objects and the light are the same, so the scores measure frames of videos the
+  model has seen, not new videos, and tend to be optimistic. Whenever a video is cut the warning
+  `video_parts_shared` says so ("métricas podem ser otimistas: trechos do mesmo vídeo..."). To measure
+  generalisation to new videos, record more videos and use `videos: "whole"`.
+- **Stratified by class**: groups are assigned one by one, rarest classes first. A group goes first
+  to a part that has none of its rarest class yet, so a class with at least as many groups as parts is
+  in every part (3 images of a class give 1/1/1 with 70/20/10, not 2/1/0: its share then differs from
+  the requested one); then to the part that is
   furthest below its target for that class (iterative stratification for multi-label data), then to
   the part furthest below its image target; ties are broken with the seeded random generator.
   Everything is deterministic for the same options and seed.
@@ -58,6 +77,7 @@ warnings. Nothing is saved until the person confirms.
   segments, the parts that use spread segments and the frames left out as a gap.
 - **Warnings** (never errors), each with a `code`:
   - `class_missing`: a class absent from a part that should have images (`part`, `class`);
+  - `video_parts_shared`: some videos were cut, their segments are on both sides (`videos`: how many);
   - `few_images`: a part with very few images (fewer than 5);
   - `ratio_drift`: a part whose real share is far from the requested one (`expected`, `actual`, in %);
   - `group_too_big`: a group larger than a part's target that moved the proportions; `cause` says why the
@@ -106,7 +126,7 @@ neighbouring segments can land in different folds, and no frames are left out be
  "warnings": [{"code": "class_missing", "part": "test", "class": "bike"},
               {"code": "video_split", "video": "<id>", "name": "clip.mp4", "segments": 10,
                "parts": ["val", "test"], "gap": 6}],
- "videos": [{"video": "<id>", "name": "clip.mp4", "frames": 50, "split": true, "gap": 6,
+ "videos": [{"video": "<id>", "name": "clip.mp4", "frames": 50, "split": true, "gap": 6, "gap_seconds": 0.5,
              "segments": [{"part": "train", "first_frame": 0, "last_frame": 4},
                           {"part": "val", "first_frame": 5, "last_frame": 9}, …]}],
  "fingerprint": "<sha256 of the parts, folds and labels>"}
