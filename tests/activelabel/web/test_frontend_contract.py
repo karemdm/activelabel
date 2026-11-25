@@ -721,3 +721,9 @@ def test_a_task_cut_off_midway_says_so_on_its_card():
     for lang in ("pt", "en"):
         messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         assert messages["tasks.incomplete"] and messages["tasks.incomplete_help"]
+
+
+def test_a_grid_on_a_hold_out_version_counts_one_run_per_combination():
+    """With 0 folds the count was combinations x 0 = 0, so a grid of 270 runs passed the limit of 50."""
+    assert "Math.max(1, foldCount(versionOf()))" in JS
+    assert "const total = combos * folds;" in JS

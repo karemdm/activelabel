@@ -5478,7 +5478,7 @@
           if ((levels.length === 1 ? levels[0] : null) !== st.augLevel) syncAug();
           if (levels.length === 1 && levels[0] === 'custom') bad += st.augBad.size;
           const grid = st.mode === 'grid';
-          const folds = st.fold === 'all' ? foldCount(versionOf()) : 1;
+          const folds = st.fold === 'all' ? Math.max(1, foldCount(versionOf())) : 1;   // a hold-out version has 0 folds: one run per combination
           const total = combos * folds;
           summary.hidden = !grid && folds < 2;
           summary.classList.remove('bad', 'ok');
