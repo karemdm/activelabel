@@ -211,3 +211,14 @@ def test_old_session_of_a_removed_tool_is_listed_and_closed_without_contacting_a
     assert r.status_code == 200 and r.json() == {"closed": True}
     assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
     assert not env.tool.closed and not remotes["cvat"].calls  # no tool was contacted
+
+
+def test_a_tool_url_with_spaces_or_without_a_server_is_refused_and_spaces_around_it_are_dropped(env, remotes):
+    for bad in ("  http://127.0.0.1:8113  /x y", "cvat.local:8080", "http://my host"):
+        r = env.client.put("/api/annotation-tools/cvat", json={"url": bad, "username": "u", "secret": "pw"})
+        assert r.status_code == 400 and r.json()["code"] == "url_invalid", bad
+    cvat = next(t for t in env.client.get("/api/annotation-tools").json() if t["tool"] == "cvat")
+    assert cvat["url"] == ""  # nothing was saved
+    body = {"url": "  http://cvat.local:8080/  ", "username": " u ", "secret": "pw"}
+    saved = env.client.put("/api/annotation-tools/cvat", json=body)
+    assert saved.status_code == 200 and saved.json()["url"] == "http://cvat.local:8080"
