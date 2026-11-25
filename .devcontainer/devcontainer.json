@@ -7,8 +7,9 @@
   "containerEnv": { "ACTIVELABEL_WORKSPACE": "/workspaces/activelabel-data" },
   "onCreateCommand": "mkdir -p /workspaces/activelabel-data && pip install -e .",
   "postStartCommand": "nohup python -m activelabel.cli serve --host 0.0.0.0 --port 8100 > /tmp/activelabel.log 2>&1 &",
-  "forwardPorts": [8100],
+  "forwardPorts": [8100, 5161],
   "portsAttributes": {
-    "8100": { "label": "ActiveLabel", "onAutoForward": "openBrowser" }
+    "8100": { "label": "ActiveLabel", "onAutoForward": "openBrowser" },
+    "5161": { "label": "FiftyOne", "onAutoForward": "silent" }
   }
 }

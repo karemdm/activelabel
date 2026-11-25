@@ -27,7 +27,7 @@ def test_forwarded_port_matches_the_server_command():
     command = config["postStartCommand"]
     port = int(re.search(r"--port (\d+)", command).group(1))
     assert "--host 0.0.0.0" in command
-    assert config["forwardPorts"] == [port]
+    assert config["forwardPorts"][0] == port  # the app first; 5161 is the FiftyOne app
     assert config["portsAttributes"][str(port)]["label"] == "ActiveLabel"
 
 
