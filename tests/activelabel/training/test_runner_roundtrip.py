@@ -85,8 +85,9 @@ def load_worker(name: str) -> Any:
         name: file name without ``.py`` (``detection`` or ``segmentation``).
 
     Returns:
-        The loaded module.
+        The loaded module (the test is skipped where torch is missing: the workers import it at the top).
     """
+    pytest.importorskip("torch", reason="the training workers need torch (the 'training workers' CI job)")
     spec = importlib.util.spec_from_file_location(f"{name}_worker_rt", WORKERS / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
