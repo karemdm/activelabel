@@ -23,7 +23,10 @@ imported-from records: they are shown as belonging to a discontinued tool and ca
 Same functions in the tool: add, edit, delete, change class — for classification (one class per image),
 detection (bounding boxes) and segmentation (polygons). **Keypoints cannot be edited in the FiftyOne App**
 (its Annotate mode edits classifications, boxes and polygons of images only): a keypoints project sees its
-points in FiftyOne and is edited in CVAT (docs/SYNC.md).
+points in FiftyOne and is edited in CVAT (docs/SYNC.md). The API refuses a FiftyOne edit session in such a
+project (400 `fiftyone_keypoints_not_editable`: "The FiftyOne App does not edit keypoints: edit them in
+CVAT."), and in the interface the *Edit in FiftyOne* entry of a task's open menu is disabled, with the reason
+written under it, while *View in FiftyOne* stays (docs/TASKS.md, *Interface*).
 
 **How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
 gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
@@ -43,13 +46,24 @@ Only a polyline that is neither closed nor filled and has no ring of 3 points is
 
 The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`.
 
+**Images with no objects.** An image can be listed in the project's annotations with an empty list of
+labels: reviewed, with nothing to label (a background image, for example). It is not "annotated", which
+everywhere (step bar, tasks, jobs, summary) means at least one reviewed label; the step status and the
+project card count it apart as "N without objects" (*N sem objetos*), and it is enough for the
+*Annotations* step to count as loaded (`counts.empty` in the project overview, `images_empty` in
+`GET /projects/{id}/annotations`). Images that only hold pre-annotations are counted apart too, as waiting
+for review ([PREANNOTATE.md](PREANNOTATE.md)).
+
 ## Flow (FiftyOne)
 
 1. **Choose which images** (*Which images*): all active images, only images without annotations, the
    images selected in the curation grid, one issue filter, or only the images whose labels are all
-   pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)). A task or one of its jobs
-   can also be sent from its open menu in the *Tasks and jobs* tab (*Edit in FiftyOne*): scope `task`,
-   exactly its active images; the session records the task (and job) and its card names it.
+   pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)). The choice starts on *All
+   images*, or on the one the person chose last in this project (kept in the browser); *Only images without
+   annotations* means images that are not listed in the project's annotations, so an image reviewed with no
+   objects (see below) is not in it. A task or one of its jobs can also be sent from its open menu in the
+   *Tasks and jobs* tab (*Edit in FiftyOne*): scope `task`, exactly its active images; the session records
+   the task (and job) and its card names it.
 2. **Send** (*Send to FiftyOne*, a job): the FiftyOne dataset is refreshed from the project (images +
    current ground truth) and the App opens on a saved view with those images, field `ground_truth`.
    A **session** is recorded in `<project>/annotate.json` (and `annotate/<session>/`): id, tool, image
@@ -67,8 +81,10 @@ The FiftyOne App runs on port 5161 (or the next free one; a port where an App of
    change). Also validate against the type and the class list (unknown classes are reported) and the
    geometry: a polygon ring of fewer than 3 points (`polygon_too_few_points`), an open line (not closed
    nor filled) without a ring of 3 points (`open_polyline`), a pose with another number of points than the
-   project's (`keypoints_count_mismatch`) or a box without area (`box_invalid`) is listed as a problem
-   and skipped on apply, never stored silently; a detection mask keeps only its box (`mask_only`). Only the
+   project's (`keypoints_count_mismatch`), a box without area or entirely outside the image (`box_invalid`) or
+   a label without the shape the project type needs (`no_geometry`) is listed as a problem and skipped on
+   apply, never stored silently; an image with more than one class in a classification project keeps the
+   first (`multiple_classes`); a detection mask keeps only its box (`mask_only`). Only the
    images edited in FiftyOne bring FiftyOne's version; the others keep the project's current labels, so
    a project edit is never undone by an image nobody touched in FiftyOne. **Conflicts**: an image edited
    in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under
@@ -98,23 +114,29 @@ Before anything that removes or rewrites annotations in bulk, `annotations.json`
 `task` (a task change that discards the labels), `apply` (FiftyOne edits applied), `sync` (CVAT synchronised),
 `rename` (a class renamed in CVAT), `replace` (an import that replaces) or `restore` (the file a restore
 replaced). Copies made by older versions have no `Z`; their time is the file's modification time. Only the
-newest 20 copies of a project are kept: making a new one deletes the oldest beyond that.
+newest 20 copies of a project are kept (`KEEP_BACKUPS` in `activelabel/backups.py`): making a new one deletes
+the oldest beyond that.
 
 The *Annotations* step lists them under the summary (*Safety copies*): time, reason, images and labels, and
 *Restore*, after a confirmation. Restoring makes the copy the annotations again, after making a copy of the
 current file (so a restore can be undone the same way). The project takes the task of the copy and gets the
 classes of the copy that it does not have, so no label is left with an unknown class. The API is
 `GET /projects/{id}/annotations/backups` and `POST .../backups/{name}/restore` (docs/DESIGN.md); the name is
-checked against the names the app writes, so no other file can be reached. Copies are never removed by the app.
+checked against the names the app writes, so no other file can be reached.
 
 ## Credentials
 
-Only CVAT needs them. Set in the interface: the *Settings* (*Ajustes*) button on the tool card, or *Set up
-CVAT* (*Configurar o CVAT*) in the *CVAT* tab. URL and username are stored in
+Only CVAT needs them. Set in the interface: the *Settings* (*Ajustes*) button of the *CVAT* tab (*Set up CVAT*,
+*Configurar o CVAT*, before it is set up) or the *Set up* / *Settings* button of the CVAT card on the import page
+(docs/IMPORT.md). The form starts with the address empty and an example of one as its placeholder (the address of CVAT
+online); the password or token is one field, called *Password or token* (*Senha ou token*), and when one is
+already saved the field says so and leaving it empty keeps it. Once CVAT is set up, the *CVAT* tab shows
+"Connected to <server> as <user>". URL and username are stored in
 `<workspace>/tools.json`; the password / token **only** in the system keyring (service
 `activelabel`, key `<tool>:<url>`). They are never written to a file, never returned by the API
 and never logged. The URL is trimmed and must start with `http://` or `https://`, name a server and have no
-spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login.
+spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login;
+a result message about an old value is cleared as soon as a field is edited.
 
 ## HTTP API
 
