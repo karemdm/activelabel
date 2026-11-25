@@ -96,7 +96,7 @@ def test_a_project_deleted_elsewhere_is_reported():
 def test_curation_actions_come_before_the_image_grid():
     """The actions of the step (analyze, FiftyOne, limits, reset) are a bar above the grid."""
     start = JS.index("function curationPanel(")
-    panel = JS[start : JS.index("// ====", start)]
+    panel = JS[start : JS.index("\n}\n", start)]  # cv/curation.js: the function ends at the brace in column 0
     mounted = panel[panel.index("add(node,") :]
     assert mounted.index("actionsBar") < mounted.index("grid.node")
     assert "fo-box" not in panel and "fo-box" not in CSS
