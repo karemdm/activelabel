@@ -143,6 +143,7 @@ More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
 [docs/ASSESSMENT.md](docs/ASSESSMENT.md) (strengths, risks and a roadmap),
 [CHANGELOG.md](CHANGELOG.md) (notable changes, including removed features),
+[RELEASING.md](RELEASING.md) (how a release is published),
 [docs/FUTURE-LLM.md](docs/FUTURE-LLM.md) (planned use of language models) and
 [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md) (user guide in Portuguese).
 
