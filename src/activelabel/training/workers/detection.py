@@ -278,10 +278,10 @@ def mask_iou(a: Array, b: Array) -> Array:
     Returns:
         The IoU matrix.
     """
+    if not len(a) or not len(b):  # before reshaping: an empty (0, H, W) array cannot take -1
+        return np.zeros((len(a), len(b)))
     fa = (np.asarray(a) > 0).reshape(len(a), -1).astype(np.float32)
     fb = (np.asarray(b) > 0).reshape(len(b), -1).astype(np.float32)
-    if not len(fa) or not len(fb):
-        return np.zeros((len(fa), len(fb)))
     inter = fa @ fb.T
     union = fa.sum(1)[:, None] + fb.sum(1)[None, :] - inter
     return np.where(union > 0, inter / np.maximum(union, 1e-12), 0.0)
