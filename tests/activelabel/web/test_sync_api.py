@@ -266,3 +266,23 @@ def test_the_connection_test_answers_with_a_code_and_the_user(env):
     env.remote.fail = "boom"
     bad = env.client.post("/api/annotation-tools/cvat/test").json()
     assert bad["ok"] is False and bad["message"] == "boom" and bad["code"] == "tool_error"
+
+
+def test_a_discarded_plan_cannot_be_applied(env):
+    job = plan(env, remote_id=env.rid)
+    plan_id = job["result"]["plan_id"]
+    url = f"/api/projects/{env.pid}/sync/cvat/{plan_id}"
+    assert env.client.delete(url).json() == {"discarded": True}
+    assert not (env.state.store.dir(env.pid) / "sync" / f"{plan_id}.json").exists()
+    again = env.client.delete(url)
+    assert (again.status_code, again.json()["code"]) == (404, "plan_not_found")
+    late = env.client.post(f"{url}/apply", json={})
+    assert (late.status_code, late.json()["code"]) == (404, "plan_not_found")
+
+
+def test_discarding_is_refused_for_an_unknown_tool_or_plan(env):
+    plan_id = plan(env, remote_id=env.rid)["result"]["plan_id"]
+    other = env.client.delete(f"/api/projects/{env.pid}/sync/labelstudio/{plan_id}")
+    assert (other.status_code, other.json()["code"]) == (404, "tool_unknown")
+    wrong = env.client.delete(f"/api/projects/{env.pid}/sync/cvat/not-a-plan")
+    assert (wrong.status_code, wrong.json()["code"]) == (404, "plan_not_found")
