@@ -367,3 +367,12 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def test_see_all_classes_shows_only_when_a_class_is_hidden_and_stays_next_to_them():
+    """#420: the button follows what overflows (not a count of classes); the fade is only for an overflow."""
+    assert "classes.length > 3 ?" not in JS
+    assert re.search(r"new ResizeObserver\(measure\)", JS) and "btn.hidden = !over" in JS
+    assert re.search(r"\.class-line-chips\.overflowing\s*\{[^}]*mask-image", CSS)
+    assert not re.search(r"\.class-line-chips\s*\{[^}]*mask-image", CSS)
+    assert re.search(r"\.class-line-chips\s*\{[^}]*flex: 0 1 auto", CSS)

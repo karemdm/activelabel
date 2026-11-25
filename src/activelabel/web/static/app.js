@@ -429,10 +429,18 @@
       document.body.appendChild(dlg);
       openModal(dlg);
     };
+    const chips = el('span', { class: 'class-line-chips' }, ...classes.map(chip));
+    const btn = el('button', { type: 'button', class: 'btn small', onclick: open, hidden: true }, t('classes.see_all'));
+    /* the button and the fade appear only when a class does not fit on the line */
+    const measure = () => {
+      const over = chips.scrollWidth > chips.clientWidth + 1;
+      btn.hidden = !over;
+      chips.classList.toggle('overflowing', over);
+    };
+    new ResizeObserver(measure).observe(chips);
     return el('div', { class: 'class-line' },
       el('span', { class: 'muted class-line-label' }, `${t('field.classes')} (${num(classes.length)})`),
-      el('span', { class: 'class-line-chips' }, ...classes.map(chip)),
-      classes.length > 3 ? el('button', { type: 'button', class: 'btn small', onclick: open }, t('classes.see_all')) : null);
+      chips, btn);
   }
 
   function progressBar(done, total, label) {
