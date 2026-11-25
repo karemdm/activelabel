@@ -474,3 +474,25 @@ def test_a_missing_remote_item_has_a_code(cvat):
     with pytest.raises(RemoteNotFound) as err:
         ci.check_remote(SETTINGS, "project", "x")
     assert err.value.code == "cvat_item_not_found"
+
+
+class RecordingProgress(Progress):
+    """Keeps every (done, total, message) the job reports."""
+
+    def __init__(self) -> None:
+        super().__init__(Job("j", 0, "import_project"), threading.Event())
+        self.seen: list[tuple[int, int, str]] = []
+
+    def update(self, done=None, total=None, message=None):
+        super().update(done, total, message)
+        self.seen.append((self._job.done, self._job.total, self._job.message))
+
+
+def test_import_project_reports_each_downloaded_image(tasks_remote, tmp_path):
+    """#564: the bar stayed still while the frames were downloaded; it now counts them (5 frames here)."""
+    store = ProjectStore(tmp_path / "projects")
+    progress = RecordingProgress()
+    run(store, tmp_path, progress=progress, kind="project", remote_id="1")
+    downloads = [(done, total) for done, total, message in progress.seen if message == "Downloading images"]
+    assert (1, 5) in downloads and (5, 5) in downloads
+    assert [d for d, _ in downloads] == sorted(d for d, _ in downloads)  # never goes back
