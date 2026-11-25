@@ -1395,7 +1395,7 @@
         return sc.scope === 'job' && sc.job != null ? `${base} · ${t('sync.scope_job')} ${sc.job}` : base;
       }
 
-      const RESULT_KEYS = ['pulled', 'pushed', 'added', 'removed_remote', 'removed_local', 'restored_remote', 'restored_local',
+      const RESULT_KEYS = ['pulled', 'pushed', 'images_new', 'labels_new', 'removed_remote', 'removed_local', 'restored_remote', 'restored_local',
         'tasks_created', 'tasks_imported', 'tasks_deleted', 'conflicts_left'];
       const resultJob = () => {
         const last = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
@@ -1433,8 +1433,7 @@
         const tCreate = plan.tasks_create || [];
         const tNew = plan.tasks_new || [];
         const tDelete = plan.tasks_delete || [];
-        const nothing = !(plan.pull || plan.push || plan.add || conflicts.length || plan.remove_remote || plan.remove_local
-          || plan.restore_remote || plan.restore_local || tCreate.length || tNew.length || tDelete.length);
+        const nothing = planIsEmpty(plan);
         const radios = [];
 
         const sub = (items, text) => (items.length
@@ -1464,6 +1463,7 @@
             line(t('sync.row_tasks_create'), tCreate.length, sub(tCreate, taskText)),
             line(t('sync.row_tasks_delete'), tDelete.length, el('div', null, sub(tDelete, (x) => x.name || `#${x.task}`), deleteBox)),
             line(t('sync.row_add'), plan.add),
+            line(t('sync.row_new_annot'), plan.labels_new, el('p', { class: 'muted dir-sub' }, tn('sync.n_images', Number(plan.images_new) || 0))),
             line(t('sync.row_annot'), plan.push),
             line(t('sync.row_remove'), plan.remove_remote),
             line(t('sync.row_restore'), plan.restore_remote)]),
@@ -1581,8 +1581,8 @@
             el('span', { class: 'sbadge sbadge-pulled' }, t('sync.review'))),
           el('p', { class: 'session-meta' },
             isHttp(remote.url) ? el('a', { href: remote.url, target: '_blank', rel: 'noopener' }, remote.name || name, ' ', icon('external', 14)) : el('span', null, remote.name || name),
-            remote.images != null ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
-            remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null,
+            remote.images != null && !plan.create ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
+            remote.images != null && !plan.create ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null,
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
             el('strong', { class: 'sync-scope' }, scopeText(plan.scope)),
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
@@ -3675,6 +3675,13 @@
       return panel;
     }
 
+    /* whether a comparison found nothing to review: nothing to bring, send, rename or decide */
+    const planIsEmpty = (plan) => {
+      const n = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
+      return !['pull', 'push', 'add', 'conflicts', 'remove_remote', 'remove_local', 'restore_remote', 'restore_local',
+        'tasks_create', 'tasks_new', 'tasks_delete'].some((k) => n(plan[k]));
+    };
+
     // ================================================================ jobs bar
     const isStale = (job) => job.kind === 'sync_apply' && /Synchronise again/i.test(String(job.error || ''));
     /* the linked project was deleted in the tool: say so plainly and how to go on */
@@ -3848,7 +3855,8 @@
         /* every change counts: images, annotations and tasks, each way */
         const len = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
         const incoming = len(r.pull) + len(r.remove_local) + len(r.restore_local) + len(r.tasks_new);
-        const outgoing = len(r.push) + len(r.add) + len(r.remove_remote) + len(r.restore_remote) + len(r.tasks_create) + len(r.tasks_delete);
+        const sent = 'images_new' in r ? len(r.images_new) : len(r.add) + len(r.tasks_create);  /* images sent for the first time, in new tasks or added */
+        const outgoing = len(r.push) + sent + len(r.remove_remote) + len(r.restore_remote) + len(r.tasks_delete);
         const conflicts = len(r.conflicts);
         if (!incoming && !outgoing && !conflicts) return t('jobs.result_sync_plan_none');
         return t('jobs.result_sync_plan', { pull: num(incoming), push: num(outgoing), conflicts: num(conflicts) });
@@ -3856,7 +3864,7 @@
       if (job.kind === 'sync_apply') {
         const n = (...keys) => Number(keys.map((k) => r[k]).find((v) => v != null)) || 0;
         const incoming = n('pulled') + n('removed_local') + n('restored_local') + n('tasks_imported');
-        const outgoing = n('pushed') + n('added') + n('removed_remote') + n('restored_remote') + n('tasks_created') + n('tasks_deleted');
+        const outgoing = n('pushed') + n('images_new') + n('removed_remote') + n('restored_remote') + n('tasks_deleted');
         const base = t('jobs.result_sync_apply', { pull: num(incoming), push: num(outgoing) });
         const left = n('conflicts_left');
         return left ? `${base} ${tn('jobs.result_sync_left', left)}` : base;
@@ -3906,7 +3914,8 @@
       for (const job of jobs) {
         if (job.status === 'done' && ctx.syncNotify && ctx.syncNotify.has(job.id)) {
           ctx.syncNotify.delete(job.id);
-          toast(job.kind === 'sync_apply' ? `${t('sync.applied')} ${resultText(job)}` : t('sync.plan_ready'), job.kind === 'sync_apply' ? 'success' : 'info', 8000);
+          if (job.kind === 'sync_apply') toast(`${t('sync.applied')} ${resultText(job)}`, 'success', 8000);
+          else if (!planIsEmpty(job.result || {})) toast(t('sync.plan_ready'), 'info', 8000);
         }
       }
       if (finished) {

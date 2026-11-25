@@ -689,6 +689,7 @@ def make_plan(
     skipped_tasks: list[dict[str, Any]] = []  # never sent: empty, or still receiving images
     only_here_tasks: list[dict[str, Any]] = []  # pull: never sent, left alone
     added: list[str] = []
+    sent_new: list[str] = []  # images sent for the first time (new tasks and added images)
     for t in scoped_tasks:
         sent = str(t.id) in mapping or any((link_items.get(i) or {}).get("key") for i in t.images)
         sent = sent or any(i in decisions for i in t.images)
@@ -706,6 +707,7 @@ def make_plan(
                 unsynced_set.discard(image_id)
                 if image_id in records and records[image_id].status == ACTIVE:
                     push_changes[image_id] = ([], local.get(image_id, []))
+                    sent_new.append(image_id)
     only_here = 0
     for image_id in unsynced:
         if image_id in unsynced_set and image_id in records and records[image_id].status == ACTIVE:
@@ -713,6 +715,7 @@ def make_plan(
                 only_here += 1
                 continue
             added.append(image_id)
+            sent_new.append(image_id)
             mine = local.get(image_id, [])
             push_changes[image_id] = ([], mine)
             decisions[image_id] = {"key": "", "action": ADD, "kind": "", "local_hash": links.label_hash(mine)}
@@ -776,6 +779,8 @@ def make_plan(
         "pull": count[PULL],
         "push": count[PUSH],
         "add": len(added),
+        "images_new": len(sent_new),
+        "labels_new": sum(len(local.get(i, [])) for i in sent_new),
         "remove_remote": sum(  # images of tasks deleted here are counted in tasks_delete
             1
             for d in decisions.values()
@@ -971,7 +976,8 @@ def apply_plan(
         delete_tasks: whether tasks deleted here are also deleted in the tool.
 
     Returns:
-        Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
+        Counts: ``pulled``, ``pushed``, ``added``, ``images_new`` and ``labels_new`` (images and labels
+        sent for the first time, in new tasks or added), ``removed_remote``, ``removed_local``,
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
         ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``renamed_classes`` (classes
         renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``, ``skipped``, ``warnings``.
@@ -1073,6 +1079,8 @@ def apply_plan(
 
     # tasks never sent: created whole, in order, with jobs of job_size; excluded images -> deleted frames
     created = 0
+    sent_images = 0
+    sent_labels = 0
     for spec in plan.get("tasks_create") or []:
         progress.check()
         task = next((t for t in tstore.load() if t.id == spec["task"]), None)
@@ -1094,6 +1102,9 @@ def apply_plan(
         for image_id in ordered:
             if image_id in keys:
                 removed = records[image_id].status != ACTIVE
+                if not removed:
+                    sent_images += 1
+                    sent_labels += len(local.get(image_id, []))
                 items[image_id] = links.base_entry(keys[image_id], local.get(image_id, []), removed)
         created += 1
     new_keys: dict[str, str] = {}
@@ -1102,6 +1113,8 @@ def apply_plan(
             (records[i], manifest.file_path(records[i]), local.get(i, [])) for i in _ids_of(final_action, ADD)
         ]
         new_keys = remote.add(settings, rid, project, uploads)
+        sent_images += len(new_keys)
+        sent_labels += sum(len(local.get(i, [])) for i in new_keys)
     if push_ids:
         remote.write(settings, rid, project, {decisions[i]["key"]: local.get(i, []) for i in push_ids})
 
@@ -1204,6 +1217,8 @@ def apply_plan(
         "pulled": len(_ids_of(final_action, PULL)),
         "pushed": len(_ids_of(final_action, PUSH)),
         "added": len(new_keys),
+        "images_new": sent_images,
+        "labels_new": sent_labels,
         "removed_remote": len(_ids_of(final_action, REMOVE_REMOTE)),
         "removed_local": len(removed_here),
         "restored_remote": len(_ids_of(final_action, RESTORE_REMOTE)),

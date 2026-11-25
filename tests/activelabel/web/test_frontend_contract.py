@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 from api_client import make_client, upload
 from sample_images import make_image
 
+from activelabel import i18n
 from activelabel.web import pages
 
 STATIC = Path(pages.STATIC_DIR)
@@ -355,3 +357,13 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
+    """Each row of the result card reads a key of the apply result and has its text in both languages."""
+    keys = re.findall(r"'(\w+)'", re.search(r"const RESULT_KEYS = \[(.*?)\];", JS, re.S).group(1))
+    engine_source = (SRC / "sync" / "engine.py").read_text(encoding="utf-8")
+    for lang in ("pt", "en"):
+        texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
+        assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
+    assert not [k for k in keys if f'"{k}":' not in engine_source]
