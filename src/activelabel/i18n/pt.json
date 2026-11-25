@@ -1544,6 +1544,7 @@
   "error.what.project": "projeto",
   "error.what.task": "task",
   "error.tool_error": "Erro do {tool}: {reason}",
+  "error.fiftyone_keypoints_not_editable": "O FiftyOne não edita pontos-chave: edite-os no CVAT.",
   "error.tool_unsupported": "As sessões do {tool} não são mais aceitas: encerre esta sessão.",
   "ds.empty_blocked": "Com estas proporções, a parte de {parts} ficaria sem imagens (poucas imagens ou grupos de imagens). Não dá para treinar um modelo com esta versão.",
   "ds.allow_empty": "Criar mesmo assim (esta versão não poderá ser usada para treinar)",

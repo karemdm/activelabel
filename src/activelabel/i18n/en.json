@@ -1544,6 +1544,7 @@
   "error.what.project": "project",
   "error.what.task": "task",
   "error.tool_error": "{tool} error: {reason}",
+  "error.fiftyone_keypoints_not_editable": "The FiftyOne App does not edit keypoints: edit them in CVAT.",
   "error.tool_unsupported": "Sessions of {tool} are no longer supported: close this session.",
   "ds.empty_blocked": "With these proportions the {parts} part would have no images (too few images or groups of images). A model cannot be trained on this version.",
   "ds.allow_empty": "Create it anyway (this version cannot be used to train)",
