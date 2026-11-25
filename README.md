@@ -166,9 +166,26 @@ More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and
 | `ACTIVELABEL_WORKSPACE` | `~/.activelabel` | Where projects, images and annotations are stored |
 | `ACTIVELABEL_LANG` | `en` | Default interface language (`en` or `pt`) |
 | `ACTIVELABEL_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path (`POST /api/projects/{id}/images/folder`; there is no button for it in the interface) |
+| `ACTIVELABEL_ALLOWED_HOSTS` | (none) | Other host names, separated by commas, the server answers at, e.g. the name of this machine on the local network when it serves with `--host` |
 
 The address and user of CVAT are kept in `<workspace>/tools.json`; passwords and tokens only in the
 system keyring.
+
+### Calling the API from a script
+
+The server has no login, so it answers only calls made to its own address, to protect it from other sites
+open in the same browser: the `Host` must be `127.0.0.1`, `localhost`, `[::1]` or the address it listens on
+(`--host`), with its port, and a change (POST, PUT, PATCH, DELETE) coming from a browser page must come
+from one of its own pages (`Origin`/`Referer`). Anything else is refused with HTTP 403
+(`host_not_allowed`, `origin_not_allowed`). A script sends neither `Origin` nor `Referer`, so it works as
+is when it uses the server's address:
+
+```bash
+curl -X POST http://127.0.0.1:8090/api/projects -H "Content-Type: application/json"   -d '{"name": "Cats", "task": "classification", "classes": ["cat"]}'
+```
+
+A script must not send an `Origin` or `Referer` of another site. To call the server by another name (for
+example `my-pc.local` on the local network), list it in `ACTIVELABEL_ALLOWED_HOSTS`.
 
 ## Development
 

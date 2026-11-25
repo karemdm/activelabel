@@ -33,6 +33,7 @@ from activelabel.web import (
     video_api,
 )
 from activelabel.web.errors import install_error_handlers
+from activelabel.web.guard import LocalOnly
 from activelabel.web.state import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -98,13 +99,15 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         state: A ready state, used as is (``settings`` is then ignored).
 
     Returns:
-        The FastAPI application with every router, the error handlers and the static files.
+        The FastAPI application with every router, the error handlers, the static files and the check that
+        only this server's own pages (or a local script) call it (:class:`~activelabel.web.guard.LocalOnly`).
     """
     state = state or AppState(settings or Settings.from_env())
     app = FastAPI(title="activelabel", version=__version__, lifespan=partial(lifespan, state))
     app.state.activelabel = state
     app.state.settings = state.settings
     install_error_handlers(app)
+    app.add_middleware(LocalOnly, allowed_hosts=state.settings.allowed_hosts)
     app.add_exception_handler(StarletteHTTPException, pages.unknown_address)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
