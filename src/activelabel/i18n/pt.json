@@ -79,6 +79,7 @@
   "images.cancelled": "Envio cancelado. {done} arquivos já tinham sido enviados.",
   "images.incomplete": "Alguns arquivos não foram enviados.",
   "images.result": "Resultado do envio",
+  "images.upload_running": "Envio em andamento. Use Cancelar para interromper.",
   "images.added_one": "{n} imagem adicionada",
   "images.added_other": "{n} imagens adicionadas",
   "images.duplicates_one": "{n} duplicada ignorada",

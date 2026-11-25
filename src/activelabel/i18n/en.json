@@ -79,6 +79,7 @@
   "images.cancelled": "Upload cancelled. {done} files had already been sent.",
   "images.incomplete": "Some files were not sent.",
   "images.result": "Result of the upload",
+  "images.upload_running": "Upload in progress. Use Cancel to stop it.",
   "images.added_one": "{n} image added",
   "images.added_other": "{n} images added",
   "images.duplicates_one": "{n} duplicate skipped",

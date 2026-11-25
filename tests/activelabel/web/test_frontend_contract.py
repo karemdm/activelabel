@@ -355,3 +355,11 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_closing_the_new_task_dialog_mid_upload_does_not_hide_it_and_leaving_asks():
+    """Esc cannot hide a running upload and leaving the page asks first (#435, #434)."""
+    assert re.search(r"if \(uploading\) \{ newDlg\.showModal\(\); return; \}", JS)
+    assert "images.upload_running" in JS
+    assert "ctx.busy.add('upload')" in JS and "ctx.busy.delete('upload')" in JS
+    assert "addEventListener('beforeunload'" in JS

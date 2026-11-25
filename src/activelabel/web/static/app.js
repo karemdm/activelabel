@@ -1008,6 +1008,7 @@
       project: null,
       tab: 'images',
       jobs: [],
+      busy: new Set(),  // work that leaving the page would lose (an upload in progress)
       jobStatus: new Map(),
       openWhenDone: new Set(),
       pollTimer: null,
@@ -1748,6 +1749,7 @@
         }
         jobSizeInput.removeAttribute('aria-invalid');
         uploading = true;
+        ctx.busy.add('upload');
         controller = new AbortController();
         fill(reportBox);
         if (!newDlg.open) newDlg.showModal();
@@ -1761,7 +1763,7 @@
           fill(progressBox,
             el('div', { class: 'upload-line' },
               el('strong', null, t('images.uploading', { done: num(sent), total: num(files.length) })),
-              el('button', { type: 'button', class: 'btn small', onclick: () => controller.abort() }, t('common.cancel'))),
+              el('button', { type: 'button', class: 'btn small', id: 'upload-cancel', onclick: () => controller.abort() }, t('common.cancel'))),
             progressBar(sent, files.length, t('images.upload_progress')));
         };
         draw();
@@ -1795,6 +1797,7 @@
           toast(t('tasks.created', { name: created.name }), 'success', 4000);
         }
         uploading = false;
+        ctx.busy.delete('upload');
         staged = null;
         drawStaged();
         setStage(created ? 'done' : 'form'); // nothing was created: back to the form, the report says why
@@ -2446,8 +2449,16 @@
           el('div', { class: 'dlg-head' }, el('h2', null, t('tasks.new_title')), closeX),
           formBox, progressBox, reportBox,
           el('div', { class: 'form-actions' }, closeBtn)));
-      newDlg.addEventListener('cancel', (e) => { if (uploading || (vid.jobId && vid.polling && vid.pollFails < POLL_LOST)) e.preventDefault(); }); // Esc must not hide a running upload
+      newDlg.addEventListener('cancel', (e) => { // Esc must not hide a running upload: say how to stop it
+        if (uploading) {
+          e.preventDefault();
+          const stop = document.getElementById('upload-cancel');
+          if (stop) stop.focus();
+          toast(t('images.upload_running'), 'info', 4000);
+        } else if (vid.jobId && vid.polling && vid.pollFails < POLL_LOST) e.preventDefault();
+      });
       newDlg.addEventListener('close', () => {
+        if (uploading) { newDlg.showModal(); return; } // a second Esc closes a dialog whose first one was refused
         // a video uploaded but never used by a task is removed again
         if (vid.jobId && vid.polling) return;
         resetVideo();
@@ -5993,6 +6004,10 @@
     });
     /* back on this tab after a while: the project may have been deleted elsewhere (nothing polls while idle) */
     document.addEventListener('visibilitychange', () => { if (!document.hidden && !ctx.gone) refreshProject(); });
+    /* leaving (a link, the language switch, closing the tab) in the middle of an upload, or with an import report still waiting for a decision, loses it: ask first */
+    window.addEventListener('beforeunload', (e) => {
+      if (ctx.busy.size || document.querySelector('.report-card .options [data-action]:not([data-action="other"])')) { e.preventDefault(); e.returnValue = ''; }
+    });
     /* a link to another step of this page (#annotations...) changes the step without reloading */
     window.addEventListener('hashchange', () => {
       const step = location.hash.replace('#', '');
