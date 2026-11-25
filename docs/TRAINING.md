@@ -45,8 +45,9 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
 model of that family. A family with no model for the project type stays in the list, disabled, and the
 hint under it says why. YOLO/Ultralytics models train with their own worker (`workers/yolo.py`) once the
-AGPL-3.0 licence is accepted (*Licences* below); until the dialog offers that acceptance, the family stays
-disabled there and only the API can accept it and start a YOLO run.
+AGPL-3.0 licence is accepted (*Licences* below). Until then the family stays disabled in the dialog, and its hint
+offers *Read and accept the AGPL-3.0 licence…*: a window says in plain words what the licence asks, links to its
+text and accepts it only after an explicit checkbox; the family can then be chosen.
 
 The catalogue is data (`training/catalog.py`): each model lists its family, packages, input size,
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds

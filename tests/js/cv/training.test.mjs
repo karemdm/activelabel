@@ -15,7 +15,7 @@ const { setMessages } = await import('../../../src/activelabel/web/static/js/she
 const { trainingPanel } = await import('../../../src/activelabel/web/static/js/cv/training.js');
 
 setMessages({
-  'task.detection': 'Detection', 'tr.family_none': 'no model for {type} projects', 'tr.family_license': 'needs its licence',
+  'task.detection': 'Detection', 'tr.family_none': 'no model for {type} projects', 'tr.family_licence': 'needs its {name} licence', 'tr.licence_open': 'Accept {name}…',
   'tr.family.torchvision': 'torchvision', 'tr.family.timm': 'timm', 'tr.family.ultralytics': 'Ultralytics',
 }, 'en');
 
@@ -29,6 +29,7 @@ const ANSWERS = {
   '/api/projects/5/datasets': { versions: [{ version: 1, created: '2026-01-01T00:00:00', options: {} }] },
   '/api/training/environment': { devices: ['auto', 'cpu'] },
   '/api/projects/5/runs': { runs: [] },
+  '/api/training/licences': { licences: [{ id: 'ultralytics', name: 'AGPL-3.0', package: 'ultralytics', url: 'https://www.gnu.org/licenses/agpl-3.0.html', accepted: false }] },
 };
 
 /** Calls fn with the API answering from ANSWERS by path. */
@@ -69,7 +70,8 @@ test('the new-run dialog asks for the family first; families that cannot train h
   assert.equal(options.timm.disabled, true);
   assert.match(options.timm.textContent, /no model for detection projects/);
   assert.equal(options.ultralytics.disabled, true);
-  assert.match(options.ultralytics.textContent, /needs its licence/);
+  assert.match(options.ultralytics.textContent, /needs its AGPL-3.0 licence/);
+  assert.equal(document.querySelector('[data-act="licence-ultralytics"]').textContent, 'Accept AGPL-3.0…');
   assert.deepEqual([...document.getElementById('tr-model').options].map((o) => o.value), ['frcnn', 'retina']);
   document.querySelector('dialog[open]').close();
   panel.node.remove();
