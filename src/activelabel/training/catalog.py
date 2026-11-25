@@ -255,6 +255,14 @@ COMMON_PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec(
         "patience", "int", 0, 0, 100, help="Stop after this many epochs without improvement (0 = off)."
     ),
+    ParamSpec(
+        "amp",
+        "choice",
+        "auto",
+        choices=("auto", "on", "off"),
+        help="Mixed precision (float16) on a CUDA GPU: faster and lighter. auto and on use it on CUDA only; "
+        "the CPU and Apple GPUs train in full precision.",
+    ),
     ParamSpec("seed", "int", 42, 0, 2**31 - 1, help="Random seed (same seed, same data order)."),
     ParamSpec(
         "start",

@@ -22,6 +22,8 @@ FAKE_WORKER = textwrap.dedent(
         "env": {k: os.environ.get(k) for k in names}, "cwd": os.getcwd(), "spec": sys.argv[1]}))
     print("not json noise", flush=True)
     print(json.dumps({"event": "log", "message": "hello"}), flush=True)
+    print(json.dumps({"event": "setup", "device": "cpu", "amp": False}), flush=True)
+    print(json.dumps({"event": "setup", "batch_size": 4}), flush=True)
     for epoch in (1, 2):
         print(json.dumps({"event": "progress", "phase": "training", "epoch": epoch, "step": 1, "steps": 2}),
               flush=True)

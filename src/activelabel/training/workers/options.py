@@ -14,11 +14,15 @@ The learning rate follows one schedule per step in every worker (:class:`LrSched
 warmup, then ``none``, ``cosine``, ``step``, ``onecycle`` (its own ramp up and down) or ``plateau``
 (divided by ten when the selection metric stops improving).
 
+Automatic mixed precision (:class:`Precision`) runs the training steps in float16 on a CUDA GPU (``amp``
+``auto`` or ``on``); on the CPU and on Apple GPUs (MPS) training stays in float32.
+
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
 
 from __future__ import annotations
 
+import contextlib
 import math
 from typing import Any
 
@@ -44,6 +48,7 @@ ONECYCLE_LOW = 1 / 25  # one-cycle starts at this share of the learning rate...
 ONECYCLE_END = 1 / 25e4  # ...and ends at this one (the PyTorch defaults)
 PLATEAU_PATIENCE = 2  # epochs without improvement before plateau lowers the rate
 PLATEAU_FACTOR = 0.1
+AMP_CHOICES = ("auto", "on", "off")
 
 
 def fit_layout(width: int, height: int, size: int, policy: str) -> tuple[int, int, int, int]:
@@ -364,3 +369,80 @@ class LrSchedule:
             The current learning rate.
         """
         return float(self.optimizer.param_groups[-1]["lr"])
+
+
+def amp_enabled(choice: str, device: str) -> tuple[bool, str]:
+    """Whether a training uses mixed precision, and a warning when ``on`` cannot be honoured.
+
+    Args:
+        choice: the ``amp`` parameter (one of :data:`AMP_CHOICES`).
+        device: the torch device of the training (``cpu``, ``mps``, ``cuda`` or ``cuda:N``).
+
+    Returns:
+        ``(enabled, warning)``: mixed precision only on CUDA and not ``off``; the warning is empty unless
+        ``on`` was asked for on a device without it.
+
+    Raises:
+        ValueError: an unknown choice.
+    """
+    if choice not in AMP_CHOICES:
+        raise ValueError(f"Unknown amp choice '{choice}': use one of {', '.join(AMP_CHOICES)}.")
+    if choice == "off":
+        return False, ""
+    if device.startswith("cuda"):
+        return True, ""
+    if choice == "on":
+        return False, f"Mixed precision needs a CUDA GPU: this training runs in full precision on {device}."
+    return False, ""
+
+
+class Precision:
+    """Forward passes in float16 (autocast) and a gradient scaler on CUDA, or plain float32 steps."""
+
+    def __init__(self, enabled: bool) -> None:
+        """Create the gradient scaler when mixed precision is on.
+
+        Args:
+            enabled: use mixed precision (only on a CUDA device: see :func:`amp_enabled`).
+        """
+        self.enabled = enabled
+        self.scaler = torch.amp.GradScaler("cuda") if enabled else None
+
+    def autocast(self, active: bool = True) -> Any:
+        """Context of a forward pass: float16 where safe when mixed precision is on.
+
+        Args:
+            active: False for evaluation passes, which stay in float32.
+
+        Returns:
+            A context manager.
+        """
+        if self.enabled and active:
+            return torch.autocast(device_type="cuda", dtype=torch.float16)
+        return contextlib.nullcontext()
+
+    def step(self, loss: Any, optimizer: Any) -> None:
+        """Backward pass and optimizer step (scaled with mixed precision).
+
+        Args:
+            loss: the loss tensor of the batch.
+            optimizer: the optimizer.
+
+        Raises:
+            RuntimeError: the loss is not finite (NaN or infinite), with a hint about mixed precision when on.
+        """
+        if not bool(torch.isfinite(loss)):
+            if self.enabled:
+                raise RuntimeError(
+                    "The loss is not finite (NaN or infinite) with mixed precision: set amp to off or try a "
+                    "lower learning rate."
+                )
+            raise RuntimeError("The loss is not finite: try a lower learning rate.")
+        optimizer.zero_grad()
+        if self.scaler is None:
+            loss.backward()
+            optimizer.step()
+            return
+        self.scaler.scale(loss).backward()
+        self.scaler.step(optimizer)
+        self.scaler.update()

@@ -4,7 +4,8 @@ Standalone: it imports only the standard library and, inside the functions that 
 torchvision, timm, PIL and numpy, so it runs in the training environment (which has no
 ActiveLabel) and its pure helpers (metrics, spec parsing) can be tested without torch.
 
-Output: one JSON object per line on stdout (``log``, ``progress``, ``epoch``, ``done``, ``error``).
+Output: one JSON object per line on stdout (``log``, ``warning``, ``setup``, ``progress``, ``epoch``,
+``done``, ``error``).
 Files written to ``output_dir``: ``best.pt``, ``last.pt``, ``results.json``.
 """
 
@@ -64,7 +65,7 @@ def emit(event: str, **fields: Any) -> None:
     """Print one event line.
 
     Args:
-        event: Event name (``log``, ``progress``, ``epoch``, ``done`` or ``error``).
+        event: Event name (``log``, ``warning``, ``setup``, ``progress``, ``epoch``, ``done`` or ``error``).
         **fields: Extra fields of the JSON object.
     """
     print(json.dumps({"event": event, **fields}), flush=True)
@@ -445,6 +446,7 @@ def run_epoch(
     on_step: ProgressFn = None,
     mixes: list[tuple[str, float]] | None = None,
     schedule: Any = None,
+    precision: Any = None,
 ) -> tuple[float, list[int], list[int]]:
     """One pass over a loader. Trains when ``optimizer`` is given.
 
@@ -458,30 +460,34 @@ def run_epoch(
         on_step: Called with ``(step, steps)`` after each batch (optional).
         mixes: Mixup/cutmix ``(name, alpha)`` pairs for training batches (``augment.mix_settings``).
         schedule: The learning rate schedule (``options.LrSchedule``), advanced before each training step.
+        precision: Mixed precision of the training steps (``options.Precision``); float32 by default.
 
     Returns:
         ``(mean loss per image, true class indices, predicted class indices)``.
+
+    Raises:
+        RuntimeError: A training loss is not finite.
     """
     training = optimizer is not None
+    amp = precision or options.Precision(False)
     total, count = 0.0, 0
     truth: list[int] = []
     predicted: list[int] = []
     with torch.set_grad_enabled(training):
         for step, (images, labels) in enumerate(loader, start=1):
             images, labels = images.to(device), labels.to(device)
-            if training and mixes:
-                images, order, lam = augment.mix_batch(images, mixes)
-                output = model(images)
-                loss = lam * loss_fn(output, labels) + (1.0 - lam) * loss_fn(output, labels[order])
-            else:
-                output = model(images)
-                loss = loss_fn(output, labels)
+            with amp.autocast(training):
+                if training and mixes:
+                    images, order, lam = augment.mix_batch(images, mixes)
+                    output = model(images)
+                    loss = lam * loss_fn(output, labels) + (1.0 - lam) * loss_fn(output, labels[order])
+                else:
+                    output = model(images)
+                    loss = loss_fn(output, labels)
             if training:
                 if schedule is not None:
                     schedule.advance()
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                amp.step(loss, optimizer)
             total += float(loss) * len(labels)
             count += len(labels)
             truth += labels.tolist()
@@ -564,6 +570,11 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     seed_everything(int(spec.get("seed", p["seed"])), torch)
     device = pick_device(torch)
     emit("log", message=f"Device: {device}. {split_folds_note(spec)}")
+    use_amp, amp_note = options.amp_enabled(str(p["amp"]), device)
+    if amp_note:
+        emit("warning", message=amp_note)
+    precision = options.Precision(use_amp)
+    emit("setup", device=device, amp=use_amp)
     size, batch, policy = int(p["image_size"]), int(p["batch_size"]), str(p["resize"])
 
     techniques = spec["augmentations"]
@@ -608,7 +619,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             head.train()
         on_step = partial(report_step, epoch, epochs)
         train_loss, _, _ = run_epoch(
-            model, train_loader, device, torch, loss_fn, optimizer, on_step, mixes, schedule
+            model, train_loader, device, torch, loss_fn, optimizer, on_step, mixes, schedule, precision
         )
         model.eval()
         val_loss, truth, predicted = run_epoch(model, val_loader, device, torch, loss_fn)

@@ -134,3 +134,32 @@ def test_schedule_sets_every_group_and_plateau_waits(o):
     assert other.plateau == 1.0
     with pytest.raises(ValueError):
         o.LrSchedule(_Optimizer(), "bogus", 5, 2)
+
+
+# -- mixed precision (#318) -------------------------------------------------------
+
+
+def test_amp_only_on_cuda(o):
+    assert o.amp_enabled("auto", "cuda") == (True, "") and o.amp_enabled("on", "cuda:1") == (True, "")
+    assert o.amp_enabled("auto", "cpu") == (False, "") and o.amp_enabled("off", "cuda") == (False, "")
+    used, note = o.amp_enabled("on", "mps")
+    assert not used and "CUDA" in note
+    with pytest.raises(ValueError, match="Unknown amp"):
+        o.amp_enabled("half", "cpu")
+
+
+def test_full_precision_step_and_non_finite_loss(o, torch):
+    layer = torch.nn.Linear(2, 1)
+    optimizer = torch.optim.SGD(layer.parameters(), lr=0.1)
+    before = layer.weight.detach().clone()
+    plain = o.Precision(False)
+    with plain.autocast():
+        loss = layer(torch.ones(1, 2)).sum()
+    plain.step(loss, optimizer)
+    assert not torch.equal(before, layer.weight)
+    with pytest.raises(RuntimeError, match="not finite: try a lower"):
+        plain.step(torch.tensor(float("nan")), optimizer)
+    mixed = o.Precision(False)
+    mixed.enabled = True  # the message names mixed precision (no CUDA needed to check it)
+    with pytest.raises(RuntimeError, match="mixed precision"):
+        mixed.step(torch.tensor(float("inf")), optimizer)

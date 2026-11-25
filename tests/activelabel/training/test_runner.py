@@ -32,6 +32,7 @@ def test_success(setup):
     assert store.results(n)["best_epoch"] == 2
     log = (store.path(n) / "log.txt").read_text()
     assert "hello" in log and "not json noise" in log
+    assert run["setup"] == {"device": "cpu", "amp": False, "batch_size": 4} and "setup: " in log
     wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
     assert "torch" in runner.environment.ensured[0] and "pillow" in runner.environment.ensured[0]
     seen = json.loads((store.path(n) / "env.json").read_text())
