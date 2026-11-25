@@ -63,3 +63,8 @@ test('annotationStatus says how many images are annotated, or empty, or none', (
   assert.equal(names.annotationStatus({ annotated: 0, empty: 3 }), '3 empty');
   assert.equal(names.annotationStatus({}), 'No annotations');
 });
+
+test('deviceName names the devices of the training environment', () => {
+  setMessages({ 'tr.device_auto': 'Automatic', 'tr.device_cpu': 'CPU', 'tr.device_gpu': 'GPU {n}', 'tr.device_mps': 'Apple GPU (MPS)' }, 'en');
+  assert.deepEqual(['auto', 'cpu', 'cuda:1', 'mps', 'tpu'].map(names.deviceName), ['Automatic', 'CPU', 'GPU 1', 'Apple GPU (MPS)', 'tpu']);
+});

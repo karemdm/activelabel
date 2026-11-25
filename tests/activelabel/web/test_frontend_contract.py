@@ -776,3 +776,11 @@ def test_the_run_detail_shows_the_setup_and_the_learning_rate():
         texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         for key in ("tr.setup", "tr.setup_amp_on", "tr.setup_amp_off", "tr.setup_batch_asked"):
             assert texts[key], key
+
+
+def test_the_pre_annotate_tab_offers_the_device():
+    """#553: the same device list as the training dialog, sent as ``device``."""
+    assert "id: 'pre-device'" in JS and "threshold: form.threshold, device: form.device" in JS
+    assert JS.count("export const deviceName") == 1 and "    const deviceName" not in JS  # one shared namer
+    for lang in ("pt", "en"):
+        assert json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))["pre.device_help"]

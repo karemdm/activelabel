@@ -1,5 +1,6 @@
 /* Pre-annotation, a tab of the Annotations step: run a saved or public model on the images and review the
  * result. */
+import { deviceName } from './names.js';
 import { api } from '../shell/api.js';
 import { confirmDialog } from '../shell/dialogs.js';
 import { el, fill, icon } from '../shell/dom.js';
@@ -16,7 +17,7 @@ export function preannotateBlock(page, hooks) {
   const node = el('div', { class: 'pre' });
   const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
-  const form = { model: null, task: null, scope: 'unlabeled', threshold: null };   // threshold: by kind until the person sets one
+  const form = { model: null, task: null, scope: 'unlabeled', threshold: null, device: 'auto' };   // threshold: by kind until the person sets one
   const DEFAULT_THRESHOLD = { classification: 0.5, detection: 0.3, keypoints: 0.3 };
   let data = null;
   let timer = null;
@@ -26,8 +27,18 @@ export function preannotateBlock(page, hooks) {
   const ACTIVE = (r) => r.status === 'queued' || r.status === 'running';
   const metricName = (m) => tr(`tr.metric.${m}`, String(m || '').replace(/_/g, ' '));
 
+  /* where the model runs (#553): the devices of the training environment, read once; the list keeps auto and CPU
+     when the environment cannot be read */
+  let devices = null;
+  function loadDevices() {
+    if (devices) return;
+    devices = ['auto', 'cpu'];
+    api('GET', '/training/environment').then((env) => { devices = env.devices || devices; if (data) draw(true); }).catch(() => {});
+  }
+
   async function load() {
     clearTimeout(timer);
+    loadDevices();
     try {
       data = await api('GET', `/projects/${projectId}/preannotations`);
     } catch (err) {
@@ -57,7 +68,7 @@ export function preannotateBlock(page, hooks) {
   async function start(button) {
     button.disabled = true;
     try {
-      await api('POST', `/projects/${projectId}/preannotations`, { json: { model: form.model, task: form.task, scope: form.scope, threshold: form.threshold } });
+      await api('POST', `/projects/${projectId}/preannotations`, { json: { model: form.model, task: form.task, scope: form.scope, threshold: form.threshold, device: form.device } });
       live.textContent = t('pre.started');
     } catch (err) { toastError(err); }
     await load();
@@ -111,7 +122,11 @@ export function preannotateBlock(page, hooks) {
         el('div', { class: 'field' }, el('label', { for: 'pre-task' }, t('pre.task')), taskSel),
         el('fieldset', { class: 'field pre-scope' }, el('legend', null, t('pre.images')),
           el('div', { class: 'seg' }, scopeOpt('unlabeled', t('pre.scope_unlabeled'), task ? task.unlabeled : 0), scopeOpt('unreviewed', t('pre.scope_unreviewed_short'), task ? task.unreviewed : 0))),
-        el('div', { class: 'field' }, el('label', { for: 'pre-threshold' }, t('pre.threshold')), threshold, el('p', { class: 'hint', id: 'pre-threshold-hint' }, kindHint))),
+        el('div', { class: 'field' }, el('label', { for: 'pre-threshold' }, t('pre.threshold')), threshold, el('p', { class: 'hint', id: 'pre-threshold-hint' }, kindHint)),
+        el('div', { class: 'field' }, el('label', { for: 'pre-device' }, t('tr.device_label')),
+          el('select', { id: 'pre-device', class: 'tr-select', 'aria-describedby': 'pre-device-hint', onchange: (e) => { form.device = e.target.value; } },
+            ...(devices || ['auto', 'cpu']).map((d) => el('option', { value: d, selected: d === form.device }, deviceName(d)))),
+          el('p', { class: 'hint', id: 'pre-device-hint' }, t('pre.device_help')))),
       el('div', { class: 'pre-actions' }, go, running ? liveLine(running) : (n ? null : el('p', { class: 'hint', id: 'pre-start-hint' }, t('pre.start_none'))) || lastOutcome()));
   }
 

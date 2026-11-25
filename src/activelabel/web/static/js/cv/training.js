@@ -1,7 +1,7 @@
 /* Step 5, Training: the runs of the project (list, progress, charts, detail), the new-run dialog (family,
  * model, hyperparameters, grid search) and saving a run as a model. */
 import { staleCount } from './datasets.js';
-import { taskName } from './names.js';
+import { deviceName, taskName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
@@ -418,7 +418,6 @@ export function trainingPanel(page) {
     const metricSel = sel('tr-metric');
 
     // device (#320): not part of the configuration; the list comes from the training environment
-    const deviceName = (d) => (d.startsWith('cuda:') ? t('tr.device_gpu', { n: d.slice(5) }) : t(`tr.device_${d}`));
     const deviceSel = sel('tr-device', ...['auto', 'cpu'].map((d) => el('option', { value: d }, deviceName(d))));
     api('GET', '/training/environment').then((env) => fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))))).catch(() => {});
 
