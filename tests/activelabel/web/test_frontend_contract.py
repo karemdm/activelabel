@@ -597,4 +597,11 @@ def test_task_grid_has_no_holes_and_a_long_name_stays_in_two_lines():
 
 def test_tasks_counts_are_reloaded_when_the_images_step_is_shown_again():
     """Back from Annotations after an import, the tasks show the new counts, as the step bar does (#424)."""
-    assert re.search(r"panel\.refresh = reload;\s*panel\.show = loadTasks;", JS)
+    assert re.search(r"panel\.refresh = reload;\s*panel\.show = \(\) => \{ refreshCounts\(\);", JS)
+
+
+def test_step_summaries_are_read_again_with_the_task_list():
+    """Back on Images after another tab deleted a task, the project counts are read too (#464)."""
+    assert re.search(r"async function refreshCounts\(\) \{.*?renderStepper\(\);", JS, re.S)
+    body = re.search(r"async function refreshCounts\(\) \{(.*?)\n    \}", JS, re.S).group(1)
+    assert "showTab" not in body
