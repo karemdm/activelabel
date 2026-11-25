@@ -146,6 +146,14 @@ the upload `report`). The `code` values of the other errors are:
 
 Texts the interface does not know a code for are shown as the English `detail`.
 
+A background job that fails also carries `error_code` and `error_params` next to its English `error` (the same
+codes, `error.<code>` in the language files); its `result` is empty: tracebacks go to the log, not to the
+interface. Failures of CVAT (`cvat_unreachable`, `cvat_login_failed`, `cvat_refused`, `cvat_plan_limit`,
+`cvat_rate_limited`, `cvat_error`, `cvat_not_found`...), of the synchronisation (`remote_gone`,
+`sync_remote_changed`, `sync_local_changed`, `sync_link_changed`, `sync_no_remote`) and of the import
+(`cvat_no_images`, `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
+sent as `tool_error` with `tool` and `reason`.
+
 ### Limits
 
 | What | Limit |
