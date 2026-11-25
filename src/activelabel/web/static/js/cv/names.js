@@ -1,6 +1,6 @@
 /* Computer-vision names: task types, curation issues, data-split parts, and the task picker and badge. */
 import { el, fill, icon } from '../shell/dom.js';
-import { t, tr } from '../shell/i18n.js';
+import { t, tn, tr } from '../shell/i18n.js';
 
 export const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
 
@@ -50,3 +50,9 @@ export function taskPicker(name, value) {
 }
 
 export const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
+
+/** How far the annotation of a project is (its counts, as the API gives them), in a few words. */
+export function annotationStatus(c) {
+  if (c.annotated > 0) return tn('status.annotated', c.annotated);
+  return c.empty > 0 ? tn('status.empty', c.empty) : t('status.annotations_none');
+}
