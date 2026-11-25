@@ -109,8 +109,10 @@ def test_project_scope_creates_whole_tasks(env):
         {"task": 2, "name": "Beta", "job_size": None, "images": 3},
     ]
     assert p["add"] == 0 and p["diff_push"]["images_changed"] == 8
+    assert (p["images_new"], p["labels_new"]) == (8, 8)  # the annotations that go with the new tasks
     result = apply(env, p["plan_id"])
     assert result["tasks_created"] == 2
+    assert (result["images_new"], result["labels_new"]) == (8, 8)  # counted as the plan promised
     adds = [c for c in env.remote.calls if c[0] == "add_task"]
     assert adds == [
         ("add_task", "Alpha", 2, [f"img{i}.png" for i in range(5)]),
@@ -141,7 +143,8 @@ def test_excluded_image_of_a_new_task_is_uploaded_then_hidden(env):
     Manifest(env.dir).set_status([env.ids[1]], "excluded", "blurry")
     p = plan(env, create=True)
     assert p["remove_remote"] == 0  # created whole: the frame is hidden right after the upload
-    apply(env, p["plan_id"])
+    assert p["images_new"] == 7  # the excluded image is sent but is not an annotation to review
+    assert apply(env, p["plan_id"])["images_new"] == 7
     link = links.get_link(env.dir, "cvat")
     env.rid = link["remote_id"]
     assert link["items"][env.ids[1]]["removed"] is True
