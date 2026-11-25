@@ -355,3 +355,10 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_empty_strips_are_gone_from_task_cards_sessions_and_home():
+    """Task cards fill the row, session buttons stay together, empty text wraps balanced (#421)."""
+    assert re.search(r"\.task-list \{[^}]*repeat\(auto-fit,", CSS)
+    assert "danger-outline { margin-left: auto" not in CSS
+    assert re.search(r"\.empty p \{[^}]*text-wrap: balance", CSS)
