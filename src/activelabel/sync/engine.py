@@ -1410,7 +1410,7 @@ def _safe_drops(
                 f"The task '{spec.get('name') or rt}' in the tool has {len(extra)} image(s) that were added "
                 "after the last synchronisation, so it is not deleted. Synchronise again.",
                 "sync_task_has_new_images",
-                task=str(spec.get("name") or rt),
+                name=str(spec.get("name") or rt),
                 count=len(extra),
             )
         drop.add(rt)

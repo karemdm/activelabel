@@ -196,6 +196,7 @@
     status: (status) => lower(statusLabel(status)),
     field: (field) => tr(`error.field.${field}`, field),
     file: (file) => file || t('error.this_file'),
+    what: (what) => tr(`error.what.${what}`, what),
   };
   /** An error's params as texts: numbers formatted, lists joined, known ids named in the interface language. */
   function errorParams(params) {
@@ -229,6 +230,12 @@
     if (code && `error.${code}` in I18N) return t(`error.${code}`, errorParams(info.params || info));
     if (detail && typeof detail === 'object') return String(detail.message || JSON.stringify(detail));
     return detail ? String(detail) : `HTTP ${status}`;
+  }
+
+  /** Why a job failed, in the interface language: by its error code (with the params filled in), else the server's own text. */
+  function jobFailure(job) {
+    const key = `error.${job.error_code}`;
+    return job.error_code && key in I18N ? t(key, errorParams(job.error_params)) : job.error;
   }
 
   async function api(method, path, { json, body, signal } = {}) {
@@ -916,6 +923,12 @@
         toast(t('annotate.saved', { tool: toolName(tool) }), 'success', 3000);
       } catch (err) { toastError(err); } finally { busy(false); }
     });
+    /* the connection test's answer in the interface language (by its code), else the server's own words */
+    const testText = (r) => {
+      const key = r && r.code === 'test_connected' ? 'annotate.test_connected' : r && r.code ? `error.${r.code}` : '';
+      if (key && key in I18N) return t(key, errorParams(r.params));
+      return (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed'));
+    };
     testBtn.addEventListener('click', async () => {
       busy(true);
       message.className = 'test-result';
@@ -924,7 +937,7 @@
         await store();
         const r = await api('POST', `/annotation-tools/${tool}/test`);
         message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
-        fill(message, icon(r && r.ok ? 'check' : 'error'), (r && r.message) || (r && r.ok ? t('annotate.test_ok') : t('annotate.test_failed')));
+        fill(message, icon(r && r.ok ? 'check' : 'error'), testText(r));
         if (onChange) await onChange();
         forgetBtn.hidden = false;
       } catch (err) {
@@ -3735,7 +3748,7 @@
     /* the linked project was deleted in the tool: say so plainly and how to go on */
     const isRemoteGone = (job) => /^sync_/.test(job.kind) && job.error_code === 'remote_gone';
     /* a failed job's text: by its code in the interface language, else the server's own words */
-    const jobError = (job) => (isStale(job) ? t('sync.stale') : job.error_code && `error.${job.error_code}` in I18N ? t(`error.${job.error_code}`, errorParams(job.error_params)) : job.error);
+    const jobError = (job) => (isStale(job) ? t('sync.stale') : jobFailure(job));
     const syncJobTool = (job) => {
       const r = job.result || {};
       const x = ctx.syncTool[job.id] || job.tool || r.tool || (job.params && job.params.tool) || (job.meta && job.meta.tool);
@@ -6310,7 +6323,7 @@
           el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn primary', onclick: backToList }, t('import.back'))));
         return;
       }
-      drawFailed(job.error || statusText('failed'));
+      drawFailed(jobFailure(job) || statusText('failed'));
     }
 
     function drawResult(r) {

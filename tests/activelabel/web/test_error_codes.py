@@ -16,9 +16,6 @@ ALLOWED = {
     ("annotate_api.py", "_tool"): TOOL_TEXT,
     ("annotate_api.py", "send"): TOOL_TEXT,
     ("annotate_api.py", "close_session"): TOOL_TEXT,
-    ("import_api.py", "list_remote"): TOOL_TEXT,
-    ("import_api.py", "start_import"): TOOL_TEXT,
-    ("sync_api.py", "_remote"): TOOL_TEXT,
     ("errors.py", "bad_request"): "fallback for a ValueError that has no code",
 }
 

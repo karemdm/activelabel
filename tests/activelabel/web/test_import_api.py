@@ -159,12 +159,51 @@ def test_a_project_imported_before_from_a_removed_tool_still_opens(env):
     assert client.get("/api/projects").status_code == 200
 
 
-def test_import_errors_carry_codes(env, monkeypatch):
+def test_remote_failures_answer_with_the_code_of_the_error(env, monkeypatch):
     client, _, _ = env
     configure_cvat(client)
-    bad = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": "folder"})
-    assert bad.status_code == 400 and bad.json()["code"] == "import_kind_invalid"
+
+    def down(settings, search):
+        raise ToolError("Cannot reach CVAT at http://cvat", "cvat_unreachable", url="http://cvat")
+
+    monkeypatch.setattr(cvat_import, "list_remote", down)
+    r = client.get("/api/import/cvat/projects")
+    assert (r.status_code, r.json()["code"], r.json()["params"]) == (
+        400,
+        "cvat_unreachable",
+        {"url": "http://cvat"},
+    )
+    monkeypatch.setattr(cvat_import, "list_remote", lambda s, q: (_ for _ in ()).throw(ToolError("odd")))
+    plain = client.get("/api/import/cvat/projects").json()
+    assert (plain["code"], plain["params"]) == ("tool_error", {"tool": "cvat", "reason": "odd"})
+
+
+def test_a_missing_remote_item_is_404_with_its_code(env, monkeypatch):
+    client, _, _ = env
+    configure_cvat(client)
     routes = {("GET", "/api/tasks/5"): FakeResp(404)}
     monkeypatch.setattr(requests, "Session", lambda: FakeSession(routes, "http://cvat"))
-    gone = client.post("/api/import", json={"tool": "cvat", "remote_id": "5", "kind": "task"})
-    assert gone.status_code == 404 and gone.json()["code"] == "remote_not_found"
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": "5", "kind": "task"})
+    assert (r.status_code, r.json()["code"]) == (404, "cvat_not_found")
+
+
+def test_an_unknown_kind_has_a_code(env):
+    client, _, _ = env
+    configure_cvat(client)
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": "folder"})
+    assert (r.status_code, r.json()["code"]) == (400, "import_kind_invalid")
+
+
+def test_a_failed_import_job_carries_the_code_and_no_traceback(env, monkeypatch):
+    client, _, _ = env
+    configure_cvat(client)
+    monkeypatch.setattr(cvat_import, "check_remote", lambda s, kind, rid: {"name": "X", "classes": []})
+
+    def fail(store, settings, workspace, **kw):
+        raise ToolError("CVAT returned no images for this project.", "cvat_no_images", what="project")
+
+    monkeypatch.setattr(cvat_import, "import_project", fail)
+    job = client.post("/api/import", json={"tool": "cvat", "remote_id": 7}).json()
+    done = wait(client, job["id"])
+    assert (done["error_code"], done["error_params"]) == ("cvat_no_images", {"what": "project"})
+    assert done["result"] == {}

@@ -83,9 +83,11 @@ def test_tools_settings_never_return_secret(env, remotes):
     assert "pw-123" not in str(tools) and next(t for t in tools if t["tool"] == "cvat")["configured"]
     assert "pw-123" not in (env.state.settings.workspace / "tools.json").read_text()
     ok = env.client.post("/api/annotation-tools/cvat/test").json()
-    assert ok == {"ok": True, "message": "connected to http://cvat"}
+    assert (ok["ok"], ok["message"], ok["code"]) == (True, "connected to http://cvat", "test_connected")
+    assert ok["params"] == {"url": "http://cvat", "user": "u"}
     remotes["cvat"].fail = "Bad login."
-    assert env.client.post("/api/annotation-tools/cvat/test").json() == {"ok": False, "message": "Bad login."}
+    bad = env.client.post("/api/annotation-tools/cvat/test").json()
+    assert (bad["ok"], bad["message"], bad["code"]) == (False, "Bad login.", "tool_error")
     assert env.client.delete("/api/annotation-tools/cvat").json() == {"removed": True}
     after = next(t for t in env.client.get("/api/annotation-tools").json() if t["tool"] == "cvat")
     assert not after["configured"]

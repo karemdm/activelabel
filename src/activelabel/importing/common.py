@@ -36,6 +36,104 @@ class RemoteNotFound(ToolError):
     """The remote project or task does not exist (HTTP 404 in the API)."""
 
 
+def _reason(text: str) -> str:
+    """What CVAT said, on one line and at most 300 characters; nothing when it said nothing useful.
+
+    Args:
+        text: The body of the answer.
+
+    Returns:
+        The text, or an empty text when it is blank or an empty JSON document.
+    """
+    one = " ".join(text.split())[:300]
+    return "" if one in ("{}", "[]", "null") else one
+
+
+def unreachable(url: str) -> ToolError:
+    """The server cannot be reached (nothing about the network error is repeated: it may hold secrets).
+
+    Args:
+        url: Address of the server.
+
+    Returns:
+        The error, code ``cvat_unreachable``.
+    """
+    return ToolError(
+        f"Cannot reach CVAT at {url}: check the address and your network.", "cvat_unreachable", url=url
+    )
+
+
+def login_failed(url: str) -> ToolError:
+    """CVAT refused the login.
+
+    Args:
+        url: Address of the server.
+
+    Returns:
+        The error, code ``cvat_login_failed``.
+    """
+    return ToolError(
+        f"CVAT login failed at {url}: check the username and password.", "cvat_login_failed", url=url
+    )
+
+
+def refused(reason: str) -> ToolError:
+    """CVAT knows the login but does not allow the request (permissions, plan limits).
+
+    Args:
+        reason: What CVAT said (may be empty).
+
+    Returns:
+        The error: code ``cvat_plan_limit`` when the reason speaks of the plan, else ``cvat_refused``.
+    """
+    said = _reason(reason)
+    suffix = f" CVAT says: {said}" if said else ""
+    if "maximum number of" in said.lower() or "upgrade" in said.lower():
+        return ToolError(f"CVAT plan limit reached.{suffix}", "cvat_plan_limit")
+    return ToolError(f"CVAT refused the request.{suffix}", "cvat_refused")
+
+
+def rate_limited() -> ToolError:
+    """CVAT asked to slow down.
+
+    Returns:
+        The error, code ``cvat_rate_limited``.
+    """
+    return ToolError(
+        "CVAT asked to slow down (too many requests): wait a minute and try again.", "cvat_rate_limited"
+    )
+
+
+def http_error(status: int, where: str, reason: str = "") -> ToolError:
+    """Any other failure status of CVAT (the API path stays in the English text only).
+
+    Args:
+        status: The HTTP status.
+        where: The API path that was called.
+        reason: The body of the answer (may be empty).
+
+    Returns:
+        The error, code ``cvat_error`` with the status as ``http``.
+    """
+    said = _reason(reason)
+    suffix = f" CVAT says: {said}" if said else ""
+    return ToolError(f"CVAT error {status} on {where}.{suffix}", "cvat_error", http=status)
+
+
+def not_found(where: str) -> RemoteNotFound:
+    """CVAT answered 404.
+
+    Args:
+        where: The API path that was called.
+
+    Returns:
+        The error, code ``cvat_not_found``.
+    """
+    return RemoteNotFound(
+        f"CVAT answered 'not found' for {where}: it may have been deleted.", "cvat_not_found"
+    )
+
+
 def kind_of(label: Label) -> Task:
     """What a label is: keypoints, polygons, a box or a class of the whole image.
 

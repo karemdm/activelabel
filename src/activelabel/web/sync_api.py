@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.annotate import credentials
@@ -14,7 +14,7 @@ from activelabel.jobs import Progress
 from activelabel.sync import engine, links
 from activelabel.sync.registry import get_remote
 from activelabel.sync.remote import RemoteProject
-from activelabel.web.errors import ApiError
+from activelabel.web.errors import ApiError, tool_failure
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -85,7 +85,7 @@ def _remote(tool: str) -> RemoteProject:
     try:
         return get_remote(tool)
     except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise tool_failure(exc, tool) from exc
 
 
 @router.get("/cvat/audit")
@@ -104,7 +104,7 @@ def cvat_audit(state: AppState = STATE) -> dict[str, Any]:
     try:
         found = _remote("cvat").audit(settings)
     except ToolError as exc:
-        raise ApiError(400, "tool_error", str(exc), tool="cvat", reason=str(exc)) from exc
+        raise tool_failure(exc, "cvat") from exc
     linked: dict[str, dict[str, Any]] = {}
     for project in state.store.list():
         link = links.get_link(state.store.dir(project.id), "cvat")

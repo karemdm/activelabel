@@ -875,7 +875,7 @@ def test_forbidden_json_body_becomes_a_sentence(cvat: FakeCvat, monkeypatch: pyt
     with pytest.raises(ToolError) as err:
         CvatRemote().find(SETTINGS, "x")
     assert str(err.value) == (
-        "CVAT refused the request. CVAT says: You have reached the maximum number of tasks for the free plan."
+        "CVAT plan limit reached. CVAT says: You have reached the maximum number of tasks for the free plan."
     )
 
 
@@ -1127,3 +1127,47 @@ def test_skeleton_to_label_and_back() -> None:
 )
 def test_not_converted_names_what_the_project_cannot_see(shape, task, why) -> None:
     assert cvat_remote._not_converted(shape, task, {5: [7]}) == why
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(401, "cvat_login_failed"), (403, "cvat_refused"), (404, "cvat_not_found"), (429, "cvat_rate_limited")],
+)
+def test_http_errors_carry_a_code(cvat: FakeCvat, status: int, code: str) -> None:
+    cvat.fail[("GET", "/api/projects")] = status
+    with pytest.raises(ToolError) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert err.value.code == code
+
+
+def test_a_server_error_carries_its_status_and_no_path_or_empty_body(
+    cvat: FakeCvat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(FakeCvat, "list_projects", lambda self, kw: Resp(500, {}))
+    with pytest.raises(ToolError) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert (err.value.code, err.value.params) == ("cvat_error", {"http": 500})
+    assert "CVAT says" not in str(err.value)
+
+
+def test_the_plan_limit_has_its_own_code(cvat: FakeCvat, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {"detail": "You have reached the maximum number of tasks for the free plan"}
+    monkeypatch.setattr(FakeCvat, "list_projects", lambda self, kw: Resp(403, body))
+    with pytest.raises(ToolError) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert err.value.code == "cvat_plan_limit"
+
+
+def test_unreachable_server_carries_its_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Down:
+        def request(self, *a: Any, **k: Any) -> Any:
+            raise requests.ConnectionError("boom")
+
+    monkeypatch.setattr(requests, "Session", lambda: Down())
+    with pytest.raises(ToolError) as err:
+        CvatRemote().find(SETTINGS, "x")
+    assert (err.value.code, err.value.params) == ("cvat_unreachable", {"url": "https://cvat.test"})
+
+
+def test_check_answers_with_the_user_name(cvat: FakeCvat) -> None:
+    assert CvatRemote().check(SETTINGS).startswith("Connected to https://cvat.test as ")

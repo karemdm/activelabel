@@ -6,7 +6,7 @@ from functools import partial
 from types import ModuleType
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.annotate import credentials
@@ -17,7 +17,7 @@ from activelabel.jobs import Progress
 from activelabel.sync import engine as sync_engine
 from activelabel.sync.registry import get_remote
 from activelabel.tasks import Task
-from activelabel.web.errors import ApiError
+from activelabel.web.errors import ApiError, tool_failure
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -84,7 +84,7 @@ def list_remote(tool: str, search: str = "", state: AppState = STATE) -> dict[st
     try:
         return {"items": importer.list_remote(settings, search)}
     except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise tool_failure(exc, tool) from exc
 
 
 def _import_job(
@@ -148,15 +148,15 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
             400,
             "import_kind_invalid",
             f"kind must be one of: {', '.join(KINDS[body.tool])}.",
-            choices=list(KINDS[body.tool]),
+            kinds=list(KINDS[body.tool]),
         )
     settings = _settings(state, body.tool)
     remote_id = str(body.remote_id)
     try:
         importer.check_remote(settings, body.kind, remote_id)
     except RemoteNotFound as exc:
-        raise ApiError(404, "remote_not_found", str(exc)) from exc
+        raise tool_failure(exc, body.tool, 404) from exc
     except ToolError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise tool_failure(exc, body.tool) from exc
     job = partial(_import_job, importer, state, settings, body, remote_id)
     return state.jobs.submit(0, "import_project", job).as_dict()
