@@ -189,8 +189,6 @@
   "ann.classes_search": "Buscar classe",
   "ann.show_all": "Ver todas ({n})",
   "ann.show_less": "Ver menos",
-  "ann.labels_n_one": "{n} anotação",
-  "ann.labels_n_other": "{n} anotações",
   "format.coco": "COCO",
   "format.yolo": "YOLO",
   "format.voc": "Pascal VOC",
