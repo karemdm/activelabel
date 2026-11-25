@@ -159,6 +159,9 @@ class ModelStore:
                 ) from None
         classes = list(classes)
         points = self._keypoints_of(spec, config.dataset)
+        # the resize policy the weights were trained with (a grid run: that of its best child)
+        children = run.get("children") or []
+        best: dict[str, Any] = next((c for c in children if c.get("id") == run.get("best_child")), {})
         with self._lock:
             for existing in self.list():
                 if existing.get("run") == run_number:
@@ -192,6 +195,7 @@ class ModelStore:
                 "best_fold_value": (run.get("best") or {}).get("best_fold_value"),
                 "classes": classes,
                 "device": run.get("device"),
+                "resize": run.get("resize") or best.get("resize"),
                 "packages": run.get("packages"),
                 "size": (run_dir / WEIGHTS).stat().st_size,
                 "exports": {},

@@ -153,3 +153,13 @@ def test_catalog_consistency():
     ):
         assert get_model(wanted)
     assert "ultralytics" in get_model("yolov8s").packages
+
+
+def test_resize_policy_defaults_keep_what_each_model_did():
+    assert get_model("resnet18").param("resize").default == "stretch"
+    assert get_model("deeplabv3_resnet50").param("resize").default == "stretch"
+    assert get_model("fasterrcnn_resnet50_fpn").param("resize").default == "letterbox"
+    assert get_model("ssdlite320_mobilenet_v3_large").param("resize").default == "stretch"
+    assert get_model("resnet18").param("resize").choices == ("stretch", "letterbox", "center_crop")
+    old = RunConfig.from_dict({"dataset": 1, "model": "resnet18"})  # a config made before the policy
+    assert old.effective_params()["resize"] == "stretch"

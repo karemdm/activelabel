@@ -28,9 +28,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 try:
-    from activelabel.training.workers import augment
-except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    from activelabel.training.workers import augment, options
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import options  # type: ignore[no-redef]
 
 try:
     import timm
@@ -99,18 +100,6 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     if not parts.get("train") or not parts.get("val"):
         raise SpecError("Training needs images in the train and validation parts.")
     return dict(spec)
-
-
-def eval_plan(size: int) -> list[tuple[str, dict[str, Any]]]:
-    """Transforms of validation and test images.
-
-    Args:
-        size: Side of the square the images are resized to.
-
-    Returns:
-        The ``(transform name, keyword arguments)`` pairs, in order.
-    """
-    return [("Resize", {"size": (size, size)})]
 
 
 def head_path(model_id: str) -> str:
@@ -327,18 +316,19 @@ def seed_everything(seed: int, torch: Any) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def build_transforms(plan: list[tuple[str, dict[str, Any]]]) -> Any:
-    """Compose the planned transforms, then tensor conversion and normalisation.
+def eval_transform(size: int, policy: str) -> Any:
+    """Transform of validation, test and pre-annotated images: the resize policy, then normalisation.
 
     Args:
-        plan: ``(torchvision.transforms name, kwargs)`` pairs, as from ``eval_plan``.
+        size: Side of the square input.
+        policy: The resize policy (one of ``options.RESIZE_POLICIES``).
 
     Returns:
-        The composed transform.
+        The composed transform (PIL image in, normalised tensor out).
     """
-    steps = [getattr(transforms, name)(**kwargs) for name, kwargs in plan]
-    steps += [transforms.ToTensor(), transforms.Normalize(MEAN, STD)]
-    return transforms.Compose(steps)
+    return transforms.Compose(
+        [options.Fit(size, policy), transforms.ToTensor(), transforms.Normalize(MEAN, STD)]
+    )
 
 
 def _get(module: Any, path: str) -> Any:
@@ -589,13 +579,13 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     seed_everything(int(spec.get("seed", p["seed"])), torch)
     device = pick_device(torch)
     emit("log", message=f"Device: {device}. {split_folds_note(spec)}")
-    size, batch = int(p["image_size"]), int(p["batch_size"])
+    size, batch, policy = int(p["image_size"]), int(p["batch_size"]), str(p["resize"])
 
     techniques = spec["augmentations"]
-    emit("log", message=f"Augmentation: {augment.describe(techniques)}.")
-    train_tf = augment.classification_transform(techniques, size, MEAN, STD)
+    emit("log", message=f"Augmentation: {augment.describe(techniques)}. Resize: {policy}.")
+    train_tf = augment.classification_transform(techniques, size, MEAN, STD, options.Fit(size, policy))
     mixes = augment.mix_settings(techniques)
-    eval_tf = build_transforms(eval_plan(size))
+    eval_tf = eval_transform(size, policy)
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
@@ -617,6 +607,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         "model": spec["model"],
         "family": spec["family"],
         "image_size": size,
+        "resize": policy,
         "mean": MEAN,
         "std": STD,
     }

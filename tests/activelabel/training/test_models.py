@@ -58,6 +58,7 @@ def test_save_list_current_and_delete(models):
     assert card["run"] == first and card["model"] == "resnet18" and card["metric"] == "accuracy"
     assert card["classes"] == ["a", "b"] and card["dataset"] == 1 and card["size"] > 0
     assert card["value"] == 1.0 and card["task_kind"] == "classification"
+    assert card["resize"] == "stretch" and runs.get(first)["resize"] == "stretch"  # the policy is recorded
     assert not (runs.path(first) / "last.pt").exists() and not (runs.path(first) / "best.pt").exists()
     assert (ModelStore(state.store.dir(1)).path(1) / "best.pt").exists()  # the weights exist once
     again = client.post("/api/projects/1/models", json={"run": first})

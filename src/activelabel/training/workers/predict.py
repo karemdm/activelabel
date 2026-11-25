@@ -15,8 +15,11 @@ Prints JSON lines on stdout: ``progress`` (``step``/``steps``), one ``prediction
 every label a ``mask`` (``size`` and run-length ``counts`` of a binary mask of at most
 ``MAX_MASK_SIDE`` pixels on its longer side, relative to the whole image): this process has no
 OpenCV, ActiveLabel turns the masks into polygons. Preprocessing is the one used to evaluate the
-model in training: resize to the model's input size and ImageNet normalisation for classification,
-the image as it is (values 0..1) for detection, which resizes inside the network.
+model in training: the resize policy saved with the weights (``options.py``) brings the photo to the model's
+input size, with ImageNet normalisation for classification and segmentation and values 0..1 for detection;
+boxes, keypoints and masks are taken back to the photo with the same policy. A model saved before the policy
+existed is read as it was trained: stretched (classification, segmentation), or the photo as it is
+(detection, which resized inside the network), like a public model.
 """
 
 from __future__ import annotations
@@ -34,6 +37,11 @@ import torch
 import torchvision
 from PIL import Image, ImageOps
 from torchvision.transforms.functional import pil_to_tensor
+
+try:
+    from activelabel.training.workers import options
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    import options  # type: ignore[no-redef]
 
 KINDS = ("classification", "detection", "keypoints", "instance", "semantic")
 DETECTION_KINDS = ("detection", "keypoints", "instance")
@@ -232,11 +240,19 @@ def instance_masks(probabilities: Any, width: int, height: int) -> list[Any]:
     return [m[::step, ::step] for m in (probabilities[:, 0] > MASK_THRESHOLD).cpu().numpy()]
 
 
-def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device: str) -> tuple[Any, Any]:
+def semantic_map(
+    model: Any,
+    image: Any,
+    size: int,
+    mean: Any,
+    std: Any,
+    device: str,
+    policy: str = options.LEGACY_RESIZE,
+) -> tuple[Any, Any]:
     """Per-pixel ``(class map, confidence)`` of an image, at most ``MAX_MASK_SIDE`` pixels wide.
 
-    The image is resized to the training size, like in evaluation, and the logits are scaled back
-    to the (reduced) size of the photo before the argmax.
+    The image is resized to the training size by the resize policy, like in evaluation, and the logits are
+    taken back to the (reduced) size of the photo before the argmax (pixels a centre crop cut are background).
 
     Args:
         model: The segmentation network, already on ``device`` and in eval mode.
@@ -245,24 +261,64 @@ def semantic_map(model: Any, image: Any, size: int, mean: Any, std: Any, device:
         mean: Per-channel mean used to normalise the image.
         std: Per-channel standard deviation used to normalise the image.
         device: Torch device name the model is on.
+        policy: The resize policy the model was trained with (one of ``options.RESIZE_POLICIES``).
 
     Returns:
         ``(class map, confidence)`` as 2-D ``numpy`` arrays.
     """
     width, height = image.size
     step = mask_step(width, height)
-    small = image.resize((size, size), Image.Resampling.BILINEAR)
+    small = options.fit_image(image, size, policy)
     array = (np.asarray(small, dtype="float32") / 255.0 - np.array(mean, dtype="float32")) / np.array(
         std, dtype="float32"
     )
     batch = torch.from_numpy(array.transpose(2, 0, 1).copy()).unsqueeze(0).to(device)
     logits = model(batch)["out"]
-    logits = torch.nn.functional.interpolate(
-        logits, size=(-(-height // step), -(-width // step)), mode="bilinear", align_corners=False
-    )
+    logits = options.unfit_map(logits, width, height, size, policy, (-(-width // step), -(-height // step)))
     probabilities = torch.softmax(logits, dim=1)[0]
     confidence, classes_map = probabilities.max(0)
     return classes_map.cpu().numpy(), confidence.cpu().numpy()
+
+
+def detect(model: Any, image: Any, task: str, device: str, size: int = 0, policy: str = "") -> dict[str, Any]:
+    """Run a detector on a photo; boxes, keypoints and masks come back in photo pixels.
+
+    Args:
+        model: The detection network, already on ``device`` and in eval mode.
+        image: RGB ``PIL`` image.
+        task: ``detection``, ``keypoints`` or ``instance``.
+        device: Torch device name the model is on.
+        size: Side of the square input; 0 gives the photo as it is (the network resizes it).
+        policy: The resize policy the model was trained with, used when ``size`` is given.
+
+    Returns:
+        ``boxes`` (``[x1, y1, x2, y2]``), ``labels`` and ``scores`` lists, ``keypoints`` (per detection, or
+        ``None``) and ``masks`` (boolean arrays of at most ``MAX_MASK_SIDE`` pixels, or ``None``).
+    """
+    width, height = image.size
+    shown = options.fit_image(image, size, policy) if size else image
+    out = model([(pil_to_tensor(shown).float() / 255.0).to(device)])[0]
+    boxes = out["boxes"].cpu().numpy()
+    points = out["keypoints"].cpu().numpy() if task == "keypoints" and "keypoints" in out else None
+    masks = None
+    if size:
+        boxes = options.unfit_boxes(boxes, width, height, size, policy)
+        points = None if points is None else options.unfit_points(points, width, height, size, policy)
+    if task == "instance":
+        if size:
+            step = mask_step(width, height)
+            grid = (-(-width // step), -(-height // step))
+            back = options.unfit_map(out["masks"], width, height, size, policy, grid)
+            masks = list((back[:, 0] > MASK_THRESHOLD).cpu().numpy())
+        else:
+            masks = instance_masks(out["masks"], width, height)
+    return {
+        "boxes": boxes.tolist(),
+        "labels": out["labels"].cpu().tolist(),
+        "scores": out["scores"].cpu().tolist(),
+        "keypoints": None if points is None else points.tolist(),
+        "masks": masks,
+    }
 
 
 def predict(spec: dict[str, Any]) -> dict[str, int]:
@@ -311,10 +367,14 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                 module.score_thresh = min(float(module.score_thresh), threshold)
         if hasattr(model, "score_thresh"):
             model.score_thresh = min(float(model.score_thresh), threshold)
-    else:
+    # the resize policy saved with the weights; a model saved before it existed has none
+    policy = str(checkpoint.get("resize") or "")
+    size = int(checkpoint.get("image_size") or 0) if policy else 0
+    if task not in DETECTION_KINDS:
         size = int(checkpoint.get("image_size") or spec["build"]["params"]["image_size"])
+        policy = policy or options.LEGACY_RESIZE
         if task == "classification":
-            transform = worker.build_transforms(worker.eval_plan(size))
+            transform = worker.eval_transform(size, policy)
     items = spec["items"]
     totals = {"images": 0, "objects": 0, "unreadable": 0}
     with torch.no_grad():
@@ -337,22 +397,22 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                     checkpoint.get("mean") or worker.MEAN,
                     checkpoint.get("std") or worker.STD,
                     device,
+                    policy,
                 )
                 labels = semantic_labels(classes_map, confidence, classes, threshold, name)
             elif task in DETECTION_KINDS:
-                tensor = (pil_to_tensor(image).float() / 255.0).to(device)
-                out = model([tensor])[0]
+                found = detect(model, image, task, device, size, policy)
                 labels = detection_labels(
-                    out["boxes"].cpu().tolist(),
-                    out["labels"].cpu().tolist(),
-                    out["scores"].cpu().tolist(),
+                    found["boxes"],
+                    found["labels"],
+                    found["scores"],
                     width,
                     height,
                     classes,
                     threshold,
                     name,
-                    out["keypoints"].cpu().tolist() if task == "keypoints" and "keypoints" in out else None,
-                    instance_masks(out["masks"], width, height) if task == "instance" else None,
+                    found["keypoints"],
+                    found["masks"],
                 )
             else:
                 logits = model(transform(image).unsqueeze(0).to(device))

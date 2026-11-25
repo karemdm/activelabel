@@ -126,17 +126,18 @@ def _classification_step(name: str, params: dict[str, Any], size: int) -> Any:
 
 
 def classification_transform(
-    entries: Entries, size: int, mean: tuple[float, ...], std: tuple[float, ...]
+    entries: Entries, size: int, mean: tuple[float, ...], std: tuple[float, ...], resize: Any = None
 ) -> Any:
     """Training transform of a classifier: the chosen techniques, tensor conversion and normalisation.
 
-    Without ``random_resized_crop`` the image is resized to ``size`` x ``size`` first.
+    Without ``random_resized_crop`` the image is first resized to ``size`` x ``size`` by ``resize``.
 
     Args:
         entries: the resolved techniques.
         size: side of the square input, in pixels.
         mean: normalisation mean per channel.
         std: normalisation standard deviation per channel.
+        resize: transform from a photo to the square input (the run's resize policy); by default a stretch.
 
     Returns:
         The composed transform (PIL image in, normalised tensor out).
@@ -145,7 +146,7 @@ def classification_transform(
         AugmentError: a technique the classification worker does not know.
     """
     by_name = params_of(entries)
-    steps = [] if "random_resized_crop" in by_name else [transforms.Resize((size, size))]
+    steps = [] if "random_resized_crop" in by_name else [resize or transforms.Resize((size, size))]
     steps += [s for s in (_classification_step(e["name"], by_name[e["name"]], size) for e in entries) if s]
     steps += [transforms.ToTensor(), transforms.Normalize(mean, std)]
     if "random_erasing" in by_name:
@@ -333,21 +334,24 @@ def mirrors(matrix: Array) -> bool:
     return bool(np.linalg.det(matrix[:2, :2]) < 0)
 
 
-def warp(image: Any, matrix: Array, resample: Any, fill: Any) -> Any:
-    """A PIL image moved by an affine matrix (same size; uncovered pixels get ``fill``).
+def warp(image: Any, matrix: Array, resample: Any, fill: Any, size: tuple[int, int] | None = None) -> Any:
+    """A PIL image moved by an affine matrix (uncovered pixels get ``fill``).
 
     Args:
         image: PIL image.
         matrix: 3 x 3 matrix from input to output pixel coordinates.
         resample: PIL resampling filter (bilinear for photos, nearest for masks).
         fill: value of the pixels the moved image does not cover.
+        size: ``(width, height)`` of the output; by default the size of ``image``.
 
     Returns:
         The moved image.
     """
     inverse = np.linalg.inv(matrix)
     data = tuple(float(v) for v in (*inverse[0], *inverse[1]))
-    return image.transform(image.size, Image.Transform.AFFINE, data, resample=resample, fillcolor=fill)
+    return image.transform(
+        size or image.size, Image.Transform.AFFINE, data, resample=resample, fillcolor=fill
+    )
 
 
 def move_points(points: Array, matrix: Array) -> Array:
@@ -440,8 +444,8 @@ def move_target(
     Args:
         target: ``boxes`` (N, 4), ``labels`` (N,) and maybe ``masks`` (N, H, W) or ``keypoints`` (N, K, 3).
         matrix: 3 x 3 affine matrix.
-        width: image width in pixels.
-        height: image height in pixels.
+        width: width of the moved image in pixels.
+        height: height of the moved image in pixels (masks come out at this size).
         swap: keypoint pairs that trade places (a mirrored image), or empty.
 
     Returns:
@@ -450,7 +454,9 @@ def move_target(
     out = dict(target)
     if "masks" in target:
         masks = [
-            np.asarray(warp(Image.fromarray(m), matrix, Image.Resampling.NEAREST, 0), dtype=np.uint8)
+            np.asarray(
+                warp(Image.fromarray(m), matrix, Image.Resampling.NEAREST, 0, (width, height)), dtype=np.uint8
+            )
             for m in target["masks"]
         ]
         found = [mask_box(m) for m in masks]

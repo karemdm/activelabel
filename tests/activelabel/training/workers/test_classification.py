@@ -57,3 +57,14 @@ def test_worker_dataset_needs_torch(worker, tmp_path):
     data = worker.ImageDataset([{"path": str(image), "label": 1}], transforms.ToTensor())
     tensor, label = data[0]
     assert label == 1 and tensor.shape[0] == 3
+
+
+def test_eval_transform_uses_the_resize_policy(worker):
+    from PIL import Image
+
+    photo = Image.new("RGB", (64, 32), (255, 255, 255))
+    boxed = worker.eval_transform(16, "letterbox")(photo)
+    assert tuple(boxed.shape) == (3, 16, 16)
+    assert float(boxed[0, 0, 0]) == pytest.approx(0.0, abs=0.05)  # the band is the mean colour
+    assert float(boxed[0, 8, 8]) > 2.0  # white, normalised
+    assert float(worker.eval_transform(16, "stretch")(photo)[0, 0, 0]) > 2.0

@@ -346,3 +346,13 @@ def test_spec_drops_poses_with_another_number_of_points(det_project):
     assert spec["num_keypoints"] == 3
     counts = {len(o["keypoints"]) for p in spec["parts"].values() for i in p for o in i["objects"]}
     assert counts == {3}
+
+
+def test_dataset_fits_the_photo_and_its_boxes(w, tmp_path):
+    from PIL import Image
+
+    Image.new("RGB", (200, 100)).save(tmp_path / "wide.png")
+    item = {"path": str(tmp_path / "wide.png"), "objects": [{"label": 0, "bbox": [0.25, 0.25, 0.5, 0.5]}]}
+    tensor, target = w.DetectionDataset([item], "detection", 0, None, 50, "letterbox")[0]
+    assert tuple(tensor.shape) == (3, 50, 50)
+    assert target["boxes"][0].tolist() == pytest.approx([12.5, 18.5, 37.5, 31], abs=0.6)

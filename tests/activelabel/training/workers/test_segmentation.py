@@ -154,3 +154,13 @@ def test_dataset_and_tiny_model(worker, tmp_path):
     assert float(loss) > 0
     assert worker.make_optimizer(spec, model, torch) is not None
     assert worker.pick_device(torch) in ("cuda", "mps", "cpu")
+
+
+def test_letterbox_bands_are_background_in_the_mask(worker, tmp_path):
+    Image.new("RGB", (32, 16), (200, 10, 10)).save(tmp_path / "wide.png")
+    full = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    items = [{"path": str(tmp_path / "wide.png"), "objects": [{"label": 0, "polygons": [full]}]}]
+    _, mask = worker.SegmentationDataset(items, CLASSES, 16, None, "letterbox")[0]
+    assert mask[0, 8] == 0 and mask[8, 8] == 1 and mask[15, 8] == 0
+    _, stretched = worker.SegmentationDataset(items, CLASSES, 16, None)[0]
+    assert stretched[0, 8] == 1
