@@ -26,10 +26,31 @@ task will have**, and a strip of thumbnails at the chosen step.
 - The selected frames are extracted once (JPEG, quality 95) and become the images of the task, in
   frame order, named `<video file name without extension>/frame_000120.jpg`. Each image record keeps `video`, `frame`
   (index in the video) and `time` (seconds).
-- The task records its source: `{"video": id, "start": 0, "stop": 8999, "step": 30}`.
+- The task records its source: `{"video": id, "start": 0, "stop": 8999, "step": 30, "fps": 30.0}`.
+  (`stop` is the last frame really read, which may be before the planned one when the file ends early.)
+- Long image names are cut at the start in the image grid, so the frame number and the extension stay
+  visible; the full name is in the tooltip.
 
 Frames are images for everything else: annotations, curation, jobs, sync, FiftyOne, dataset versions and
-training. Nothing has to know about video formats except the extraction.
+training. Nothing has to know about video formats except the extraction (and the data split, below).
+
+## Frames in a data split
+
+Frames of the same video are almost identical to their neighbours, so a dataset version (docs/DATASETS.md) does
+not scatter them frame by frame: all the frames of a video stay in one part (train, validation or test) as long
+as that lets the proportions and every class reach every part (option *Videos*, `auto`; `whole` always keeps
+them together). When it does not, for example with one or two videos, or a class that lives in a few videos,
+the videos that block it are cut into **contiguous segments** in frame order (`frame`, then `time`), and the
+segments are spread over the video's timeline among the parts, never taking the last frames of a class that
+training would then lack. Around every validation or test segment, the training frames (and the validation
+frames next to a test segment) within a **safety gap** are left out of the version. The gap is a switch on by
+default; it is sized per video: at least the minimum seconds asked (0.5 s by default), grown to one frame
+interval and to the longest time between two frames of the video that curation found to be near duplicates, but
+at most a tenth of the video's duration. It is measured with each frame's `time`, or `frame` divided by the
+video's FPS, so a video whose frames have neither gets no gap. The preview and the version card report each cut
+video (number of segments, frames left out, gap used) and warn that the scores may be optimistic, because
+segments of one video are on both sides (`video_parts_shared`). To measure how the model does on new videos,
+record more videos and use *Always keep whole*.
 
 ## HTTP API
 
@@ -105,10 +126,12 @@ video size.
 - **CVAT for video**: every frame entry of a track is a label at that frame, with the track id
   kept in `Label.track` (it goes back to CVAT as a track, docs/SYNC.md). Entries with
   `outside="1"` are not visible and are skipped. `polyline`, `ellipse`, `mask`, `cuboid` and
-  `skeleton` tracks are skipped as unsupported shapes. **Frame numbers**: when `<meta><task>` has
-  `start_frame` or `frame_filter`, they are relative to the CVAT task (0 to size-1) and are
-  converted to video frames as `start_frame + i * step` (`frame_filter = "step=N"`); without
-  them they are taken as video frame indexes. `original_size` in the meta gives the size for the
+  `skeleton` tracks are skipped as unsupported shapes. **Frame numbers**: CVAT's own export of a video task
+  writes video frame numbers (`0, 15, 30...` for `frame_filter = "step=15"`). When `<meta><task>` has
+  `start_frame` or `frame_filter`, the numbers of the file are checked: if all of them lie on
+  `start_frame + k * step` they are video frames; otherwise they are taken as task frames (0 to size-1) and
+  converted to video frames as `start_frame + i * step`. Without `start_frame` and `frame_filter` they are
+  always video frame indexes. `original_size` in the meta gives the size for the
   coordinates. A CVAT task made from the already extracted frames (not from the video) has frames
   0..size-1 and no start or step in the meta: they are read as video frames, so use the
   *Project images* option (names) or export from the video task instead.
