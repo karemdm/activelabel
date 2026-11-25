@@ -12,6 +12,10 @@ outputs of the ONNX graph:
 - classification: ``images`` (N×3×S×S, normalised with the ImageNet mean and std) → ``logits``;
 - semantic segmentation: ``images`` → ``logits`` (N×(classes+1)×S×S, class 0 is the background).
 
+The photo becomes the S×S input outside the graph, by the resize policy the model was trained with
+(``options.py``: stretch, letterbox or centre crop); the file records it in its metadata (``resize``,
+``image_size``, ``mean``, ``std``) and the export results give it too.
+
 Detection models are not exported yet: the traced torchvision detectors break in ONNX Runtime on
 images without candidate boxes.
 
@@ -29,6 +33,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
+
+try:
+    from activelabel.training.workers import options
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    import options  # type: ignore[no-redef]
 
 try:
     import onnx
@@ -93,6 +102,25 @@ class Logits(torch.nn.Module):
         return self.inner(x)["out"]
 
 
+def onnx_metadata(checkpoint: dict[str, Any], size: int, policy: str) -> dict[str, str]:
+    """What a program needs to turn a photo into the graph's input, as ONNX metadata (text values).
+
+    Args:
+        checkpoint: The saved weights and their meta (``mean`` and ``std`` when the model normalises).
+        size: Side of the square input.
+        policy: The resize policy (one of ``options.RESIZE_POLICIES``).
+
+    Returns:
+        ``{"resize", "image_size", "mean", "std"}`` (``mean`` and ``std`` as JSON lists).
+    """
+    return {
+        "resize": policy,
+        "image_size": str(size),
+        "mean": json.dumps(list(checkpoint.get("mean") or ())),
+        "std": json.dumps(list(checkpoint.get("std") or ())),
+    }
+
+
 def export(spec: dict[str, Any]) -> dict[str, Any]:
     """Rebuild the network, load the weights and write the ONNX file.
 
@@ -100,8 +128,8 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
         spec: The job spec (``checkpoint``, ``output``, ``worker``, ``task``, ``build``).
 
     Returns:
-        ``{"size", "inputs", "opset", "image_size"}``: file size in bytes, the input shape of the
-        graph, the ONNX opset and the input image side.
+        ``{"size", "inputs", "opset", "image_size", "resize"}``: file size in bytes, the input shape of the
+        graph, the ONNX opset, the input image side and the resize policy that makes a photo that input.
 
     Raises:
         ValueError: The task is not exportable, or the weights do not match the network.
@@ -120,9 +148,10 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
     check_keys(list(result.missing_keys), list(result.unexpected_keys))
     model.eval()
     size = int(checkpoint.get("image_size") or spec["build"]["params"].get("image_size") or 224)
+    policy = str(checkpoint.get("resize") or options.LEGACY_RESIZE)
     out = Path(spec["output"])
     tmp = out.with_suffix(".part")
-    emit("log", message=f"exporting {spec['build']['model']} ({task}) at {size}px")
+    emit("log", message=f"exporting {spec['build']['model']} ({task}) at {size}px, resize {policy}")
     net = model
     if task == "semantic":
         net = Logits(model).eval()
@@ -140,9 +169,20 @@ def export(spec: dict[str, Any]) -> dict[str, Any]:
     inputs = {"images": ["batch", "3", str(size), str(size)]}
     if onnx is None:
         raise ImportError("onnx is not installed in the training environment.")
+    graph = onnx.load(str(tmp))
+    for key, value in onnx_metadata(checkpoint, size, policy).items():
+        entry = graph.metadata_props.add()
+        entry.key, entry.value = key, value
+    onnx.save(graph, str(tmp))
     onnx.checker.check_model(str(tmp))
     os.replace(tmp, out)
-    return {"size": out.stat().st_size, "inputs": inputs, "opset": OPSET, "image_size": size}
+    return {
+        "size": out.stat().st_size,
+        "inputs": inputs,
+        "opset": OPSET,
+        "image_size": size,
+        "resize": policy,
+    }
 
 
 def main(argv: list[str]) -> int:

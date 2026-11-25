@@ -16,6 +16,8 @@ from activelabel.errors import CodedError
 FAMILIES = ("torchvision", "timm", "ultralytics")
 TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints")
 STARTS = ("transfer", "finetune", "scratch")
+#: How a photo becomes the square input of the network (see ``workers/options.py``).
+RESIZE_POLICIES = ("stretch", "letterbox", "center_crop")
 PROJECT_TYPES = ("classification", "detection", "segmentation", "keypoints")
 KINDS = ("int", "float", "choice", "bool")
 
@@ -219,6 +221,15 @@ COMMON_PARAMS: tuple[ParamSpec, ...] = (
     ),
     ParamSpec("image_size", "int", 224, 32, 2048, help="Side of the square input, in pixels."),
     ParamSpec(
+        "resize",
+        "choice",
+        "stretch",
+        choices=RESIZE_POLICIES,
+        help="How a photo becomes the square input: stretch (the proportions change), letterbox (bands "
+        "fill the rest) or center_crop (the edges are cut). Evaluation, pre-annotation and export use the "
+        "same rule.",
+    ),
+    ParamSpec(
         "augmentation",
         "choice",
         "light",
@@ -271,7 +282,8 @@ _TV = ("torch", "torchvision")
 _TIMM = ("torch", "torchvision", "timm")
 _ULTRA = ("ultralytics",)
 _TRANSFORMER = {"lr": 0.0001}
-_TV_DET = {"optimizer": "sgd", "lr": 0.005, "batch_size": 4, "weight_decay": 0.0005}
+#: Detectors keep the proportions of the photo by default (torchvision's own resize did too).
+_TV_DET = {"optimizer": "sgd", "lr": 0.005, "batch_size": 4, "weight_decay": 0.0005, "resize": "letterbox"}
 _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
 _FIXED_224: dict[str, tuple[float, float]] = {"image_size": (224, 224)}
@@ -347,7 +359,9 @@ def _tv(id_: str, label: str, ptype: str, kind: str, size: int, defaults: dict[s
         The model spec; object models add the backbone layers and score threshold parameters.
     """
     extra = (_TRAINABLE_LAYERS, _SCORE_THRESH) if kind in ("detection", "instance", "keypoints") else ()
-    limits = _FIXED_320 if id_.startswith("ssdlite320") else {}  # the worker does not resize SSDlite's input
+    limits = _FIXED_320 if id_.startswith("ssdlite320") else {}  # SSDlite has a fixed input
+    if id_.startswith("ssdlite320"):
+        defaults = {**defaults, "resize": "stretch"}  # what SSDlite's own resize did
     return ModelSpec(
         id_, label, (ptype,), "torchvision", kind, _TV, size, params=extra, defaults=defaults, limits=limits
     )

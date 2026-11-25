@@ -36,9 +36,10 @@ from PIL import Image, ImageDraw, ImageOps
 from torch.utils.data import DataLoader
 
 try:
-    from activelabel.training.workers import augment
-except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    from activelabel.training.workers import augment, options
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import options  # type: ignore[no-redef]
 
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
@@ -190,19 +191,23 @@ def rasterize_mask(objects: list[dict[str, Any]], width: int, height: int, class
     return mask
 
 
-def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
-    """Image (bilinear) and mask (nearest) resized to ``size`` x ``size``.
+def resize_pair(image: Any, mask: Any, size: int, policy: str = options.LEGACY_RESIZE) -> tuple[Any, Any]:
+    """Image (bilinear) and mask (nearest) turned into the ``size`` x ``size`` input by the resize policy.
+
+    Letterbox bands are the background in the mask.
 
     Args:
         image: PIL image.
         mask: PIL class mask.
         size: Side of the square, in pixels.
+        policy: The resize policy (one of ``options.RESIZE_POLICIES``).
 
     Returns:
         ``(image, mask)`` resized.
     """
-    return image.resize((size, size), Image.Resampling.BILINEAR), mask.resize(
-        (size, size), Image.Resampling.NEAREST
+    return (
+        options.fit_image(image, size, policy),
+        options.fit_image(mask, size, policy, Image.Resampling.NEAREST, 0),
     )
 
 
@@ -336,6 +341,7 @@ class SegmentationDataset:
         classes: list[str],
         size: int,
         augmentations: list[dict[str, Any]] | None,
+        resize: str = options.LEGACY_RESIZE,
     ) -> None:
         """Keep the items and the settings.
 
@@ -345,10 +351,12 @@ class SegmentationDataset:
             size: Side of the square the images are resized to.
             augmentations: Techniques applied to image and mask together; ``None`` only resizes
                 (evaluation).
+            resize: The resize policy (one of ``options.RESIZE_POLICIES``).
         """
         self.items = items
         self.classes = classes
         self.size = size
+        self.resize = resize
         self.augmentations = augmentations  # None = evaluation (resize only)
 
     def __len__(self) -> int:
@@ -375,7 +383,7 @@ class SegmentationDataset:
         mask = rasterize_mask(item.get("objects") or [], image.width, image.height, self.classes)
         if self.augmentations:
             image, mask = augment.augment_pair(image, mask, self.augmentations)
-        image, mask = resize_pair(image, mask, self.size)
+        image, mask = resize_pair(image, mask, self.size, self.resize)
         mean, std = numpy.array(MEAN, dtype="float32"), numpy.array(STD, dtype="float32")
         array = (numpy.asarray(image, dtype="float32") / 255.0 - mean) / std
         return torch.from_numpy(array.transpose(2, 0, 1).copy()), torch.from_numpy(
@@ -590,6 +598,7 @@ def make_loader(
     shuffle: bool,
     classes: list[str],
     size: int,
+    resize: str,
     batch_size: int,
     workers: int,
     generator: Any,
@@ -602,6 +611,7 @@ def make_loader(
         shuffle: shuffle with ``generator`` (the training part).
         classes: the project's classes (without the background).
         size: side of the square the images are resized to.
+        resize: the resize policy (one of ``options.RESIZE_POLICIES``).
         batch_size: images per batch.
         workers: loader processes (0 loads in the main process).
         generator: the seeded random generator used when shuffling.
@@ -610,7 +620,7 @@ def make_loader(
         A ``DataLoader``.
     """
     return DataLoader(
-        SegmentationDataset(items, classes, size, augmentations),
+        SegmentationDataset(items, classes, size, augmentations, resize),
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=workers,
@@ -674,17 +684,23 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             message=f"{boxes} object(s) have a box but no polygon: they are drawn as filled rectangles.",
             box_only_objects=boxes,
         )
-    size, batch = int(p["image_size"]), int(p["batch_size"])
+    size, batch, policy = int(p["image_size"]), int(p["batch_size"]), str(p["resize"])
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
 
     loader = partial(
-        make_loader, classes=classes, size=size, batch_size=batch, workers=workers, generator=generator
+        make_loader,
+        classes=classes,
+        size=size,
+        resize=policy,
+        batch_size=batch,
+        workers=workers,
+        generator=generator,
     )
     techniques = spec["augmentations"]
     augment.check_objects(techniques)
-    emit("log", message=f"Augmentation: {augment.describe(techniques)}.")
+    emit("log", message=f"Augmentation: {augment.describe(techniques)}. Resize: {policy}.")
     train_loader = loader(parts["train"], techniques, True)
     val_loader = loader(parts["val"], None, False)
     model = build_model(spec, pretrained=spec["start"] != "scratch")
@@ -702,6 +718,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         "model": spec["model"],
         "family": spec["family"],
         "image_size": size,
+        "resize": policy,
         "mean": MEAN,
         "std": STD,
     }

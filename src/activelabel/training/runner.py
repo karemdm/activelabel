@@ -1272,7 +1272,12 @@ class TrainingRunner:
         spec = build_spec(project_dir, config, model, run_dir, version)
         spec_file = tmp / "spec.json"
         spec_file.write_text(json.dumps(spec), encoding="utf-8")
-        store.update(number, epochs=spec["params"]["epochs"], augmentations=spec["augmentations"])
+        store.update(
+            number,
+            epochs=spec["params"]["epochs"],
+            augmentations=spec["augmentations"],
+            resize=spec["params"]["resize"],
+        )
         progress.check()
         store.update(number, phase="training")
         target = _Target(run_dir, run_dir / "log.txt", lambda **f: store.update(number, **f))
@@ -1363,6 +1368,7 @@ class TrainingRunner:
                     started=now(),
                     epochs=epochs,
                     augmentations=spec["augmentations"],
+                    resize=spec["params"]["resize"],
                 )
                 target = _Target(child_dir, log_file, partial(_update_child, store, number, i))
                 self._train(key, target, progress, [*cmd, str(spec_file)], spec_dir, spec)

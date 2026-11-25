@@ -37,9 +37,10 @@ from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.transforms.functional import pil_to_tensor
 
 try:
-    from activelabel.training.workers import augment
-except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    from activelabel.training.workers import augment, options
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import options  # type: ignore[no-redef]
 
 METRICS = ("map50_95", "map50")
 TASKS = ("detection", "instance", "keypoints")
@@ -556,17 +557,22 @@ class DetectionDataset:
         task: str,
         num_keypoints: int,
         augmentations: list[dict[str, Any]] | None = None,
+        size: int = 0,
+        resize: str = "",
     ) -> None:
-        """Keep the items and the augmentation techniques.
+        """Keep the items, the augmentation techniques and the resize policy.
 
         Args:
             items: The images of one part (``path`` and ``objects`` each).
             task: ``detection``, ``instance`` or ``keypoints``.
             num_keypoints: Points per object (0 when the task has none).
             augmentations: The techniques applied to each image (training); ``None`` or empty reads as is.
+            size: Side of the square input; 0 keeps the photo's size (the network resizes it).
+            resize: The resize policy (one of ``options.RESIZE_POLICIES``), used when ``size`` is given.
         """
         self.items, self.task, self.num_keypoints = items, task, num_keypoints
         self.augmentations = augmentations or []
+        self.size, self.resize = size, resize
 
     def __len__(self) -> int:
         """Number of images.
@@ -583,8 +589,8 @@ class DetectionDataset:
             index: Position in the part.
 
         Returns:
-            ``(image tensor 0..1, target dict of tensors)``, after the augmentation (boxes, masks and
-            keypoints move with the image).
+            ``(image tensor 0..1, target dict of tensors)``, after the augmentation and the resize policy
+            (boxes, masks and keypoints move with the image).
         """
         with Image.open(self.items[index]["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
@@ -593,6 +599,9 @@ class DetectionDataset:
         target = build_target(self.items[index], width, height, self.task, self.num_keypoints)
         if self.augmentations:
             image, target = augment.augment_objects(image, target, self.augmentations)
+        if self.size:
+            target = options.fit_target(target, width, height, self.size, self.resize)
+            image = options.fit_image(image, self.size, self.resize)
         tensor = pil_to_tensor(image).float() / 255.0
         return tensor, {k: torch.from_numpy(np.ascontiguousarray(v)) for k, v in target.items()}
 
@@ -984,6 +993,8 @@ def make_loader(
     task: str,
     keypoints: int,
     augmentations: list[dict[str, Any]],
+    size: int,
+    resize: str,
     batch_size: int,
     workers: int,
     generator: Any,
@@ -996,6 +1007,8 @@ def make_loader(
         task: ``detection``, ``instance`` or ``keypoints``.
         keypoints: points per object (0 when the task has none).
         augmentations: the techniques applied in train mode.
+        size: side of the square input.
+        resize: the resize policy (one of ``options.RESIZE_POLICIES``).
         batch_size: images per batch.
         workers: loader processes (0 loads in the main process).
         generator: the seeded random generator used when shuffling.
@@ -1004,7 +1017,7 @@ def make_loader(
         A ``DataLoader`` yielding ``(images, targets)`` batches.
     """
     return DataLoader(
-        DetectionDataset(items, task, keypoints, augmentations if train_mode else None),
+        DetectionDataset(items, task, keypoints, augmentations if train_mode else None, size, resize),
         batch_size=batch_size,
         shuffle=train_mode,
         num_workers=workers,
@@ -1064,7 +1077,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     batch, keypoints = int(p["batch_size"]), int(spec.get("num_keypoints") or 0)
     techniques = spec["augmentations"]
     augment.check_objects(techniques)
-    emit("log", message=f"Augmentation: {augment.describe(techniques)}.")
+    size, policy = int(p["image_size"]), str(p["resize"])
+    emit("log", message=f"Augmentation: {augment.describe(techniques)}. Resize: {policy}.")
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
@@ -1074,6 +1088,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         task=task,
         keypoints=keypoints,
         augmentations=techniques,
+        size=size,
+        resize=policy,
         batch_size=batch,
         workers=workers,
         generator=generator,
@@ -1093,7 +1109,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         "family": spec["family"],
         "task": task,
         "num_keypoints": keypoints,
-        "image_size": int(p["image_size"]),
+        "image_size": size,
+        "resize": policy,
     }
 
     for epoch in range(1, epochs + 1):

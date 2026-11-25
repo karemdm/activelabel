@@ -41,3 +41,36 @@ def test_encode_mask_run_lengths(module):
     mask = np.array([[True, True, False], [False, True, True]])
     assert module.encode_mask(mask) == {"size": [2, 3], "counts": [0, 2, 2, 2]}
     assert module.encode_mask(np.zeros((2, 2), dtype=bool)) == {"size": [2, 2], "counts": [4]}
+
+
+class _FakeDetector:
+    """Returns one box at fixed input pixels and remembers the size of the image it was given."""
+
+    def __call__(self, images):
+        import torch
+
+        self.shape = tuple(images[0].shape)
+        return [
+            {
+                "boxes": torch.tensor([[10.0, 35.0, 30.0, 45.0]]),
+                "labels": torch.tensor([1]),
+                "scores": torch.tensor([0.9]),
+                "keypoints": torch.tensor([[[10.0, 35.0, 1.0]]]),
+                "masks": torch.ones(1, 1, *self.shape[1:]),
+            }
+        ]
+
+
+def test_detect_takes_a_letterbox_prediction_back_to_the_photo(module):
+    from PIL import Image
+
+    model = _FakeDetector()
+    found = module.detect(model, Image.new("RGB", (400, 200)), "keypoints", "cpu", 100, "letterbox")
+    assert model.shape == (3, 100, 100)
+    assert found["boxes"][0] == pytest.approx([40, 40, 120, 80])
+    assert found["keypoints"][0][0][:2] == pytest.approx([40, 40])
+    legacy = module.detect(model, Image.new("RGB", (400, 200)), "instance", "cpu")
+    assert model.shape == (3, 200, 400) and legacy["boxes"][0] == pytest.approx([10, 35, 30, 45])
+    assert legacy["masks"][0].shape == (200, 400)
+    boxed = module.detect(model, Image.new("RGB", (400, 200)), "instance", "cpu", 100, "letterbox")
+    assert boxed["masks"][0].shape == (200, 400) and boxed["masks"][0].all()
