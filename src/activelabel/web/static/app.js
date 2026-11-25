@@ -2064,7 +2064,7 @@
                 renameDraft = null;
                 focusAfter = `#${cid}-rename`;
                 await loadTasks();
-              } catch (err) { toastError(err); input.focus(); }
+              } catch (err) { toastError(err); if (!(await reloadIfChanged(err))) input.focus(); }
             } },
           input,
           el('button', { type: 'submit', class: 'btn small primary' }, t('common.save')),
@@ -2220,6 +2220,17 @@
         } catch (err) { toastError(err); }
       }
 
+      /** A 404/409 means the task changed elsewhere (another tab): show the real state instead of a dead card. */
+      async function reloadIfChanged(err) {
+        if (err.status !== 404 && err.status !== 409) return false;
+        renaming = null;
+        renameDraft = null;
+        await refreshProject();
+        await loadTasks();
+        grid.reload();
+        return true;
+      }
+
       async function deleteTask(task) {
         const ok = await confirmDialog({
           title: t('tasks.delete_title', { name: task.name }),
@@ -2230,7 +2241,7 @@
         try {
           const r = await api('DELETE', `/projects/${projectId}/tasks/${task.id}`, { json: { confirm: true } });
           toast(tn('tasks.deleted', Number(r && r.deleted) || 0), 'success', 5000);
-        } catch (err) { toastError(err); return; }
+        } catch (err) { toastError(err); await reloadIfChanged(err); return; }
         expanded.delete(task.id);
         await refreshProject();
         await loadTasks();
