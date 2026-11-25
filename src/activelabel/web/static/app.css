@@ -693,12 +693,14 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .icon-btn.small { width: 32px; height: 32px; border-color: transparent; background: transparent; color: var(--muted); }
 .icon-btn.small:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn.small.danger:hover { background: var(--danger-soft); color: var(--danger); }
-.task-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: var(--space-4); align-items: start; margin: 0; }
+.task-list { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; }   /* rows are always filled: the last one grows, an open card takes a row of its own */
+.task-list > .task-item { flex: 1 1 min(100%, 26rem); }
+.task-list > .task-item:has(.task-toggle[aria-expanded="true"]) { flex-basis: 100%; }
 .task-item { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: 0.9rem var(--space-4); }
 .task-item.is-filtered { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 .task-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .task-name { margin: 0; font-size: var(--font-lg); min-width: 0; flex: 1 1 auto; }
-.task-title { display: block; max-width: 100%; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 700; text-align: left; padding: 0.1rem 0.2rem; margin: 0 -0.2rem; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.task-title { display: block; max-width: 100%; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 700; text-align: left; padding: 0.1rem 0.2rem; margin: 0 -0.2rem; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .task-title:hover { color: var(--primary); }
 .task-actions { display: flex; flex: none; gap: 0.1rem; }
 .task-rename { display: flex; flex-wrap: wrap; gap: 0.4rem; flex: 1 1 100%; align-items: center; }
@@ -710,7 +712,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .progress.thin { height: 6px; border: 0; }
 .task-toggle .icon { transition: transform 0.15s; }
 .task-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
-.task-jobs { margin: var(--space-1) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.15rem; }
+.task-jobs { margin: var(--space-1) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 0.15rem var(--space-4); }
 .task-jobs[hidden] { display: none; }
 .job-row { display: grid; grid-template-columns: 3.4rem 4.6rem minmax(2.5rem, 1fr) 3.2rem; align-items: center; gap: 0.6rem; width: 100%; padding: 0.35rem var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: var(--font-sm); text-align: left; cursor: pointer; }
 .job-row:hover { background: var(--surface-2); }
