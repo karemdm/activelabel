@@ -130,8 +130,10 @@ stable `code` and the `params` the translated text needs:
 
 Status codes: 400 (rejected input), 404 (not found), 409 (conflict: a job of the project is running, or the
 state changed since the person looked), 422 (the body or a parameter has the wrong shape; `detail` is the
-list FastAPI gives) and 500 only for a damaged data file (`code: "file_damaged"`, `params.file`; the project
-list itself survives one damaged project). Three answers (two 409, one 400) carry an object in `detail` with its own
+list FastAPI gives), 500 for a damaged data file (`code: "file_damaged"`, `params.file`; the project
+list itself survives one damaged project), 503 `fiftyone_unavailable` when the FiftyOne database did not answer
+and 500 `internal_error` for any other unexpected error (its traceback stays in the server log; the body never
+carries the exception text, and the interface never shows a bare "HTTP 500"). Three answers (two 409, one 400) carry an object in `detail` with its own
 `code` the interface acts on: `task_change_annotations` and `classes_in_use` (PATCH of a project) and `no_images_added` (a task created from files that add nothing, with
 the upload `report`). The `code` values of the other errors are:
 

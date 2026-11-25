@@ -85,3 +85,41 @@ def test_unknown_address_and_method_answer_json_with_a_code() -> None:
     assert gone.json() == {"detail": "Not Found", "code": "not_found", "params": {}}
     wrong = client.post("/coded")
     assert wrong.status_code == 405 and wrong.json()["code"] == "method_not_allowed"
+
+
+class ServiceListenTimeout(Exception):
+    """Same name as FiftyOne's error when its database service cannot start."""
+
+
+def _boom() -> None:
+    raise RuntimeError("a bug")
+
+
+def _database_down() -> None:
+    raise ServiceListenTimeout("DatabaseService failed to bind to port")
+
+
+def _unexpected_app() -> TestClient:
+    app = FastAPI()
+    install_error_handlers(app)
+    app.add_api_route("/api/boom", _boom)
+    app.add_api_route("/api/database", _database_down)
+    app.add_api_route("/page", _boom)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_an_unexpected_error_answers_a_code_not_a_bare_text() -> None:
+    """#535: the interface showed "HTTP 500" because the body was the plain text "Internal Server Error"."""
+    client = _unexpected_app()
+    boom = client.get("/api/boom")
+    assert boom.status_code == 500
+    assert boom.json() == {
+        "detail": "Unexpected error on the server (see the server log).",
+        "code": "internal_error",
+        "params": {},
+    }
+    assert "a bug" not in boom.text  # the exception text stays in the log
+    down = client.get("/api/database")
+    assert down.status_code == 503 and down.json()["code"] == "fiftyone_unavailable"
+    page = client.get("/page")
+    assert page.status_code == 500 and page.text == "Internal Server Error"

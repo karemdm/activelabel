@@ -29,10 +29,16 @@ test('an unknown code falls back to the server text, never to the raw key', () =
   assert.ok(!answer.includes('error.'));
 });
 
-test('without a code: detail text, then the HTTP status', () => {
+test('without a code: detail text, then a translated sentence with the status (never a bare "HTTP 500")', () => {
   assert.equal(en.errorMessage({ detail: 'plain text' }, 500), 'plain text');
-  assert.equal(en.errorMessage(null, 502), 'HTTP 502');
-  assert.equal(en.errorMessage({}, 418), 'HTTP 418');
+  assert.equal(en.errorMessage(null, 502), en.t('error.http_status', { status: '502' }));
+  assert.equal(pt.errorMessage({}, 500), messages('pt')['error.http_status'].replace('{status}', '500'));
+  assert.ok(!/^HTTP \d+$/.test(en.errorMessage({}, 418)));
+});
+
+test('an unexpected server error and a FiftyOne database that did not answer are translated by their codes', () => {
+  assert.equal(pt.errorMessage({ code: 'internal_error', detail: 'x', params: {} }, 500), messages('pt')['error.internal_error']);
+  assert.equal(en.errorMessage({ code: 'fiftyone_unavailable', detail: 'x', params: {} }, 503), messages('en')['error.fiftyone_unavailable']);
 });
 
 test('a list in detail is a validation answer: "field: problem" in the interface language', () => {

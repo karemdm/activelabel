@@ -2,7 +2,7 @@ import threading
 import time
 
 from activelabel.annotate.base import ToolError
-from activelabel.jobs import CANCELLED, DONE, FAILED, JobManager, readable_error
+from activelabel.jobs import CANCELLED, DONE, FAILED, JobManager, database_failure, readable_error
 from activelabel.textcheck import message_of
 
 
@@ -112,3 +112,13 @@ def test_error_text_has_no_quotes_from_a_key_error():
     assert message_of(ValueError("A project named 'x'")) == "A project named 'x'"
     assert message_of(KeyError(7)) == "7"
     assert readable_error(RuntimeError()) == "The activity failed (no details were given)."
+
+
+class ServerSelectionTimeoutError(Exception):
+    """Same name as pymongo's error when the database does not answer."""
+
+
+def test_database_failure_recognises_the_fiftyone_database_errors():
+    assert database_failure(ServerSelectionTimeoutError("Timeout: 30s"))
+    assert database_failure(OSError("mongod exited"))
+    assert not database_failure(ValueError("x"))

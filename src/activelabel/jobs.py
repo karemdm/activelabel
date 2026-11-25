@@ -24,6 +24,20 @@ from activelabel.textcheck import message_of
 LOG = logging.getLogger(__name__)
 
 
+def database_failure(exc: BaseException) -> bool:
+    """Whether an exception says the FiftyOne database did not answer (or could not be started).
+
+    Args:
+        exc: the exception raised.
+
+    Returns:
+        True for FiftyOne's ``ServiceListenTimeout``, pymongo's ``ServerSelectionTimeoutError`` and any
+        error whose text names ``mongod``.
+    """
+    name = type(exc).__name__
+    return name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in message_of(exc)
+
+
 def readable_error(exc: BaseException) -> str:
     """Message shown to people: no class name (it stays in the log, with the traceback).
 
@@ -38,7 +52,7 @@ def readable_error(exc: BaseException) -> str:
     name = type(exc).__name__
     detail = f"{name}: {exc}"
     message = message_of(exc)
-    if name in ("ServiceListenTimeout", "ServerSelectionTimeoutError") or "mongod" in message:
+    if database_failure(exc):
         return (
             "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel "
             f"(another program using FiftyOne may be holding it). Details: {detail}"

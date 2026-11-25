@@ -14,11 +14,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from activelabel.annotate.base import ToolError
 from activelabel.errors import CodedError
+from activelabel.jobs import database_failure
 from activelabel.storage import DamagedFile
 from activelabel.textcheck import message_of
 
@@ -84,6 +85,45 @@ async def damaged_file(request: Request, exc: Exception) -> JSONResponse:
     """
     return JSONResponse(
         {"detail": str(exc), "code": "file_damaged", "params": {"file": getattr(exc, "file", "")}},
+        status_code=500,
+    )
+
+
+async def unexpected_error(request: Request, exc: Exception) -> Response:
+    """Exception handler: any error no other handler took, as a coded answer instead of a bare text.
+
+    The server still logs the traceback (Starlette re-raises after answering); the interface gets a code
+    it translates. A FiftyOne database
+    that did not answer is HTTP 503 ``fiftyone_unavailable`` (trying again can work); anything else is
+    HTTP 500 ``internal_error``.
+
+    Args:
+        request: The request that failed (only its path is read).
+        exc: The exception raised.
+
+    Returns:
+        The JSON response ``{detail, code, params}`` for an address under ``/api``; a plain text for a page.
+    """
+    if not request.url.path.startswith("/api/"):
+        return PlainTextResponse("Internal Server Error", status_code=500)
+    if database_failure(exc):
+        return JSONResponse(
+            {
+                "detail": (
+                    "The FiftyOne database did not respond: try again; "
+                    "if it keeps failing, restart ActiveLabel."
+                ),
+                "code": "fiftyone_unavailable",
+                "params": {},
+            },
+            status_code=503,
+        )
+    return JSONResponse(
+        {
+            "detail": "Unexpected error on the server (see the server log).",
+            "code": "internal_error",
+            "params": {},
+        },
         status_code=500,
     )
 
@@ -165,7 +205,7 @@ def tool_failure(exc: ToolError, tool: str, status: int = 400) -> ApiError:
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Give every API error the same body: coded errors, invalid requests (422) and plain HTTP errors.
+    """Give every API error the same body: coded, invalid (422), plain HTTP and unexpected errors.
 
     Args:
         app: The application to add the handlers to.
@@ -174,3 +214,4 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, validation_error)
     app.add_exception_handler(ApiError, api_error)
     app.add_exception_handler(DamagedFile, damaged_file)
+    app.add_exception_handler(Exception, unexpected_error)
