@@ -125,5 +125,5 @@ skip_covered = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests/helpers"]
-markers = ["integration: needs FiftyOne (its database starts on first use)"]
+markers = ["integration: needs FiftyOne (its database starts on first use)", "cvat_live: needs a real CVAT server (nightly workflow cvat-live.yml only)"]
 addopts = "-p no:cacheprovider --import-mode=importlib"

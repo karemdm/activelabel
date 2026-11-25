@@ -45,6 +45,14 @@ Never point a development server at a workspace that holds data you care about.
 same on Linux and Windows, plus the FiftyOne tests against a MongoDB service on Linux. Run the checks that
 cover what you changed before you commit, and the whole suite before you open a pull request.
 
+The CVAT synchronisation is tested against a strict in-memory fake of CVAT's REST API
+(`tests/helpers/cvat_fake.py`). A separate workflow, `.github/workflows/cvat-live.yml`, runs nightly (and
+by hand from the Actions tab, with a CVAT version to choose) against a real CVAT started from the official
+`docker-compose.yml` inside the job: it creates a throw-away superuser and runs the tests marked
+`cvat_live` (`tests/activelabel/sync/test_cvat_live.py`). Those tests are skipped everywhere else; they
+need `ACTIVELABEL_CVAT_LIVE_URL`, `ACTIVELABEL_CVAT_LIVE_USER` and `ACTIVELABEL_CVAT_LIVE_PASSWORD`, and
+must never point at a CVAT someone uses.
+
 Training and pre-annotation tests use fake workers and a fake environment, so PyTorch is not needed to
 run them. Do not start real trainings from tests.
 
