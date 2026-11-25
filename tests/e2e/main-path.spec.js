@@ -35,7 +35,7 @@ test.describe.serial('main path', () => {
 
   test('home page opens in Portuguese without raw keys', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Projetos' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Projetos', exact: true })).toBeVisible();
     await expectNoRawKeys(page);
   });
 
@@ -86,7 +86,7 @@ test.describe.serial('main path', () => {
   test('no horizontal scroll at 390 px on the home page, the new-project form and the project', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Projetos' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Projetos', exact: true })).toBeVisible();
     await expectNoHorizontalScroll(page);
 
     await page.goto('/projects/new');

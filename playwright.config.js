@@ -16,6 +16,8 @@ module.exports = defineConfig({
   timeout: 60_000,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
+    // the app picks the language from the browser's Accept-Language before ACTIVELABEL_LANG, so ask for Portuguese
+    locale: 'pt-BR',
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -23,12 +25,12 @@ module.exports = defineConfig({
   // PW_CHANNEL=chrome (CI: the runner's own Google Chrome) or msedge (Windows) avoids downloading a browser.
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: process.env.PW_CHANNEL || undefined } }],
   webServer: {
-    command: `${PYTHON} -m activelabel.cli serve --host 127.0.0.1 --port ${PORT}`,
+    // isolated_server.py gives the server its own mongod and FiftyOne folders (never ~/.fiftyone or a shared service).
+    command: `${PYTHON} tests/helpers/isolated_server.py --port ${PORT} --workspace "${WORKSPACE}" --lang pt`,
     url: `http://127.0.0.1:${PORT}/`,
     reuseExistingServer: false,
     timeout: 60_000,
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ACTIVELABEL_WORKSPACE: WORKSPACE, ACTIVELABEL_LANG: 'pt' },
   },
 });
