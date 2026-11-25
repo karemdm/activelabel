@@ -13,10 +13,11 @@ size, archives and video frames, one FiftyOne dataset name per project, a shared
 against the task, and a faster manifest; tests that mirror the source tree with a coverage floor of 80 %; CI
 on Linux, Windows and macOS from a path with accents and spaces, a check of the built wheel, the training
 workers tested with a real CPU PyTorch and a nightly run against a real CVAT; JavaScript unit tests and
-Playwright smoke tests of the interface (weakness 1 still holds for the size of `app.js`, not for its lack of
-tests); training packages installed at pinned, tested versions; one version source (the git tag) and a
+Playwright smoke tests of the interface; the script became a native ES module, `static/js/main.js`, loaded
+with `<script type="module">` (weakness 1 still holds for its size, one module of the whole interface, not for
+its lack of tests or modules); training packages installed at pinned, tested versions; one version source (the git tag) and a
 release process ([RELEASING.md](../RELEASING.md)). Still open: an origin/host check for the API, schema
-versions in stored files, the split of `app.js` and of the runner, generated endpoint tables and a lock file
+versions in stored files, the split of `static/js/main.js` into one module per screen and of the runner, generated endpoint tables and a lock file
 for the Python dependencies of the app.
 
 ## Strengths
@@ -38,7 +39,7 @@ for the Python dependencies of the app.
 
 ## Weaknesses
 
-1. **Frontend monolith.** `web/static/app.js` is one file of more than 5,000 lines with no build step, no
+1. **Frontend monolith.** `web/static/app.js` (now `web/static/js/main.js`) is one file of more than 5,000 lines with no build step, no
    modules, no lint and no tests. Every screen shares its scope. It is the largest maintainability risk.
 2. **Large modules.** `sync/engine.py` (about 1,300 lines), `training/runner.py` (about 1,100), `datasets.py`
    (about 850) and `web/api.py` (about 800) mix several concerns. The runner holds training, export,
@@ -54,7 +55,7 @@ for the Python dependencies of the app.
    change, under a lock. Fine for thousands of images; slow for hundreds of thousands, and every writer
    pays for the largest file. `GET /images` loads the whole manifest and the whole ground truth for each page.
 6. **Stringly-typed boundaries.** Job kinds, scopes, actions and statuses are strings repeated in the
-   Python code, in `app.js` and in the docs. A typo is a runtime error.
+   Python code, in the interface script (`static/js/main.js`) and in the docs. A typo is a runtime error.
 7. **Docs and code can drift.** Endpoint tables and the file layout are written by hand; the audit that led
    to this document found many differences (names, endpoints, files on disk).
 
@@ -114,7 +115,7 @@ for the Python dependencies of the app.
 | 3 | **Generate the endpoint tables** from `/openapi.json` (a script in `tools/` run in CI that fails when `docs/` lists a route that does not exist or misses one), and check Markdown links in CI. | S | Low | Stops the doc drift found in the audit |
 | 4 | **Lock file for installs** (`requirements.lock` or `uv.lock`) generated in CI per Python version, and a "fresh install" CI job on Linux and Windows that runs `activelabel --help` and starts the server. | M | Low | A new user's first install should not depend on today's releases |
 | 5 | **Release process**: one version source (`importlib.metadata` or `setuptools-scm`), tags, a changelog, a wheel built in CI. Done: see RELEASING.md. | S | Low | Lets people pin and report a version |
-| 6 | **Split `app.js` into ES modules** (one per screen: images, annotations, curation, datasets, training, models, jobs) loaded with `<script type="module">`, no bundler; add a handful of browser smoke tests (Playwright) for the main flows. | L | Medium | Largest maintainability gain; the module split can be done screen by screen in small PRs |
+| 6 | **Split the interface script into ES modules** (one per screen: images, annotations, curation, datasets, training, models, jobs) loaded with `<script type="module">`, no bundler; started: `app.js` is now the module `static/js/main.js`, and the browser smoke tests exist; add a handful of browser smoke tests (Playwright) for the main flows. | L | Medium | Largest maintainability gain; the module split can be done screen by screen in small PRs |
 | 7 | **Split `TrainingRunner`** into a queue/recovery part, a training runner, an export runner and a pre-annotation runner sharing a process helper; split `sync/engine.py` into plan and apply. | L | Medium | Easier tests and review; needs the existing runner tests as a safety net |
 | 8 | **One shared helper module for routers** (`web/deps.py`: tool names, store lookups, error mapping) and one `FolderLock` used by every store. | S | Low | Removes the duplication listed above |
 | 9 | **Paged reads** for large projects: keep a light index (id, status, issues) next to `images.json`, and read annotations by image for `GET /images`; measure with a synthetic project of 100,000 images before and after. | L | Medium | Only needed if projects grow past what the whole-file reads handle; measure first |

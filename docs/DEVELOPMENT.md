@@ -220,7 +220,8 @@ npx playwright install chromium     # Linux CI also needs --with-deps
   console error, on a raw text key on screen, or on a page that scrolls sideways at phone width. The report of
   a failed run is in `playwright-report/`.
 - Python tests that read the interface's JavaScript use `js_source()` (`tests/helpers/frontend.py`), which
-  joins every `.js` file under `web/static`, so they keep working when the script is split into files.
+  joins every `.js` file under `web/static` (subfolders included), so they keep working as `static/js/` is
+  split into more modules.
 - CI runs both in the job `ui (node + playwright)`, with the runner's Google Chrome.
 
 ## Versions and releases
