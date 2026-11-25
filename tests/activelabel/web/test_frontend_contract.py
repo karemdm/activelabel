@@ -367,3 +367,17 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def test_equal_toasts_are_shown_once_and_a_stale_setup_message_is_cleared():
+    """A repeated message restarts its toast; editing a setup field clears the old test message (#465)."""
+    assert re.search(r"n\.dataset\.kind === kind && n\.dataset\.text === message", JS)
+    assert "clearTimeout(same.timer)" in JS
+    assert re.search(r"addEventListener\('input', clearMessage\)", JS)
+
+
+def test_the_import_page_has_one_setup_button_per_tool():
+    """The error card under the source cards no longer repeats the card's own Configurar button (#465)."""
+    card = re.search(r"function drawMain\(\) \{.*?\n    \}\n", JS, re.S).group(0)
+    assert "setup(state.tool)" not in card
+    assert "onclick: () => setup(tool)" in JS

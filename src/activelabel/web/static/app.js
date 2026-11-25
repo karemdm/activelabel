@@ -140,15 +140,17 @@
   function toast(message, kind = 'info', ms = 7000) {
     const box = toastBox();
     if (!box) return;
+    const same = typeof message === 'string' ? [...box.children].find((n) => n.dataset.kind === kind && n.dataset.text === message) : null;
+    if (same) { clearTimeout(same.timer); same.timer = ms ? setTimeout(() => same.remove(), ms) : 0; return; }   // the same message is shown once
     const node = el(
       'div',
-      { class: `toast toast-${kind}`, role: kind === 'error' ? 'alert' : 'status' },
+      { class: `toast toast-${kind}`, 'data-kind': kind, 'data-text': typeof message === 'string' ? message : '', role: kind === 'error' ? 'alert' : 'status' },
       icon(kind === 'error' ? 'error' : kind === 'success' ? 'check' : 'info'),
       el('div', { class: 'toast-text' }, message),
       el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => node.remove() }, icon('close', 16)),
     );
     box.appendChild(node);
-    if (ms) setTimeout(() => node.remove(), ms);
+    if (ms) node.timer = setTimeout(() => node.remove(), ms);
   }
   /* the red toast with its icon already says it is an error: no "Error:" in front of the server's own words */
   const toastError = (err) => toast(String(err && err.message ? err.message : err), 'error', 10000);
@@ -897,6 +899,8 @@
       secretInput.value = '';
       return saved;
     };
+    const clearMessage = () => { message.className = 'test-result'; message.textContent = ''; };
+    for (const input of [urlInput, userInput, secretInput]) if (input) input.addEventListener('input', clearMessage);   // a message about the old value must not stay
     const busy = (on) => { [saveBtn, testBtn, forgetBtn].forEach((b) => { b.disabled = on; }); };
     dlg.querySelector('form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -6115,9 +6119,7 @@
           el('div', null,
             el('p', null, notSet ? t('import.not_configured', { tool: name }) : state.error.message),
             notSet && ready(state.tool) && state.error.message ? el('p', { class: 'muted' }, state.error.message) : null,
-            el('p', { class: 'form-actions' },
-              notSet ? el('button', { type: 'button', class: 'btn primary', onclick: () => setup(state.tool) }, t('annotate.setup')) : null,
-              ready(state.tool) ? el('button', { type: 'button', class: 'btn', onclick: loadItems }, t('import.retry')) : null))));
+            ready(state.tool) ? el('p', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: loadItems }, t('import.retry'))) : null)));   // the card above has the one Configurar
         return;
       }
       if (state.items === null) {
