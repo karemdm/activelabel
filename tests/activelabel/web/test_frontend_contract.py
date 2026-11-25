@@ -515,3 +515,9 @@ def test_the_diff_table_does_not_repeat_the_per_class_heading():
     body = body[: body.index("\n  }\n")]
     assert "el('caption'" not in body
     assert body.count("el('h4', null, t('annotate.diff_per_class'))") == 1
+
+
+def test_a_task_error_404_or_409_reloads_the_tasks():
+    """Rename/delete of a task already changed in another tab reloads the list: no dead card (#426)."""
+    assert "async function reloadIfChanged(err)" in JS and "err.status !== 404 && err.status !== 409" in JS
+    assert JS.count("reloadIfChanged(err)") >= 3
