@@ -552,7 +552,8 @@
   }
 
   function annotationStatus(c) {
-    return c.annotated > 0 ? tn('status.annotated', c.annotated) : t('status.annotations_none');
+    if (c.annotated > 0) return tn('status.annotated', c.annotated);
+    return c.empty > 0 ? tn('status.empty', c.empty) : t('status.annotations_none');
   }
 
   function projectCard(p) {
@@ -1108,8 +1109,9 @@
       }
       if (step === 'annotations') {
         const waiting = c.preannotated ? ` · ${tn('status.to_review', c.preannotated)}` : '';
-        return c.annotated > 0
-          ? `${tn('status.annotated', c.annotated)}${waiting} · ${tn('status.classes', (ctx.project.classes || []).length)}`
+        const none = c.empty ? ` · ${tn('status.empty', c.empty)}` : '';
+        return c.annotated > 0 || c.empty > 0
+          ? `${annotationStatus(c)}${c.annotated > 0 ? none : ''}${waiting} · ${tn('status.classes', (ctx.project.classes || []).length)}`
           : t('status.annotations_none');
       }
       if (step === 'training') {
@@ -1128,7 +1130,7 @@
     function stepState(step) {
       const c = (ctx.project && ctx.project.counts) || {};
       if (step === 'images') return c.active > 0 ? 'done' : 'todo';
-      if (step === 'annotations') return c.preannotated > 0 ? 'attention' : c.annotated > 0 ? 'done' : 'todo';
+      if (step === 'annotations') return c.preannotated > 0 ? 'attention' : (c.annotated > 0 || c.empty > 0) ? 'done' : 'todo';
       if (step === 'curation') return c.analyzed > 0 ? (c.with_issues > 0 ? 'attention' : 'done') : 'todo';
       if (step === 'datasets') return ctx.datasetCount ? 'done' : 'todo';
       if (step === 'training') return ctx.runActive ? 'busy' : ctx.runCount ? 'done' : 'todo';
@@ -2598,7 +2600,7 @@
       const counts = () => (ctx.project && ctx.project.counts) || {};
       const isReady = (tool) => tool === 'fiftyone' || !!(state.tools[tool] && state.tools[tool].configured);
       const selectedIds = () => (ctx.curationSelected ? ctx.curationSelected() : []);
-      const unlabeledCount = () => Math.max(0, (counts().active || 0) - (counts().annotated || 0) - (counts().preannotated || 0));
+      const unlabeledCount = () => Math.max(0, (counts().active || 0) - (counts().annotated || 0) - (counts().empty || 0) - (counts().preannotated || 0));
       const issueEntries = () => Object.entries(state.issues).filter(([, n]) => n > 0);
       const scopeCount = (scope) => {
         if (scope === 'all') return counts().active || 0;
@@ -3401,9 +3403,10 @@
         const classes = Object.entries(data.labels_per_class || {}).map(([name, count]) => ({ name, count }));
         const labels = data.labels_total || 0;
         const images = data.images_annotated || 0;
+        const emptyImages = data.images_empty || 0;   // reviewed with no objects
         const waitingReview = data.images_preannotated || 0;   // pre-annotations are counted apart until reviewed
         const waitingNote = waitingReview ? el('p', { class: 'report-line' }, icon('info'), tn('ann.to_review', waitingReview)) : null;
-        if (!images && !labels) {
+        if (!images && !labels && !emptyImages) {
           const way = (tab, key) => el('li', null, el('button', { type: 'button', class: 'btn small', onclick: () => annTabs.select(tab, true) }, t(`ann.way_${key}`)), el('span', { class: 'muted' }, t(`ann.way_${key}_help`)));
           fill(gtBox, el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
             el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));

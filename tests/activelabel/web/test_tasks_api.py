@@ -6,7 +6,10 @@ from api_client import make_client, upload
 from sample_images import make_image
 from sync_fakes import FakeRemote
 
+from activelabel.images.manifest import Manifest
+from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.sync import registry
+from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 from activelabel.web import tasks_api
 
@@ -351,3 +354,24 @@ def test_closing_an_upload_properly_leaves_it_complete(tmp_path):
     first = client.post("/api/projects/1/tasks", files=_files(paths)).json()["task"]
     closed = client.patch(f"/api/projects/1/tasks/{first['id']}", json={"open": False}).json()
     assert closed["open"] is False and closed["incomplete"] is False
+
+
+def test_annotated_is_the_same_number_on_the_step_bar_and_in_the_tasks(tmp_path):
+
+    client, state, paths = _setup(tmp_path, 6)
+    client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "T", "job_size": "3"})
+    project_dir = state.store.dir(1)
+    ids = [r.id for r in Manifest(project_dir).all()]
+    images = {
+        ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])],
+        ids[1]: [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], score=0.9)],  # waits for review
+        ids[2]: [],  # reviewed without objects
+        ids[3]: [],
+        ids[4]: [Label("cat", bbox=[0.3, 0.3, 0.2, 0.2])],
+    }
+    save_annotations(project_dir, AnnotationSet(Task.CLASSIFICATION, ["cat"], images, {}))
+    counts = client.get("/api/projects/1").json()["counts"]
+    task = client.get("/api/projects/1/tasks").json()["tasks"][0]
+    assert counts["annotated"] == task["annotated"] == sum(j["annotated"] for j in task["jobs"]) == 2
+    assert (counts["empty"], counts["preannotated"]) == (2, 1)
+    assert client.get("/api/projects/1").json()["steps"]["annotations"] == "loaded"
