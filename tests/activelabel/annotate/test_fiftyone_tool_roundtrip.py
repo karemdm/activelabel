@@ -26,6 +26,7 @@ from sample_images import make_image
 from activelabel import fiftyone_bridge as bridge
 from activelabel.images.manifest import EXCLUDED
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 pytestmark = pytest.mark.integration
@@ -1135,6 +1136,86 @@ def test_apply_makes_a_backup_and_pull_twice_is_stable(det_scene):
     assert first == second
     applied = apply(det_scene, session).json()["applied"]
     assert applied["backup"] and (det_scene.folder / applied["backup"]).exists()
+
+
+def move_box_img1(sample: Any) -> None:
+    """Move the box of the first detection (used to edit images in FiftyOne).
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.ground_truth.detections[0].bounding_box = [0.15, 0.125, 0.3, 0.375]
+
+
+def edit_and_apply(scene: Scene) -> str:
+    """Edit images 0 and 1 in FiftyOne, bring them back and apply.
+
+    Args:
+        scene: the project.
+
+    Returns:
+        The id of the applied session.
+    """
+    session, _ = flow(scene)
+    edit(scene, 0, lambda s: s.ground_truth.detections.pop(1))
+    edit(scene, 1, move_box_img1)
+    pull(scene, session)
+    assert apply(scene, session).status_code == 200
+    return session
+
+
+def test_after_apply_fiftyone_and_project_are_the_same_not_edited(det_scene):
+    """#455: the applied images record the fingerprint of their ground_truth and the new project hash."""
+    edit_and_apply(det_scene)
+    saved = det_scene.labels()
+    for k in (0, 1):
+        sample = sample_of(det_scene, k)
+        assert not bridge.is_edited(sample, Task.DETECTION), f"image {k} still counts as edited"
+        assert sample[bridge.WRITTEN_LABELS] == label_hash(saved.get(det_scene.ids[k], []))
+
+
+def test_after_apply_the_next_session_has_no_false_edits_or_conflicts(det_scene):
+    """#455: send again after apply: nothing kept, no conflict, empty diff."""
+    edit_and_apply(det_scene)
+    again = send(det_scene)
+    assert "kept_fiftyone_edits" not in again
+    diff = pull(det_scene, again["session"]["id"])
+    assert "edited_on_both_sides" not in problem_codes(diff)
+    assert_counts(diff, 0, 0, 0, 0)
+
+
+def test_project_change_reaches_fiftyone_on_images_applied_from_it(det_scene):
+    """#455: after apply, a later project change (re-import) shows in FiftyOne on the applied images."""
+    edit_and_apply(det_scene)
+    reimport(det_scene, new_det_truth(), ["cat", "dog"])
+    send(det_scene)
+    saved = det_scene.labels()
+    for k in (0, 1):
+        dumped = fo_dump(sample_of(det_scene, k).ground_truth)
+        want = saved.get(det_scene.ids[k], [])
+        assert [d[0] for d in dumped] == [lb.label for lb in want], k
+        assert dumped[0][2] == pytest.approx(want[0].bbox, abs=EPS), k
+
+
+def test_discard_puts_the_session_images_back_to_the_project_labels(det_scene):
+    """#456: discard rewrites the edited images in FiftyOne, so sending again shows the project's labels."""
+    session, _ = flow(det_scene)
+    edit(det_scene, 0, lambda s: s.ground_truth.detections.pop(1))
+    edit(det_scene, 1, move_box_img1)
+    pull(det_scene, session)
+    before = det_scene.labels()
+    reply = det_scene.client.post(f"{base_url(det_scene, session)}/discard")
+    assert reply.status_code == 200
+    for k in (0, 1):
+        sample = sample_of(det_scene, k)
+        assert not bridge.is_edited(sample, Task.DETECTION)
+        want = before.get(det_scene.ids[k], [])
+        assert [d[0] for d in fo_dump(sample.ground_truth)] == [lb.label for lb in want]
+        assert fo_dump(sample.ground_truth)[0][2] == pytest.approx(want[0].bbox, abs=EPS)
+    again = send(det_scene)
+    assert "kept_fiftyone_edits" not in again
+    assert_counts(pull(det_scene, again["session"]["id"]), 0, 0, 0, 0)
+    assert det_scene.labels() == before
 
 
 # =====================================================================================

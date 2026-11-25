@@ -189,3 +189,29 @@ class AnnotationTool(Protocol):
             ref: the tool's reference of the session (``Sent.ref``).
         """
         ...
+
+    def applied(
+        self, dataset: Any, image_ids: list[str], project: Project, labels: dict[str, list[Label]]
+    ) -> None:
+        """Tell the tool that a session was applied: its copy of those images now equals the project.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            image_ids: ids of the images of the session.
+            project: the project (task and classes).
+            labels: the project labels after the apply, by image id.
+        """
+        ...
+
+    def discarded(
+        self, dataset: Any, image_ids: list[str], project: Project, labels: dict[str, list[Label]]
+    ) -> None:
+        """Tell the tool that a session was discarded: put those images back to the project's labels.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            image_ids: ids of the images of the session.
+            project: the project (task and classes).
+            labels: the project labels, by image id.
+        """
+        ...

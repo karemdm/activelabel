@@ -20,6 +20,7 @@ class FakeTool:
         self.pulled: dict[str, list[Label]] = {}
         self.closed: list[dict] = []
         self.fail = ""
+        self.told: tuple[str, list[str]] | None = None
 
     def check(self, settings):
         if self.fail:
@@ -33,6 +34,12 @@ class FakeTool:
 
     def pull(self, dataset, image_ids, project, settings, ref):
         return {i: self.pulled.get(i, []) for i in image_ids}
+
+    def applied(self, dataset, image_ids, project, labels):
+        self.told = ("applied", list(image_ids))
+
+    def discarded(self, dataset, image_ids, project, labels):
+        self.told = ("discarded", list(image_ids))
 
     def close(self, dataset, settings, ref):
         self.closed.append(ref)
@@ -265,3 +272,24 @@ def test_a_tool_url_with_spaces_or_without_a_server_is_refused_and_spaces_around
     body = {"url": "  http://cvat.local:8080/  ", "username": " u ", "secret": "pw"}
     saved = env.client.put("/api/annotation-tools/cvat", json=body)
     assert saved.status_code == 200 and saved.json()["url"] == "http://cvat.local:8080"
+
+
+def test_apply_and_discard_tell_the_tool_and_a_failing_tool_does_not_undo_them(env):
+    job = wait(env, start(env, scope="all").json())
+    session = job["result"]["session"]
+    base = f"/api/projects/{env.pid}/annotate/{session['id']}"
+    assert env.client.post(f"{base}/discard").json() == {"discarded": True}
+    assert env.tool.told == ("discarded", env.ids)
+
+    second = wait(env, start(env, scope="all").json())["result"]["session"]
+    base = f"/api/projects/{env.pid}/annotate/{second['id']}"
+    env.tool.pulled = {env.ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])]}
+    assert wait(env, env.client.post(f"{base}/pull").json())["status"] == "done"
+
+    def boom(*args):
+        raise RuntimeError("FiftyOne is down")
+
+    env.tool.applied = boom
+    assert env.client.post(f"{base}/apply").status_code == 200  # the apply already happened
+    listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
+    assert next(s for s in listed if s["id"] == second["id"])["status"] == "applied"

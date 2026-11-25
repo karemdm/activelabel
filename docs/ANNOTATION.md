@@ -73,7 +73,15 @@ a codespace used from the browser.
    chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
    classes are added to the project) or *Discard these changes*. A safety copy of `annotations.json` is made
    before applying (see *Safety copies* below). If the project's labels of those images changed after they were brought back,
-   applying is refused (409) and they must be brought back again.
+   applying is refused (409) and they must be brought back again. After a successful apply the session's
+   samples record the fingerprint of their current `ground_truth` and the hash of the new project labels:
+   FiftyOne and the project are the same, so the next session shows no edited images and no conflicts, and
+   a later change of the project reaches those images. Anything FiftyOne held that apply skipped (a problem
+   above) is not in the project; it is replaced by the project's labels at the next send.
+   *Discard these changes* does the opposite for FiftyOne: it rewrites `ground_truth` (and the
+   fingerprints) of every image of the session with the project's current labels, so the edits made in the
+   App are undone and "discard and send again" starts from the project. Nothing in the project changes.
+   (A discard cannot reach FiftyOne when its dataset is missing; the edits then stay.)
 5. **Close** a session (*Close session*): forget it.
 
 ## Safety copies
@@ -113,7 +121,7 @@ spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexã
 | POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
-| POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
+| POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; puts the session images in FiftyOne back to the project labels; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
 | DELETE | `/api/projects/{id}/annotate/{session}` | | `{closed: true}` (a session of a discontinued tool is only forgotten) |
 
 `diff` = `{images_changed, added, removed, edited, per_class: {name: {added, removed, edited}},
