@@ -247,7 +247,7 @@ def protected_images(project_dir: Path) -> set[str]:
     """Ids of the images of FiftyOne sessions still being edited (not applied or discarded).
 
     Their ``ground_truth`` in the FiftyOne dataset may hold edits not yet brought back, so refreshing
-    the dataset must not overwrite it.
+    the dataset keeps the ones edited in FiftyOne (``fiftyone_bridge.is_edited``) and rewrites the rest.
 
     Args:
         project_dir: the project folder.

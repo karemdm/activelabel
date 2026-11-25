@@ -61,10 +61,49 @@ class ToolSettings:
 
 @dataclass
 class Sent:
-    """What :meth:`AnnotationTool.send` returns: links to open, and the tool's own reference."""
+    """What :meth:`AnnotationTool.send` returns: links to open, and the tool's own reference.
 
-    links: list[dict[str, str]]  # [{"label": "...", "url": "..."}]
-    ref: dict[str, Any]  # e.g. {"anno_key": "..."} or {"view": "..."}; stored in the session
+    Attributes:
+        links: links to open the tool (``{"label", "url"}``).
+        ref: the tool's own reference of the session (e.g. ``{"view": "..."}``), stored in the session.
+        kept: how many of the images still hold edits made in the tool in an earlier session (not brought
+            back yet), which the tool shows instead of the project's labels.
+    """
+
+    links: list[dict[str, str]]
+    ref: dict[str, Any]
+    kept: int = 0
+
+
+class Pulled(dict[str, list[Label]]):
+    """What a tool's pull may return: the labels by image id, plus what the tool knows about them.
+
+    A plain ``dict`` is accepted as well: then every image counts as edited in the tool.
+
+    Attributes:
+        edited: ids of the images whose labels were changed in the tool since ActiveLabel wrote them; the
+            other images keep the project's labels (a project edit made meanwhile is not undone).
+        written: hash (:func:`activelabel.sync.links.label_hash`) of the project labels ActiveLabel wrote
+            into the tool, by image id: an edited image whose project labels no longer have this hash was
+            edited on both sides.
+    """
+
+    def __init__(
+        self,
+        labels: dict[str, list[Label]],
+        edited: set[str],
+        written: dict[str, str] | None = None,
+    ) -> None:
+        """Wrap the labels of a pull.
+
+        Args:
+            labels: the labels of each image, keyed by image id.
+            edited: the images changed in the tool since ActiveLabel wrote them.
+            written: hash of the project labels written into the tool, by image id.
+        """
+        super().__init__(labels)
+        self.edited = set(edited)
+        self.written = dict(written or {})
 
 
 class AnnotationTool(Protocol):
@@ -118,7 +157,8 @@ class AnnotationTool(Protocol):
     ) -> dict[str, list[Label]]:
         """Read back the annotations of those images as internal labels: ``{image_id: [Label, ...]}``.
 
-        Every image of the session must be present (an empty list = no annotations).
+        Every image of the session must be present (an empty list = no annotations). A tool that can tell
+        which images were edited in it returns a :class:`Pulled`.
 
         Args:
             dataset: the project's FiftyOne dataset.
@@ -128,7 +168,7 @@ class AnnotationTool(Protocol):
             ref: the tool's reference of the session (``Sent.ref``).
 
         Returns:
-            The labels of each image, keyed by image id.
+            The labels of each image, keyed by image id (a :class:`Pulled` or a plain dict).
 
         Raises:
             ToolError: the annotations cannot be read from the tool.

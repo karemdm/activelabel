@@ -4,7 +4,9 @@ import pytest
 from ann_helpers import make_project
 
 from activelabel.annotate import diff as d
+from activelabel.annotate.base import Pulled
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 
@@ -123,3 +125,27 @@ def test_apply_creates_annotations_when_none(tmp_path):
     (image,) = [r.id for r in manifest.all()]
     counts = d.apply(store, project.id, manifest, [image], {image: [box("cat")]})
     assert counts["backup"] == "" and load_annotations(store.dir(project.id)).task is Task.DETECTION
+
+
+def test_settle_takes_everything_from_a_tool_that_cannot_tell_what_was_edited():
+    pulled = {"a": [box("cat")], "b": []}
+    assert d.settle(pulled, {"b": [box("dog")]}) == (pulled, [])
+
+
+def test_settle_keeps_the_project_labels_of_images_not_edited_in_the_tool():
+    sent, now = [box("cat")], [box("dog")]
+    hashes = {"a": label_hash(sent), "b": label_hash(sent)}
+    pulled = Pulled({"a": [box("cat", 0.3)], "b": sent, "c": []}, {"a"}, hashes)
+    labels, conflicts = d.settle(pulled, {"a": sent, "b": now})
+    assert labels == {"a": [box("cat", 0.3)], "b": now, "c": []}  # b changed only in the project: kept
+    assert conflicts == []
+
+
+def test_settle_lists_images_edited_on_both_sides(proj):
+    _, project, _, ids, folder = proj
+    sent = [box("cat", 0.5)]
+    pulled = Pulled({ids[0]: [box("cat", 0.7)]}, {ids[0]}, {ids[0]: label_hash(sent)})
+    labels, conflicts = d.settle(pulled, load_annotations(folder).images)
+    assert labels == {ids[0]: [box("cat", 0.7)]} and conflicts == [ids[0]]
+    problems = d.diff(folder, [ids[0]], labels, project, conflicts)["problems"]
+    assert [(p["code"], p["count"]) for p in problems] == [("edited_on_both_sides", 1)]

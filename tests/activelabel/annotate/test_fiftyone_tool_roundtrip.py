@@ -746,7 +746,6 @@ def test_edit_segmentation(seg_scene):
     assert_project(seg_scene, expected)
 
 
-@pytest.mark.xfail(strict=True, reason="#355")
 def test_segmentation_untouched_label_is_not_rewritten(tmp_path):
     original = Label("cat", bbox=[0.15, 0.15, 0.4, 0.5], polygons=[square(0.2, 0.2, 0.3, 0.4)])
     other = Label("dog", bbox=[0.2, 0.2, 0.3, 0.3], polygons=[square(0.2, 0.2, 0.3, 0.3)])
@@ -1006,7 +1005,6 @@ def test_project_edit_reaches_fiftyone_after_the_session_was_applied(det_scene):
             assert d[2] == pytest.approx(lb.bbox, abs=EPS), k
 
 
-@pytest.mark.xfail(strict=True, reason="#353")
 def test_project_edit_reaches_fiftyone_images_not_edited_there(det_scene):
     """A session is still open; the project is re-imported; a new session is sent.
 
@@ -1030,7 +1028,6 @@ def test_project_edit_reaches_fiftyone_images_not_edited_there(det_scene):
             assert d[2] == pytest.approx(lb.bbox, abs=EPS), f"image {k}"
 
 
-@pytest.mark.xfail(strict=True, reason="#353")
 def test_send_counts_only_the_images_with_edits_in_fiftyone(det_scene):
     """Only image 0 has edits in FiftyOne: that is the number of kept edits the person is told."""
     flow(det_scene)
@@ -1042,7 +1039,6 @@ def test_send_counts_only_the_images_with_edits_in_fiftyone(det_scene):
     assert send(det_scene).get("kept_fiftyone_edits") == 1
 
 
-@pytest.mark.xfail(strict=True, reason="#353")
 def test_pull_after_project_edit_does_not_revert_images_not_edited_in_fiftyone(det_scene):
     """The project edit of an image nobody touched in FiftyOne must survive the next pull and apply."""
     flow(det_scene)

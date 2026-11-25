@@ -10,6 +10,7 @@ import math
 from typing import Any
 
 from activelabel.labels import Label
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 DECIMALS = 6
@@ -224,3 +225,19 @@ def labels_from_fo(value: Any, task: Task) -> list[Label]:
         ValueError: unsupported label type.
     """
     return labels_and_notes(value, task)[0]
+
+
+def fingerprint(value: Any, task: Task) -> str:
+    """Fingerprint of the labels a FiftyOne value holds, to tell later whether someone changed it.
+
+    The value is read the way a pull reads it, then hashed with :func:`activelabel.sync.links.label_hash`,
+    so differences FiftyOne does not keep (float noise below the hash's rounding, scores) do not count.
+
+    Args:
+        value: the FiftyOne label field value, or None.
+        task: task of the project.
+
+    Returns:
+        The SHA-256 digest, as 64 hex characters.
+    """
+    return label_hash(labels_from_fo(value, task))

@@ -325,7 +325,6 @@ def _send_job(
     """
     project_dir = state.store.dir(project.id)
     progress.update(message="Preparing the FiftyOne dataset")
-    kept = len(sessions.protected_images(project_dir) & set(image_ids))  # their edits stay in FiftyOne
     dataset = prepare_dataset(project, state)
     progress.update(message=f"Sending to {body.tool}")
     session_id = sessions.new_id()
@@ -338,8 +337,8 @@ def _send_job(
         "links": sent.links,
         "step": "annotate",
     }
-    if kept:
-        result["kept_fiftyone_edits"] = kept
+    if sent.kept:  # images that still show edits of an earlier session (not brought back yet)
+        result["kept_fiftyone_edits"] = sent.kept
     return result
 
 
@@ -402,8 +401,10 @@ def _pull_job(
     project_dir = state.store.dir(project.id)
     image_ids: list[str] = session["image_ids"]
     progress.update(message=f"Reading annotations from {session['tool']}")
-    new_labels = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
-    summary = diffing.diff(project_dir, image_ids, new_labels, project)
+    pulled = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
+    annotations = load_annotations(project_dir)
+    new_labels, conflicts = diffing.settle(pulled, annotations.images if annotations else {})
+    summary = diffing.diff(project_dir, image_ids, new_labels, project, conflicts)
     write_json(
         _pulled_file(state, project.id, session_id),
         {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},

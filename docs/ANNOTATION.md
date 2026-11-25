@@ -31,12 +31,23 @@ detection (bounding boxes), segmentation (polygons) and keypoints.
 2. **Send** (*Send to FiftyOne*, a job): the FiftyOne dataset is refreshed from the project (images +
    current ground truth) and the App opens on a saved view with those images, field `ground_truth`.
    A **session** is recorded in `<project>/annotate.json` (and `annotate/<session>/`): id, tool, image
-   ids, created, status (`open` → `pulled` → `applied` / `discarded`), links. Images that already have
-   edits in FiftyOne from an earlier session keep them.
+   ids, created, status (`open` → `pulled` → `applied` / `discarded`), links. Each sample records what
+   ActiveLabel wrote in its `ground_truth` (`activelabel_written`: a fingerprint of those labels;
+   `activelabel_labels`: the hash of the project labels they came from). An image of a session that is
+   still open (not applied or discarded) whose `ground_truth` no longer matches its fingerprint was
+   **edited in FiftyOne**: it keeps the FiftyOne version, and the result says how many
+   (`kept_fiftyone_edits`). Every other image shows the project's current labels, so a project edit made
+   meanwhile (re-import, CVAT sync, accepted pre-annotations) reaches FiftyOne. A dataset written by an
+   earlier version has no fingerprints: its session images count as edited (nothing is lost).
 3. **Bring back** (*Bring annotations back*, a job): read the `ground_truth` field of those samples,
    convert it to the internal format (`activelabel.labels`) and **diff** it against the project ground
    truth for the session images: per image, labels added / removed / edited (class change, geometry
-   change). Also validate against the type and the class list (unknown classes are reported).
+   change). Also validate against the type and the class list (unknown classes are reported). Only the
+   images edited in FiftyOne bring FiftyOne's version; the others keep the project's current labels, so
+   a project edit is never undone by an image nobody touched in FiftyOne. **Conflicts**: an image edited
+   in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under
+   the problem `edited_on_both_sides`; applying gives it FiftyOne's version, so the person decides on the
+   summary (apply, or discard and send again).
 4. **Review and apply**: the person sees the summary (counts per class, images changed, problems) and
    chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
    classes are added to the project) or *Discard these changes*. A backup of `annotations.json` is kept
@@ -61,7 +72,7 @@ and never logged. *Save and test connection* (*Salvar e testar conexão*) saves 
 | POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}` |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
-| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated", ids?, issue?}` | job; result `{session, links}`; 400 `tool_unsupported` for any other tool |
+| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated", ids?, issue?}` | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; 409 when already applied |
