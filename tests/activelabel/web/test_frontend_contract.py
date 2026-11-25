@@ -593,3 +593,8 @@ def test_task_grid_has_no_holes_and_a_long_name_stays_in_two_lines():
     assert re.search(r"\.task-item:has\(\.task-toggle\[aria-expanded=\"true\"\]\) \{ flex-basis: 100%", CSS)
     assert re.search(r"\.task-title \{[^}]*-webkit-line-clamp: 2", CSS)
     assert "align-items: start; margin: 0" not in CSS
+
+
+def test_tasks_counts_are_reloaded_when_the_images_step_is_shown_again():
+    """Back from Annotations after an import, the tasks show the new counts, as the step bar does (#424)."""
+    assert re.search(r"panel\.refresh = reload;\s*panel\.show = loadTasks;", JS)
