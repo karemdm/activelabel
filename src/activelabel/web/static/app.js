@@ -2104,6 +2104,7 @@
         }
         const meta = [
           tn('tasks.meta_images', task.active),
+          task.images > task.active ? tn('tasks.meta_excluded', task.images - task.active) : null,
           everyText,
           task.job_size ? t('tasks.meta_job_size', { n: num(task.job_size) }) : null,
           tn('tasks.meta_jobs', task.jobs.length),
@@ -2131,6 +2132,7 @@
                 thinBar(j.annotated, j.active, t('tasks.progress', { done: num(j.annotated), total: num(j.active) })),
                 el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`),
                 badge,
+                j.images > j.active ? el('span', { class: 'job-excluded muted' }, tn('tasks.job_excluded', j.images - j.active)) : null,
                 who ? el('span', { class: 'job-who muted small' }, who) : null),
                 openMenu(j.n));
             }))
