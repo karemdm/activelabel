@@ -203,7 +203,7 @@ def test_warnings(tmp_path):
     codes = {(w["code"], w.get("part")) for w in plan(pdir, project, videos="whole").warnings}
     assert ("few_images", "test") in codes
     assert ("class_missing", "val") in codes or ("class_missing", "test") in codes
-    assert ("group_too_big", "test") in codes  # only where the big group moved the proportions
+    assert ("group_too_big", "val") in codes  # only where the big group moved the proportions
     assert any(c == "ratio_drift" for c, _ in codes)
     clean_dir, clean = build(tmp_path / "z", balanced())
     assert [w["code"] for w in plan(clean_dir, clean).warnings] == ["no_curation"]
@@ -654,7 +654,7 @@ def test_split_is_deterministic_and_never_breaks_a_group(kind):
 
 @pytest.mark.parametrize("kind", ("imbalanced", "longtail"))
 def test_single_label_classes_follow_the_requested_shares(kind):
-    """Each class gets its share within one image, so a class with n * share >= 1 is in every part."""
+    """Classes with n * share >= 1 in every part get each share within one image; rarer may deviate (#347)."""
     for seed in range(25):
         images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
         groups = build_groups(images, videos, duplicate_of, classes_of)
@@ -662,10 +662,9 @@ def test_single_label_classes_follow_the_requested_shares(kind):
         totals = class_counts(groups)
         got = {p: class_counts(gs) for p, gs in out.items()}
         for c, n in totals.items():
-            for p, share in SHARES.items():
-                assert abs(got[p][c] - n * share) <= 1.0, (seed, c, p)
-                if n * share >= 1:
-                    assert got[p][c] > 0, (seed, c, p)
+            if n * min(SHARES.values()) >= 1:
+                for p, share in SHARES.items():
+                    assert abs(got[p][c] - n * share) <= 1.0, (seed, c, p)
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -683,7 +682,8 @@ def test_split_beats_a_random_split(kind):
         )
         sizes = {p: sum(len(g.images) for g in gs) / len(images) for p, gs in out.items()}
         if kind != "videos":  # whole videos of up to 40 frames move the shares more
-            assert max(abs(sizes[p] - s) for p, s in SHARES.items()) < 0.05
+            # rare classes placed in every part first (#347) cost a few points on small sets
+            assert max(abs(sizes[p] - s) for p, s in SHARES.items()) < 0.08
     assert sum(ours) <= (0.8 if kind == "videos" else 0.5) * sum(baseline)  # whole videos limit the balance
 
 
@@ -703,29 +703,54 @@ def test_kfold_folds_hold_every_class_with_enough_groups(k):
                         assert all(class_counts(gs)[c] for gs in folds.values()), (seed, c)
 
 
-def test_rare_class_shares_today():
-    """Today's allocation of a class of n single images with 70/20/10 (see issue #347)."""
+def test_rare_class_shares():
+    """A class of n single images with 70/20/10: one in every part first (#347), then the requested shares."""
     common = [Group([f"c{k}"], Counter({"common": 1})) for k in range(200)]
-    expected = {1: (1, 0, 0), 2: (2, 0, 0), 3: (2, 1, 0), 5: (4, 1, 0), 6: (4, 1, 1), 10: (7, 2, 1)}
+    expected = {
+        1: (1, 0, 0),
+        2: (1, 1, 0),
+        3: (1, 1, 1),
+        5: (3, 1, 1),
+        6: (4, 1, 1),
+        10: (7, 2, 1),
+        20: (14, 4, 2),
+    }
     for n, shares in expected.items():
         rare = [Group([f"r{k}"], Counter({"rare": 1})) for k in range(n)]
         out = assign(rare + common, SHARES, random.Random(0))
         assert tuple(class_counts(out[p])["rare"] for p in SHARES) == shares, n
 
 
-@pytest.mark.xfail(
-    strict=True, reason="#347: a rare class stays out of val/test although it has enough groups"
-)
 def test_rare_class_reaches_every_part_when_it_has_enough_groups():
     common = [Group([f"c{k}"], Counter({"common": 1})) for k in range(200)]
     for n in (3, 4, 5):
         rare = [Group([f"r{k}"], Counter({"rare": 1})) for k in range(n)]
-        out = assign(rare + common, SHARES, random.Random(0))
-        assert all(class_counts(out[p])["rare"] for p in SHARES), n
+        for seed in range(20):
+            out = assign(rare + common, SHARES, random.Random(seed))
+            assert all(class_counts(out[p])["rare"] for p in SHARES), (n, seed)
+
+
+@pytest.mark.parametrize("kind", ("imbalanced", "longtail", "multilabel"))
+def test_classes_in_enough_groups_reach_every_part(kind):
+    """A class in at least as many groups as parts is in every part (#347).
+
+    Always for one class per image; with several classes per image a class that is never the rarest of
+    its images follows the others, so a few may still miss a part (at most 1%).
+    """
+    eligible = missed = 0
+    for seed in range(25):
+        images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
+        groups = build_groups(images, videos, duplicate_of, classes_of)
+        out = assign(groups, SHARES, random.Random(seed))
+        for c, n in Counter(c for g in groups for c in g.classes).items():
+            if n >= len(SHARES):
+                eligible += 1
+                missed += not all(class_counts(gs)[c] for gs in out.values())
+    assert missed <= (0.01 * eligible if kind == "multilabel" else 0), (missed, eligible)
 
 
 def test_rare_class_missing_from_a_part_is_warned(tmp_path):
-    spec = {f"i{k:03d}": ["a"] for k in range(60)} | {f"r{k}": ["rare"] for k in range(3)}
+    spec = {f"i{k:03d}": ["a"] for k in range(60)} | {f"r{k}": ["rare"] for k in range(2)}
     pdir, project = build(tmp_path, spec)
     p = plan(pdir, project)
     missing = {(w["part"], w["class"]) for w in p.warnings if w["code"] == "class_missing"}

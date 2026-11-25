@@ -317,19 +317,23 @@ class _Placement:
         self.got_images = dict.fromkeys(self.parts, 0)
         self.got: dict[str, Counter[str]] = {p: Counter() for p in self.parts}
 
-    def score(self, p: str, names: list[str]) -> tuple[float, float, float]:
-        """How far part ``p`` is below its targets: for the rarest class, the other classes, the images.
+    def score(self, p: str, names: list[str]) -> tuple[int, float, float, float]:
+        """How much part ``p`` needs a group: presence of its rarest class, then the deficits.
+
+        A part that has none of the group's rarest class comes first, so a rare class reaches every part
+        when it has as many groups as there are parts (its share may then differ from the requested one).
 
         Args:
             p: the part to score.
             names: the classes of the group, rarest first.
 
         Returns:
-            Three deficits (rounded, higher = further below target): the rarest class, the sum of the
-            other classes, and the images.
+            1 when the part lacks the rarest class (else 0), then three deficits (rounded, higher = further
+            below target): the rarest class, the sum of the other classes, and the images.
         """
         deficits = [self.totals[c] * self.fractions[p] - self.got[p][c] for c in names]
         return (
+            int(bool(names) and self.got[p][names[0]] == 0),
             round(deficits[0], 6) if deficits else 0.0,
             round(sum(deficits[1:]), 6),
             round(self.want_images[p] - self.got_images[p], 6),
