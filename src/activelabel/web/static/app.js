@@ -4084,8 +4084,13 @@
         renderJobs();
       };
       if (jobsPrefs.min) {
-        fill(jobsBox, el('button', { type: 'button', class: `jobs-pill is-${state}${fades ? ' fades' : ''}`, 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
-          glyph, el('span', null, summary), el('span', { class: 'sr-only' }, t('jobs.show'))));
+        const pill = el('button', { type: 'button', class: `jobs-pill is-${state}${fades ? ' fades' : ''}`, 'data-jobs': 'open', 'aria-expanded': 'false', onclick: () => toggle(false) },
+          glyph, el('span', null, summary), el('span', { class: 'sr-only' }, t('jobs.show')));
+        /* a failure that stays (a comparison that failed, for instance) can be dismissed without opening it */
+        const dismiss = state === 'failed' && !fades
+          ? el('button', { type: 'button', class: 'icon-btn small jobs-dismiss', 'data-jobs': 'dismiss', 'aria-label': `${t('jobs.dismiss')}: ${summary}`, title: t('jobs.dismiss'), onclick: close }, icon('close', 14))
+          : null;
+        fill(jobsBox, el('div', { class: 'jobs-pill-row' }, pill, dismiss));
       } else {
         const head = el('div', { class: 'jobs-head' },
           el('h2', null, t('jobs.title')),
