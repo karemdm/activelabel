@@ -2480,6 +2480,7 @@
       /* a project without images opens on its tasks, where images are added (unless the person chose a tab before) */
       panel.mount = () => { if (!imageTabs.remembered && !hasImages()) imageTabs.select('tasks'); reload(); };
       panel.refresh = reload;
+      panel.show = loadTasks;  // coming back from another step (an import, an apply, a sync changed the counts)
       /** Step 4 sends the person here to see one part of a dataset version. */
       panel.showDataset = (n, part, fold = null) => {
         filter = { task: null, job: null, dataset: { n, part, fold } };

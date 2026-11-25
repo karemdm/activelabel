@@ -355,3 +355,8 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_tasks_counts_are_reloaded_when_the_images_step_is_shown_again():
+    """Back from Annotations after an import, the tasks show the new counts, as the step bar does (#424)."""
+    assert re.search(r"panel\.refresh = reload;\s*panel\.show = loadTasks;", JS)
