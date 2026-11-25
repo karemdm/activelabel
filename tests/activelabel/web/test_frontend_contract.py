@@ -1,4 +1,4 @@
-"""What the front end (app.js) relies on, checked without a JS runner: its own files and the API it reads."""
+"""What the front end (static/js) relies on, checked without a JS runner: its files and the API it reads."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_unused_rules_are_gone():
 
 
 def test_progress_message_shapes_match_what_the_server_writes():
-    """Messages with a tool name are matched by shape in app.js; each one the server writes must match."""
+    """Messages with a tool name are matched by shape in the JS; each one the server writes must match."""
     shapes = [re.compile(p) for p in re.findall(r"\[/(\^[^/]+\$)/, 'jobmsg\.\w+'\]", JS)]
     assert len(shapes) == 5
     written: set[str] = set()
@@ -250,7 +250,7 @@ def test_api_errors_are_translated_by_code_and_never_by_the_server_text_alone():
 
 
 def test_every_error_param_the_page_names_is_a_param_the_server_sends():
-    """The ``ERROR_PARAMS`` table of app.js only names params that some error really carries."""
+    """The ``ERROR_PARAMS`` table of the JavaScript only names params that some error really carries."""
     table = JS[JS.index("const ERROR_PARAMS") :]
     named = set(re.findall(r"^    (\w+):", table[: table.index("\n  };")], re.M))
     sent: set[str] = set()
@@ -269,8 +269,8 @@ def test_the_step_bar_contains_its_hidden_texts():
 
 
 def test_the_split_screen_uses_the_protections_the_api_offers():
-    """The names app.js reads and sends exist in the API: the preview's ``empty_parts`` and ``max_kfold``, the
-    ``allow_empty`` and ``confirm_runs`` flags, and the codes that ask for them."""
+    """The names the JavaScript reads and sends exist in the API: the preview's ``empty_parts`` and
+    ``max_kfold``, the ``allow_empty`` and ``confirm_runs`` flags, and the codes that ask for them."""
     api = (SRC / "datasets.py").read_text(encoding="utf-8") + (SRC / "web" / "datasets_api.py").read_text(
         encoding="utf-8"
     )

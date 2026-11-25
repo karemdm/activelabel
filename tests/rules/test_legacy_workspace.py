@@ -30,7 +30,7 @@ DERIVED = ["projects/*/thumbs", "projects/*/thumbs/*", "training", "training/env
 # the project ids are 1..4 in the order of make_workspace_v0.TYPES
 PROJECTS = {"classification": 1, "detection": 2, "segmentation": 3, "keypoints": 4}
 
-PAGES = ["/", "/projects/new", "/projects/import", "/static/app.js", "/static/app.css"]
+PAGES = ["/", "/projects/new", "/projects/import", "/static/js/main.js", "/static/app.css"]
 GLOBAL_API = ["/api/projects", "/api/annotation-tools", "/api/training/catalog", "/api/training/environment"]
 PER_PROJECT = [
     "/projects/{p}",

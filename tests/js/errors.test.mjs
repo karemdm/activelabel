@@ -1,10 +1,9 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { loadApp, messages } = require('./helpers/load-app');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadApp, messages } from './helpers/load-app.mjs';
 
-const en = loadApp('en');
-const pt = loadApp('pt');
+const en = await loadApp('en');
+const pt = await loadApp('pt');
 
 test('an error with a known code is translated by its error.<code> key, with the params filled in', () => {
   const data = { code: 'project_name_too_long', params: { max: 100 } };
