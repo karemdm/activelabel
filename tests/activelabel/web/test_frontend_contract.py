@@ -582,6 +582,14 @@ def test_the_cvat_settings_start_empty_with_an_example_and_the_tab_names_the_con
 
 def test_empty_strips_are_gone_from_task_cards_sessions_and_home():
     """Task cards fill the row, session buttons stay together, empty text wraps balanced (#421)."""
-    assert re.search(r"\.task-list \{[^}]*repeat\(auto-fit,", CSS)
+    assert re.search(r"\.task-list \{[^}]*flex-wrap: wrap", CSS)
     assert "danger-outline { margin-left: auto" not in CSS
     assert re.search(r"\.empty p \{[^}]*text-wrap: balance", CSS)
+
+
+def test_task_grid_has_no_holes_and_a_long_name_stays_in_two_lines():
+    """Rows are filled (flex-grow), an open card takes its own row, a name is clamped (#462)."""
+    assert re.search(r"\.task-list > \.task-item \{[^}]*flex: 1 1", CSS)
+    assert re.search(r"\.task-item:has\(\.task-toggle\[aria-expanded=\"true\"\]\) \{ flex-basis: 100%", CSS)
+    assert re.search(r"\.task-title \{[^}]*-webkit-line-clamp: 2", CSS)
+    assert "align-items: start; margin: 0" not in CSS
