@@ -167,6 +167,7 @@ class _Grid:
     width: float = 0.0
     height: float = 0.0
     last: int | None = None
+    ranged: bool = False  # the meta gives the task's first and last video frame
 
     def frame(self, ctx: ParseContext, value: Any) -> int | None:
         """Video frame of a number in the file; None (and a problem) when it is not a frame number.
@@ -216,6 +217,7 @@ def _read_grid(root: ET.Element) -> _Grid:
         grid.start = _int(first_text) or 0
         grid.step = _filter_step(filter_text)
         grid.last = _int((task.findtext("stop_frame") or "").strip())
+        grid.ranged = bool(first_text) and grid.last is not None
         grid.relative = bool(first_text or filter_text) and _task_numbered(
             root, grid.start, grid.step, grid.last
         )
@@ -274,7 +276,7 @@ def _read_cvat_video(ctx: ParseContext, root: ET.Element) -> None:
             if label is not None:
                 ctx.add_label(rec, label)
     if seen:
-        if grid.relative and grid.last is not None:
+        if (grid.relative or grid.ranged) and grid.last is not None:
             _cover(ctx, grid.start, grid.last)
         else:
             _cover(ctx, min(seen), max(seen))

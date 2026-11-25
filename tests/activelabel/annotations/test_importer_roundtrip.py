@@ -1046,7 +1046,6 @@ def test_cvat_video_task_numbered_frames_land_on_the_right_images(tmp_path):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="#361")
 def test_cvat_video_video_numbered_frames_give_the_same_result_as_task_numbered(tmp_path):
     """CVAT's own export numbers by video frame (10, 20, 30) with the same meta."""
     rig = make_video_rig(tmp_path)
