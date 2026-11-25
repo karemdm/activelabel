@@ -2854,7 +2854,10 @@
         const live = !legacy && (s.status === 'open' || s.status === 'pulled');
         const act = (label, cls, fn) => {
           const b = el('button', { type: 'button', class: `btn ${cls}` }, label);
-          b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (err) { b.disabled = false; toastError(err); } });
+          b.addEventListener('click', async () => {
+            b.disabled = true;
+            try { await fn(); } catch (err) { b.disabled = false; toastError(err); await reloadIfChanged(err); }
+          });
           return b;
         };
         const changes = s.diff ? (s.diff.images_changed || 0) : 0;
@@ -2925,6 +2928,11 @@
           toast(t('annotate.closed'), 'success', 4000);
           await loadSessions();
         } catch (err) { toastError(err); }
+      }
+
+      /** A 404/409 means the session is not what this tab shows (another tab applied, discarded or closed it): show the real state. */
+      async function reloadIfChanged(err) {
+        if (err && (err.status === 404 || err.status === 409)) await loadSessions();
       }
 
       function drawSessions() {
