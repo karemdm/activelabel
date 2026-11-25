@@ -18,6 +18,7 @@ from activelabel.preannotate import image_state
 from activelabel.sync import links
 from activelabel.sync.registry import get_remote
 from activelabel.tasks_store import (
+    STALE_UPLOAD_SECONDS,
     ImageTask,
     TaskNotFound,
     TaskStore,
@@ -65,6 +66,7 @@ def task_view(task: ImageTask, active: set[str], annotated: set[str]) -> dict[st
         "created": task.created,
         "job_size": task.job_size,
         "open": task.open,
+        "incomplete": task.incomplete,
         "source": task.source,
         "images": len(task.images),
         "active": len(ids & active),
@@ -158,6 +160,7 @@ def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) 
         ``{tasks}`` in creation order.
     """
     store = _store(state, project_id)
+    store.close_stale(STALE_UPLOAD_SECONDS)  # uploads cut off since the last look are closed and marked
     active, annotated = _sets(state, project_id)
     views = [task_view(t, active, annotated) for t in store.load()]
     remote = remote_status(state, project_id, refresh)

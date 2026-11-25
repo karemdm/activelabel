@@ -1,4 +1,6 @@
+import json
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -99,3 +101,64 @@ def test_orphans_are_healed_into_one_closed_task(tmp_path):
         (2, "Task 2", ["c", "b"], False),
     ]
     assert len(store.load()) == 2  # saved, not repeated
+
+
+def test_the_automatic_name_comes_from_the_tasks_that_exist(tmp_path):
+    store = TaskStore(tmp_path)
+    assert store.create().name == "Task 1"
+    gone = store.create(open=True)  # an upload that added nothing is removed again
+    assert gone.name == "Task 2"
+    store.delete(gone.id)
+    assert store.create().name == "Task 2"  # the number did not advance, the id did
+    assert store.get(3).id == 3
+    store.create("Field")
+    store.create("task 9")  # a name of the same shape counts, whatever its case
+    assert store.create().name == "Task 10"
+
+
+def _age(tmp_path, task_id, seconds):
+    """Make a task look as if its last upload chunk came ``seconds`` ago."""
+    data = json.loads((tmp_path / "tasks.json").read_text(encoding="utf-8"))
+    old = (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat(timespec="seconds")
+    for task in data["tasks"]:
+        if task["id"] == task_id:
+            task["touched"] = old
+    (tmp_path / "tasks.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_an_upload_left_open_is_closed_and_marked_incomplete(tmp_path):
+    store = TaskStore(tmp_path)
+    store.create("A", images=["a"], open=True)
+    store.create("B", images=["b"], open=True)  # starting B closed A: that upload was cut off
+    assert [(t.open, t.incomplete) for t in store.load()] == [(False, True), (True, False)]
+    assert store.close_stale(3600) == []  # B's last chunk came just now: its upload may still be running
+    _age(tmp_path, 2, 7200)
+    assert [t.id for t in store.close_stale(3600)] == [2]
+    assert [(t.open, t.incomplete) for t in store.load()] == [(False, True), (False, True)]
+    assert store.close_stale(0) == []  # nothing is open any more
+
+
+def test_appending_keeps_an_upload_alive_and_closing_it_is_complete(tmp_path):
+    store = TaskStore(tmp_path)
+    store.create("A", images=["a"], open=True)
+    _age(tmp_path, 1, 7200)
+    store.append(1, ["b"])  # a new chunk arrived
+    assert store.close_stale(3600) == []
+    assert store.close(1).incomplete is False
+    assert store.close_stale(0) == []
+
+
+def test_a_task_saved_before_the_marks_existed_still_loads(tmp_path):
+    (tmp_path / "tasks.json").write_text(
+        json.dumps(
+            {
+                "next_id": 2,
+                "tasks": [
+                    {"id": 1, "name": "A", "created": "2026-01-01T00:00:00+00:00", "job_size": None},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (task,) = TaskStore(tmp_path).load()
+    assert (task.open, task.incomplete) == (False, False)

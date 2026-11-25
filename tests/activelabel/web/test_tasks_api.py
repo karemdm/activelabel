@@ -1,3 +1,4 @@
+import json
 import time
 from unittest.mock import MagicMock
 
@@ -319,3 +320,34 @@ def test_refresh_reads_the_cvat_states_again_instead_of_the_cached_ones(
     assert fake.tasks.call_count == 1  # the second read came from the cache
     assert client.get("/api/projects/1/tasks", params={"refresh": "true"}).status_code == 200
     assert fake.tasks.call_count == 2  # an explicit refresh asks CVAT again
+
+
+def test_an_upload_that_adds_nothing_does_not_use_up_a_task_number(tmp_path):
+    client, _, paths = _setup(tmp_path, 2)
+    junk = [("files", ("notes.png", b"this is text renamed to png"))]
+    first = client.post("/api/projects/1/tasks", files=junk)
+    assert first.json()["report"]["added"] == 0 and first.json()["task"]["name"] == "Task 1"
+    closed = client.patch(f"/api/projects/1/tasks/{first.json()['task']['id']}", json={"open": False})
+    assert closed.json()["removed"] is True
+    made = client.post("/api/projects/1/tasks", files=_files(paths[:1]), data={"open": "false"}).json()
+    assert made["task"]["name"] == "Task 1" and made["task"]["id"] == 2  # the id is never reused
+
+
+def test_a_cut_off_upload_is_marked_incomplete_when_the_list_is_read(tmp_path):
+    client, state, paths = _setup(tmp_path, 3)
+    first = client.post("/api/projects/1/tasks", files=_files(paths[:2]), data={"name": "Big"}).json()["task"]
+    assert first["open"] is True and first["incomplete"] is False
+    store = TaskStore(state.store.dir(1))
+    data = json.loads(store.path.read_text(encoding="utf-8"))
+    data["tasks"][0]["touched"] = "2020-01-01T00:00:00+00:00"  # no chunk for years: the page was closed
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+    (listed,) = client.get("/api/projects/1/tasks").json()["tasks"]
+    assert (listed["open"], listed["incomplete"], listed["images"]) == (False, True, 2)
+    assert client.post("/api/projects/1/tasks/1/images", files=_files(paths[2:])).status_code == 409
+
+
+def test_closing_an_upload_properly_leaves_it_complete(tmp_path):
+    client, _, paths = _setup(tmp_path, 2)
+    first = client.post("/api/projects/1/tasks", files=_files(paths)).json()["task"]
+    closed = client.patch(f"/api/projects/1/tasks/{first['id']}", json={"open": False}).json()
+    assert closed["open"] is False and closed["incomplete"] is False
