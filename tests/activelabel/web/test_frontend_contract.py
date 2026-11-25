@@ -765,3 +765,14 @@ def test_runs_show_coded_warnings_and_failures_and_offer_resume():
         texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         for key in ("tr.resume", "tr.resume_from", "tr.resumed", "tr.warnings", "error.resume_no_checkpoint"):
             assert texts[key], key
+
+
+def test_the_run_detail_shows_the_setup_and_the_learning_rate():
+    """#529: the setup the worker recorded (device, amp, batch used vs asked, resize) and the ``lr`` curve."""
+    detail = JS[JS.index("function setupBlock(r)") :]
+    assert "r.setup || {}" in detail and "'tr.setup_batch_asked'" in detail and "r.resize" in detail
+    assert "pts('lr')" in JS and "notation: 'scientific'" in JS
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in ("tr.setup", "tr.setup_amp_on", "tr.setup_amp_off", "tr.setup_batch_asked"):
+            assert texts[key], key

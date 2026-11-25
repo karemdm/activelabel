@@ -102,7 +102,9 @@ the end of each epoch is kept as `lr` in `metrics.jsonl`.
 scaler on a CUDA GPU, which is faster and lighter; `auto` and `on` use it on CUDA only, and the CPU and Apple
 GPUs always train in full precision (asking for `on` there adds a warning, not an error). Evaluation passes stay
 in full precision. A loss that is not finite stops the run with a text that suggests turning `amp` off or lowering
-the learning rate. What was really used is recorded in `run.json` (`setup`: `device`, `amp`, `batch_size`). On a
+the learning rate. What was really used is recorded in `run.json` (`setup`: `device`, `amp`, `batch_size`) and shown in the
+run's details (*What the training used* / *O que o treino usou*, with the batch asked for when it was halved), next
+to the curves of the loss, the score and the learning rate of each epoch. On a
 CUDA GPU the worker first tries one training step with the batch size asked for: when the GPU runs out of memory
 the batch is **halved**, again and again, down to the smallest batch the model accepts (1 image, or 2 for semantic
 segmentation), and each halving is a warning saying which batch size the training went on with (`warnings` in

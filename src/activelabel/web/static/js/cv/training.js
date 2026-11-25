@@ -804,7 +804,8 @@ export function trainingPanel(page) {
     return n;
   }
   /* series: [{name, cls, points: [[epoch, value], ...]}]; bestEpoch draws a vertical marker */
-  function lineChart(title, series, bestEpoch) {
+  /* `label` writes a value of the axis and of the points (three decimals by default; a learning rate needs significant digits) */
+  function lineChart(title, series, bestEpoch, label = (v) => nf3.format(Math.round(v * 1000) / 1000)) {
     const W = 440;
     const H = 210;
     const m = { l: 46, r: 14, t: 12, b: 28 };
@@ -826,7 +827,7 @@ export function trainingPanel(page) {
     for (let i = 0; i <= 3; i++) {
       const v = y0 + ((y1 - y0) * i) / 3;
       kids.push(svg('line', { class: 'tr-grid', x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v) }));
-      kids.push(svg('text', { class: 'tr-axis', x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }, nf3.format(Math.round(v * 1000) / 1000)));
+      kids.push(svg('text', { class: 'tr-axis', x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }, label(v)));
     }
     const step = Math.max(1, Math.ceil((x1 - x0) / 6));
     for (let x = Math.ceil(x0); x <= x1; x += step) kids.push(svg('text', { class: 'tr-axis', x: X(x), y: H - 8, 'text-anchor': 'middle' }, String(x)));
@@ -835,9 +836,9 @@ export function trainingPanel(page) {
       const pts = s.points.filter(([, y]) => Number.isFinite(y));
       if (!pts.length) return;
       kids.push(svg('polyline', { class: `tr-line s${i + 1}`, fill: 'none', points: pts.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ') }));
-      if (pts.length <= 40) pts.forEach(([x, y]) => kids.push(svg('circle', { class: `tr-pt s${i + 1}`, cx: X(x), cy: Y(y), r: x === bestEpoch ? 4.5 : 2.8 }, svg('title', null, `${t('tr.epoch_n', { n: x })}: ${s.name} ${nf3.format(y)}`))));
+      if (pts.length <= 40) pts.forEach(([x, y]) => kids.push(svg('circle', { class: `tr-pt s${i + 1}`, cx: X(x), cy: Y(y), r: x === bestEpoch ? 4.5 : 2.8 }, svg('title', null, `${t('tr.epoch_n', { n: x })}: ${s.name} ${label(y)}`))));
     });
-    const last = series.map((s) => { const p = s.points[s.points.length - 1]; return p ? `${s.name} ${nf3.format(p[1])}` : ''; }).filter(Boolean).join(', ');
+    const last = series.map((s) => { const p = s.points[s.points.length - 1]; return p ? `${s.name} ${label(p[1])}` : ''; }).filter(Boolean).join(', ');
     const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'tr-svg', role: 'img', 'aria-label': `${title}: ${last}` }, ...kids);
     return el('figure', { class: 'tr-chart' },
       el('figcaption', null, el('strong', null, title)),
@@ -968,6 +969,26 @@ export function trainingPanel(page) {
           el('pre', { class: 'tr-pre', tabindex: '0', 'aria-label': t('tr.yaml') }, yaml)));
     }
 
+    /* what the training really used, which may differ from what was asked (a halved batch, no mixed precision on
+       the CPU): recorded by the worker as `setup` (#529) */
+    function setupBlock(r) {
+      const su = r.setup || {};
+      if (!Object.keys(su).length && !r.resize) return null;
+      const asked = ((r.config || {}).params || {}).batch_size;
+      const device = !su.device ? '' : su.device.startsWith('cuda') ? t('tr.device_gpu', { n: su.device.split(':')[1] || '0' })
+        : su.device === 'mps' ? t('tr.device_mps') : su.device === 'cpu' ? t('tr.device_cpu') : su.device;
+      const batch = su.batch_size == null ? ''
+        : asked != null && Number(asked) !== Number(su.batch_size) ? t('tr.setup_batch_asked', { used: num(su.batch_size), asked: num(asked) }) : num(su.batch_size);
+      const row = (k, v) => (v ? el('div', { class: 'tr-kv' }, el('dt', null, k), el('dd', null, v)) : null);
+      return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-setup' },
+        el('h3', { id: 'trd-setup', class: 'section-title' }, t('tr.setup')),
+        el('dl', { class: 'tr-dl' },
+          row(t('tr.device'), device),
+          row(paramName('amp'), su.amp == null ? '' : t(su.amp ? 'tr.setup_amp_on' : 'tr.setup_amp_off')),
+          row(paramName('batch_size'), batch),
+          row(paramName('resize'), r.resize ? choiceName(r.resize) : '')));
+    }
+
     function progressBlock(r) {
       if (!ACTIVE(r)) return el('div', null, r.status === 'failed' && runError(r) ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, runError(r))) : null, warningsBlock(r));
       const pct = percentOf(r);
@@ -1067,9 +1088,13 @@ export function trainingPanel(page) {
       const pts = (k) => rows.filter((x) => x[k] != null).map((x) => [x.epoch, x[k]]);
       const loss = lineChart(t('tr.chart_loss'), [{ name: t('tr.train'), points: pts('train_loss') }, { name: t('tr.val'), points: pts('val_loss') }], best);
       const score = keyOf ? lineChart(`${metricName(metric || keyOf.slice(4))} (${t('tr.val').toLowerCase()})`, [{ name: metricName(keyOf.slice(4)), points: pts(keyOf) }], best) : null;
+      /* the learning rate of each epoch, as the schedule and the warmup set it (#529) */
+      /* learning rates are small numbers: scientific notation keeps the axis labels short (1,5E-4) */
+      const sig = new Intl.NumberFormat(LOCALE, { notation: 'scientific', maximumSignificantDigits: 2 });
+      const lr = pts('lr').length ? lineChart(paramName('lr'), [{ name: paramName('lr'), points: pts('lr') }], best, (v) => sig.format(v)) : null;
       return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-curves' },
         el('h3', { id: 'trd-curves', class: 'section-title' }, t('tr.curves')),
-        el('div', { class: 'tr-charts' }, loss, score));
+        el('div', { class: 'tr-charts' }, loss, score, lr));
     }
 
     function resultsBlock(r) {
@@ -1103,7 +1128,7 @@ export function trainingPanel(page) {
           el('h2', null, t('tr.detail_title', { n: r.number })),
           badge(r),
           el('button', { type: 'button', class: 'icon-btn', 'data-act': 'close', 'aria-label': t('common.close'), onclick: () => dlg.close() }, icon('close', 18))),
-        progressBlock(r), trainingsBlock(r), viewingNote(r), chartsBlock(view), resultsBlock(view), configBlock(r)));
+        progressBlock(r), trainingsBlock(r), viewingNote(r), chartsBlock(view), resultsBlock(view), setupBlock(view), configBlock(r)));
       body.scrollTop = top;
       const text = phaseText(r);
       if (text !== lastLive) { lastLive = text; live.textContent = text; }
