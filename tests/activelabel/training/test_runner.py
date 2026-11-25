@@ -390,3 +390,97 @@ def test_failures_and_warnings_keep_their_code_and_params():
         "message": "m",
     }
     assert warning_entry({"message": "m", "params": "bad"}) == {"code": "", "params": {}, "message": "m"}
+
+
+# -- resuming an interrupted run (#321) ------------------------------------------------
+
+FAKE_RESUMABLE = """
+import json, sys
+from pathlib import Path
+
+spec = json.loads(Path(sys.argv[1]).read_text())
+out = Path(spec["output_dir"])
+start = 1
+if spec.get("resume"):
+    start = json.loads((out / "last.pt").read_text())["epoch"] + 1
+    print(json.dumps({"event": "resumed", "epoch": start - 1}), flush=True)
+for epoch in range(start, 4):
+    (out / "last.pt").write_text(json.dumps({"epoch": epoch}))
+    row = {"event": "epoch", "epoch": epoch, "val_accuracy": 0.1 * epoch, "best": True, "checkpoint": True}
+    print(json.dumps(row), flush=True)
+    if epoch == 2 and not spec.get("resume") and spec["params"].get("fake") == "crash":
+        print(json.dumps({"event": "error", "message": "crashed"}), flush=True)
+        sys.exit(1)
+(out / "best.pt").write_text("w")
+results = {"best_epoch": 3, "val": {"accuracy": 0.3}, "test": None}
+print(json.dumps({"event": "done", "results": results}), flush=True)
+"""
+
+
+@pytest.fixture
+def resumable(setup, tmp_path):
+    client, state, runner = setup
+    script = tmp_path / "resumable_worker.py"
+    script.write_text(FAKE_RESUMABLE)
+    runner._scripts = lambda kind: script
+    return client, state, runner
+
+
+def crashed_run(state, runner):
+    store = RunStore(state.store.dir(1))
+    n = new_run(state, epochs=3, fake="crash")
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "failed" and run["checkpoint_epoch"] == 2 and run["digest"], run
+    return store, n
+
+
+def test_a_failed_run_resumes_from_its_checkpoint(resumable):
+    client, state, runner = resumable
+    store, n = crashed_run(state, runner)
+    with (store.path(n) / "metrics.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"epoch": 3, "val_accuracy": 9.0}) + "\n")  # written after the checkpoint
+    answer = client.post(f"/api/projects/1/runs/{n}/resume")
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["resumes"][0]["from_epoch"] == 2 and answer.json()["error"] == ""
+    run = wait_for(finished(store, n))
+    assert run["status"] == "done" and run["resume"] is False and run["checkpoint_epoch"] == 3
+    assert [m["epoch"] for m in store.metrics(n)] == [1, 2, 3] and store.metrics(n)[-1]["val_accuracy"] < 1
+    assert "checkpoint" not in store.metrics(n)[0]
+    assert "resumed after epoch 2" in (store.path(n) / "log.txt").read_text()
+    again = client.post(f"/api/projects/1/runs/{n}/resume")
+    assert again.status_code == 409 and again.json()["code"] == "run_not_resumable"
+
+
+def test_resume_is_refused_with_a_reason(resumable):
+    client, state, runner = resumable
+    store, n = crashed_run(state, runner)
+    store.update(n, digest="another training")
+    changed = client.post(f"/api/projects/1/runs/{n}/resume")
+    assert changed.status_code == 409 and changed.json()["code"] == "resume_config_changed"
+    old = new_run(state)  # a run that stopped before checkpoints existed
+    store.update(old, status="failed")
+    assert client.post(f"/api/projects/1/runs/{old}/resume").json()["code"] == "resume_no_checkpoint"
+    folds = RunStore(state.store.dir(1)).create(RunConfig(dataset=2, model="resnet18", fold="all"))["number"]
+    store.update(folds, status="cancelled")
+    composite = client.post(f"/api/projects/1/runs/{folds}/resume")
+    assert composite.status_code == 400 and composite.json()["code"] == "resume_composite"
+    assert client.post("/api/projects/1/runs/99/resume").status_code == 404
+
+
+def test_a_queued_resume_of_a_changed_training_fails_with_its_code(resumable):
+    _, state, runner = resumable
+    store, n = crashed_run(state, runner)
+    store.update(n, status="queued", resume=True, digest="another training")
+    runner.enqueue(1, n)
+    run = wait_for(finished(store, n))
+    assert run["status"] == "failed" and run["error_code"] == "resume_config_changed"
+
+
+def test_digest_ignores_folder_device_and_resume():
+    spec = {"model": "m", "params": {"lr": 0.1}, "output_dir": "a", "device": "cpu"}
+    same = runner_module.spec_digest(
+        {**spec, "output_dir": "b", "device": "cuda:0", "resume": True, "digest": "x"}
+    )
+    assert runner_module.spec_digest(spec) == same
+    assert runner_module.spec_digest({**spec, "params": {"lr": 0.2}}) != same

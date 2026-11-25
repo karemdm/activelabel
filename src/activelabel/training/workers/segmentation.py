@@ -658,6 +658,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     Raises:
         SpecError: An unknown model or class.
         options.DeviceError: The device the run asked for is not available.
+        options.CodedFailure: Nothing to resume from, or the training changed since it stopped.
         options.OutOfMemory: Not even a batch of 2 images fits in the GPU memory.
         augment.AugmentError: A technique the worker cannot apply.
     """
@@ -685,6 +686,12 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device.startswith("cuda") else 0
     parts = spec["parts"]
+    # a resumed training goes on with the batch of the interrupted one (no new probe of the GPU)
+    resumed = (
+        options.load_resume(out / "last.pt", str(spec.get("digest") or "")) if spec.get("resume") else None
+    )
+    if resumed is not None:
+        batch = int(resumed["resume"]["batch"])
 
     loader = partial(
         make_loader,
@@ -704,7 +711,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
     loss_fn = torch.nn.CrossEntropyLoss()
-    if device.startswith("cuda"):  # the largest batch, up to the one asked for, that fits the GPU
+    if device.startswith("cuda") and resumed is None:  # the largest batch up to the one asked for that fits
         try_batch = partial(
             options.probe,
             model=model,
@@ -725,6 +732,12 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     )
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
+    if resumed is not None:
+        model.load_state_dict(resumed["state_dict"])
+        loop = options.restore(resumed["resume"], optimizer, schedule, precision, generator)
+        best, since_best, ran = loop["best"], int(loop["since_best"]), int(loop["epoch"])
+        emit("resumed", epoch=ran)
+        emit("log", message=f"Resumed after epoch {ran} of {int(p['epochs'])}.")
 
     meta = {
         "classes": [BACKGROUND, *classes],
@@ -736,7 +749,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         "std": STD,
     }
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(ran + 1, epochs + 1):
         started = time.monotonic()
 
         model.train()
@@ -760,10 +773,22 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             save_checkpoint(out / "best.pt", model, meta, epoch)
         else:
             since_best += 1
-        save_checkpoint(out / "last.pt", model, meta, epoch)
+        resume = options.resume_state(
+            optimizer,
+            schedule,
+            precision,
+            generator,
+            epoch=epoch,
+            best=best,
+            since_best=since_best,
+            batch=batch,
+            digest=str(spec.get("digest") or ""),
+        )
+        save_checkpoint(out / "last.pt", model, {**meta, "resume": resume}, epoch)
         emit(
             "epoch",
             epoch=epoch,
+            checkpoint=True,
             epochs=epochs,
             train_loss=train_loss,
             val_loss=val_loss,

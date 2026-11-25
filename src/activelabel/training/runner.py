@@ -6,6 +6,10 @@ by JSON lines on stdout (see ``workers/``); the runner turns them into ``run.jso
 ``metrics.jsonl``, ``results.json`` and ``log.txt``. Every download goes to a temporary folder that
 is removed when the run ends, whatever the outcome.
 
+A single run that failed or was cancelled can be *resumed* (:func:`check_resume`): the worker reads its
+``last.pt`` and goes on from the next epoch, provided the spec is the same (its ``digest``); the metrics
+of the epochs after the checkpoint are dropped and the new ones appended.
+
 A grid search or a run over every fold of a K-fold version trains several *children* one after
 another (``r<N>/c1``, ``c2``...), in the same slot of the queue and the same temporary folder
 (pretrained weights are downloaded once). The run ranks the grid combinations by the mean of the
@@ -14,6 +18,7 @@ selection metric over the folds; only the weights of the best child are kept, in
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -81,6 +86,10 @@ COMES_LATER = "comes later"
 #: Status fields of a child that are also shown on the run itself (progress of the current child).
 TOP_FIELDS = ("phase", "epoch", "step", "steps", "message")
 PROGRESS_EVERY = 1.0  # seconds between run.json writes for step progress
+#: Spec keys that do not define the training (a resumed run may differ in them).
+DIGEST_SKIPS = ("output_dir", "device", "resume", "digest")
+#: Statuses of a run that can be resumed.
+RESUMABLE = (FAILED, CANCELLED)
 
 
 class RunnerError(RuntimeError):
@@ -171,6 +180,19 @@ def download_env(tmp: Path) -> dict[str, str]:
     out["PYTHONUNBUFFERED"] = "1"
     out["PYTHONIOENCODING"] = "utf-8"
     return out
+
+
+def spec_digest(spec: dict[str, Any]) -> str:
+    """Fingerprint of what defines a training: model, parameters, classes, images and labels, augmentation.
+
+    Args:
+        spec: the worker spec (``build_spec``).
+
+    Returns:
+        A SHA-256 hex digest; the folder, the device and the resume flag do not count.
+    """
+    defining = {k: v for k, v in spec.items() if k not in DIGEST_SKIPS}
+    return hashlib.sha256(json.dumps(defining, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def selection_key(metric: str) -> str:
@@ -279,7 +301,7 @@ def build_spec(
         device: the device the run asked for (``auto``, ``cpu``, ``cuda:N`` or ``mps``).
 
     Returns:
-        The spec dict written to ``spec.json``.
+        The spec dict written to ``spec.json``, with its ``digest`` (:func:`spec_digest`).
 
     Raises:
         RunnerError: a grid or all-folds config, images no longer in the project, labels without the
@@ -354,7 +376,7 @@ def build_spec(
             f"The keypoint flip pairs name point {highest}, but the labels have {points} points "
             "(numbered from 0)."
         )
-    return {
+    spec = {
         **extra,
         "augmentations": techniques,
         "task": model.task_kind,
@@ -371,6 +393,49 @@ def build_spec(
         "output_dir": str(run_dir.resolve()),
         "device": device,
     }
+    spec["digest"] = spec_digest(spec)
+    return spec
+
+
+def check_resume(project_dir: Path, store: RunStore, number: int) -> dict[str, Any]:
+    """Whether a run can be resumed now: a single run that stopped with a checkpoint and the same training.
+
+    Args:
+        project_dir: folder of the project.
+        store: runs of the project.
+        number: number of the run.
+
+    Returns:
+        The spec the resumed training gets (``resume`` set).
+
+    Raises:
+        RunNotFound: unknown run.
+        RunnerError: with the code ``run_not_resumable`` (not failed or cancelled), ``resume_composite`` (a
+            grid or all-folds run), ``resume_no_checkpoint`` or ``resume_config_changed``.
+    """
+    run = store.get(number)
+    if run["status"] not in RESUMABLE:
+        raise RunnerError("Only a failed or cancelled run can be resumed.", "run_not_resumable")
+    config = store.config(number)
+    if config.is_composite():
+        raise RunnerError(f"Resuming a grid or all-folds run {COMES_LATER}.", "resume_composite")
+    run_dir = store.path(number)
+    if not run.get("checkpoint_epoch") or not run.get("digest") or not (run_dir / "last.pt").exists():
+        raise RunnerError("This run has no checkpoint to resume from.", "resume_no_checkpoint")
+    changed = "The configuration or the data of this run changed since it stopped: start a new run."
+    model = get_model(config.model)
+    try:
+        if model is None:
+            raise RunnerError(f"Unknown model '{config.model}'.")
+        version = DatasetStore(project_dir).read(config.dataset)
+        spec = build_spec(
+            project_dir, config, model, run_dir, version, str(run.get("device_choice") or "auto")
+        )
+    except (RunnerError, DatasetNotFound, KeyError):
+        raise RunnerError(changed, "resume_config_changed") from None
+    if spec["digest"] != run["digest"]:
+        raise RunnerError(changed, "resume_config_changed")
+    return {**spec, "resume": True}
 
 
 @dataclass
@@ -380,6 +445,26 @@ class _Target:
     dir: Path
     log: Path
     update: Callable[..., Any]
+
+
+def _drop_metrics_after(path: Path, epoch: int) -> None:
+    """Remove the rows of ``metrics.jsonl`` after ``epoch`` (a resumed training writes them again).
+
+    Args:
+        path: the ``metrics.jsonl`` file (nothing happens when it does not exist).
+        epoch: the last epoch kept.
+    """
+    if not path.exists():
+        return
+    kept = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and int(row.get("epoch") or 0) <= epoch:
+            kept.append(line)
+    path.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8", newline="\n")
 
 
 def _pump_lines(stream: IO[str], lines: queue.Queue[str | None]) -> None:
@@ -1321,6 +1406,15 @@ class TrainingRunner:
             self._run_children(key, store, progress, config, model, version, cmd, tmp, device)
             return
         spec = build_spec(project_dir, config, model, run_dir, version, device)
+        run = store.get(number)
+        if run.get("resume"):
+            if spec["digest"] != run.get("digest"):
+                raise RunnerError(
+                    "The configuration or the data of this run changed since it stopped: start a new run.",
+                    "resume_config_changed",
+                )
+            spec["resume"] = True
+        store.update(number, resume=False, digest=spec["digest"])
         spec_file = tmp / "spec.json"
         spec_file.write_text(json.dumps(spec), encoding="utf-8")
         store.update(
@@ -1617,15 +1711,21 @@ class TrainingRunner:
                     steps=total,
                 )
         elif kind == "epoch":
-            row = {k: v for k, v in event.items() if k != "event"}
+            row = {k: v for k, v in event.items() if k not in ("event", "checkpoint")}
             with (target.dir / "metrics.jsonl").open("a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(row) + "\n")
             fields: dict[str, Any] = {"epoch": row.get("epoch", 0), "step": None, "steps": None}
+            if event.get("checkpoint"):  # last.pt holds this epoch: the run can resume after it
+                fields["checkpoint_epoch"] = row.get("epoch", 0)
             if row.get("best"):
                 fields["best"] = {"epoch": row.get("epoch"), "value": row.get(metric_key)}
             target.update(**fields)
             progress.update(done=row.get("epoch", 0))
             log.write(text + "\n")
+            log.flush()
+        elif kind == "resumed":
+            _drop_metrics_after(target.dir / "metrics.jsonl", int(event.get("epoch") or 0))
+            log.write(f"resumed after epoch {event.get('epoch')}\n")
             log.flush()
         elif kind == "setup":
             state["setup"] = {**state.get("setup", {}), **{k: v for k, v in event.items() if k != "event"}}

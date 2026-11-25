@@ -20,6 +20,11 @@ in float16 on a CUDA GPU (``amp`` ``auto`` or ``on``); on the CPU and on Apple G
 float32. On CUDA the batch size is tried first (:func:`fit_batch`): when the GPU runs out of memory the batch
 is halved, down to the smallest the model accepts, with a warning.
 
+Every epoch ``last.pt`` also keeps what a resumed training needs (:func:`resume_state`): optimizer, schedule,
+gradient scaler, random generators, the best epoch so far and the batch size. A resumed training
+(:func:`load_resume`, :func:`restore`) continues from the next epoch as if it had never stopped, provided
+the run's spec is the same (its ``digest``).
+
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
 
@@ -27,7 +32,9 @@ from __future__ import annotations
 
 import contextlib
 import math
+import random
 import re
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -389,6 +396,30 @@ class LrSchedule:
         self.best: float | None = None
         self.waited = 0
 
+    def state_dict(self) -> dict[str, Any]:
+        """Where the schedule is (to resume a training).
+
+        Returns:
+            ``step_index``, ``plateau``, ``best`` and ``waited``.
+        """
+        return {
+            "step_index": self.step_index,
+            "plateau": self.plateau,
+            "best": self.best,
+            "waited": self.waited,
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Go back to a saved position (the base rates stay those of this optimizer).
+
+        Args:
+            state: a dict from :meth:`state_dict`.
+        """
+        self.step_index = int(state["step_index"])
+        self.plateau = float(state["plateau"])
+        self.best = None if state["best"] is None else float(state["best"])
+        self.waited = int(state["waited"])
+
     def advance(self) -> None:
         """Set the rate of the step about to run and count it."""
         factor = lr_factor(
@@ -626,3 +657,88 @@ def fit_batch(try_batch: Any, batch: int, emit: Any, smallest: int = 1, clear: A
                 params={"from": batch, "to": smaller},
             )
             batch = smaller
+
+
+def resume_state(
+    optimizer: Any, schedule: LrSchedule, precision: Precision, generator: Any, **loop: Any
+) -> dict[str, Any]:
+    """What a resumed training needs besides the weights, saved in ``last.pt`` every epoch.
+
+    Args:
+        optimizer: the optimizer.
+        schedule: the learning rate schedule.
+        precision: the mixed precision (its gradient scaler, if any).
+        generator: the torch generator that shuffles the training images.
+        **loop: the state of the epoch loop: ``epoch``, ``best``, ``since_best``, ``batch`` and ``digest``.
+
+    Returns:
+        The state, with every random generator.
+    """
+    return {
+        "optimizer": optimizer.state_dict(),
+        "schedule": schedule.state_dict(),
+        "scaler": precision.scaler.state_dict() if precision.scaler is not None else None,
+        "generator": generator.get_state(),
+        "random": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        **loop,
+    }
+
+
+def load_resume(path: Path, digest: str) -> dict[str, Any]:
+    """The ``last.pt`` of an interrupted training, checked against the spec of the resumed one.
+
+    Args:
+        path: the ``last.pt`` file.
+        digest: the ``digest`` of the spec (what defines the training).
+
+    Returns:
+        The checkpoint (``state_dict`` and ``resume``).
+
+    Raises:
+        CodedFailure: no checkpoint to resume from (``resume_no_checkpoint``), or the training changed since
+            (``resume_config_changed``).
+    """
+    if not path.exists():
+        raise CodedFailure("This run has no checkpoint to resume from.", "resume_no_checkpoint")
+    # weights_only=False: last.pt is written by this worker (never a downloaded file)
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    state = checkpoint.get("resume")
+    if not isinstance(state, dict):
+        raise CodedFailure("This run has no checkpoint to resume from.", "resume_no_checkpoint")
+    if state.get("digest") != digest:
+        raise CodedFailure(
+            "The configuration or the data of this run changed since it stopped: start a new run.",
+            "resume_config_changed",
+        )
+    return dict(checkpoint)
+
+
+def restore(
+    state: dict[str, Any], optimizer: Any, schedule: LrSchedule, precision: Precision, generator: Any
+) -> dict[str, Any]:
+    """Put an optimizer, schedule, scaler and every random generator back where :func:`resume_state` saw them.
+
+    Args:
+        state: the ``resume`` entry of ``last.pt``.
+        optimizer: the optimizer, built as in the interrupted training.
+        schedule: the learning rate schedule, built likewise.
+        precision: the mixed precision of the training.
+        generator: the torch generator that shuffles the training images.
+
+    Returns:
+        The state of the epoch loop: ``epoch``, ``best``, ``since_best`` and ``batch``.
+    """
+    optimizer.load_state_dict(state["optimizer"])
+    schedule.load_state_dict(state["schedule"])
+    if precision.scaler is not None and state.get("scaler"):
+        precision.scaler.load_state_dict(state["scaler"])
+    generator.set_state(state["generator"])
+    random.setstate(state["random"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if state.get("cuda") is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+    return {k: state[k] for k in ("epoch", "best", "since_best", "batch")}

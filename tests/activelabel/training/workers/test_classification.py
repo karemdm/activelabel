@@ -68,3 +68,104 @@ def test_eval_transform_uses_the_resize_policy(worker):
     assert float(boxed[0, 0, 0]) == pytest.approx(0.0, abs=0.05)  # the band is the mean colour
     assert float(boxed[0, 8, 8]) > 2.0  # white, normalised
     assert float(worker.eval_transform(16, "stretch")(photo)[0, 0, 0]) > 2.0
+
+
+# -- resuming an interrupted training (#321) ------------------------------------------
+
+
+class Interrupted(Exception):
+    """Stands for the app closing in the middle of a training."""
+
+
+class Events:
+    """Collects the events of a training; raises :class:`Interrupted` after the epoch ``stop``."""
+
+    def __init__(self, stop=0):
+        self.stop, self.seen = stop, []
+
+    def __call__(self, event, **fields):
+        self.seen.append((event, fields))
+        if event == "epoch" and fields["epoch"] == self.stop:
+            raise Interrupted
+
+
+def small_spec(tmp_path, folder):
+    paths = [make_image(tmp_path / f"i{k}.png", seed=k, fmt="PNG") for k in range(8)]
+    items = [{"path": str(p), "label": k % 2} for k, p in enumerate(paths)]
+    params = {
+        "epochs": 3,
+        "batch_size": 4,
+        "lr": 0.01,
+        "optimizer": "adamw",
+        "weight_decay": 0.0,
+        "scheduler": "plateau",
+        "warmup_epochs": 1,
+        "image_size": 32,
+        "resize": "letterbox",
+        "augmentation": "light",
+        "patience": 0,
+        "seed": 3,
+        "start": "scratch",
+        "backbone_lr_factor": 0.1,
+        "amp": "auto",
+        "label_smoothing": 0.0,
+    }
+    return {
+        "task": "classification",
+        "model": "resnet18",
+        "family": "torchvision",
+        "start": "scratch",
+        "params": params,
+        "seed": 3,
+        "metric": "accuracy",
+        "classes": ["a", "b"],
+        "fold": None,
+        "parts": {"train": items[:6], "val": items[6:]},
+        "output_dir": str(tmp_path / folder),
+        "device": "cpu",
+        "augmentations": [{"name": "hflip", "params": {"p": 0.5}}],
+        "digest": "d1",
+    }
+
+
+def epochs_of(events):
+    return [
+        (f["epoch"], round(f["train_loss"], 6), round(f["val_loss"], 6))
+        for e, f in events.seen
+        if e == "epoch"
+    ]
+
+
+def test_a_resumed_training_ends_like_a_continuous_one(worker, tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    whole = Events()
+    monkeypatch.setattr(worker, "emit", whole)
+    continuous = worker.train(small_spec(tmp_path, "whole"))
+
+    first = Events(stop=2)
+    monkeypatch.setattr(worker, "emit", first)
+    spec = small_spec(tmp_path, "cut")
+    with pytest.raises(Interrupted):
+        worker.train(spec)
+    second = Events()
+    monkeypatch.setattr(worker, "emit", second)
+    resumed = worker.train({**spec, "resume": True})
+
+    assert ("resumed", {"epoch": 2}) in second.seen
+    assert epochs_of(first) + epochs_of(second) == epochs_of(whole)
+    assert resumed["val"] == continuous["val"] and resumed["best_epoch"] == continuous["best_epoch"]
+    a = torch.load(tmp_path / "whole" / "last.pt", weights_only=False)["state_dict"]
+    b = torch.load(tmp_path / "cut" / "last.pt", weights_only=False)["state_dict"]
+    assert all(torch.equal(a[k], b[k]) for k in a)
+
+
+def test_resume_refuses_a_changed_training_or_no_checkpoint(worker, tmp_path, monkeypatch):
+    monkeypatch.setattr(worker, "emit", Events(stop=1))
+    spec = small_spec(tmp_path, "run")
+    with pytest.raises(worker.options.CodedFailure, match="no checkpoint"):
+        worker.train({**spec, "resume": True})
+    with pytest.raises(Interrupted):
+        worker.train(spec)
+    with pytest.raises(worker.options.CodedFailure) as changed:
+        worker.train({**spec, "resume": True, "digest": "other"})
+    assert changed.value.code == "resume_config_changed"
