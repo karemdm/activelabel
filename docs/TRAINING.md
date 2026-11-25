@@ -42,8 +42,10 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Segmentation (instance) | torchvision / ultralytics (YOLO planned) | Mask R-CNN ResNet-50 FPN (trainable now); YOLOv8/11-seg (planned) | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics (YOLO planned) | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
-YOLO/Ultralytics models are listed in the catalogue returned by the API, but the screen hides them
-and the API refuses to create a run with one (400, "Training YOLO models is not available yet").
+The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
+model of that family. A family with no model for the project type stays in the list, disabled, and the
+hint under it says why; so does Ultralytics, whose models need their AGPL licence to be accepted first.
+The API refuses to create a run with a YOLO model (400, "Training YOLO models is not available yet").
 
 The catalogue is data (`training/catalog.py`): each model lists its family, packages, input size,
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds
