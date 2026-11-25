@@ -286,7 +286,7 @@
     if (code && counted && `error.${code}_other` in I18N) return tn(`error.${code}`, info.params.count, errorParams(info.params));
     if (code && `error.${code}` in I18N) return t(`error.${code}`, errorParams(info.params || info));
     if (detail && typeof detail === 'object') return String(detail.message || JSON.stringify(detail));
-    return detail ? String(detail) : `HTTP ${status}`;
+    return detail ? String(detail) : t('error.http_status', { status: String(status) });  // never a bare "HTTP 500"
   }
 
   /** Why a job failed, in the interface language: by its error code (with the params filled in), else the server's own text. */
@@ -3941,7 +3941,7 @@
 
       const openFoBtn = el('button', { type: 'button', class: 'btn', onclick: once(openFiftyOne, () => kindActive('fiftyone')) }, t('cur.open_fo'));
       ctx.watchers.push(() => { openFoBtn.disabled = kindActive('fiftyone'); });
-      const pullFoBtn = el('button', { type: 'button', class: 'btn', title: t('cur.fo_hint'), onclick: pullExclusions }, t('cur.pull_fo'));
+      const pullFoBtn = el('button', { type: 'button', class: 'btn', title: t('cur.fo_hint'), onclick: once(pullExclusions) }, t('cur.pull_fo'));
 
       add(node,
         el('h2', { id: 'h-curation' }, t('step.curation')),

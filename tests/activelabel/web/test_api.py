@@ -1,7 +1,11 @@
 import time
 
 from api_client import make_client, upload
+from fastapi.testclient import TestClient
+from pymongo.errors import ServerSelectionTimeoutError
 from sample_images import make_corrupt, make_image
+
+from activelabel import fiftyone_bridge
 
 
 def wait_job(client, project_id, job_id, timeout=10):
@@ -126,3 +130,18 @@ def test_deleting_a_project_touches_fiftyone_only_when_it_has_a_dataset(tmp_path
     assert dropped == []  # no FiftyOne for a project that never used it
     assert client.request("DELETE", "/api/projects/2", json={"confirm_name": "Used"}).status_code == 200
     assert dropped == ["activelabel-2-abcd1234"]
+
+
+def _database_down(project_dir, project_id):
+    raise ServerSelectionTimeoutError("127.0.0.1:27017: connection refused, Timeout: 30s")
+
+
+def test_pull_exclusions_when_the_fiftyone_database_does_not_answer(tmp_path, monkeypatch):
+    """#535: the server answered a bare "Internal Server Error" and the interface showed "HTTP 500"."""
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection"})
+    monkeypatch.setattr(fiftyone_bridge, "existing_dataset", _database_down)
+    quiet = TestClient(client.app, raise_server_exceptions=False)  # the server still logs the traceback
+    answer = quiet.post("/api/projects/1/fiftyone/pull-exclusions")
+    assert answer.status_code == 503
+    assert answer.json()["code"] == "fiftyone_unavailable"
