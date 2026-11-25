@@ -100,8 +100,16 @@ def test_fingerprint_ignores_float_noise_and_scores_but_not_edits():
     assert fingerprint(None, Task.DETECTION) == fingerprint(fo.Detections(), Task.DETECTION)
 
 
-def test_open_polyline_is_left_out_and_noted():
-    line = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1), (0.5, 0.5)]], closed=False, filled=False)
+def test_polyline_with_the_apps_defaults_is_a_polygon():
+    """#457: the App makes new polylines closed=False, filled=False; with 3 points it is a polygon."""
+    drawn = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1), (0.5, 0.5)]], closed=False, filled=False)
+    labels, notes = labels_and_notes(fo.Polylines(polylines=[drawn]), Task.SEGMENTATION)
+    assert [(lb.label, lb.polygons) for lb in labels] == [("a", [[[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]])]
+    assert notes == {}
+
+
+def test_open_line_without_a_polygon_ring_is_left_out_and_noted():
+    line = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1)]], closed=False, filled=False)
     closed = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1), (0.5, 0.5)]], closed=True)
     labels, notes = labels_and_notes(fo.Polylines(polylines=[line, closed]), Task.SEGMENTATION)
     assert len(labels) == 1 and notes == {"open_polyline": 1}

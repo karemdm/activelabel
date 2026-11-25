@@ -122,9 +122,12 @@ def _note(notes: dict[str, int], code: str) -> None:
 def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
     """Labels of a ``Polylines`` value: those with a class and a ring of at least 3 points.
 
-    A line that is neither closed nor filled is not a polygon: it is left out and noted
-    (``open_polyline``). A ring of fewer than 3 points is left out and noted (``polygon_too_few_points``);
-    the polyline is kept when it has other rings.
+    ``closed`` and ``filled`` are not read when a ring has 3 points or more: the App gives a polyline
+    drawn in it ``closed=False, filled=False`` unless the label schema says otherwise, and every label of a
+    segmentation project is a polygon, so such a ring is a polygon (closed implicitly). A polyline that is
+    neither closed nor filled and has no ring of 3 points is a line, not a polygon: it is left out and noted
+    (``open_polyline``). A ring of fewer than 3 points of another polyline is left out and noted
+    (``polygon_too_few_points``); the polyline is kept when it has other rings.
 
     Args:
         value: the ``Polylines`` label.
@@ -137,11 +140,11 @@ def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
     for poly in value.polylines or []:
         if not poly.label:
             continue
-        if not getattr(poly, "closed", False) and not getattr(poly, "filled", False):
-            _note(notes, "open_polyline")
-            continue
         points = list(poly.points or [])
         rings = [[[_r(x), _r(y)] for x, y in ring] for ring in points if len(ring) >= 3]
+        if not rings and not getattr(poly, "closed", False) and not getattr(poly, "filled", False):
+            _note(notes, "open_polyline")
+            continue
         if len(rings) < len(points):
             _note(notes, "polygon_too_few_points")
         if not rings:
@@ -203,7 +206,8 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     """Like :func:`labels_from_fo`, plus notes on shapes that were changed or left out to be read.
 
     Notes: ``mask_only`` (a detection mask kept as its box), ``open_polyline`` (a line that is not closed
-    nor filled, left out) and ``polygon_too_few_points`` (a ring of fewer than 3 points, left out).
+    nor filled and has no ring of 3 points, left out) and ``polygon_too_few_points`` (a ring of fewer than 3
+    points, left out).
 
     Args:
         value: the FiftyOne label field value, or None.

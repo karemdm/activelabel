@@ -292,7 +292,7 @@ PROBLEM_MESSAGES = {
     "keypoints_count_mismatch": (
         "Poses with another number of points than the project's (they are skipped on apply)."
     ),
-    "open_polyline": "Open lines (not closed nor filled) are not polygons (they are skipped on apply).",
+    "open_polyline": "Open lines of fewer than 3 points are not polygons (they are skipped on apply).",
     "mask_only": "Detections with a mask: only their box is kept.",
     "edited_on_both_sides": (
         "Images edited in the tool whose project labels also changed since they were sent: applying "

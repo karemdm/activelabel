@@ -393,7 +393,7 @@
   "problem.missing_images": "Imagens que a ferramenta não devolveu (ficam como estão).",
   "problem.edited_on_both_sides": "Imagens editadas no FiftyOne cujos rótulos no projeto também mudaram depois do envio: aplicar troca a versão do projeto pela do FiftyOne.",
   "problem.box_invalid": "Caixas sem área ou fora da imagem (ficam de fora ao aplicar).",
-  "problem.open_polyline": "Linhas abertas (nem fechadas nem preenchidas) não são polígonos (ficam de fora ao aplicar).",
+  "problem.open_polyline": "Linhas abertas com menos de 3 pontos não são polígonos (ficam de fora ao aplicar).",
   "problem.mask_only": "Detecções com máscara: só a caixa é mantida.",
   "ann.load_title": "Trazer anotações de arquivos",
   "annotate.tool.fiftyone": "FiftyOne",

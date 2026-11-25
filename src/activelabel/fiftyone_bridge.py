@@ -255,6 +255,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
             fo.Polyline(
                 label=lb.label,
                 points=[[tuple(p) for p in ring] for ring in lb.polygons],
+                closed=True,
                 filled=True,
                 index=lb.track,
             )
@@ -630,11 +631,28 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     return dataset
 
 
+def _closed_and_filled(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The attributes of a polyline schema with ``closed`` and ``filled`` defaulting to True.
+
+    The App gives a polyline it creates the defaults of the label schema over its own
+    ``closed=False, filled=False``, so a polygon drawn there is closed and filled like the ones sent.
+
+    Args:
+        attributes: the ``attributes`` of the generated label schema.
+
+    Returns:
+        A copy in which ``closed`` and ``filled`` have ``default: True``.
+    """
+    return [{**a, "default": True} if a.get("name") in ("closed", "filled") else a for a in attributes]
+
+
 def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     """Let the App's *Annotate* mode edit ``ground_truth``, choosing classes from the project's list.
 
     The FiftyOne App (1.22) only edits a field that has an active *label schema*; without one its Annotate
-    tab only offers to "Add schema". The App can edit classifications, boxes and polygons of images, not
+    tab only offers to "Add schema". For polygons the schema also makes a new polyline closed and filled
+    (the App's own default is an open, unfilled line). The App can edit classifications, boxes and
+    polygons of images, not
     keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne).
 
     Args:
@@ -650,6 +668,8 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
         schema = dict(dataset.generate_label_schemas(GROUND_TRUTH, scan_samples=False))
         if project.classes:
             schema.update(classes=list(project.classes), component="dropdown")
+        if project.task is Task.SEGMENTATION:
+            schema["attributes"] = _closed_and_filled(schema.get("attributes", []))
         dataset.update_label_schema(GROUND_TRUTH, schema)
         if GROUND_TRUTH not in dataset.active_label_schemas:
             dataset.active_label_schemas = [*dataset.active_label_schemas, GROUND_TRUTH]
