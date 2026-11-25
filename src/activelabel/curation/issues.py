@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.storage import read_json, write_json
 
@@ -53,17 +54,26 @@ class Thresholds:
         """Check every value (finite, within its limits) and make the whole-number ones ``int``.
 
         Raises:
-            ValueError: a value that is not a number, not finite, or outside its limits.
+            CodedError: a value that is not a number, not finite, outside its limits or not whole
+                (``curation_threshold_not_number``, ``_range`` or ``_not_whole``).
         """
         for name, (low, high) in LIMITS.items():
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"{name} must be a number.")
+                raise CodedError("curation_threshold_not_number", f"{name} must be a number.", threshold=name)
             if not math.isfinite(value) or not low <= value <= high:
-                raise ValueError(f"{name} must be between {low:g} and {high:g}.")
+                raise CodedError(
+                    "curation_threshold_range",
+                    f"{name} must be between {low:g} and {high:g}.",
+                    threshold=name,
+                    min=low,
+                    max=high,
+                )
             if name in WHOLE:
                 if value != int(value):
-                    raise ValueError(f"{name} must be a whole number.")
+                    raise CodedError(
+                        "curation_threshold_not_whole", f"{name} must be a whole number.", threshold=name
+                    )
                 setattr(self, name, int(value))
             else:
                 setattr(self, name, float(value))

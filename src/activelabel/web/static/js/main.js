@@ -250,6 +250,7 @@
     to_task: (task) => lower(taskName(task)),
     status: (status) => lower(statusLabel(status)),
     field: (field) => tr(`error.field.${field}`, field),
+    threshold: (name) => tr(`threshold.${name}`, name),   // the label of the field, as in the Limits panel
     file: (file) => file || t('error.this_file'),
     what: (what) => tr(`error.what.${what}`, what),
   };
