@@ -652,6 +652,8 @@
   "tasks.create": "Create task",
   "tasks.meta_images_one": "{n} image",
   "tasks.meta_images_other": "{n} images",
+  "tasks.incomplete": "Upload cut off: images may be missing",
+  "tasks.incomplete_help": "The upload of this task stopped midway (the page was closed or the connection dropped). The images that arrived were kept; send the missing ones in a new task.",
   "tasks.meta_job_size": "{n} per job",
   "tasks.meta_jobs_one": "{n} job",
   "tasks.meta_jobs_other": "{n} jobs",
