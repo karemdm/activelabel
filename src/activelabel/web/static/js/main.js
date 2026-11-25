@@ -3,6 +3,7 @@ import {
   I18N, LOCALE, nf, nf1, setMessages, fmt, t, tr, tn, num, fmtDate, fmtDateTime, fmtBytes, lower,
 } from './shell/i18n.js';
 import { add, el, esc, fill, icon, redraw } from './shell/dom.js';
+import { toast, toastError } from './shell/toast.js';
 
   const VL = window.VL || {};
   setMessages(window.I18N || {}, VL.locale || 'en');
@@ -27,38 +28,6 @@ import { add, el, esc, fill, icon, redraw } from './shell/dom.js';
       if (dlg.dispatchEvent(new Event('cancel', { cancelable: true }))) dlg.close();
     });
   }
-
-  /** Where toasts go: the page's own box, or one inside the open modal dialog (a modal sits in the top layer
-   *  above everything else, and makes the rest of the page inert, so a toast outside it would be unseen). */
-  function toastBox() {
-    const modals = document.querySelectorAll('dialog:modal');
-    const dialog = modals.length ? modals[modals.length - 1] : null;
-    if (!dialog) return document.getElementById('toasts');
-    let box = dialog.querySelector(':scope > .toasts');
-    if (!box) {
-      box = el('div', { class: 'toasts', 'aria-live': 'polite' });
-      dialog.appendChild(box);
-    }
-    return box;
-  }
-
-  function toast(message, kind = 'info', ms = 7000) {
-    const box = toastBox();
-    if (!box) return;
-    const same = typeof message === 'string' ? [...box.children].find((n) => n.dataset.kind === kind && n.dataset.text === message) : null;
-    if (same) { clearTimeout(same.timer); same.timer = ms ? setTimeout(() => same.remove(), ms) : 0; return; }   // the same message is shown once
-    const node = el(
-      'div',
-      { class: `toast toast-${kind}`, 'data-kind': kind, 'data-text': typeof message === 'string' ? message : '', role: kind === 'error' ? 'alert' : 'status' },
-      icon(kind === 'error' ? 'error' : kind === 'success' ? 'check' : 'info'),
-      el('div', { class: 'toast-text' }, message),
-      el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => node.remove() }, icon('close', 16)),
-    );
-    box.appendChild(node);
-    if (ms) node.timer = setTimeout(() => node.remove(), ms);
-  }
-  /* the red toast with its icon already says it is an error: no "Error:" in front of the server's own words */
-  const toastError = (err) => toast(String(err && err.message ? err.message : err), 'error', 10000);
 
   /** Click handler for a button that starts something: the button stays disabled until the request settles,
    *  so a double click cannot start it twice. `stillBusy` says when it must stay disabled after that
