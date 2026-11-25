@@ -215,7 +215,8 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .project-title-row h1 { margin: 0; overflow-wrap: anywhere; }
 .class-line { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); min-width: 0; }
 .class-line-label { flex: none; }
-.class-line-chips { display: flex; flex-wrap: nowrap; gap: var(--space-1); overflow: hidden; min-width: 0; flex: 1 1 auto; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
+.class-line-chips { display: flex; flex-wrap: nowrap; gap: var(--space-1); overflow: hidden; min-width: 0; flex: 0 1 auto; }
+.class-line-chips.overflowing { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
 .class-line-chips .chip { flex: none; white-space: nowrap; }
 .class-line .btn { flex: none; }
 .project-head-actions { display: flex; gap: var(--space-2); align-items: flex-start; }
