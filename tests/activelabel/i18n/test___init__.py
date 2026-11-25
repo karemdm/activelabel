@@ -190,3 +190,8 @@ def test_fold_is_not_translated_in_portuguese():
         for line in path.read_text("utf-8").splitlines()
     ]
     assert not [text for text in texts if re.search(r"\bdobras?\b", text, re.IGNORECASE)]
+
+
+def test_no_text_names_label_studio_any_more():
+    """Label Studio support was removed; the list of accepted formats still named "Label Studio JSON"."""
+    assert not [k for lang in ("pt", "en") for k, v in load(lang).items() if "label studio" in v.lower()]

@@ -1392,7 +1392,7 @@
   "error.classes_in_use": "Some removed classes still have annotations: confirm the removal.",
   "error.unknown_thresholds": "Unknown thresholds: {names}.",
   "error.type_invalid": "The type must be one of: {choices}.",
-  "error.annotation_format_unknown": "The annotation format was not recognised. Supported: COCO JSON, YOLO txt (with data.yaml or classes.txt), Pascal VOC XML, CVAT for images or video XML, Label Studio JSON and MOT txt.",
+  "error.annotation_format_unknown": "The annotation format was not recognised. Supported: COCO JSON, YOLO txt (with data.yaml or classes.txt), Pascal VOC XML, CVAT for images or video XML and MOT txt.",
   "error.annotation_unreadable": "The content of the annotation files does not follow the format it seems to have.",
   "error.annotations_not_convertible": "Annotations for {from_task} cannot be converted to {to_task}.",
   "error.augmentation_level_invalid": "The augmentation level must be one of: {choices}.",
