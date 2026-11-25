@@ -30,6 +30,7 @@ from activelabel.labels import (
     NO_GEOMETRY,
     POLYGON_TOO_FEW_POINTS,
     Label,
+    annotations_path,
     geometry_problem,
     load_annotations,
     validate_labels,
@@ -52,6 +53,7 @@ SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
 SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
 MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
 
+_STALE_CACHE: dict[tuple[Path, int], tuple[tuple[int, int], dict[str, int]]] = {}
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 
@@ -1394,12 +1396,56 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     )
 
 
-def _summary(data: dict[str, Any], manifest_ids: set[str]) -> dict[str, Any]:
+def _label_hash(items: list[dict[str, Any]] | None) -> str:
+    """Hash of the labels of one image.
+
+    Args:
+        items: The labels of the image as dicts, or None.
+
+    Returns:
+        The hex SHA-256 of the labels, or an empty string for an image without labels.
+    """
+    if not items:
+        return ""
+    return hashlib.sha256(
+        json.dumps(items, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def stale_counts(data: dict[str, Any], people: dict[str, list[Label]]) -> dict[str, int]:
+    """How the current labels of a version's images differ from the labels it froze.
+
+    The labels compared are the usable ones (the same rule the split uses), per image, by hash.
+
+    Args:
+        data: The stored version, with its label copy.
+        people: The current human labels per image id.
+
+    Returns:
+        ``{changed_images, added, removed}``: images whose labels changed, images that had no labels
+        in the version and have some now, images that had labels and have none now.
+    """
+    folds = data.get("folds")
+    ids = {i for v in data["parts"].values() for i in v} | {i for f in folds or [] for i in f}
+    current, _ = usable_labels(Task(data["type"]), {i: people[i] for i in ids if people.get(i)})
+    frozen = data.get("labels") or {}
+    counts = {"changed_images": 0, "added": 0, "removed": 0}
+    for image_id in ids:
+        before = _label_hash(frozen.get(image_id))
+        after = _label_hash([lb.as_dict() for lb in current.get(image_id, [])])
+        if before == after:
+            continue
+        counts["added" if not before else "removed" if not after else "changed_images"] += 1
+    return counts
+
+
+def _summary(data: dict[str, Any], manifest_ids: set[str], stale: dict[str, int]) -> dict[str, Any]:
     """Summary of a stored version (without parts and labels).
 
     Args:
         data: the stored file of the version.
         manifest_ids: ids of the images the project has now.
+        stale: the version's ``stale`` counts (see ``stale_counts``).
 
     Returns:
         The summary; ``incomplete`` is true when some image of the version is no longer in the project.
@@ -1422,6 +1468,7 @@ def _summary(data: dict[str, Any], manifest_ids: set[str]) -> dict[str, Any]:
         "warnings": data["warnings"],
         "videos": data.get("videos", []),
         "incomplete": bool(ids - manifest_ids),
+        "stale": stale,
     }
 
 
@@ -1506,7 +1553,7 @@ class DatasetStore:
             }
             write_json(self._file(number), data)
             write_json(counter_file, {"next": number + 1})
-        return _summary(data, self._manifest_ids())
+        return _summary(data, self._manifest_ids(), {"changed_images": 0, "added": 0, "removed": 0})
 
     def versions(self) -> list[dict[str, Any]]:
         """Summaries of every version, newest first.
@@ -1519,8 +1566,29 @@ class DatasetStore:
         for n in reversed(self._numbers()):
             data = read_json(self._file(n))
             if data:
-                out.append(_summary(data, ids))
+                out.append(_summary(data, ids, self._stale(n, data)))
         return out
+
+    def _stale(self, number: int, data: dict[str, Any]) -> dict[str, int]:
+        """The ``stale`` counts of a version, recomputed only when ``annotations.json`` changed."""
+        path = annotations_path(self.project_dir)
+        try:
+            info = path.stat()
+            stamp = (info.st_mtime_ns, info.st_size)
+        except OSError:
+            stamp = (0, 0)
+        key = (self.project_dir, number)
+        cached = _STALE_CACHE.get(key)
+        if cached and cached[0] == stamp:
+            return dict(cached[1])
+        annotations = load_annotations(self.project_dir)
+        people = {
+            k: [lb for lb in v if lb.score is None]
+            for k, v in (annotations.images if annotations else {}).items()
+        }
+        counts = stale_counts(data, people)
+        _STALE_CACHE[key] = (stamp, counts)
+        return dict(counts)
 
     def read(self, number: int) -> dict[str, Any]:
         """The stored file of a version, with the label copy.
@@ -1540,7 +1608,7 @@ class DatasetStore:
         return dict(data)
 
     def get(self, number: int) -> dict[str, Any]:
-        """A version without the label copy, plus its summary fields (``sizes``, ``incomplete``).
+        """A version without the label copy, plus its summary fields (``sizes``, ``incomplete``, ``stale``).
 
         Args:
             number: the version number.
@@ -1552,8 +1620,9 @@ class DatasetStore:
             DatasetNotFound: unknown number.
         """
         data = self.read(number)
+        stale = self._stale(number, data)
         data.pop("labels", None)
-        return {**data, **_summary(data, self._manifest_ids())}
+        return {**data, **_summary(data, self._manifest_ids(), stale)}
 
     def delete(self, number: int) -> None:
         """Remove a version (its number is not reused).

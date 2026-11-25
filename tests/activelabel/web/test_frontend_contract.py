@@ -124,6 +124,29 @@ def test_a_dataset_version_leads_on_to_training_and_groups_its_warnings():
     assert "warnSummary(" in JS and ".ds-warn-group" in CSS
 
 
+def test_a_stale_version_is_flagged_on_its_card_and_in_the_training_dialog():
+    """The API's ``stale`` counts become a warning (icon and text) with a "new version from this" action; the
+    training dialog warns too, and the warning does not disable the start button."""
+    api = (SRC / "datasets.py").read_text(encoding="utf-8")
+    assert '"stale"' in api and "changed_images" in api and "changed_images" in JS
+    card = JS[
+        JS.index("function versionCard") : JS.index("function draw()", JS.index("function versionCard"))
+    ]
+    assert "staleCount(v)" in card and "ds-new-from" in card and "openNew(null, v)" in card
+    assert "drawStale()" in JS and "tr-dataset-stale" in JS
+    assert ".ds-stale" in CSS
+    for lang in ("pt", "en"):
+        texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
+        for key in (
+            "ds.stale_one",
+            "ds.stale_other",
+            "ds.new_from",
+            "ds.stale_train_one",
+            "ds.stale_train_other",
+        ):
+            assert f'"{key}"' in texts, (lang, key)
+
+
 def test_the_training_settings_are_closed_with_a_line_for_what_is_not_the_default():
     """The hyperparameters sit in a closed section whose line lists only the changed values."""
     assert "changedLine()" in JS and "tr.params_default" in JS

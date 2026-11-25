@@ -89,6 +89,21 @@ def test_incomplete_after_image_deleted(tmp_path):
     assert client.get(BASE).json()["versions"][0]["incomplete"] is True
 
 
+def test_stale_tells_that_labels_changed_after_the_version(tmp_path):
+    client, state, ids = _setup(tmp_path)
+    client.post(BASE, json={})
+    fresh = {"changed_images": 0, "added": 0, "removed": 0}
+    assert client.get(f"{BASE}/1").json()["stale"] == fresh
+    images = {i: [Label("a", bbox=[0, 0, 0.5, 0.5])] for i in ids}
+    images[ids[0]] = [Label("b", bbox=[0, 0, 1, 1])]
+    del images[ids[1]]
+    save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["a", "b"], images, {}))
+    changed = client.get(BASE).json()["versions"][0]["stale"]
+    assert changed["removed"] == 1 and changed["added"] == 0 and changed["changed_images"] >= 1
+    assert client.get(f"{BASE}/1").json()["stale"] == changed
+    assert client.post(BASE, json={}).json()["stale"] == fresh
+
+
 def test_images_filters_by_part(tmp_path):
     client, _, ids = _setup(tmp_path)
     client.post(BASE, json={})
