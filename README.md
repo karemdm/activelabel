@@ -3,6 +3,12 @@
 Image datasets from curation to trained models, step by step, in a simple web interface
 (English and Portuguese, light and dark theme).
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karemdm/activelabel?quickstart=1)
+
+Click the badge to run ActiveLabel in your browser, with nothing to install: it creates a GitHub
+Codespace that installs the app and opens it. It uses your own Codespaces quota (personal accounts
+get free monthly hours), and your images and annotations stay in your codespace.
+
 A project goes from images to a trained model in six steps, in two groups: **Data** (images,
 annotations, curation) and **Model** (data split, training, models). A trained model can then
 pre-annotate new images, which a person reviews in CVAT or FiftyOne and feeds back into the next

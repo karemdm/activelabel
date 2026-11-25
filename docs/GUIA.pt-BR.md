@@ -3,6 +3,12 @@
 Conjuntos de imagens da curadoria ao modelo treinado, por etapas, numa interface web
 simples (português e inglês, tema claro e escuro).
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karemdm/activelabel?quickstart=1)
+
+Clique no selo para rodar o ActiveLabel no navegador, sem instalar nada: ele cria um Codespace do
+GitHub que instala o app e o abre. Usa a sua própria cota de Codespaces (contas pessoais têm horas
+gratuitas por mês), e suas imagens e anotações ficam no seu codespace.
+
 Um projeto vai das imagens ao modelo treinado em seis passos, em dois grupos: **Dados**
 (imagens, anotações, curadoria) e **Modelo** (divisão dos dados, treinamento, modelos). Um
 modelo treinado pode então pré-anotar imagens novas, que uma pessoa revisa no CVAT ou no
