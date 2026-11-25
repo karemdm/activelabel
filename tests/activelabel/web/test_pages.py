@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
+from frontend import js_source
 
 from activelabel.config import Settings
 from activelabel.i18n import messages
@@ -107,7 +108,7 @@ def test_every_translation_key_in_templates_and_js_exists():
     used: set[str] = set()
     for template in (WEB / "templates").glob("*.html"):
         used |= set(re.findall(r"\bt\(\s*'([\w.]+)'", template.read_text(encoding="utf-8")))
-    js = (WEB / "static" / "app.js").read_text(encoding="utf-8")
+    js = js_source()
     used |= set(re.findall(r"\bt\(\s*['\"`]([\w.]+)['\"`]", js))
     for key in re.findall(r"\btn\(\s*['\"`]([\w.]+)['\"`]", js):
         used |= {f"{key}_one", f"{key}_other"}
@@ -156,8 +157,7 @@ def test_dynamic_translation_keys_exist():
 
 
 def test_js_has_no_external_resources():
-    for name in ("app.js", "app.css"):
-        text = (WEB / "static" / name).read_text(encoding="utf-8")
+    for text in (js_source(), (WEB / "static" / "app.css").read_text(encoding="utf-8")):
         assert not re.search(r"(?:src|href|url\()\s*=?\s*[\"']?https?://", text)
     for template in (WEB / "templates").glob("*.html"):
         assert "http://" not in template.read_text(encoding="utf-8").replace("http://www.w3.org", "")

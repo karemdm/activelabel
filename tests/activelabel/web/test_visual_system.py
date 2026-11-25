@@ -7,9 +7,11 @@ import json
 import re
 from pathlib import Path
 
+from frontend import js_source
+
 STATIC = Path(__file__).resolve().parents[3] / "src" / "activelabel" / "web" / "static"
 CSS = (STATIC / "app.css").read_text(encoding="utf-8")
-JS = (STATIC / "app.js").read_text(encoding="utf-8")
+JS = js_source()
 
 
 def test_the_project_page_sets_its_area_from_the_current_step():

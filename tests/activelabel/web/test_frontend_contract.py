@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from api_client import make_client, upload
+from frontend import js_source
 from sample_images import make_image
 
 from activelabel import i18n
@@ -17,14 +18,14 @@ from activelabel.web import pages
 
 STATIC = Path(pages.STATIC_DIR)
 SRC = STATIC.parents[1]
-JS = (STATIC / "app.js").read_text(encoding="utf-8")
+JS = js_source()
 CSS = (STATIC / "app.css").read_text(encoding="utf-8")
 
 
 def test_the_page_does_not_patch_the_dom():
     """Optional children are skipped by ``fill``/``add``/``el``, not by changing ``Element.prototype``."""
     assert "Element.prototype" not in JS
-    assert ".replaceChildren(" not in re.sub(r"const fill = .*?\n  };", "", JS, flags=re.S)
+    assert ".replaceChildren(" not in re.sub(r"const fill = .*?\n\s*};", "", JS, flags=re.S)
 
 
 def test_toasts_are_shown_inside_an_open_dialog():
