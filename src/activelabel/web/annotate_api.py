@@ -21,6 +21,7 @@ from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
+from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.web.errors import ApiError, bad_request, tool_failure
 from activelabel.web.state import AppState, get_state
 
@@ -45,6 +46,8 @@ class SendBody(BaseModel):
     scope: str = "all"
     ids: list[str] = []
     issue: str = ""
+    task: int | None = None  # scope "task": the task whose active images are sent
+    job: int | None = None  # scope "task": only this job of the task
 
 
 # -- dataset access (replaced in tests, FiftyOne is slow to start) --------------
@@ -339,7 +342,15 @@ def _send_job(
     session_id = sessions.new_id()
     sent = tool.send(dataset, image_ids, project, settings, session_id)
     session = sessions.create(
-        project_dir, body.tool, body.scope, image_ids, sent.links, sent.ref, session_id=session_id
+        project_dir,
+        body.tool,
+        body.scope,
+        image_ids,
+        sent.links,
+        sent.ref,
+        session_id=session_id,
+        task=body.task if body.scope == "task" else None,
+        job=body.job if body.scope == "task" else None,
     )
     result: dict[str, Any] = {
         "session": sessions.public(session),
@@ -376,8 +387,15 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
     manifest = state.manifest_with_images(project_id)
     state.busy(project_id)
     settings = _settings(state, body.tool)
+    if body.scope == "task" and body.task is not None:
+        try:
+            TaskStore(state.store.dir(project_id)).get(body.task)
+        except TaskNotFound:
+            raise ApiError(404, "task_not_found", "This task does not exist.") from None
     try:
-        image_ids = sessions.select_images(manifest, body.scope, body.ids, body.issue)
+        image_ids = sessions.select_images(
+            manifest, body.scope, body.ids, body.issue, task=body.task, job=body.job
+        )
     except ValueError as exc:
         raise bad_request(exc) from exc
     job = partial(_send_job, state, project, tool, settings, body, image_ids)

@@ -42,7 +42,9 @@ a codespace used from the browser.
 
 1. **Choose which images** (*Which images*): all active images, only images without annotations, the
    images selected in the curation grid, one issue filter, or only the images whose labels are all
-   pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)).
+   pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)). A task or one of its jobs
+   can also be sent from its open menu in the *Tasks and jobs* tab (*Edit in FiftyOne*): scope `task`,
+   exactly its active images; the session records the task (and job) and its card names it.
 2. **Send** (*Send to FiftyOne*, a job): the FiftyOne dataset is refreshed from the project (images +
    current ground truth) and the App opens on a saved view with those images, field `ground_truth`.
    A **session** is recorded in `<project>/annotate.json` (and `annotate/<session>/`): id, tool, image
@@ -108,7 +110,7 @@ spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexã
 | POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}` |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
-| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated", ids?, issue?}` | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool |
+| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
@@ -118,4 +120,4 @@ spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexã
 unknown_classes: [...], problems: [{level, code, message, count, examples}], examples:
 [{image_id, name, added, removed, edited}] (max 20)}`.
 
-Session (as returned): `{id, tool, scope, images, created, status, links: [{label, url}], diff?}`.
+Session (as returned): `{id, tool, scope, images, created, status, links: [{label, url}], task?, job?, diff?}`.

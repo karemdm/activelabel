@@ -73,8 +73,11 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 | DELETE | `/api/projects/{id}/tasks/{tid}` | `{confirm: true}` | `{deleted: n images}` |
 
 Task view: `{id, name, created, job_size, open, incomplete, source, images, active, annotated, jobs: [{n, first,
-last, images, active, annotated}], remote?: {...}}` (`first`/`last`: 1-based positions in the task;
-`remote` only when the project is linked to CVAT, see below).
+last, images, active, annotated}], remote?: {...}, cvat}` (`first`/`last`: 1-based positions in the task;
+`remote` only when the project is linked to CVAT, see below). `cvat` is `ready` when `remote` is there,
+otherwise the reason the task cannot be opened in CVAT: `not_configured` (no CVAT connection),
+`not_linked` (the project is not linked), `not_synchronised` (the task is not in CVAT yet) or
+`unreachable` (it is, but CVAT did not answer).
 
 Chunked upload: the browser sends big uploads in chunks. The first chunk creates the task
 (`POST …/tasks` returns its id), later chunks append with `POST …/tasks/{tid}/images` while the
@@ -161,6 +164,12 @@ project with that one task, linked to the task's project in CVAT when it has one
   annotated, jobs). *New task*: name, images per job (optional), files, folder or video (docs/VIDEO.md).
   A task card lists its jobs (images 1–10, 11–20…; CVAT state when linked) and opens the tab *Gallery*
   (*Galeria*) filtered on the task or job; *Gallery* also has task and job filters of its own.
+  The open icon on a task, and on each job row, is a menu (button with `aria-haspopup`; arrows, Home, End,
+  Esc): *Edit in FiftyOne* (*Editar no FiftyOne*) starts an edit session (docs/ANNOTATION.md) on exactly the
+  active images of the task or job; *Open in CVAT* (*Abrir no CVAT*) opens the linked CVAT task or job. An
+  item that cannot be used stays in the menu, disabled, with the reason written under it (CVAT not set up,
+  project not linked, task not synchronised yet; keypoints cannot be edited in FiftyOne, so that project's
+  menu has *View in FiftyOne* instead, to look at the task).
 - **Annotations** step, tabs *CVAT* and *FiftyOne*: tool + scope (project / task / job). For CVAT the
   button is *Compare with CVAT* (*Comparar com o CVAT*): it makes the plan, you review it, and *Apply
   synchronisation* (*Aplicar a sincronização*) carries it out; for FiftyOne the session works as in
