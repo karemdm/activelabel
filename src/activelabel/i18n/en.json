@@ -541,6 +541,8 @@
   "sync.n_images_one": "{n} image",
   "sync.n_images_other": "{n} images",
   "sync.only_help": "These images exist only in {tool}. They are left alone.",
+  "sync.remote_images_one": "{n} image in {tool}",
+  "sync.remote_images_other": "{n} images in {tool}",
   "sync.only_more": "and {n} more",
   "sync.diff_pull": "Changes brought into ActiveLabel",
   "sync.diff_push": "Changes sent to {tool}",

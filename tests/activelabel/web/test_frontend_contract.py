@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -363,3 +364,12 @@ def test_task_card_tells_about_excluded_images():
     assert re.search(r"j\.images - j\.active", JS)
     assert "tasks.meta_excluded" in JS and "tasks.job_excluded" in JS
     assert ".job-excluded" in CSS
+
+
+def test_the_cvat_scope_selector_counts_active_images_and_the_review_names_where_its_count_is():
+    """#413: the selector counts active images; the review header says whose count it shows."""
+    assert "`${x.name} (${num(x.active)})`" in JS and "`${x.name} (${num(x.images)})`" not in JS
+    assert "tn('sync.remote_images', Number(remote.images) || 0, { tool: name })" in JS
+    for lang in ("pt", "en"):
+        messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert "{tool}" in messages["sync.remote_images_other"] and "sync.remote_images_one" in messages

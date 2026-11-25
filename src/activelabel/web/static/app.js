@@ -1582,7 +1582,7 @@
           el('p', { class: 'session-meta' },
             isHttp(remote.url) ? el('a', { href: remote.url, target: '_blank', rel: 'noopener' }, remote.name || name, ' ', icon('external', 14)) : el('span', null, remote.name || name),
             remote.images != null ? el('span', { class: 'sep', 'aria-hidden': 'true' }, '·') : null,
-            remote.images != null ? el('span', null, tn('annotate.images_n', Number(remote.images) || 0)) : null,
+            remote.images != null ? el('span', null, tn('sync.remote_images', Number(remote.images) || 0, { tool: name })) : null,
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
             el('strong', { class: 'sync-scope' }, scopeText(plan.scope)),
             el('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
@@ -2572,7 +2572,7 @@
         const taskSelect = el('select', {
           id: 'cvat-task', 'aria-label': t('sync.scope_task'), disabled: !list.length,
           onchange: (e) => { c.task = Number(e.target.value); c.job = null; if (c.scope === 'project') c.scope = 'task'; drawScope(); drawSend(); },
-        }, ...list.map((x) => el('option', { value: String(x.id), selected: x.id === c.task }, `${x.name} (${num(x.images)})`)));
+        }, ...list.map((x) => el('option', { value: String(x.id), selected: x.id === c.task }, `${x.name} (${num(x.active)})`)));
         const jobSelect = el('select', {
           id: 'cvat-job', 'aria-label': t('sync.scope_job'), disabled: !task || !task.jobs.length,
           onchange: (e) => { c.job = Number(e.target.value); c.scope = 'job'; drawScope(); drawSend(); },
