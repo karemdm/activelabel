@@ -1,10 +1,9 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { loadApp } = require('./helpers/load-app');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadApp } from './helpers/load-app.mjs';
 
-const en = loadApp('en');
-const pt = loadApp('pt');
+const en = await loadApp('en');
+const pt = await loadApp('pt');
 
 test('fmt fills {name} placeholders and keeps unknown ones', () => {
   assert.equal(en.fmt('{a} and {b}', { a: 1, b: 'x' }), '1 and x');

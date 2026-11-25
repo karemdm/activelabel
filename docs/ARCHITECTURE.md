@@ -10,7 +10,7 @@ Interface names are the English ones; the Portuguese names are in `src/activelab
 
 ```mermaid
 flowchart TB
-  UI["Browser<br/>pages and app.js"]
+  UI["Browser<br/>pages and JS modules"]
   API["FastAPI routers<br/>web/*_api.py"]
   DOM["Domain code<br/>labels, datasets, sync,<br/>curation, training"]
   JOB["Light jobs<br/>one worker thread"]

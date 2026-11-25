@@ -80,7 +80,7 @@ src/activelabel/
   training/              catalog, config, runs, models, public_models, environment, runner, workers/
   i18n/                  en.json, pt.json
   web/                   app.py, state.py, one *_api.py router per area, pages.py,
-                         templates/*.html, static/app.js and app.css
+                         templates/*.html, static/js/ (ES modules) and app.css
 tests/activelabel/       mirrors src/activelabel; tests/helpers has shared fakes and builders
 docs/                    this documentation
 ```
@@ -90,7 +90,7 @@ Where to start for common changes:
 | Change | Look at |
 | --- | --- |
 | A new annotation format | `annotations/` (a parser, then `detect_format` and `parse` in `annotations/parsing.py`), tests in `tests/activelabel/annotations/` |
-| A new curation issue | `curation/issues.py` (flag, threshold, `ISSUES`), the `issue.*`, `tag.*` and `threshold.*` texts in `i18n`, and `app.js` |
+| A new curation issue | `curation/issues.py` (flag, threshold, `ISSUES`), the `issue.*`, `tag.*` and `threshold.*` texts in `i18n`, and `static/js/main.js` |
 | A new model in the catalogue | `training/catalog.py` (data only) and, for a new kind of task, a worker in `training/workers/` and `WORKER_FILES` in `runner.py` |
 | A new endpoint | the router of its area in `web/`, a test in `tests/activelabel/web/`, and the table in `docs/DESIGN.md` or the document of that area |
 | A new screen text | `i18n/en.json` and `i18n/pt.json` (same key, same placeholders) |
@@ -189,11 +189,11 @@ npm install
 npx playwright install chromium     # Linux CI also needs --with-deps
 ```
 
-- **Unit tests** (`npm run test:js`): the built-in `node:test` runner, files `tests/js/*.test.js`. They load the
-  real `app.js` in jsdom (`tests/js/helpers/load-app.js`), in Portuguese and in English, and check its helpers
-  (texts, plurals, number formats, error translation). `app.js` has no modules, so the loader adds one line to a
-  copy of the source in memory that exposes the helpers; a helper the tests need must be added to the list in
-  that file. That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
+- **Unit tests** (`npm run test:js`): the built-in `node:test` runner, files `tests/js/*.test.mjs`. They import
+  the real `static/js/main.js` in jsdom (`tests/js/helpers/load-app.mjs`), in Portuguese and in English, and check
+  its helpers (texts, plurals, number formats, error translation). The interface is made of native ES modules
+  (`<script type="module">`, no bundler); until the helpers have modules of their own, `main.js` exports the ones
+  the tests need, so a helper a test needs must be added to that `export` line. That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
 - **Smoke tests** (`npm run test:e2e`): Playwright with Chromium, files `tests/e2e/*.spec.js`. The configuration
   (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a
   temporary workspace, so it never touches the default port or your own data. Set `ACTIVELABEL_E2E_PYTHON` to use

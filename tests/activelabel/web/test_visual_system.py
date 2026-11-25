@@ -1,6 +1,7 @@
 """The visual system of the interface (issue #228): area colours, step markers, activities pill, type.
 
-These are contract checks on ``app.css`` and ``app.js``: the look itself is checked in a browser.
+These are contract checks on ``app.css`` and the JavaScript (``static/js``): the look itself is checked in a
+browser.
 """
 
 import json

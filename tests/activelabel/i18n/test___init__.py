@@ -74,7 +74,7 @@ def test_messages_follow_changes_to_the_files(tmp_path, monkeypatch):
 
 
 def test_every_key_the_screen_uses_exists():
-    """Keys written literally in app.js and the templates (dynamic ones are checked by their tests)."""
+    """Keys written literally in the JS and the templates (dynamic ones are checked by their tests)."""
     web = Path(i18n.__file__).parents[1] / "web"
     js = js_source()
     html = "".join(p.read_text(encoding="utf-8") for p in (web / "templates").glob("*.html"))
@@ -112,7 +112,7 @@ def test_every_job_kind_the_server_starts_is_named():
 
 def test_progress_messages_are_translated():
     """Fixed progress messages the server writes are looked up as ``jobmsg.<text>``; the ones that carry a
-    tool name are matched by shape in app.js (``jobmsg.reading``, ``jobmsg.writing``...)."""
+    tool name are matched by shape in the JavaScript (``jobmsg.reading``, ``jobmsg.writing``...)."""
     texts: set[str] = set()
     for path in SRC.rglob("*.py"):
         source = path.read_text(encoding="utf-8")

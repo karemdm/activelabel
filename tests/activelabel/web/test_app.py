@@ -39,7 +39,7 @@ def test_scripts_are_served_as_javascript_on_every_system(tmp_path: Path) -> Non
     """A module script served as ``text/plain`` (a Windows registry default) is refused by the browser."""
     assert mimetypes.guess_type("main.js")[0] == "text/javascript"
     with TestClient(create_app(Settings(workspace=tmp_path / "ws"))) as client:
-        response = client.get("/static/app.js")
+        response = client.get("/static/js/main.js")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/javascript")
 

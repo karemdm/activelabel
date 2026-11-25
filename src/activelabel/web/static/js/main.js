@@ -1,6 +1,4 @@
-/* activelabel web interface. Vanilla JS, no dependencies. Talks to the JSON API under /api. */
-(() => {
-  'use strict';
+/* activelabel web interface: an ES module, vanilla JS, no dependencies. Talks to the JSON API under /api. */
 
   const VL = window.VL || {};
   const I18N = window.I18N || {};
@@ -6608,4 +6606,6 @@
     else if (page === 'import') initImport();
     else if (page === 'project') initProject();
   });
-})();
+
+// for the unit tests in tests/js until the helpers move to their own modules (#155)
+export { fmt, t, tr, tn, num, fmtBytes, esc, errorMessage, errorParams, validationText, isHttp };

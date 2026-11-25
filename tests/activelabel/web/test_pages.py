@@ -69,10 +69,10 @@ def test_asset_version_in_urls(client):
     html = client.get("/").text
     version = pages.asset_version()
     assert f"/static/app.css?v={version}" in html
-    assert f"/static/app.js?v={version}" in html
+    assert f'<script type="module" src="/static/js/main.js?v={version}">' in html
     assert re.fullmatch(r"[0-9a-f]{10}", version)
     assert pages.compute_asset_version() == version
-    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/js/main.js").status_code == 200
 
 
 def test_asset_version_follows_changed_files(tmp_path, monkeypatch):
