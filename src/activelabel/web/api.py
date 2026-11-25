@@ -334,14 +334,21 @@ def _backup_annotations(project_dir: Path) -> None:
 def _with_classes(annotations: AnnotationSet, project: Project) -> AnnotationSet:
     """The ground truth with the class list of the project (so ``class_names`` never lags behind).
 
+    Labels whose class differs from a project class only in case take the project's spelling: a class
+    renamed that way (``cat`` -> ``Cat``) keeps its labels, and a version never gets both names.
+
     Args:
-        annotations: The ground truth.
-        project: The project (the class list to use).
+        annotations: The ground truth; changed in place.
+        project: The project, with its class list already updated.
 
     Returns:
-        The ground truth with the class list of the project.
+        ``annotations``, with the project's class list and spelling.
     """
     annotations.classes = list(project.classes)
+    spelling = {c.lower(): c for c in project.classes}
+    for labels in annotations.images.values():
+        for label in labels:
+            label.label = spelling.get(label.label.lower(), label.label)
     return annotations
 
 
