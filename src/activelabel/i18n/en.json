@@ -83,6 +83,7 @@
   "images.incomplete": "Some files were not sent.",
   "images.result": "Result of the upload",
   "images.none_added": "No image was added, so no task was created.",
+  "images.upload_running": "Upload in progress. Use Cancel to stop it.",
   "images.added_one": "{n} image added",
   "images.added_other": "{n} images added",
   "images.duplicates_one": "{n} duplicate skipped",

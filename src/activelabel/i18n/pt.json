@@ -83,6 +83,7 @@
   "images.incomplete": "Alguns arquivos não foram enviados.",
   "images.result": "Resultado do envio",
   "images.none_added": "Nenhuma imagem foi adicionada, então nenhuma task foi criada.",
+  "images.upload_running": "Envio em andamento. Use Cancelar para interromper.",
   "images.added_one": "{n} imagem adicionada",
   "images.added_other": "{n} imagens adicionadas",
   "images.duplicates_one": "{n} duplicada ignorada",
