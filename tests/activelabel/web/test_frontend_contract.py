@@ -367,3 +367,13 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def test_an_old_sync_result_is_not_shown_again_and_the_ready_toast_skips_its_own_step():
+    """Done syncs found on the first poll are dismissed; no "plan ready" toast on Annotations (#466)."""
+    assert re.search(
+        r"if \(!ctx\.jobsSeen\) \{.*?j\.kind === 'sync_apply' && j\.status === 'done'.*?syncDismissed\.add",
+        JS,
+        re.S,
+    )
+    assert "if (job.kind === 'sync_plan' && ctx.tab === 'annotations') continue;" in JS

@@ -1016,6 +1016,7 @@
       links: [],
       syncTool: {},
       syncDismissed: new Set(),
+      jobsSeen: false,
       watchers: [],  // called after every redraw of the activity strip (the buttons that depend on running jobs)
     };
     const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training', 'models'];
@@ -3922,6 +3923,10 @@
       if (ctx.pollFailing) { ctx.pollFailing = false; toast(t('jobs.back_online'), 'info', 3000); }
       const jobs = Array.isArray(data) ? data : (data && data.jobs) || [];
       ctx.jobs = jobs;
+      if (!ctx.jobsSeen) {  // a sync finished before this page was opened is old news: its result card is not shown again
+        ctx.jobsSeen = true;
+        jobs.filter((j) => j.kind === 'sync_apply' && j.status === 'done').forEach((j) => ctx.syncDismissed.add(j.id));
+      }
       let finished = false;
       for (const job of jobs) {
         const before = ctx.jobStatus.get(job.id);
@@ -3940,6 +3945,7 @@
       for (const job of jobs) {
         if (job.status === 'done' && ctx.syncNotify && ctx.syncNotify.has(job.id)) {
           ctx.syncNotify.delete(job.id);
+          if (job.kind === 'sync_plan' && ctx.tab === 'annotations') continue;  // the plan is already on screen
           if (job.kind === 'sync_apply') toast(`${t('sync.applied')} ${resultText(job)}`, 'success', 8000);
           else if (!planIsEmpty(job.result || {})) toast(t('sync.plan_ready'), 'info', 8000);
         }
