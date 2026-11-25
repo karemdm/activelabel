@@ -7,6 +7,7 @@ import pytest
 
 from activelabel.annotations import discard_staged, load_staged, stage
 from activelabel.annotations.staging import MAX_AGE_SECONDS
+from activelabel.errors import CodedError
 
 
 def zip_bytes(entries):
@@ -71,3 +72,9 @@ def test_images_outside_class_folders_are_not_an_annotation_upload(tmp_path):
         stage(folder, [("fotos.zip", zip_bytes({"1.png": "x", "2.png": "x"}))])
     token = stage(folder, [("set.zip", zip_bytes({"c.json": "[]", "a/1.png": "x", "b/2.png": "x"}))])
     assert [p.name for p in load_staged(folder, token)] == ["c.json"]  # annotation files win over images
+
+
+def test_an_invalid_staging_token_has_a_code(tmp_path):
+    with pytest.raises(CodedError) as info:
+        load_staged(tmp_path / "p", "../..")
+    assert info.value.code == "staging_token_invalid"

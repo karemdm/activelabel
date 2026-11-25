@@ -12,7 +12,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from activelabel.errors import CodedError
 from activelabel.storage import DamagedFile
@@ -84,11 +87,72 @@ async def damaged_file(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+_PLAIN_CODES = {404: "not_found", 405: "method_not_allowed"}
+_SIMPLE = (str, int, float, bool)
+
+
+def _problem(entry: dict[str, Any]) -> dict[str, Any]:
+    """One validation problem reduced to what the interface needs (never the value the person sent).
+
+    Args:
+        entry: An error of a :class:`~fastapi.exceptions.RequestValidationError`.
+
+    Returns:
+        ``loc`` (where), ``type`` (name of the problem), ``msg`` (English) and the simple ``ctx`` values.
+    """
+    ctx = {k: v for k, v in (entry.get("ctx") or {}).items() if isinstance(v, _SIMPLE)}
+    return {"loc": list(entry["loc"]), "type": entry["type"], "msg": entry["msg"], "ctx": ctx}
+
+
+async def validation_error(request: Request, exc: Exception) -> JSONResponse:
+    """Exception handler: HTTP 422 as ``{detail, code, params}`` (the problems are in ``params.errors``).
+
+    Args:
+        request: The request that failed (unused).
+        exc: The :class:`~fastapi.exceptions.RequestValidationError` raised.
+
+    Returns:
+        The JSON response: ``detail`` is a readable English text, ``code`` is ``validation_error``.
+    """
+    assert isinstance(exc, RequestValidationError)
+    errors = [_problem(e) for e in exc.errors()]
+    text = "; ".join(
+        f"{' > '.join(str(x) for x in e['loc'] if x not in ('body', 'query', 'path'))}: {e['msg']}".lstrip(
+            ": "
+        )
+        for e in errors
+    )
+    return JSONResponse(
+        {"detail": text, "code": "validation_error", "params": {"errors": errors}}, status_code=422
+    )
+
+
+async def plain_http_error(request: Request, exc: Exception) -> Response:
+    """Exception handler: a plain HTTP error (unknown address, wrong method) as ``{detail, code, params}``.
+
+    Args:
+        request: The request that failed.
+        exc: The HTTP error raised.
+
+    Returns:
+        The JSON response; the code is ``not_found``, ``method_not_allowed`` or ``http_error``.
+    """
+    assert isinstance(exc, StarletteHTTPException)
+    if not isinstance(exc.detail, str):
+        return await http_exception_handler(request, exc)
+    code = _PLAIN_CODES.get(exc.status_code, "http_error")
+    return JSONResponse(
+        {"detail": exc.detail, "code": code, "params": {}}, status_code=exc.status_code, headers=exc.headers
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
-    """Answer an :class:`ApiError` with its code and a damaged data file with HTTP 500 and a readable text.
+    """Give every API error the same body: coded errors, invalid requests (422) and plain HTTP errors.
 
     Args:
         app: The application to add the handlers to.
     """
+    app.add_exception_handler(StarletteHTTPException, plain_http_error)
+    app.add_exception_handler(RequestValidationError, validation_error)
     app.add_exception_handler(ApiError, api_error)
     app.add_exception_handler(DamagedFile, damaged_file)

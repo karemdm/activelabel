@@ -23,7 +23,15 @@ CODED = {
     "SyncError": 1,
     "ToolError": 1,
 }  # name -> position of the code
-LEGACY_BODIES = {"file_damaged", "task_change_annotations", "classes_in_use", "no_images_added"}
+LEGACY_BODIES = {
+    "file_damaged",
+    "task_change_annotations",
+    "classes_in_use",
+    "no_images_added",
+    "validation_error",
+    "not_found",
+    "method_not_allowed",
+}
 
 
 def _load(lang: str) -> dict[str, str]:

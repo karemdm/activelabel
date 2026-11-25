@@ -6,7 +6,15 @@ from collections import Counter
 import pytest
 
 from activelabel.curation.issues import curation_path
-from activelabel.datasets import DatasetStore, Group, assign, build_groups, parse_options, plan_split
+from activelabel.datasets import (
+    MAX_SEED,
+    DatasetStore,
+    Group,
+    assign,
+    build_groups,
+    parse_options,
+    plan_split,
+)
 from activelabel.errors import CodedError
 from activelabel.images.manifest import ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
@@ -923,3 +931,22 @@ def test_gap_grows_to_the_frame_interval_and_the_near_duplicates(tmp_path):
     write_json(curation_path(pdir), {"duplicate_of": {"v0f000": "v0f090"}})
     assert plan(pdir, project).videos[0]["gap_seconds"] == pytest.approx(9.9)  # at most a tenth of 99 s
     assert plan(pdir, project, gap_seconds=0).stats["gap"] == 0
+
+
+def test_a_split_that_leaves_parts_out_names_them():
+    with pytest.raises(CodedError) as info:
+        parse_options({"split": {"train": 100}}, [1])
+    assert info.value.code == "split_incomplete" and info.value.params["parts"] == ["val", "test"]
+    assert parse_options({"split": {"train": 70, "val": 20}}, [1]).split["test"] == 10  # still adds up to 100
+    assert (
+        parse_options({"kfold": 3, "split": {"test": 10}}, [1]).kfold == 3
+    )  # K-fold needs only the test part
+
+
+def test_the_seed_stays_in_a_range_every_generator_takes():
+    assert parse_options({"seed": 0}, [1]).seed == 0
+    assert parse_options({"seed": MAX_SEED}, [1]).seed == MAX_SEED
+    for bad in (-1, MAX_SEED + 1, 10**30):
+        with pytest.raises(CodedError) as info:
+            parse_options({"seed": bad}, [1])
+        assert info.value.code == "seed_range" and info.value.params["max"] == MAX_SEED

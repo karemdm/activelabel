@@ -144,13 +144,18 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
     """
     importer = _importer(body.tool)
     if body.kind not in KINDS[body.tool]:
-        raise HTTPException(400, f"kind must be one of: {', '.join(KINDS[body.tool])}.")
+        raise ApiError(
+            400,
+            "import_kind_invalid",
+            f"kind must be one of: {', '.join(KINDS[body.tool])}.",
+            choices=list(KINDS[body.tool]),
+        )
     settings = _settings(state, body.tool)
     remote_id = str(body.remote_id)
     try:
         importer.check_remote(settings, body.kind, remote_id)
     except RemoteNotFound as exc:
-        raise HTTPException(404, str(exc)) from exc
+        raise ApiError(404, "remote_not_found", str(exc)) from exc
     except ToolError as exc:
         raise HTTPException(400, str(exc)) from exc
     job = partial(_import_job, importer, state, settings, body, remote_id)

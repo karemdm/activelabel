@@ -175,5 +175,5 @@ def test_an_unknown_address_shows_the_not_found_page_but_the_api_keeps_json(tmp_
     assert page.status_code == 404 and "text/html" in page.headers["content-type"]
     assert "Página não encontrada" in page.text
     api = client.get("/api/nothing-here")
-    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found", "code": "not_found", "params": {}}
     assert client.get("/static/nothing.css").headers["content-type"].startswith("application/json")

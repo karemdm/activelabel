@@ -47,6 +47,7 @@ DRIFT = 5.0  # percentage points between requested and real share that trigger a
 MAX_NOTE = 1000
 VIDEO_MODES = ("auto", "whole")
 MAX_GAP = 3600.0  # seconds
+MAX_SEED = 2**32 - 1  # what numpy's generators accept
 SEGMENTS_PER_VIDEO = 10  # a split video gives at least about this many segments...
 MAX_SEGMENTS_PER_VIDEO = 20  # ...more when its classes need them (see _pieces), up to this...
 SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
@@ -136,49 +137,97 @@ def _whole(value: Any, what: str) -> int:
     return value
 
 
-def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> DatasetOptions:
-    """Validate the options given by a person (missing ones take the defaults).
+def _parse_split(data: dict[str, Any], kfold: int | None) -> dict[str, int]:
+    """Validate the percentages of the parts.
 
     Args:
-        data: the options as sent by the person (None = all defaults).
-        existing_tasks: ids of the tasks of the project, to check ``tasks`` against.
+        data: The options given by the person.
+        kfold: The number of folds (or ``None``); with folds the percentages need not add up to 100.
 
     Returns:
-        The validated options (task ids without repeats, gap as a float).
+        The percentage of each part (a part left out takes its default).
 
     Raises:
-        CodedError: percentages not whole numbers or not summing to 100, train empty, K-fold outside
-            2..10, seed not a whole number, unknown task id, unknown ``videos`` mode, bad gap.
+        CodedError: unknown part, not a whole number, outside 0..100, parts left out so that the total is
+            not 100, or (without folds) a total that is not 100 or an empty train part.
     """
-    data = data or {}
-    split = {**DEFAULT_SPLIT, **(data.get("split") or {})}
-    unknown = set(split) - set(PARTS)
+    given = data.get("split") or {}
+    unknown = sorted(set(given) - set(PARTS))
     if unknown:
-        raise CodedError(
-            "split_unknown_part", f"Unknown part in the split: {sorted(unknown)[0]}.", part=sorted(unknown)[0]
-        )
-    split = {k: _whole(split[k], f"The {k} percentage") for k in PARTS}
+        raise CodedError("split_unknown_part", f"Unknown part in the split: {unknown[0]}.", part=unknown[0])
+    merged = {**DEFAULT_SPLIT, **given}
+    split = {k: _whole(merged[k], f"The {k} percentage") for k in PARTS}
     if any(v < 0 or v > 100 for v in split.values()):
         raise CodedError("split_percentage_range", "Percentages must be between 0 and 100.")
-    kfold = data.get("kfold")
     if kfold is not None:
-        kfold = _whole(kfold, "K")
-        if not 2 <= kfold <= 10:
-            raise CodedError("kfold_range", "K-fold needs between 2 and 10 folds.")
         if split["test"] >= 100:
             raise CodedError("kfold_test_too_big", "The test percentage must leave images for the folds.")
-    else:
-        if sum(split.values()) != 100:
-            raise CodedError("split_sum", "The percentages must add up to 100.")
-        if split["train"] <= 0:
-            raise CodedError("split_train_empty", "The training part needs more than 0%.")
+        return split
+    if sum(split.values()) != 100:
+        left_out = [k for k in PARTS if k not in given]
+        if given and left_out:
+            raise CodedError(
+                "split_incomplete",
+                f"Give the percentage of every part (missing: {', '.join(left_out)}).",
+                parts=left_out,
+            )
+        raise CodedError("split_sum", "The percentages must add up to 100.")
+    if split["train"] <= 0:
+        raise CodedError("split_train_empty", "The training part needs more than 0%.")
+    return split
+
+
+def _parse_kfold(data: dict[str, Any]) -> int | None:
+    """Validate the number of folds.
+
+    Args:
+        data: The options given by the person.
+
+    Returns:
+        The number of folds, or ``None`` for a plain split.
+
+    Raises:
+        CodedError: not a whole number or outside 2..10.
+    """
+    kfold = data.get("kfold")
+    if kfold is None:
+        return None
+    kfold = _whole(kfold, "K")
+    if not 2 <= kfold <= 10:
+        raise CodedError("kfold_range", "K-fold needs between 2 and 10 folds.")
+    return kfold
+
+
+def _parse_seed(data: dict[str, Any]) -> int:
+    """Validate the seed of the random generator.
+
+    Args:
+        data: The options given by the person.
+
+    Returns:
+        The seed.
+
+    Raises:
+        CodedError: not a whole number or outside ``0..MAX_SEED``.
+    """
     seed = _whole(data.get("seed", 42), "The seed")
-    background = data.get("background", False)
-    if not isinstance(background, bool):
-        raise CodedError("background_not_bool", "Background must be true or false.")
-    videos = data.get("videos", "auto")
-    if videos not in VIDEO_MODES:
-        raise CodedError("videos_mode", 'Videos must be "auto" or "whole".')
+    if not 0 <= seed <= MAX_SEED:
+        raise CodedError("seed_range", f"The seed must be between 0 and {MAX_SEED}.", max=MAX_SEED)
+    return seed
+
+
+def _parse_gap(data: dict[str, Any]) -> float:
+    """Validate the safety gap around the val/test segments of a video.
+
+    Args:
+        data: The options given by the person.
+
+    Returns:
+        The gap in seconds.
+
+    Raises:
+        CodedError: not a finite number or outside ``0..MAX_GAP``.
+    """
     gap = data.get("gap_seconds", 0.5)
     if isinstance(gap, bool) or not isinstance(gap, (int, float)) or not math.isfinite(gap):
         raise CodedError("gap_not_number", "The safety gap must be a number of seconds.")
@@ -186,6 +235,22 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
         raise CodedError(
             "gap_range", f"The safety gap must be between 0 and {MAX_GAP:g} seconds.", max=MAX_GAP
         )
+    return float(gap)
+
+
+def _parse_tasks(data: dict[str, Any], existing_tasks: list[int]) -> list[int]:
+    """Validate the chosen tasks.
+
+    Args:
+        data: The options given by the person.
+        existing_tasks: Ids of the tasks the project has.
+
+    Returns:
+        The task ids without repeats, in the order given.
+
+    Raises:
+        CodedError: not a list, an id that is not a whole number, or a task that does not exist.
+    """
     tasks = data.get("tasks") or []
     if not isinstance(tasks, list):
         raise CodedError("tasks_not_list", "Tasks must be a list of task ids.")
@@ -193,7 +258,37 @@ def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> Dat
     missing = [t for t in tasks if t not in existing_tasks]
     if missing:
         raise CodedError("task_not_found", f"Task {missing[0]} does not exist.", task=missing[0])
-    return DatasetOptions(list(dict.fromkeys(tasks)), split, kfold, background, seed, videos, float(gap))
+    return list(dict.fromkeys(tasks))
+
+
+def parse_options(data: dict[str, Any] | None, existing_tasks: list[int]) -> DatasetOptions:
+    """Validate the options given by a person (missing ones take the defaults).
+
+    Args:
+        data: The options as sent (``split``, ``kfold``, ``seed``, ``background``, ``videos``,
+            ``gap_seconds``, ``tasks``), or ``None``.
+        existing_tasks: Ids of the tasks the project has.
+
+    Returns:
+        The validated options.
+
+    Raises:
+        CodedError: any option invalid (see the ``_parse_*`` helpers), ``background`` not a boolean or
+            an unknown ``videos`` mode.
+    """
+    data = data or {}
+    kfold = _parse_kfold(data)
+    split = _parse_split(data, kfold)
+    seed = _parse_seed(data)
+    background = data.get("background", False)
+    if not isinstance(background, bool):
+        raise CodedError("background_not_bool", "Background must be true or false.")
+    videos = data.get("videos", "auto")
+    if videos not in VIDEO_MODES:
+        raise CodedError("videos_mode", 'Videos must be "auto" or "whole".')
+    gap = _parse_gap(data)
+    tasks = _parse_tasks(data, existing_tasks)
+    return DatasetOptions(tasks, split, kfold, background, seed, videos, gap)
 
 
 @dataclass
