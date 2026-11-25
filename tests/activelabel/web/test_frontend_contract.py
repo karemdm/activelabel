@@ -527,3 +527,24 @@ def test_bulk_actions_on_a_selection_run_once_per_click():
     """A double click on Exclude/Restore/Delete must not send a second, empty request (#430)."""
     for act, handler in (("exclude", "exclude"), ("restore", "restore"), ("delete", "remove")):
         assert re.search(rf"'data-act': '{act}', onclick: once\({handler}\)", JS), act
+
+
+def test_an_upload_that_creates_no_task_reports_no_success():
+    """No "task created" toast or green mark when the empty task was removed; the card says why (#417)."""
+    assert re.search(r"closed && closed\.removed", JS)
+    assert re.search(r"if \(removed\) \{\s*created = null;", JS)
+    assert "images.none_added" in JS
+    assert re.search(r"if \(r\.added\) rows\.push\(el\('p', \{ class: 'report-line ok'", JS)
+    assert "else failure = err" in JS
+
+
+def test_closing_an_empty_task_removes_it_and_says_so(tmp_path):
+    """The front end relies on ``removed`` in the answer to PATCH (open: false) of a task with no image."""
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["cat"]})
+    bad = {"files": ("a.jpg", b"not an image", "image/jpeg")}
+    made = client.post("/api/projects/1/tasks", files=[("files", bad["files"])], data={"open": "true"}).json()
+    assert made["task"]["images"] == 0
+    closed = client.patch(f"/api/projects/1/tasks/{made['task']['id']}", json={"open": False}).json()
+    assert closed["removed"] is True
+    assert client.get("/api/projects/1/tasks").json()["tasks"] == []
