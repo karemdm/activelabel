@@ -55,6 +55,10 @@ says what was found. Nothing changes until the person chooses an action.
   the line>` (an unknown class id, a polygon with too few points, a wrong number of keypoints, ...). A file
   called `labels.txt`, `classes.txt` or `names.txt` that holds label lines is the label file of an image of
   that name; one that only lists names gives the class names.
+- **YOLO pose without `kpt_shape`**: a line with `5 + 3k` values is read as a pose when a visibility value is
+  2 and as a polygon when one of those values is not 0, 1 or 2. When it could be either (every such value is
+  0 or 1), the lines of the file set that are clearly one kind decide, and the report warns
+  (`yolo_pose_ambiguous`). Add `kpt_shape: [points, 3]` to `data.yaml` to remove the doubt.
 - CVAT shapes without a label are reported and left out, not imported as an empty class.
 - **Shapes outside the image are reported**: a box is clipped to the image (`box_clipped`); a polygon vertex or
   a keypoint outside it is moved to its border and the report says so (`geometry_clipped`), since the shape

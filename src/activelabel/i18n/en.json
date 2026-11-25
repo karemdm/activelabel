@@ -191,6 +191,7 @@
   "problem.images_rejected": "Some files are not readable images and were skipped.",
   "problem.images_duplicate": "Identical images were added once.",
   "problem.image_download_failed": "Some images could not be downloaded.",
+  "problem.yolo_pose_ambiguous": "Some YOLO lines could be a polygon or a pose; add a data.yaml with kpt_shape to settle it.",
   "problem.unknown_class_id": "Some annotations use a class that is not defined and were skipped.",
   "problem.missing_class_names": "Class names were not found; names like class_0 are used.",
   "problem.keypoint_count_mismatch": "Some objects have a different number of keypoints than expected.",

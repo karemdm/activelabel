@@ -27,7 +27,7 @@ from typing import Any
 from activelabel.annotations.coco import _annotation
 from activelabel.annotations.context import ParseContext, declared_size
 from activelabel.annotations.xmlformats import UNSUPPORTED_SHAPES, _f, _shape, read_xml
-from activelabel.annotations.yolo import _line, is_label_text, is_names_file, load_names
+from activelabel.annotations.yolo import _line, is_names_file, load_names, majority_is_pose, read_label_texts
 from activelabel.labels import Label
 
 TRAILING_NUMBER = re.compile(r"(\d+)$")
@@ -366,16 +366,9 @@ def parse_yolo_frames(ctx: ParseContext, files: list[Path]) -> None:
     """
     names, kpt = load_names(ctx, files)
     missing: set[int] = set()
-    for path in files:
-        if path.suffix.lower() != ".txt" or is_names_file(path):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            ctx.problem("invalid_file", f"{path.name}: {exc}")
-            continue
-        if is_label_text(text) is False:
-            continue
+    texts = read_label_texts(ctx, [p for p in files if p.suffix.lower() == ".txt" and not is_names_file(p)])
+    pose_hint = majority_is_pose(texts.values())
+    for path, text in texts.items():
         frame = trailing_frame(path.name)
         if frame is None:
             ctx.problem("frame_number_missing", path.name)
@@ -388,7 +381,7 @@ def parse_yolo_frames(ctx: ParseContext, files: list[Path]) -> None:
         ctx.files.append(path.name)
         for line in text.splitlines():
             if line.strip():
-                label = _line(ctx, line, names, kpt, missing, f"{path.name}: {line[:40]}")
+                label = _line(ctx, line, names, kpt, missing, pose_hint, f"{path.name}: {line[:40]}")
                 if label is not None:
                     ctx.add_label(rec, label)
     if missing:

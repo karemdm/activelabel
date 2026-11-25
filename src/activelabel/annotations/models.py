@@ -28,6 +28,10 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     ),
     "box_degenerate": ("warning", "Some boxes have no area and were skipped."),
     "polygon_too_few_points": ("warning", "Some polygons have fewer than 3 points and were skipped."),
+    "yolo_pose_ambiguous": (
+        "warning",
+        "Some YOLO lines could be a polygon or a pose; add a data.yaml with kpt_shape to settle it.",
+    ),
     "unknown_class_id": ("warning", "Some annotations use a class that is not defined and were skipped."),
     "missing_class_names": ("warning", "Class names were not found; names like class_0 are used."),
     "keypoint_count_mismatch": (

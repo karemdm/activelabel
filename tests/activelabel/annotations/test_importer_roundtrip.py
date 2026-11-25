@@ -810,18 +810,15 @@ def test_yolo_pose_with_two_values_per_point_marks_unset_points_not_labelled(tmp
     assert flat(got) == pytest.approx([0.25, 0.25, 2, 0, 0, 0, 0.75, 0.5, 2])
 
 
-EVEN_POINTS_BUG = pytest.mark.xfail(strict=True, reason="#358")
-
-
 @pytest.mark.parametrize(
     "points",
     [
         1,
-        pytest.param(2, marks=EVEN_POINTS_BUG),
+        2,
         3,
-        pytest.param(4, marks=EVEN_POINTS_BUG),
+        4,
         5,
-        pytest.param(6, marks=EVEN_POINTS_BUG),
+        6,
     ],
 )
 def test_yolo_pose_without_kpt_shape_is_read_as_pose_for_any_point_count(tmp_path, points):
