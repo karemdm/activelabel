@@ -119,6 +119,16 @@ and the share of that class in the part; a 0 in a part that has images is marked
 colour. A "class missing" warning also says whether the class could have been in every part (`avoidable`,
 from the API) or has too few images for that (`available` below the number of parts asked to have images).
 
+## Safety gap switch
+
+In the new-version form, dropping the frames at the border between parts of the same video is a switch, on by
+default (recommended), with a field for the minimum seconds (the gap grows by itself to the frame interval and
+to the reach of the video's near-duplicates). Off sends `gap_seconds: 0` (no frame is dropped) and the form
+warns that validation and test may then contain frames almost identical to training ones. "New version from
+this one" restores the switch from the version's options (0 = off). When parts of a cut video share training
+and validation/test, the warning `video_parts_shared` is shown prominently on the preview and on the card, and
+the preview's video line gives the gap used (`videos[].gap_seconds`).
+
 ## Storage
 
 `<project>/datasets/v<N>.json` (N = 1, 2, …, never reused), immutable once written:

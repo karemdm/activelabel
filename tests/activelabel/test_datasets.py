@@ -347,6 +347,9 @@ def test_gap_frames_are_left_out_and_counted(tmp_path):
             assert all(abs(n - m) > 2 for m in protected)
     none = plan(pdir, project, gap_seconds=0)
     assert none.videos[0]["gap"] == 0 and sum(none.sizes().values()) == 52
+    assert (
+        none.stats["gap"] == 0 and sum(len(v) for v in none.parts.values()) == 52
+    )  # 0 = off: no frame dropped
 
 
 def test_whole_mode_keeps_the_video_together(tmp_path):

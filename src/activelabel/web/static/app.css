@@ -1078,6 +1078,10 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-map-row label { font-weight: 600; overflow-wrap: anywhere; }
 .md-public-choice input { margin-top: var(--space-1); flex: none; }
 
+.ds-shared { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-2) 0; padding: var(--space-2); border: 2px solid var(--warn); border-radius: var(--radius); color: var(--warn); font-size: var(--font-sm); }
+.ds-gap-off { display: flex; align-items: flex-start; gap: var(--space-1); margin: var(--space-1) 0; color: var(--warn); font-size: var(--font-sm); }
+.ds-gap-off[hidden], .ds-gap-field[hidden] { display: none; }
+
 /* phones and small tablets: every target is at least 44x44 px (#334), not only 44 px high. Kept last so it
    wins over the fixed sizes above; the look on a desktop does not change. */
 @media (max-width: 760px) {
