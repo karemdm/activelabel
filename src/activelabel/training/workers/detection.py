@@ -47,7 +47,6 @@ TASKS = ("detection", "instance", "keypoints")
 IOU_THRESHOLDS = np.round(np.arange(0.5, 0.951, 0.05), 2)
 RECALL_POINTS = np.linspace(0.0, 1.0, 101)
 MAX_SIDE_FACTOR = 1.667  # torchvision's default max_size / min_size (1333 / 800)
-WARMUP_STEPS = 100
 EVAL_SCORE_THRESH = 0.0  # evaluation sees every detection (COCO), whatever the user's score_thresh
 Array = Any
 
@@ -102,22 +101,6 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     if spec["task"] == "keypoints" and int(spec.get("num_keypoints") or 0) < 1:
         raise SpecError("The labels have no keypoints.")
     return dict(spec)
-
-
-def warmup_factor(step: int, steps: int) -> float:
-    """Learning rate factor for step ``step`` (1-based) of the first epoch: a short linear ramp.
-
-    Args:
-        step: The batch about to run (from 1).
-        steps: Batches in the epoch.
-
-    Returns:
-        The factor, from 0.001 up to 1.0 (1.0 once the ramp is over or the epoch is too short).
-    """
-    length = min(WARMUP_STEPS, steps - 1)
-    if length <= 0 or step > length:
-        return 1.0
-    return 0.001 + (1.0 - 0.001) * (step - 1) / length
 
 
 def polygon_mask(polygons: list[list[list[float]]] | None, width: int, height: int) -> Array:
@@ -819,27 +802,14 @@ def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
     return torch.optim.AdamW(groups, **kwargs)
 
 
-def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``.
-
-    Args:
-        spec: The job spec (``params.scheduler`` and ``params.epochs``).
-        optimizer: The optimizer to schedule.
-        torch: The torch module.
-
-    Returns:
-        A cosine or step scheduler, or ``None`` for a constant rate.
-    """
-    name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
-    if name == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    if name == "step":
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(1, epochs // 3), gamma=0.1)
-    return None
-
-
 def train_epoch(
-    model: Any, loader: Any, optimizer: Any, device: str, torch: Any, first: bool, on_step: Any = None
+    model: Any,
+    loader: Any,
+    optimizer: Any,
+    device: str,
+    torch: Any,
+    schedule: Any = None,
+    on_step: Any = None,
 ) -> float:
     """One training pass; returns the mean of the summed model losses per image batch.
 
@@ -849,7 +819,7 @@ def train_epoch(
         optimizer: The optimizer.
         device: Torch device name.
         torch: The torch module.
-        first: Whether this is the first epoch (the learning rate warms up).
+        schedule: The learning rate schedule (``options.LrSchedule``), advanced before each step.
         on_step: Called with ``(step, steps)`` after each batch (optional).
 
     Returns:
@@ -858,14 +828,11 @@ def train_epoch(
     Raises:
         RuntimeError: The loss is not finite.
     """
-    base = [g["lr"] for g in optimizer.param_groups]
     total, count = 0.0, 0
     steps = len(loader)
     for step, (images, targets) in enumerate(loader, start=1):
-        if first:
-            factor = warmup_factor(step, steps)
-            for group, lr in zip(optimizer.param_groups, base, strict=True):
-                group["lr"] = lr * factor
+        if schedule is not None:
+            schedule.advance()
         images = [i.to(device) for i in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         loss = sum(model(images, targets).values())
@@ -878,8 +845,6 @@ def train_epoch(
         count += 1
         if on_step:
             on_step(step, steps)
-    for group, lr in zip(optimizer.param_groups, base, strict=True):
-        group["lr"] = lr
     return total / count if count else 0.0
 
 
@@ -1098,8 +1063,10 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
-    scheduler = make_scheduler(spec, optimizer, torch)
     epochs, patience = int(p["epochs"]), int(p["patience"])
+    schedule = options.LrSchedule(
+        optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"])
+    )
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
 
@@ -1118,10 +1085,9 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
         model.train()
         on_step = partial(report_step, epoch, epochs)
-        train_loss = train_epoch(model, train_loader, optimizer, device, torch, epoch == 1, on_step)
+        train_loss = train_epoch(model, train_loader, optimizer, device, torch, schedule, on_step)
         scores = evaluate(model, val_loader, spec, device, torch)
-        if scheduler is not None:
-            scheduler.step()
+        schedule.end_epoch(scores[metric])
         ran = epoch
         improved = not best or scores[metric] > best["scores"][metric]
         if improved:
@@ -1137,7 +1103,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             epochs=epochs,
             train_loss=train_loss,
             **epoch_scores(scores),
-            lr=optimizer.param_groups[-1]["lr"],
+            lr=schedule.lr(),
             seconds=round(time.monotonic() - started, 2),
             best=improved,
         )

@@ -510,25 +510,6 @@ def make_optimizer(spec: dict[str, Any], model: Any, torch: Any) -> Any:
     return torch.optim.AdamW(groups, **kwargs)
 
 
-def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``.
-
-    Args:
-        spec: The job spec (``params.scheduler`` and ``params.epochs``).
-        optimizer: The optimizer to schedule.
-        torch: The torch module.
-
-    Returns:
-        A cosine or step scheduler, or ``None`` for a constant rate.
-    """
-    name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
-    if name == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    if name == "step":
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(1, epochs // 3), gamma=0.1)
-    return None
-
-
 def segmentation_loss(output: Any, masks: Any, loss_fn: Any) -> Any:
     """Cross-entropy of the main output plus ``AUX_WEIGHT`` times that of the aux output, if any.
 
@@ -555,6 +536,7 @@ def run_epoch(
     n_classes: int,
     optimizer: Any = None,
     on_step: ProgressFn = None,
+    schedule: Any = None,
 ) -> tuple[float, list[list[int]]]:
     """One pass over a loader. Trains when ``optimizer`` is given.
 
@@ -567,6 +549,7 @@ def run_epoch(
         n_classes: Number of mask values (classes plus the background).
         optimizer: The optimizer; ``None`` evaluates without gradients.
         on_step: Called with ``(step, steps)`` after each batch (optional).
+        schedule: The learning rate schedule (``options.LrSchedule``), advanced before each training step.
 
     Returns:
         ``(mean loss per image, confusion matrix[true][predicted] of pixel counts)``.
@@ -580,6 +563,8 @@ def run_epoch(
             output = model(images)
             loss = segmentation_loss(output, masks, loss_fn)
             if training:
+                if schedule is not None:
+                    schedule.advance()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -706,10 +691,12 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
-    scheduler = make_scheduler(spec, optimizer, torch)
     loss_fn = torch.nn.CrossEntropyLoss()
 
     epochs, patience = int(p["epochs"]), int(p["patience"])
+    schedule = options.LrSchedule(
+        optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"])
+    )
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
 
@@ -732,12 +719,13 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             for module in head_modules(model):
                 module.train()
         on_step = partial(report_step, epoch, epochs)
-        train_loss, _ = run_epoch(model, train_loader, device, torch, loss_fn, n_classes, optimizer, on_step)
+        train_loss, _ = run_epoch(
+            model, train_loader, device, torch, loss_fn, n_classes, optimizer, on_step, schedule
+        )
         model.eval()
         val_loss, matrix = run_epoch(model, val_loader, device, torch, loss_fn, n_classes)
         scores = evaluation(matrix, classes)
-        if scheduler is not None:
-            scheduler.step()
+        schedule.end_epoch(scores[metric])
         ran = epoch
         improved = not best or scores[metric] > best["scores"][metric]
         if improved:
@@ -757,7 +745,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             val_dice=scores["dice"],
             val_pixel_accuracy=scores["pixel_accuracy"],
             val_background_iou=scores["background_iou"],
-            lr=optimizer.param_groups[-1]["lr"],
+            lr=schedule.lr(),
             seconds=round(time.monotonic() - started, 2),
             best=improved,
         )

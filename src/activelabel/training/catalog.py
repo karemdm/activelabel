@@ -18,6 +18,8 @@ TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints"
 STARTS = ("transfer", "finetune", "scratch")
 #: How a photo becomes the square input of the network (see ``workers/options.py``).
 RESIZE_POLICIES = ("stretch", "letterbox", "center_crop")
+#: Learning rate schedules every worker applies (see ``workers/options.py``).
+SCHEDULERS = ("none", "cosine", "step", "onecycle", "plateau")
 PROJECT_TYPES = ("classification", "detection", "segmentation", "keypoints")
 KINDS = ("int", "float", "choice", "bool")
 
@@ -217,7 +219,20 @@ COMMON_PARAMS: tuple[ParamSpec, ...] = (
     ParamSpec("optimizer", "choice", "adamw", choices=("sgd", "adam", "adamw"), help="Optimizer."),
     ParamSpec("weight_decay", "float", 0.0001, 0.0, 1.0, help="Weight decay (regularisation)."),
     ParamSpec(
-        "scheduler", "choice", "cosine", choices=("none", "cosine", "step"), help="Learning rate schedule."
+        "scheduler",
+        "choice",
+        "cosine",
+        choices=SCHEDULERS,
+        help="Learning rate schedule: none, cosine, step (/10 every third of the epochs), onecycle (up, then "
+        "down; it has its own warmup) or plateau (/10 when the selection metric stops improving).",
+    ),
+    ParamSpec(
+        "warmup_epochs",
+        "int",
+        0,
+        0,
+        50,
+        help="Epochs over which the learning rate rises from almost 0 (0 = off); steadies fine-tuning.",
     ),
     ParamSpec("image_size", "int", 224, 32, 2048, help="Side of the square input, in pixels."),
     ParamSpec(
@@ -283,7 +298,14 @@ _TIMM = ("torch", "torchvision", "timm")
 _ULTRA = ("ultralytics",)
 _TRANSFORMER = {"lr": 0.0001}
 #: Detectors keep the proportions of the photo by default (torchvision's own resize did too).
-_TV_DET = {"optimizer": "sgd", "lr": 0.005, "batch_size": 4, "weight_decay": 0.0005, "resize": "letterbox"}
+_TV_DET = {
+    "optimizer": "sgd",
+    "lr": 0.005,
+    "batch_size": 4,
+    "weight_decay": 0.0005,
+    "resize": "letterbox",
+    "warmup_epochs": 1,  # detectors from COCO weights need a ramp (they had a fixed one before)
+}
 _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
 _FIXED_224: dict[str, tuple[float, float]] = {"image_size": (224, 224)}

@@ -125,9 +125,7 @@ def test_keypoints(w):
     assert w.pck_counts({**good, "scores": np.array([0.1])}, gt) == (0, 2)
 
 
-def test_warmup_and_spec(w, tmp_path):
-    assert w.warmup_factor(1, 1000) == pytest.approx(0.001) and w.warmup_factor(500, 1000) == 1.0
-    assert w.warmup_factor(1, 1) == 1.0
+def test_spec(w, tmp_path):
     spec = {
         "task": "detection",
         "model": "fasterrcnn_resnet50_fpn",
