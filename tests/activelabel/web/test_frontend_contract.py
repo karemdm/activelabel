@@ -95,7 +95,7 @@ def test_a_project_deleted_elsewhere_is_reported():
 
 def test_curation_actions_come_before_the_image_grid():
     """The actions of the step (analyze, FiftyOne, limits, reset) are a bar above the grid."""
-    start = JS.index("function curationPanel()")
+    start = JS.index("function curationPanel(")
     panel = JS[start : JS.index("// ====", start)]
     mounted = panel[panel.index("add(node,") :]
     assert mounted.index("actionsBar") < mounted.index("grid.node")

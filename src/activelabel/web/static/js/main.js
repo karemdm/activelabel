@@ -788,7 +788,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     }
 
     // ================================================================ step 1: images
-    function imagesPanel() {
+    function imagesPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-images', 'aria-labelledby': 'h-images' });
       const panel = { node, mounted: false };
       let uploading = false;
@@ -2348,7 +2348,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     }
 
     // ================================================================ step 2: annotations
-    function annotationsPanel() {
+    function annotationsPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-annotations', hidden: true, 'aria-labelledby': 'h-annotations' });
       const panel = { node, mounted: false };
       const fileInput = el('input', { type: 'file', multiple: true, class: 'sr-only', id: 'ann-input', tabindex: '-1' });
@@ -2639,7 +2639,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     }
 
     // ================================================================ step 3: curation
-    function curationPanel() {
+    function curationPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-curation', hidden: true, 'aria-labelledby': 'h-curation' });
       const panel = { node, mounted: false };
       let summary = null;
@@ -3227,7 +3227,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     /* images whose labels changed after the version was made (0 when none); the version keeps the old ones */
     const staleCount = (v) => { const s = v.stale || {}; return (s.changed_images || 0) + (s.added || 0) + (s.removed || 0); };
 
-    function datasetsPanel() {
+    function datasetsPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-datasets', 'aria-labelledby': 'h-datasets' });
       const panel = { node, mounted: false };
       const listBox = el('div', { class: 'ds-list' });
@@ -3821,7 +3821,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     }
 
     // ---------------------------------------------------------------- step 5: training runs
-    function trainingPanel() {
+    function trainingPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-training', 'aria-labelledby': 'h-training' });
       const panel = { node, mounted: false };
       const listBox = el('div', { class: 'tr-list' });
@@ -4930,7 +4930,7 @@ import { imageGrid, openLightbox } from './cv/grid.js';
 
     // ---- assemble
     // ---------------------------------------------------------------- step 6: saved models
-    function modelsPanel() {
+    function modelsPanel(page) {
       const node = el('section', { class: 'panel', id: 'panel-models', 'aria-labelledby': 'h-models' });
       const panel = { node, mounted: false };
       const box = el('div', { class: 'md-body' });
@@ -5261,7 +5261,13 @@ import { imageGrid, openLightbox } from './cv/grid.js';
       return panel;
     }
 
-    ctx.panels = { images: imagesPanel(), annotations: annotationsPanel(), curation: curationPanel(), datasets: datasetsPanel(), training: trainingPanel(), models: modelsPanel() };
+    /* what the steps share with the page: each panel takes this one object (their own modules, #155) */
+    const page = {
+      projectId, ctx, refreshProject, refreshCounts, renderStepper, showTab, tabsView, hasImages,
+      jobStarted, kindActive, isActive, isStale, isRemoteGone, jobError, syncJobTool, staleCount, planIsEmpty,
+      startSync, syncBlock, annotateBlock, preannotateBlock,
+    };
+    ctx.panels = { images: imagesPanel(page), annotations: annotationsPanel(page), curation: curationPanel(page), datasets: datasetsPanel(page), training: trainingPanel(page), models: modelsPanel(page) };
     add(panelsBox, gateNode, gateDatasetNode, ...STEPS.map((s) => ctx.panels[s].node));
     fill(root, headerBox, el('div', { class: 'project-body' }, stepper, panelsBox), jobsBox);
     renderJobs();
