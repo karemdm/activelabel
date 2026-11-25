@@ -82,3 +82,55 @@ def test_unfit_map_back_to_the_photo_grid(o, torch):
     assert float(cut[0, 0, 10, 0]) == -1.0 and float(cut[0, 0, 10, 20]) == pytest.approx(1.0)
     same = o.unfit_map(torch.ones(1, 1, 50, 50), 200, 100, 50, "stretch", (40, 20))
     assert same.shape == (1, 1, 20, 40)
+
+
+# -- learning rate schedule (#317) -----------------------------------------------
+
+
+def test_warmup_ramps_then_the_schedule_takes_over(o):
+    # 10 steps per epoch, 4 epochs, 1 epoch of warmup
+    values = [o.lr_factor("none", step, 10, 4, 1) for step in range(40)]
+    assert values[0] == pytest.approx(o.WARMUP_START) and values[5] == pytest.approx(0.5, abs=0.01)
+    assert values[10:] == [1.0] * 30
+    cosine = [o.lr_factor("cosine", step, 10, 4, 1) for step in range(40)]
+    assert cosine[10] == pytest.approx(1.0) and cosine[25] == pytest.approx(0.5, abs=0.05)
+    assert cosine[39] < 0.01 and cosine == sorted(cosine[:10]) + sorted(cosine[10:], reverse=True)
+    assert o.lr_factor("cosine", 0, 10, 4, 0) == 1.0  # no warmup
+
+
+def test_step_onecycle_and_plateau_factors(o):
+    assert [o.lr_factor("step", e * 10, 10, 9, 0) for e in (0, 2, 3, 6)] == pytest.approx([1, 1, 0.1, 0.01])
+    cycle = [o.lr_factor("onecycle", step, 10, 10, 5) for step in range(100)]  # the warmup is ignored
+    assert cycle[0] == pytest.approx(o.ONECYCLE_LOW) and max(cycle) == pytest.approx(1.0)
+    assert cycle.index(max(cycle)) == 30 and cycle[-1] < 0.001
+    assert o.lr_factor("plateau", 50, 10, 10, 0, plateau=0.01) == 0.01
+    with pytest.raises(ValueError, match="Unknown learning rate schedule"):
+        o.lr_factor("linear", 0, 10, 10, 0)
+
+
+class _Optimizer:
+    def __init__(self):
+        self.param_groups = [{"lr": 0.1}, {"lr": 1.0}]
+
+
+def test_schedule_sets_every_group_and_plateau_waits(o):
+    opt = _Optimizer()
+    schedule = o.LrSchedule(opt, "plateau", epochs=5, steps_per_epoch=2, warmup_epochs=1)
+    schedule.advance()
+    assert opt.param_groups[0]["lr"] == pytest.approx(
+        0.1 * o.WARMUP_START
+    ) and schedule.lr() == pytest.approx(o.WARMUP_START)
+    for _ in range(3):
+        schedule.advance()
+    assert schedule.lr() == 1.0
+    for score in (0.5, 0.6, 0.6):
+        schedule.end_epoch(score)
+    assert schedule.plateau == 1.0
+    schedule.end_epoch(0.4)  # second epoch without improvement
+    schedule.advance()
+    assert schedule.plateau == pytest.approx(o.PLATEAU_FACTOR) and schedule.lr() == pytest.approx(0.1)
+    other = o.LrSchedule(_Optimizer(), "cosine", 5, 2)
+    other.end_epoch(0.1)
+    assert other.plateau == 1.0
+    with pytest.raises(ValueError):
+        o.LrSchedule(_Optimizer(), "bogus", 5, 2)

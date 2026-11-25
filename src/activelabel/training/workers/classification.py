@@ -435,25 +435,6 @@ def make_optimizer(spec: dict[str, Any], model: Any, head: Any, torch: Any) -> A
     return torch.optim.AdamW(groups, **kwargs)
 
 
-def make_scheduler(spec: dict[str, Any], optimizer: Any, torch: Any) -> Any:
-    """Learning rate schedule, or ``None``.
-
-    Args:
-        spec: The job spec (``params.scheduler`` and ``params.epochs``).
-        optimizer: The optimizer to schedule.
-        torch: The torch module.
-
-    Returns:
-        A cosine or step scheduler, or ``None`` for a constant rate.
-    """
-    name, epochs = spec["params"]["scheduler"], int(spec["params"]["epochs"])
-    if name == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    if name == "step":
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(1, epochs // 3), gamma=0.1)
-    return None
-
-
 def run_epoch(
     model: Any,
     loader: Any,
@@ -463,6 +444,7 @@ def run_epoch(
     optimizer: Any = None,
     on_step: ProgressFn = None,
     mixes: list[tuple[str, float]] | None = None,
+    schedule: Any = None,
 ) -> tuple[float, list[int], list[int]]:
     """One pass over a loader. Trains when ``optimizer`` is given.
 
@@ -475,6 +457,7 @@ def run_epoch(
         optimizer: The optimizer; ``None`` evaluates without gradients.
         on_step: Called with ``(step, steps)`` after each batch (optional).
         mixes: Mixup/cutmix ``(name, alpha)`` pairs for training batches (``augment.mix_settings``).
+        schedule: The learning rate schedule (``options.LrSchedule``), advanced before each training step.
 
     Returns:
         ``(mean loss per image, true class indices, predicted class indices)``.
@@ -494,6 +477,8 @@ def run_epoch(
                 output = model(images)
                 loss = loss_fn(output, labels)
             if training:
+                if schedule is not None:
+                    schedule.advance()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -595,10 +580,12 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model, head = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, head, torch)
-    scheduler = make_scheduler(spec, optimizer, torch)
     loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=float(p.get("label_smoothing", 0.0)))
 
     epochs, patience = int(p["epochs"]), int(p["patience"])
+    schedule = options.LrSchedule(
+        optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"])
+    )
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
 
@@ -620,12 +607,13 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             model.eval()  # frozen backbone: no batch-norm statistics or dropout changes
             head.train()
         on_step = partial(report_step, epoch, epochs)
-        train_loss, _, _ = run_epoch(model, train_loader, device, torch, loss_fn, optimizer, on_step, mixes)
+        train_loss, _, _ = run_epoch(
+            model, train_loader, device, torch, loss_fn, optimizer, on_step, mixes, schedule
+        )
         model.eval()
         val_loss, truth, predicted = run_epoch(model, val_loader, device, torch, loss_fn)
         scores = evaluation(truth, predicted, classes)
-        if scheduler is not None:
-            scheduler.step()
+        schedule.end_epoch(scores[metric])
         ran = epoch
         improved = not best or scores[metric] > best["scores"][metric]
         if improved:
@@ -643,7 +631,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
             val_loss=val_loss,
             val_accuracy=scores["accuracy"],
             val_macro_f1=scores["macro_f1"],
-            lr=optimizer.param_groups[-1]["lr"],
+            lr=schedule.lr(),
             seconds=round(time.monotonic() - started, 2),
             best=improved,
         )

@@ -8,12 +8,18 @@ evaluation, pre-annotation and ONNX export:
 - ``center_crop``: the shorter side fits, the centre is kept (the proportions stay, the edges are cut).
 
 Each policy is one scale per axis plus a shift (an affine matrix), so boxes, masks and keypoints go into the
-network and come back to the photo with the same numbers. Standalone like the workers: it runs in the training
-environment, which has no ActiveLabel.
+network and come back to the photo with the same numbers.
+
+The learning rate follows one schedule per step in every worker (:class:`LrSchedule`): an optional linear
+warmup, then ``none``, ``cosine``, ``step``, ``onecycle`` (its own ramp up and down) or ``plateau``
+(divided by ten when the selection metric stops improving).
+
+Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -31,6 +37,13 @@ RESIZE_POLICIES = ("stretch", "letterbox", "center_crop")
 LEGACY_RESIZE = "stretch"
 #: Colour of the bands a letterbox adds (the ImageNet mean, so it is about zero after normalisation).
 FILL = (124, 116, 104)
+SCHEDULERS = ("none", "cosine", "step", "onecycle", "plateau")
+WARMUP_START = 0.001  # share of the learning rate at the first warmup step
+ONECYCLE_PEAK = 0.3  # share of the steps that one-cycle spends going up
+ONECYCLE_LOW = 1 / 25  # one-cycle starts at this share of the learning rate...
+ONECYCLE_END = 1 / 25e4  # ...and ends at this one (the PyTorch defaults)
+PLATEAU_PATIENCE = 2  # epochs without improvement before plateau lowers the rate
+PLATEAU_FACTOR = 0.1
 
 
 def fit_layout(width: int, height: int, size: int, policy: str) -> tuple[int, int, int, int]:
@@ -229,3 +242,125 @@ class Fit:
             For example ``Fit(size=224, policy=letterbox)``.
         """
         return f"Fit(size={self.size}, policy={self.policy})"
+
+
+def _cosine(start: float, end: float, t: float) -> float:
+    """A half cosine from ``start`` (t = 0) to ``end`` (t = 1).
+
+    Args:
+        start: value at the beginning.
+        end: value at the end.
+        t: position, 0..1 (clipped).
+
+    Returns:
+        The value at ``t``.
+    """
+    t = min(1.0, max(0.0, t))
+    return end + (start - end) * 0.5 * (1.0 + math.cos(math.pi * t))
+
+
+def lr_factor(
+    name: str, step: int, steps_per_epoch: int, epochs: int, warmup_epochs: float, plateau: float = 1.0
+) -> float:
+    """Share of the learning rate at a training step (the pure schedule; see :class:`LrSchedule`).
+
+    Args:
+        name: one of :data:`SCHEDULERS`.
+        step: the step about to run, from 0 over the whole training.
+        steps_per_epoch: batches in an epoch.
+        epochs: epochs of the training.
+        warmup_epochs: epochs of the linear warmup (0 = none; one-cycle has its own ramp and ignores it).
+        plateau: the share ``plateau`` has reached (it changes with the selection metric, epoch by epoch).
+
+    Returns:
+        The factor that multiplies the learning rate of every parameter group.
+
+    Raises:
+        ValueError: an unknown schedule.
+    """
+    if name not in SCHEDULERS:
+        raise ValueError(f"Unknown learning rate schedule '{name}': use one of {', '.join(SCHEDULERS)}.")
+    steps_per_epoch = max(1, steps_per_epoch)
+    total = max(1, steps_per_epoch * epochs)
+    if name == "onecycle":
+        peak = max(1, round(ONECYCLE_PEAK * total))
+        if step < peak:
+            return _cosine(ONECYCLE_LOW, 1.0, step / peak)
+        return _cosine(1.0, ONECYCLE_END, (step - peak) / max(1, total - peak))
+    warm_steps = round(warmup_epochs * steps_per_epoch)
+    warm = WARMUP_START + (1.0 - WARMUP_START) * step / warm_steps if step < warm_steps else 1.0
+    if name == "cosine":
+        base = _cosine(1.0, 0.0, (step - warm_steps) / max(1, total - warm_steps))
+    elif name == "step":
+        base = 0.1 ** ((step // steps_per_epoch) // max(1, epochs // 3))
+    elif name == "plateau":
+        base = plateau
+    else:
+        base = 1.0
+    return warm * base
+
+
+class LrSchedule:
+    """Sets the learning rate of an optimizer before every training step (warmup and schedule)."""
+
+    def __init__(
+        self, optimizer: Any, name: str, epochs: int, steps_per_epoch: int, warmup_epochs: float = 0
+    ) -> None:
+        """Remember the starting rates of the optimizer (the 100 % of the schedule).
+
+        Args:
+            optimizer: the torch optimizer (its parameter groups keep their own base rates).
+            name: one of :data:`SCHEDULERS`.
+            epochs: epochs of the training.
+            steps_per_epoch: batches in an epoch.
+            warmup_epochs: epochs of the linear warmup (0 = none).
+
+        Raises:
+            ValueError: an unknown schedule.
+        """
+        lr_factor(name, 0, steps_per_epoch, epochs, warmup_epochs)  # checks the name
+        self.optimizer = optimizer
+        self.name, self.epochs, self.steps_per_epoch, self.warmup = (
+            name,
+            epochs,
+            steps_per_epoch,
+            warmup_epochs,
+        )
+        self.base = [float(g["lr"]) for g in optimizer.param_groups]
+        self.step_index = 0
+        self.plateau = 1.0
+        self.best: float | None = None
+        self.waited = 0
+
+    def advance(self) -> None:
+        """Set the rate of the step about to run and count it."""
+        factor = lr_factor(
+            self.name, self.step_index, self.steps_per_epoch, self.epochs, self.warmup, self.plateau
+        )
+        for group, base in zip(self.optimizer.param_groups, self.base, strict=True):
+            group["lr"] = base * factor
+        self.step_index += 1
+
+    def end_epoch(self, score: float) -> None:
+        """Take the selection metric of an epoch (higher is better): ``plateau`` lowers the rate if it stalls.
+
+        Args:
+            score: the validation value of the selection metric.
+        """
+        if self.name != "plateau":
+            return
+        if self.best is None or score > self.best:
+            self.best, self.waited = score, 0
+            return
+        self.waited += 1
+        if self.waited >= PLATEAU_PATIENCE:
+            self.plateau *= PLATEAU_FACTOR
+            self.waited = 0
+
+    def lr(self) -> float:
+        """The rate of the last parameter group (the head), for the epoch log.
+
+        Returns:
+            The current learning rate.
+        """
+        return float(self.optimizer.param_groups[-1]["lr"])
