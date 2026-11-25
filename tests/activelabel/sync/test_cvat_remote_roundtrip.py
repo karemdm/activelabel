@@ -740,7 +740,6 @@ def test_push_keeps_untouched_shapes_exactly(detection: Env) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="#362")
 def test_defect_push_renumbers_the_ids_of_untouched_shapes(detection: Env) -> None:
     """A push is a PUT of the whole task: every shape gets a new id, also the ones nobody touched."""
     env = detection
@@ -750,7 +749,6 @@ def test_defect_push_renumbers_the_ids_of_untouched_shapes(detection: Env) -> No
     assert ids_before <= {s["id"] for s in shapes(env)}
 
 
-@pytest.mark.xfail(strict=True, reason="#362")
 def test_defect_edited_box_loses_its_attributes_in_cvat(detection: Env) -> None:
     """Moving a box locally replaces the CVAT shape by a fresh one: attributes, occluded, z_order are lost."""
     env = detection
@@ -946,7 +944,6 @@ def test_apply_refuses_when_cvat_changed_after_the_plan(detection: Env) -> None:
     assert len(env.server.calls("PUT", "/api/tasks")) == puts
 
 
-@pytest.mark.xfail(strict=True, reason="#362")
 def test_defect_a_shape_drawn_in_cvat_during_a_push_is_overwritten(detection: Env) -> None:
     """The push reads the task, then PUTs all of it: whatever a person draws in between is deleted."""
     env, srv = detection, detection.server
