@@ -214,8 +214,8 @@ npx playwright install chromium     # Linux CI also needs --with-deps
   `tests/rules/test_js_modules.py` checks that imports resolve, that every module is reachable from `main.js`,
   that a layer imports only from itself or the layers below it (`shell` < `integrations` < `cv` < `pages`) and
   that the mirror tests exist. Texts are set once with `setMessages()` (`shell/i18n.js`); no module may call
-  `t()` when it is first imported. The older tests load `main.js` in jsdom (`tests/js/helpers/load-app.mjs`) in
-  Portuguese and in English; until every helper has a module of its own, `main.js` exports the ones they need.
+  `t()` when it is first imported. Tests that compare Portuguese and English get the helpers through
+  `tests/js/helpers/load-app.mjs`, which binds each one to a language (a helper they need is listed there).
   That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
 - **Smoke tests** (`npm run test:e2e`): Playwright with Chromium, files `tests/e2e/*.spec.js`. The configuration
   (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a

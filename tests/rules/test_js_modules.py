@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 JS = ROOT / "src" / "activelabel" / "web" / "static" / "js"
 TESTS = ROOT / "tests" / "js"
 
-BASELINE = {"main.js"}  # main.js is what is left of app.js; it is tested through tests/js/*.test.mjs
+BASELINE: set[str] = set()  # every module has its mirror test; keep it empty
 
 # the folders each layer may import from (main.js, at the top, may import from all of them)
 ALLOWED = {

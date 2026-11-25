@@ -1,10 +1,10 @@
 /**
- * Loads the real interface modules (static/js/main.js) in jsdom and returns the helpers main.js exports for the
- * tests, bound to one interface language.
+ * Gives the tests the interface helpers bound to one language: each helper first calls `setMessages()` with
+ * that language's texts (and overrides), so `en` and `pt` can be compared side by side.
  *
- * The modules are imported once: the texts live in shell/i18n.js, so every helper returned here first calls
- * `setMessages()` with its own language (and overrides). Tests can then compare `en` and `pt` side by side.
- * The modules expect a browser, so one jsdom window gives them `window`, `document` and the DOM classes.
+ * The helpers are imported from their own modules. main.js is imported once too, for what it sets up when it
+ * is evaluated (the error params named with task, tool and status names); it expects a browser, so one jsdom
+ * window gives it `window`, `document` and the DOM classes.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,18 +41,34 @@ export function messages(lang) {
  * @param {object} [overrides] Replaces entries of the language's texts (to test a key that is missing).
  * @returns {Promise<object>} The helpers exported by main.js; each one runs with the texts of that language.
  */
+/** Where each helper the tests use lives (module under static/js, exported names). */
+const HELPERS = {
+  'shell/i18n.js': ['fmt', 't', 'tr', 'tn', 'num', 'fmtBytes'],
+  'shell/dom.js': ['esc'],
+  'shell/api.js': ['errorMessage', 'errorParams', 'validationText'],
+  'integrations/tools.js': ['isHttp'],
+};
+
+/**
+ * @param {string} lang 'pt' or 'en'.
+ * @param {object} [overrides] Replaces entries of the language's texts (to test a key that is missing).
+ * @returns {Promise<object>} The helpers; each one runs with the texts of that language.
+ */
 export async function loadApp(lang, overrides = {}) {
   dom.window.I18N = {};
   dom.window.VL = { locale: lang };
+  await import(pathToFileURL(path.join(JS, 'main.js')).href);
   const { setMessages } = await import(pathToFileURL(path.join(JS, 'shell', 'i18n.js')).href);
-  const app = await import(pathToFileURL(path.join(JS, 'main.js')).href);
   const texts = { ...messages(lang), ...overrides };
   const bound = {};
-  for (const [name, fn] of Object.entries(app)) {
-    bound[name] = (...args) => {
-      setMessages(texts, lang);
-      return fn(...args);
-    };
+  for (const [file, names] of Object.entries(HELPERS)) {
+    const module = await import(pathToFileURL(path.join(JS, ...file.split('/'))).href);
+    for (const name of names) {
+      bound[name] = (...args) => {
+        setMessages(texts, lang);
+        return module[name](...args);
+      };
+    }
   }
   return bound;
 }
