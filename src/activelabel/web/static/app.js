@@ -2760,9 +2760,13 @@
       };
       const scopeAvailable = (scope) => (scope === 'issue' ? issueEntries().length > 0 : scopeCount(scope) > 0);
 
+      /* the scope the person chose last in this project, else all the images (never a silent "only the unannotated") */
+      const scopeKey = `al-scope-${projectId}`;
+      const rememberScope = (scope) => { try { localStorage.setItem(scopeKey, scope); } catch (err) { /* not remembered */ } };
       function defaultScope() {
-        if (unlabeledCount() > 0 && unlabeledCount() < (counts().active || 0)) return 'unlabeled';
-        return 'all';
+        let last = null;
+        try { last = localStorage.getItem(scopeKey); } catch (err) { /* not remembered */ }
+        return last && last !== 'issue' && scopeAvailable(last) ? last : 'all';
       }
 
       // ---- which images
@@ -2929,7 +2933,7 @@
           const ok = scopeAvailable(scope);
           const input = el('input', { type: 'radio', name: 'annotate-scope', id, value: scope, disabled: !ok, 'aria-describedby': hint && !ok ? `${id}-hint` : null });
           input.checked = state.scope === scope;
-          input.addEventListener('change', () => { state.scope = scope; drawScope(); drawSend(); });
+          input.addEventListener('change', () => { state.scope = scope; rememberScope(scope); drawScope(); drawSend(); });
           return el('div', { class: `scope-row${state.scope === scope ? ' selected' : ''}${ok ? '' : ' is-disabled'}` },
             el('div', { class: 'scope-line' },
               input,
@@ -3468,7 +3472,7 @@
             nothing ? null : classes.length
               ? el('ul', { class: 'chips static' }, ...classes.map((c) => el('li', { class: `chip static${fresh.has(c) ? ' is-new' : ''}` },
                   el('span', null, c),
-                  perClass[c] != null ? el('span', { class: 'count' }, num(perClass[c])) : null,
+                  el('span', { class: 'count' }, num(perClass[c] || 0)),
                   fresh.has(c) ? el('span', { class: 'new-mark' }, t('ann.new')) : null)))
               : el('p', { class: 'muted' }, t('ann.no_classes')),
             el('h4', null, t('ann.problems')),
