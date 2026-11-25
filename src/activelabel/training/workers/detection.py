@@ -47,6 +47,7 @@ IOU_THRESHOLDS = np.round(np.arange(0.5, 0.951, 0.05), 2)
 RECALL_POINTS = np.linspace(0.0, 1.0, 101)
 MAX_SIDE_FACTOR = 1.667  # torchvision's default max_size / min_size (1333 / 800)
 WARMUP_STEPS = 100
+EVAL_SCORE_THRESH = 0.0  # evaluation sees every detection (COCO), whatever the user's score_thresh
 Array = Any
 
 
@@ -327,10 +328,15 @@ class APAccumulator:
 
         Args:
             n_classes: Number of classes (0-based indices below it are counted).
-            thresholds: IoU thresholds to average over.
+            thresholds: IoU thresholds to average over; 0.5 must be one of them (it gives ``ap50``).
+
+        Raises:
+            ValueError: 0.5 is not among the thresholds (``ap50`` would silently be another IoU).
         """
         self.n_classes = n_classes
         self.thresholds = [float(t) for t in thresholds]
+        if 0.5 not in self.thresholds:
+            raise ValueError("The IoU thresholds must include 0.5 (it gives ap50).")
         self._records: list[list[tuple[Array, Array, Array]]] = [[] for _ in range(n_classes)]
         self._n_gt = [0] * n_classes
 
@@ -401,7 +407,7 @@ class APAccumulator:
             if self._n_gt[c] == 0:
                 continue
             aps = [average_precision(*self._hits(c, t), self._n_gt[c]) for t in self.thresholds]
-            at50 = aps[self.thresholds.index(0.5)] if 0.5 in self.thresholds else aps[0]
+            at50 = aps[self.thresholds.index(0.5)]
             per_class[name] = {"ap50": at50, "ap50_95": float(np.mean(aps)), "support": self._n_gt[c]}
         values = list(per_class.values())
         return {
@@ -696,6 +702,20 @@ def replace_heads(
     head.num_classes = n
 
 
+def get_score_thresh(model: Any) -> float | None:
+    """Lowest score a detection needs to be returned (see :func:`set_score_thresh`).
+
+    Args:
+        model: The torchvision detection model.
+
+    Returns:
+        The model's current score threshold, or None when the model has none.
+    """
+    holder = model.roi_heads if hasattr(model, "roi_heads") else model
+    value = getattr(holder, "score_thresh", None)
+    return None if value is None else float(value)
+
+
 def set_score_thresh(model: Any, value: float) -> None:
     """Lowest score a detection needs to be returned.
 
@@ -857,6 +877,10 @@ def train_epoch(
 def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: Any) -> dict[str, Any]:
     """Box mAP (plus mask mAP for instance; keypoint OKS mAP and PCK@0.1 for keypoints) of a loader.
 
+    The model returns every detection while it is evaluated (score threshold ``EVAL_SCORE_THRESH``, at
+    most its ``detections_per_img``, 100 by default, per image), as in the COCO protocol: the user's
+    ``score_thresh`` is put back afterwards and only limits what a saved model shows or pre-annotates.
+
     Args:
         model: The detection model (put in eval mode here).
         loader: Data loader of ``(images, targets)`` batches.
@@ -869,11 +893,37 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
         ``pck`` fields.
     """
     task, classes = spec["task"], spec["classes"]
+    model.eval()
+    kept = get_score_thresh(model)
+    if kept is None:  # not a torchvision detector (a stand-in): nothing to lower
+        return _evaluate_batches(model, loader, task, classes, device, torch)
+    set_score_thresh(model, EVAL_SCORE_THRESH)
+    try:
+        return _evaluate_batches(model, loader, task, classes, device, torch)
+    finally:
+        set_score_thresh(model, kept)
+
+
+def _evaluate_batches(
+    model: Any, loader: Any, task: str, classes: list[str], device: str, torch: Any
+) -> dict[str, Any]:
+    """The metrics of :func:`evaluate`, computed over the loader with the model as it is.
+
+    Args:
+        model: The detection model, in eval mode.
+        loader: Data loader of ``(images, targets)`` batches.
+        task: ``detection``, ``instance`` or ``keypoints``.
+        classes: The project's class names.
+        device: Torch device name.
+        torch: The torch module.
+
+    Returns:
+        The same dict as :func:`evaluate`.
+    """
     boxes_ap = APAccumulator(len(classes))
     masks_ap = APAccumulator(len(classes)) if task == "instance" else None
     points_ap = APAccumulator(len(classes)) if task == "keypoints" else None
     correct = total = 0
-    model.eval()
     with torch.no_grad():
         for images, targets in loader:
             outputs = model([i.to(device) for i in images])
