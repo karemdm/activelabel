@@ -381,3 +381,19 @@ def test_the_import_page_has_one_setup_button_per_tool():
     card = re.search(r"function drawMain\(\) \{.*?\n    \}\n", JS, re.S).group(0)
     assert "setup(state.tool)" not in card
     assert "onclick: () => setup(tool)" in JS
+
+
+def test_the_fiftyone_scope_defaults_to_all_or_the_last_choice_and_every_class_shows_its_count():
+    """#425: no silent "only the unannotated" default; the report counts a class with no annotations."""
+    assert "return 'unlabeled'" not in re.search(
+        r"function defaultScope\(\) \{.*?\n      \}", JS, re.S
+    ).group(0)
+    assert "al-scope-" in JS
+    assert "perClass[c] != null ?" not in JS
+    for lang in ("pt", "en"):
+        text = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))[
+            "problem.no_images_matched"
+        ].lower()
+        assert "folder" in text or "pasta" in text, (
+            "the text says the file name must match, also for class folders"
+        )
