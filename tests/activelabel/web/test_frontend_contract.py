@@ -452,3 +452,8 @@ def test_forms_answer_in_the_apps_language_before_saving():
     assert JS.count("maxlength: '100'") >= 3  # new task, rename and project name: the server's limit
     assert "maxlength: '200'" not in JS
     assert "delete.mismatch" in JS
+
+
+def test_a_long_file_name_wraps_inside_the_activity_card():
+    rule = re.search(r"^\.job \{([^}]*)\}", CSS, re.M)
+    assert rule is not None and "overflow-wrap: anywhere" in rule.group(1)
