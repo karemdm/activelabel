@@ -7,11 +7,17 @@ change itself.
 
 ## Status since the review
 
-Done since this review was written: stable error codes next to the English `detail` on most API errors
-(`web/errors.py`, `errors.py`; docs/DESIGN.md lists them), limits on names, classes, job size, archives
-and video frames, one FiftyOne dataset name per project, a shared check of label content against the
-task, and a faster manifest. Still open: an origin/host check for the API, schema versions in stored files,
-the split of `app.js` and of the runner, generated endpoint tables, a lock file and a release process.
+Done since this review was written: stable error codes next to the English `detail` on every API error
+and on failed jobs (`web/errors.py`, `errors.py`; docs/DESIGN.md lists them), limits on names, classes, job
+size, archives and video frames, one FiftyOne dataset name per project, a shared check of label content
+against the task, and a faster manifest; tests that mirror the source tree with a coverage floor of 80 %; CI
+on Linux, Windows and macOS from a path with accents and spaces, a check of the built wheel, the training
+workers tested with a real CPU PyTorch and a nightly run against a real CVAT; JavaScript unit tests and
+Playwright smoke tests of the interface (weakness 1 still holds for the size of `app.js`, not for its lack of
+tests); training packages installed at pinned, tested versions; one version source (the git tag) and a
+release process ([RELEASING.md](../RELEASING.md)). Still open: an origin/host check for the API, schema
+versions in stored files, the split of `app.js` and of the runner, generated endpoint tables and a lock file
+for the Python dependencies of the app.
 
 ## Strengths
 
@@ -86,8 +92,8 @@ the split of `app.js` and of the runner, generated endpoint tables, a lock file 
 - A first install pulls FiftyOne (MongoDB binary), OpenCV, NumPy and more: large and slow, and FiftyOne
   pins force `graphql-core<3.3` and `importlib-metadata<8`. There is no lock file, so a new release of a
   dependency can break a fresh install without a code change.
-- No wheel is published and no release is tagged; `__version__` is a single string in `__init__.py`,
-  duplicated in `pyproject.toml`. There is no changelog.
+- No release is tagged yet. (Since this review: the version comes from the git tag through setuptools-scm,
+  there is a changelog, and a `release` workflow builds the wheel and a draft release, see RELEASING.md.)
 - The launchers `activelabel.cmd` and `activelabel.sh` assume `.venv` next to the file.
 - Training packages are installed at the first run: a first-time user waits for a multi-gigabyte download
   with only a progress message (documented, but it is the biggest surprise for a new user).
@@ -96,7 +102,8 @@ the split of `app.js` and of the runner, generated endpoint tables, a lock file 
 
 - CI has no coverage measure, no dependency or licence audit and no check that the docs match the API.
 - The pre-commit hook runs the full unit-test suite on every commit, which gets slower with the suite.
-- Frontend behaviour is checked by hand (screenshots), not by tests.
+- Frontend behaviour was checked by hand (screenshots). (Since this review: JavaScript unit tests and
+  Playwright smoke tests run in CI, job `ui`.)
 
 ## Roadmap
 
@@ -106,7 +113,7 @@ the split of `app.js` and of the runner, generated endpoint tables, a lock file 
 | 2 | **`schema` field in every stored root file** plus a migration step run at start-up (`storage.migrate(project_dir)`), with a test that loads a fixture of each old version. Keep reading old shapes until then. | M | Medium | Makes upgrades and downgrades explicit before more formats appear |
 | 3 | **Generate the endpoint tables** from `/openapi.json` (a script in `tools/` run in CI that fails when `docs/` lists a route that does not exist or misses one), and check Markdown links in CI. | S | Low | Stops the doc drift found in the audit |
 | 4 | **Lock file for installs** (`requirements.lock` or `uv.lock`) generated in CI per Python version, and a "fresh install" CI job on Linux and Windows that runs `activelabel --help` and starts the server. | M | Low | A new user's first install should not depend on today's releases |
-| 5 | **Release process**: one version source (`importlib.metadata` or `setuptools-scm`), tags, a changelog, a wheel built in CI. | S | Low | Lets people pin and report a version |
+| 5 | **Release process**: one version source (`importlib.metadata` or `setuptools-scm`), tags, a changelog, a wheel built in CI. Done: see RELEASING.md. | S | Low | Lets people pin and report a version |
 | 6 | **Split `app.js` into ES modules** (one per screen: images, annotations, curation, datasets, training, models, jobs) loaded with `<script type="module">`, no bundler; add a handful of browser smoke tests (Playwright) for the main flows. | L | Medium | Largest maintainability gain; the module split can be done screen by screen in small PRs |
 | 7 | **Split `TrainingRunner`** into a queue/recovery part, a training runner, an export runner and a pre-annotation runner sharing a process helper; split `sync/engine.py` into plan and apply. | L | Medium | Easier tests and review; needs the existing runner tests as a safety net |
 | 8 | **One shared helper module for routers** (`web/deps.py`: tool names, store lookups, error mapping) and one `FolderLock` used by every store. | S | Low | Removes the duplication listed above |
