@@ -355,3 +355,11 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_task_card_tells_about_excluded_images():
+    """The task and its jobs say how many images are excluded (#413)."""
+    assert re.search(r"task\.images - task\.active", JS)
+    assert re.search(r"j\.images - j\.active", JS)
+    assert "tasks.meta_excluded" in JS and "tasks.job_excluded" in JS
+    assert ".job-excluded" in CSS
