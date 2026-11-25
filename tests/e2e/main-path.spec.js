@@ -13,6 +13,26 @@ async function expectNoRawKeys(page) {
   expect(text).not.toMatch(RAW_KEY);
 }
 
+// The six steps of a project and their names in Portuguese and in English.
+const STEPS = [
+  ['images', 'Imagens', 'Images'],
+  ['annotations', 'Anotações', 'Annotations'],
+  ['curation', 'Curadoria', 'Curation'],
+  ['datasets', 'Divisão dos dados', 'Data split'],
+  ['training', 'Treinamento', 'Training'],
+  ['models', 'Modelos', 'Models'],
+];
+
+/** Collects the page's uncaught errors and console errors (a missing import shows up only as one of these). */
+function watchErrors(page) {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(`page error: ${err.message}`));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(`console error: ${msg.text()}`);
+  });
+  return errors;
+}
+
 async function expectNoHorizontalScroll(page) {
   const widths = await page.evaluate(() => ({
     window: window.innerWidth,
@@ -27,6 +47,15 @@ test.describe.serial('main path', () => {
   const projectName = `Smoke ${Date.now()}`;
   let projectUrl = '';
   let images = [];
+  let errors = [];
+
+  test.beforeEach(({ page }) => {
+    errors = watchErrors(page);
+  });
+
+  test.afterEach(() => {
+    expect(errors, 'the page must run without errors').toEqual([]);
+  });
 
   test.beforeAll(() => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'activelabel-e2e-images-'));
@@ -81,6 +110,22 @@ test.describe.serial('main path', () => {
     await page.locator('.lang-switch a[data-lang="pt"]').click();
     await page.waitForLoadState('load');
     await expect(page.locator('html')).toHaveAttribute('lang', 'pt');
+  });
+
+  test('every step opens, in Portuguese and in English, without errors or raw keys', async ({ page }) => {
+    for (const [lang, column] of [['pt', 1], ['en', 2]]) {
+      await page.goto(`${projectUrl}?lang=${lang}`);
+      await expect(page.locator('html')).toHaveAttribute('lang', lang);
+      for (const entry of STEPS) {
+        const step = page.locator(`.step[data-step="${entry[0]}"]`);
+        await step.click();
+        await expect(step).toHaveAttribute('aria-current', 'step');
+        await expect(step).toContainText(entry[column]);
+        // the step's panel, or the card that says what the step still needs (for example a dataset version)
+        await expect(page.locator('.panels > section:not([hidden])').first()).toBeVisible();
+        await expectNoRawKeys(page);
+      }
+    }
   });
 
   test('no horizontal scroll at 390 px on the home page, the new-project form and the project', async ({ page }) => {
