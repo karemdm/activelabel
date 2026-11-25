@@ -79,3 +79,23 @@ test('problemRow shows the translated problem, its count and up to five examples
   assert.equal(plain.querySelector('.problem-msg').textContent, 'Server words');
   assert.ok(plain.querySelector('.problem-head.warn'));
 });
+
+test('Enter adds the class without submitting the form, and a pasted list becomes one class per name (#586)', () => {
+  const chips = chipsInput('c-paste', []);
+  document.body.appendChild(chips.node);
+  const input = chips.node.querySelector('input');
+  input.value = 'cat';
+  const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  input.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);  // a form around it is not submitted
+  const paste = new window.Event('paste', { bubbles: true, cancelable: true });
+  paste.clipboardData = { getData: () => 'dog\nbird; fish\tcat' };
+  input.dispatchEvent(paste);
+  assert.equal(paste.defaultPrevented, true);
+  assert.deepEqual(chips.get(), ['cat', 'dog', 'bird', 'fish']);
+  const one = new window.Event('paste', { bubbles: true, cancelable: true });
+  one.clipboardData = { getData: () => 'single name' };
+  input.dispatchEvent(one);
+  assert.equal(one.defaultPrevented, false);  // one name is pasted as text, as usual
+  chips.node.remove();
+});
