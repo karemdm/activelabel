@@ -164,6 +164,7 @@ jobs:
     # path against a real server. Self-contained: nothing else in this file depends on it.
     name: ui (node + playwright)
     runs-on: ubuntu-24.04  # Playwright 1.52 has no Chromium build for newer Ubuntu images yet
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -181,9 +182,10 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Unit tests (node:test + jsdom)
         run: npm run test:js
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
-      - name: Smoke tests (Playwright, real server on port 8107)
+      - name: Smoke tests (Playwright on the runner's Google Chrome, real server on port 8107)
+        env:
+          PW_CHANNEL: chrome  # preinstalled on GitHub's Ubuntu runners: no browser download (that step hung)
+        timeout-minutes: 10
         run: npm run test:e2e
       - name: Playwright report
         if: failure()
