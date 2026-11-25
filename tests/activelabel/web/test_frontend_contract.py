@@ -624,3 +624,13 @@ def test_sync_review_boxes_wrap_a_long_unbroken_name():
     """A name without spaces breaks inside its box instead of crossing the border (#463)."""
     assert re.search(r"\.sync-dir \{[^}]*min-width: 0; overflow-wrap: anywhere", CSS)
     assert re.search(r"\.dir-sub \{[^}]*grid-template-columns: minmax\(0, 1fr\)", CSS)
+
+
+def test_an_old_sync_result_is_not_shown_again_and_the_ready_toast_skips_its_own_step():
+    """Done syncs found on the first poll are dismissed; no "plan ready" toast on Annotations (#466)."""
+    assert re.search(
+        r"if \(!ctx\.jobsSeen\) \{.*?j\.kind === 'sync_apply' && j\.status === 'done'.*?syncDismissed\.add",
+        JS,
+        re.S,
+    )
+    assert "if (job.kind === 'sync_plan' && ctx.tab === 'annotations') continue;" in JS
