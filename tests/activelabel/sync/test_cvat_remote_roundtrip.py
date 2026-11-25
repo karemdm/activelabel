@@ -10,6 +10,7 @@ Tests named ``test_defect_*`` fail on purpose: each pins down a real defect of t
 from __future__ import annotations
 
 import math
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1361,3 +1362,18 @@ def test_defect_rotated_keyframes_of_a_track_are_read_unrotated(video: Env) -> N
     sync(env)
     x0, y0, x1, y1 = rotated_box([20, 20, 60, 60], 45)
     assert track_boxes(env)[0] == pytest.approx(px(x0, y0, x1, y1), abs=1e-4)
+
+
+# -- long and accented file names ------------------------------------------------------------------------
+def test_images_with_long_accented_names_are_sent_and_found_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Names go to CVAT as UTF-8 and come back as they were (composed and decomposed accents)."""
+    long_name = ("foto_ação_ñ_" + "ü_é_" * 20)[:100] + ".png"
+    names = [long_name, unicodedata.normalize("NFD", "cão_ñ.png"), "plain.png"]
+    labels = {0: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])], 1: [], 2: []}
+    env = make_env(tmp_path, monkeypatch, count=3, names=names, labels=labels)
+    _, result = sync(env, create=True)
+    assert result["tasks_created"] == 1 and result["images_new"] == 3
+    assert set(links.get_link(env.dir, "cvat")["items"]) == set(env.ids)
+    assert plan(env)["unchanged"] == 3
