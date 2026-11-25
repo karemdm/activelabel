@@ -81,6 +81,8 @@ export function menuButton(iconName, label, getItems, extraClass = '') {
   return wrap;
 }
 
+/* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
+   in view while the body scrolls). The X is added here so no dialog forgets it. */
 export function openModal(dlg) {
   const title = dlg.querySelector('h2');
   if (title && !dlg.querySelector('.dlg-head')) {

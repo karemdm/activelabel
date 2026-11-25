@@ -36,11 +36,6 @@ import { imageGrid, openLightbox } from './cv/grid.js';
     status: (status) => lower(statusLabel(status)),
   });
 
-  // ---------------------------------------------------------------- shared widgets
-
-  /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
-     in view while the body scrolls). The X is added here so no dialog forgets it. */
-
   // ---------------------------------------------------------------- annotation sessions (shared bits)
 
   /** What changed when annotations came back: counts, per class, unknown classes, problems, examples. */
