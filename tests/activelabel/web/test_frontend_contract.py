@@ -471,7 +471,7 @@ def test_a_session_button_refused_with_404_or_409_reloads_the_sessions():
 def test_the_open_icon_of_a_task_and_of_a_job_is_an_accessible_menu():
     """Both open a menu (FiftyOne edit session, CVAT), not only FiftyOne: aria, keyboard and Escape."""
     start = JS.index("function menuButton(")
-    helper = JS[start : JS.index("\n  }\n", start)]
+    helper = JS[start : JS.index("return wrap;", start)]  # the whole function, whatever its indent
     for needle in (
         "'aria-haspopup': 'menu'",
         "'aria-expanded'",
