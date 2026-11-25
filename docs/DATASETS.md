@@ -12,11 +12,11 @@ The person chooses:
 | --- | --- | --- |
 | Tasks | all | which tasks of the project go in (active images only) |
 | Split | train 70 / val 20 / test 10 | percentages of images, summing to 100; val or test may be 0 |
-| K-fold | off | instead of one train/val split: K folds (2–10) of the non-test part; the test part stays apart |
+| K-fold | off | instead of one train/val split: K folds (2–10) of the non-test part; the test part stays apart (its percentage is the only one asked; the rest is shared by the folds). K cannot be larger than the number of groups the folds can hold: the preview says the largest K the data allow (`max_kfold`) and the form limits the field to it |
 | Background images | off | include active images without annotations (negatives for detection / segmentation); classification never has them |
 | Videos | auto | `auto`: videos stay whole when there are enough of them for the proportions and for every class; otherwise the videos that block it are cut into spaced segments (see below); `whole`: a video always stays in one part |
-| Safety gap | 0.5 s | `gap_seconds` (0 or more): the least gap around the val/test segments of a cut video; it grows per video (see below); 0 keeps every frame |
-| Seed | 42 | the same options and seed always give the same split |
+| Safety gap | on, 0.5 s | `gap_seconds` (0 to 3600): the least gap around the val/test segments of a cut video; it grows per video (see below); 0 keeps every frame. In the form it is a switch (on by default) with a field for the seconds; off sends 0 |
+| Seed | 42 | a whole number from 0 to 4294967295; the same options and seed always give the same split |
 | Note | — | free text kept with the version |
 
 Before creating, a **preview** shows per part: images, background images, objects per class, and
@@ -61,7 +61,7 @@ warnings. Nothing is saved until the person confirms.
 - **Residual leakage**: segments of one video are in training and in validation/test even with the
   gap: the scene, the objects and the light are the same, so the scores measure frames of videos the
   model has seen, not new videos, and tend to be optimistic. Whenever a video is cut the warning
-  `video_parts_shared` says so ("métricas podem ser otimistas: trechos do mesmo vídeo..."). To measure
+  `video_parts_shared` says so ("Scores may be optimistic: parts of the same video are in training and in validation/test"). To measure
   generalisation to new videos, record more videos and use `videos: "whole"`.
 - **Stratified by class**: groups are assigned one by one, rarest classes first. A group goes first
   to a part that has none of its rarest class yet, so a class with at least as many groups as parts is
@@ -71,16 +71,19 @@ warnings. Nothing is saved until the person confirms.
   the part furthest below its image target; ties are broken with the seeded random generator.
   Everything is deterministic for the same options and seed.
   Classification uses the image class; detection/segmentation/keypoints the classes of its objects.
-- A video that was cut is reported (`video_split`) whenever its segments went to two or more parts, also
-  when some segments sit next to other images of the same near-duplicate group.
-- **Information** `video_split` (not a problem): names a video that was cut, the number of
-  segments, the parts that use spread segments and the frames left out as a gap.
+- **Information** `video_split` (not a problem): a video that was cut and whose segments went to two or
+  more parts is reported with its name, the number of segments, the parts that use spread segments and the
+  frames left out as a gap. It is shown in a neutral style, not as a warning.
 - **Warnings** (never errors), each with a `code`:
-  - `class_missing`: a class absent from a part that should have images (`part`, `class`);
+  - `class_missing`: a class absent from a part that should have images (`part`, `class`, plus `available`:
+    how many images of the whole split have the class, and `avoidable`: whether that is at least the number of
+    parts asked to have images, so the class could have been in every part);
   - `video_parts_shared`: some videos were cut, their segments are on both sides (`videos`: how many);
   - `few_images`: a part with very few images (fewer than 5);
-  - `ratio_drift`: a part whose real share is far from the requested one (`expected`, `actual`, in %);
-  - `group_too_big`: a group larger than a part's target that moved the proportions; `cause` says why the
+  - `ratio_drift`: a part whose real share is more than 5 percentage points from the requested one
+    (`expected`, `actual`, in %);
+  - `group_too_big`: a group larger than a part's target when the part's share is also more than 5 points off
+    (it only matters when it moved the proportions); `cause` says why the
     group is big: `video` (frames of one video that stay whole) or `duplicates` (near-identical images
     kept together), and the interface words the warning accordingly ("Whole videos stay together: the
     real split is ..." or "Near-identical images stay together: the real split is ...");
@@ -113,21 +116,37 @@ neighbouring segments can land in different folds, and no frames are left out be
 
 ## Reading the preview
 
-The class table of the preview lists the rarest classes first (a class missing from a part that has images
-goes before the others), so the classes at risk are never hidden behind "show all". Each cell gives the count
-and the share of that class in the part; a 0 in a part that has images is marked with an icon, not only a
-colour. A "class missing" warning also says whether the class could have been in every part (`avoidable`,
-from the API) or has too few images for that (`available` below the number of parts asked to have images).
+The class table of the preview has one row per class (*Images per class* in classification, *Objects per class*
+otherwise) and one column per part or fold. The rarest classes come first: a class missing from a part that
+has images goes before all the others, then classes by total count (smallest first), so the classes at risk
+are never hidden behind *Show all classes* (the table shows 8 rows until it is opened). Each cell gives the
+count and, small beside it, the share of that class that sits in the part (the cells of a row add up to
+about 100 %); a 0 in a part that has images is marked with a warning icon and a hidden text for screen readers
+("class missing from this part"), not only with a colour. A part that has no images at all is said once as
+*{part} ended up with no images* instead of one "class missing" per class.
+
+A "class missing" warning also says how many images have the class and whether it could have been in every
+part: *Only N images have it, but it could be in every part: try another seed or other proportions* when
+`avoidable` is true, *Only N images have it: it cannot be in every part* when it is false (`available` is
+below the number of parts asked to have images). When several classes miss from the same part they are listed
+in one warning, with a summary for the group. The drift warnings (`ratio_drift` and `group_too_big`) are shown
+as one line with the real split, for example 64/27/9.
 
 ## Safety gap switch
 
-In the new-version form, dropping the frames at the border between parts of the same video is a switch, on by
-default (recommended), with a field for the minimum seconds (the gap grows by itself to the frame interval and
-to the reach of the video's near-duplicates). Off sends `gap_seconds: 0` (no frame is dropped) and the form
-warns that validation and test may then contain frames almost identical to training ones. "New version from
-this one" restores the switch from the version's options (0 = off). When parts of a cut video share training
-and validation/test, the warning `video_parts_shared` is shown prominently on the preview and on the card, and
-the preview's video line gives the gap used (`videos[].gap_seconds`).
+In the new-version form (under *Advanced*), dropping the frames at the border between parts of the same video
+is a switch, on by default (recommended: **Descartar quadros na fronteira entre partes do mesmo vídeo**), with
+a field for the minimum seconds (the gap grows by itself to the frame interval and to the reach of the video's
+near-duplicates). With the switch on, the field must be more than 0 and at most 3600. Off sends
+`gap_seconds: 0` (no frame is dropped) and the form warns that validation and test may then contain frames
+almost identical to training ones, so the metrics will be optimistic. *New version from this one* restores the
+switch from the version's options (0 = off).
+
+When parts of a cut video share training and validation/test, the warning `video_parts_shared` ("scores may be
+optimistic: parts of the same video are in training and in validation/test", in Portuguese *Métricas podem ser
+otimistas...*) is shown prominently
+(an alert on the preview and on the version card, not among the small badges), and the preview's video line
+says the gap used (`videos[].gap_seconds`, *Gap used: N s*).
 
 ## Storage
 
@@ -168,9 +187,12 @@ version. `changed_images` counts images whose labels differ, `added` images that
 not count. All zeros means the version is current. The result is cached per version and recomputed only when
 `annotations.json` changes.
 
-The version card shows a warning (icon and text, not only colour) with the number of images and a
-*New version from this one* button that opens the new-version form with this version's options; the
-training dialog shows the same warning under the version chosen. Neither blocks training.
+The version card shows a warning (icon and text, not only colour) with the number of images (the sum of the
+three counts): *Labels changed after this version (N images) — create a new version to train with them*
+(*Rótulos mudaram depois desta versão...*), and a *New version from this one* button that opens the
+new-version form with this version's options (tasks, split or K-fold, background, seed, videos mode and gap).
+The *New run* dialog shows a similar warning under the version chosen ("training uses the old labels"). Neither
+blocks training. A version that was just created has all zeros.
 
 ## HTTP API
 
@@ -180,7 +202,7 @@ training dialog shows the same warning under the version chosen. Neither blocks 
 | POST | `/api/projects/{id}/datasets/preview` | options | `{type, options, sizes, stats, warnings, duplicates_analysed, videos, empty_parts, groups, max_kfold}` (nothing saved); `empty_parts`: parts asked to have images that have none (`train`, `val`, `test`, or `fold`); `max_kfold`: the largest K the images allow (at most 10; below 2 K-fold is not possible) |
 | POST | `/api/projects/{id}/datasets` | options + `note` + `allow_empty` (default false) | the new version (summary); 409 `dataset_part_empty` when the training or validation part would be empty |
 | GET | `/api/projects/{id}/datasets/{n}` | | the version without the label copy |
-| DELETE | `/api/projects/{id}/datasets/{n}` | `{confirm: true, confirm_runs?}` | `{deleted: true}`; 409 `dataset_in_use` while a queued or running training run uses the version (cancel it first); 409 `dataset_used_by_runs` (with `params.runs`) when finished runs used it, because they could not be repeated afterwards (saved models keep working): send `confirm_runs: true` to delete anyway |
+| DELETE | `/api/projects/{id}/datasets/{n}` | `{confirm: true, confirm_runs?}` | `{deleted: true}`; 400 `confirm_required` without `confirm`; 409 `dataset_in_use` while a queued or running training run uses the version (cancel it first); 409 `dataset_used_by_runs` (with `params.runs`) when finished runs used it, because they could not be repeated afterwards (saved models keep working): send `confirm_runs: true` to delete anyway |
 | GET | `/api/projects/{id}/images?dataset=n&part=train` | | images of a part (also `fold=i`) |
 
 Summary: `{version, created, note, type, classes, options, sizes: {train, val, test} or {test, folds: [...]},
@@ -190,25 +212,49 @@ folded version carry `{"part": "fold", "fold": n}`.
 
 ## Errors
 
-Split options are checked with a code the interface translates (400): `not_whole_number`,
-`split_percentage_range`, `split_sum`, `split_train_empty`, `kfold_range`, `kfold_test_too_big`,
-`kfold_too_few_groups`, `background_not_bool`, `videos_mode`, `gap_not_number`, `gap_range`,
-`tasks_not_list`, `task_not_found`, `nothing_to_split`, `no_usable_labels`, `note_too_long`,
-`part_unknown`, `split_unknown_part`, `fold_required`, `fold_not_found`, `version_has_no_folds`; 404 `dataset_not_found`.
+Split options are checked with a code the interface translates (400): `not_whole_number` (a decimal or a
+boolean where a whole number is needed), `split_percentage_range` (outside 0–100), `split_sum` (without
+K-fold the parts must add up to 100), `split_incomplete` (some parts given, others left out so the total is
+not 100; `params.parts` names the missing ones), `split_unknown_part`, `split_train_empty`, `kfold_range`
+(K outside 2–10), `kfold_test_too_big` (test 100 % with K-fold), `kfold_too_few_groups` (fewer groups of
+images than folds), `seed_range` (outside 0–4294967295), `background_not_bool`, `videos_mode`,
+`gap_not_number`, `gap_range` (outside 0–3600 s), `tasks_not_list`, `task_not_found`, `nothing_to_split`,
+`no_usable_labels`, `note_too_long`; when reading a version's images: `part_unknown`, `fold_required`,
+`fold_not_found`, `version_has_no_folds`. Every answer has `{detail, code, params}`. 404 `dataset_not_found`;
+409 `dataset_part_empty`, `dataset_in_use` and `dataset_used_by_runs` are described above.
 
 ## Interface
 
-Step 4 shows the versions as cards (number, date, note, sizes per part as a bar, warnings). The warnings
-of a card are **grouped** under one line such as "5 warnings: missing classes (2) · balance (1) · few
+Step 4 shows the versions as cards (number, date, project type, note, the requested split such as
+"Requested: 70 / 20 / 10 %" or "5 folds + test", the parts as a bar with the real sizes, warnings). The
+warnings of a card are **grouped** under one line such as "5 warnings: missing classes (2) · balance (1) · few
 images (1) · labels (1)" (groups: missing classes, balance, few images, labels, other), that opens the
 list; the badges name the cause (for example "{n} labels without shape", "{n} images with several
-classes", "{n} labels with another number of points"). Each card also has *Train with this version*
-(*Treinar com esta versão*), which opens the *New run* dialog with the version chosen, and the card shows
-the requested and the real percentages when they differ ("Requested: 70/20/10 %"). The *New version* form has (tasks, split percentages as number inputs (no sliders) or K-fold, background switch, note; under *Advanced*:
-seed, videos mode and safety gap), with the live preview, which shows the `video_split` information in
-a neutral style (a small neutral badge "video in N segments" on the version card). A version card opens its images per part in the image grid (filter) and can be
-deleted after confirmation; when training runs use the version the server refuses (see the API above) and the
-interface shows its text.
+classes", "{n} labels with another number of points", "Real split 64/27/9"). `video_parts_shared`, the stale
+warning and an *Incomplete* badge (some image of the version was deleted from the project) are shown apart
+from the badges.
+
+Each card has buttons to see the images of each part in the image grid (as a filter), *Train with this version*
+(*Treinar com esta versão*), which opens the *New run* dialog with the version chosen (it is disabled for an
+incomplete version and for one whose training part has no images, with the reason written on the card), and a
+delete button.
+
+The *New version* form has: tasks, split percentages as number inputs (no sliders; editing one adjusts the
+others so the total stays 100) or K-fold with its test percentage, a background switch (not offered for
+classification), a note, and under *Advanced*: seed, videos mode (**Dividir em trechos distantes quando
+necessário**, "cut into distant segments when needed" = `auto`; **Manter sempre inteiros**, "always keep whole" =
+`whole`) and the safety gap. The live preview below it
+shows the part bar, the class table, the warnings and the `video_split` information in a neutral style (a small
+neutral badge "video in N segments" on the version card). A form that cannot be sent says why (no task chosen,
+a percentage outside 0–100, a total different from 100, a seed that is not a whole number, a gap of 0 with the
+switch on, K above the largest the data allow).
+
+When a hold-out version would have no training or no validation images, the preview says so and offers a
+checkbox, *Create it anyway (this version cannot be used to train)*, which sends `allow_empty: true`.
+
+Deleting a version asks for confirmation. When training runs that have not finished use it, the server refuses
+(`dataset_in_use`) and the interface shows its text; when finished runs used it, the interface asks again
+(*Delete version vN anyway?*, naming the runs, "Saved models keep working") and only then deletes it.
 
 A version holds only image ids and a copy of the labels in the internal format. It is not converted to
 any model format: the training runner writes a `spec.json` (image paths and targets) for the worker,
