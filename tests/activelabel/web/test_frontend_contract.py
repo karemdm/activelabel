@@ -224,8 +224,6 @@ def test_the_project_header_shows_the_classes_on_one_line_with_see_all():
 
 def test_split_warnings_of_the_label_checks_have_texts():
     """Warnings the split adds for label content (#112, #113) and the duplicates cause of a big group."""
-    import json
-    from pathlib import Path
 
     i18n = Path(__file__).parents[3] / "src" / "activelabel" / "i18n"
     for lang in ("en", "pt"):
@@ -493,8 +491,6 @@ def test_the_open_icon_of_a_task_and_of_a_job_is_an_accessible_menu():
 
 
 def test_the_menu_texts_exist_in_both_languages():
-    import json
-
     keys = [
         "tasks.open_menu",
         "tasks.open_menu_job",

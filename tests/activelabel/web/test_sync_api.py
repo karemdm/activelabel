@@ -1,3 +1,4 @@
+import threading
 import time
 from types import SimpleNamespace
 
@@ -191,8 +192,6 @@ def test_scopes_and_delete_tasks_through_the_api(env):
 
 
 def test_unlinking_is_refused_while_a_job_runs(env):
-    import threading
-
     links.save_link(
         env.state.store.dir(env.pid), "cvat", links.new_link("http://remote", env.rid, "Pets remote")
     )

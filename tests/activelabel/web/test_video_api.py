@@ -1,3 +1,5 @@
+import collections
+import threading
 import time
 from io import BytesIO
 
@@ -5,6 +7,8 @@ from api_client import make_client
 from make_video import make_video
 from PIL import Image
 
+import activelabel.images.video as video_module
+from activelabel.images import ingest
 from activelabel.tasks_store import TaskStore
 
 
@@ -131,8 +135,6 @@ def test_identical_frames_are_all_stored(tmp_path):
 
 
 def test_cancel_leaves_nothing(tmp_path, monkeypatch):
-    from activelabel.images import ingest
-
     client, state, path = _setup(tmp_path)
     vid = _upload(client, path).json()["id"]
     real = ingest._Ingester.tick
@@ -155,8 +157,6 @@ def test_cancel_leaves_nothing(tmp_path, monkeypatch):
 
 
 def test_cancel_during_extraction(tmp_path, monkeypatch):
-    from activelabel.images import video as video_module
-
     client, state, path = _setup(tmp_path)
     vid = _upload(client, path).json()["id"]
     real = video_module.extract_frames
@@ -206,8 +206,6 @@ def test_delete_unused_video(tmp_path):
 
 
 def test_early_end_stores_the_real_last_frame(tmp_path, monkeypatch):
-    from activelabel.images import video as video_module
-
     client, state, path = _setup(tmp_path)
     vid = _upload(client, path).json()["id"]
     real = video_module.extract_frames
@@ -223,8 +221,6 @@ def test_early_end_stores_the_real_last_frame(tmp_path, monkeypatch):
 
 
 def test_delete_video_refused_while_a_video_task_runs(tmp_path):
-    import threading
-
     client, state, path = _setup(tmp_path)
     vid = _upload(client, path).json()["id"]
     release = threading.Event()
@@ -236,10 +232,6 @@ def test_delete_video_refused_while_a_video_task_runs(tmp_path):
 
 
 def test_selection_too_big_or_without_disk_space_is_refused(tmp_path, monkeypatch):
-    import collections
-
-    import activelabel.images.video as video_module
-
     client, state, path = _setup(tmp_path)
     video = _upload(client, path).json()["id"]
     monkeypatch.setattr(video_module, "MAX_TASK_FRAMES", 10)

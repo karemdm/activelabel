@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -6,9 +7,10 @@ from api_client import make_client, upload
 from sample_images import make_image
 from sync_fakes import FakeRemote
 
+from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, Label, save_annotations
-from activelabel.sync import registry
+from activelabel.sync import links, registry
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 from activelabel.web import tasks_api
@@ -197,7 +199,6 @@ def test_patch_open_true_is_idempotent_on_open_task_only(tmp_path):
 def test_orphan_image_goes_to_a_new_task(tmp_path):
     client, state, paths = _setup(tmp_path, 2)
     upload(client, 1, paths[:1])
-    from activelabel.images.ingest import ingest_files
 
     manifest = state.manifest(1)
     report = ingest_files(manifest, [(paths[1].name, paths[1].open("rb"))])
@@ -210,11 +211,6 @@ def test_orphan_image_goes_to_a_new_task(tmp_path):
 
 
 def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_keyring):
-    from sync_fakes import FakeRemote
-
-    from activelabel.sync import links, registry
-    from activelabel.web import tasks_api
-
     client, state, paths = _setup(tmp_path, 4)
     client.post(
         "/api/projects/1/tasks", files=_files(paths), data={"name": "A", "job_size": "2", "open": "false"}
@@ -241,11 +237,6 @@ def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_k
 
 
 def test_a_task_says_why_it_cannot_be_opened_in_cvat(tmp_path, monkeypatch, remotes, fake_keyring):
-    from sync_fakes import FakeRemote
-
-    from activelabel.sync import links, registry
-    from activelabel.web import tasks_api
-
     client, state, paths = _setup(tmp_path, 4)
     client.post("/api/projects/1/tasks", files=_files(paths[:2]), data={"name": "A", "open": "false"})
     client.post("/api/projects/1/tasks", files=_files(paths[2:]), data={"name": "B", "open": "false"})
@@ -278,8 +269,6 @@ def test_bad_job_size_is_a_readable_400(tmp_path):
 
 
 def _link_cvat(client, state, fake):
-    from activelabel.sync import links
-
     link = links.new_link("http://cvat", fake.seed("P").id, "P")
     link["tasks"] = {"1": {"remote_task": 1}}
     links.save_link(state.store.dir(1), "cvat", link)
@@ -288,11 +277,6 @@ def _link_cvat(client, state, fake):
 
 
 def test_unreachable_cvat_is_cached_and_never_breaks_the_list(tmp_path, monkeypatch, remotes, fake_keyring):
-    from sync_fakes import FakeRemote
-
-    from activelabel.sync import registry
-    from activelabel.web import tasks_api
-
     client, state, paths = _setup(tmp_path, 2)
     client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
     calls = []
@@ -313,13 +297,6 @@ def test_unreachable_cvat_is_cached_and_never_breaks_the_list(tmp_path, monkeypa
 
 
 def test_slow_cvat_does_not_hang_the_list(tmp_path, monkeypatch, remotes, fake_keyring):
-    import threading
-
-    from sync_fakes import FakeRemote
-
-    from activelabel.sync import registry
-    from activelabel.web import tasks_api
-
     client, state, paths = _setup(tmp_path, 2)
     client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
     release = threading.Event()
@@ -391,7 +368,6 @@ def test_closing_an_upload_properly_leaves_it_complete(tmp_path):
 
 
 def test_annotated_is_the_same_number_on_the_step_bar_and_in_the_tasks(tmp_path):
-
     client, state, paths = _setup(tmp_path, 6)
     client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "T", "job_size": "3"})
     project_dir = state.store.dir(1)

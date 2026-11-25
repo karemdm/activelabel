@@ -7,6 +7,7 @@ from api_client import make_client, upload
 from fastapi.testclient import TestClient
 from sample_images import make_image
 
+from activelabel.annotations import cleanup_staging
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
@@ -124,10 +125,6 @@ def test_files_that_cannot_be_imported_are_not_kept_aside(tmp_path):
 
 
 def test_old_staging_is_cleaned_at_the_next_check_and_at_start(tmp_path):
-    import os
-
-    from activelabel.annotations import cleanup_staging
-
     client, state = setup_project(tmp_path)
     good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
     old = client.post("/api/projects/1/annotations", files=good).json()["token"]
@@ -185,7 +182,6 @@ def coco_with(names, annotations):
 
 
 def test_import_reports_and_drops_labels_without_the_shape_of_the_task(tmp_path):
-
     client, state = setup_project(tmp_path, task="segmentation")
     polygon = [[0, 0, 50, 0, 50, 25, 0, 25]]
     anns = [
@@ -210,7 +206,6 @@ def test_import_reports_and_drops_labels_without_the_shape_of_the_task(tmp_path)
 
 
 def test_import_drops_poses_with_another_number_of_points(tmp_path):
-
     client, state = setup_project(tmp_path, task="keypoints")
     three = [10, 10, 2, 20, 20, 2, 30, 30, 2]
     anns = [
@@ -228,9 +223,6 @@ def test_import_drops_poses_with_another_number_of_points(tmp_path):
 
 
 def test_changing_the_task_of_a_project_without_labels_rewrites_the_saved_task(tmp_path):
-    from activelabel.labels import AnnotationSet, load_annotations, save_annotations
-    from activelabel.tasks import Task
-
     client, state = setup_project(tmp_path)  # detection
     save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["cat"], {}, {}))  # no images in it
     assert client.patch("/api/projects/1", json={"task": "classification"}).status_code == 200
