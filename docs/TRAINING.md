@@ -18,8 +18,8 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   packages of the chosen model are present in the training environment and installs the missing
   ones (a visible step of the run, with progress), at tested versions (see *Pinned package versions*).
   PyTorch is installed with GPU support when an NVIDIA GPU is found (`nvidia-smi`) whose driver has a
-  PyTorch CUDA build of the pinned version, otherwise the CPU build. Ultralytics (licence AGPL-3.0) is meant to be
-  installed only when a YOLO model is chosen; YOLO is not available yet (see *Status*).
+  PyTorch CUDA build of the pinned version, otherwise the CPU build. Ultralytics (licence AGPL-3.0) is installed
+  only when a YOLO model is chosen and the licence was accepted (see *Licences*).
 - **Separate environment.** Training packages live in their own Python environment managed by
   ActiveLabel (`<workspace>/training/env`, or a short folder under `%LOCALAPPDATA%` on Windows when
   the path is long), so ActiveLabel itself stays light and free of version conflicts.
@@ -37,15 +37,16 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | --- | --- | --- | --- |
 | Classification | timm / torchvision | ResNet-18/50, EfficientNet-B0/B3, ConvNeXt-T, ViT-B/16, Swin-T, MobileNetV3 | torch, torchvision, timm |
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
-| Detection | ultralytics (**planned, not available**) | YOLOv8 / YOLO11 n s m l | ultralytics |
+| Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLOv8 / YOLO11 n s m l | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
-| Segmentation (instance) | torchvision / ultralytics (YOLO planned) | Mask R-CNN ResNet-50 FPN (trainable now); YOLOv8/11-seg (planned) | torch, torchvision / ultralytics |
-| Keypoints | torchvision / ultralytics (YOLO planned) | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
+| Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLOv8/11-seg | torch, torchvision / ultralytics |
+| Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
 model of that family. A family with no model for the project type stays in the list, disabled, and the
-hint under it says why; so does Ultralytics, whose models need their AGPL licence to be accepted first.
-The API refuses to create a run with a YOLO model (400, "Training YOLO models is not available yet").
+hint under it says why. YOLO/Ultralytics models train with their own worker (`workers/yolo.py`) once the
+AGPL-3.0 licence is accepted (*Licences* below); until the dialog offers that acceptance, the family stays
+disabled there and only the API can accept it and start a YOLO run.
 
 The catalogue is data (`training/catalog.py`): each model lists its family, packages, input size,
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds
@@ -292,6 +293,69 @@ segmentation), which is then queued right after saving.
   keypoint models (torchvision) are not exported yet: their traced graphs break in ONNX Runtime on
   images without candidate boxes; their PyTorch weights can be downloaded.
 
+## Licences
+
+Ultralytics is licensed AGPL-3.0, a copyleft licence that asks more than the other training packages
+(PyTorch, torchvision and timm are BSD or Apache): software that uses Ultralytics and is distributed, or
+offered to others as a network service, must be offered under the AGPL with its source. Using it privately to
+train models does not by itself trigger that, but whoever accepts takes responsibility for how the trained
+models and any service built on them are used. Read the licence text before accepting
+(<https://www.gnu.org/licenses/agpl-3.0.html>) and ask your organisation when in doubt.
+
+Because of this, ActiveLabel does not install or use Ultralytics until the licence is accepted:
+
+- The acceptance is kept with its date in the workspace settings, `<workspace>/settings.json`, under
+  `licences.ultralytics` (`accepted_at`, `name`). Accepting again keeps the first date.
+- `GET /api/training/licences` lists the licences and whether each was accepted; `POST
+  /api/training/licences/ultralytics/accept` with `{"accept": true}` records the acceptance (without
+  `accept: true` it answers 400 `licence_not_confirmed`; an unknown licence 404 `licence_not_found`).
+  `GET /api/training/environment?model=<id>` also tells `licence` and `licence_accepted` for that model.
+- Creating a run with a YOLO model before the acceptance is refused with 400 `licence_not_accepted` (params
+  `licence` and `name`). The environment never installs the package either: `TrainingEnvironment.ensure`
+  raises the same error before anything is created or installed, so no other path can bypass the check.
+  Models of the other families need no acceptance.
+
+## YOLO runs
+
+The worker `workers/yolo.py` runs in the training environment, reads the same `spec.json` and writes the same
+events, metrics, `best.pt`, `last.pt` and `results.json` as the other workers, so the screens, the metrics
+and *Save as model* work as they do for them. The pinned `ultralytics` version is the one of
+`PINNED_VERSIONS`. How the run options become Ultralytics options:
+
+- **Data.** The images of the version are linked (or copied) into a temporary Ultralytics dataset with one
+  label file each (boxes; polygons for `-seg`; boxes and points for `-pose`), removed when the training ends.
+- **Resize.** `letterbox` is what Ultralytics does itself; `stretch` and `center_crop` fit the photos and their
+  labels to the square input first, as the other workers do.
+- **Start.** `transfer` loads the COCO weights and freezes the backbone (10 layers), `finetune` trains all,
+  `scratch` builds the network from its `.yaml`. Ultralytics downloads the pretrained weights to the run's
+  temporary folder, and its own telemetry (`sync`) is turned off.
+- **Device and precision.** The device the run asked for (`cuda:N` becomes the GPU index); mixed precision on
+  CUDA only (`amp`), with the same warning on the CPU. Ultralytics does not halve the batch on its own: a GPU
+  out of memory fails with `out_of_memory`.
+- **Optimizer, schedule, warmup.** `sgd`, `adam` and `adamw`, `lr`, `weight_decay` and `warmup_epochs` map
+  directly. The `none` and `cosine` schedules map to `lrf` and `cos_lr`; `step`, `onecycle` and `plateau` do
+  not exist in Ultralytics, which falls back to its linear decay (warning `yolo_scheduler_unsupported`).
+  `backbone_lr_factor` has no counterpart (one learning rate for the whole network; warning
+  `yolo_backbone_lr_ignored` when fine-tuning).
+- **Augmentation.** The resolved techniques become Ultralytics hyperparameters: `hflip` and `vflip`
+  (`fliplr`, `flipud`), `rotation` (`degrees`), `scale_jitter` (`scale`), `translate` and `color_jitter`
+  (`hsv_h`, `hsv_s`, `hsv_v`; contrast has no counterpart); every other augmentation of Ultralytics is off.
+  `blur` and `grayscale` cannot be applied (warning `yolo_technique_unsupported`). Mosaic is the model's own
+  `mosaic` and `close_mosaic` options (four images in one; off for the last epochs), not a technique of the
+  list, because only Ultralytics can apply it.
+- **Selection and patience.** The best epoch is chosen by the run's selection metric (`map50_95` or `map50`
+  of the boxes), not by the fitness of Ultralytics: `best.pt` is a copy of the checkpoint of that epoch, and
+  patience stops the training by the same metric. Instance runs also report the mask mAP, pose runs the
+  keypoint mAP.
+- **Resume.** `last.pt` is the checkpoint of Ultralytics (optimizer, EMA, learning rate schedule);
+  `yolo_state.json` keeps the best epoch and the digest of the run. A failed or cancelled run resumes after its
+  last epoch.
+- **Not yet.** Pre-annotation and ONNX export refuse YOLO models; their PyTorch checkpoints can be
+  downloaded and opened with Ultralytics.
+
+A smoke test with the real package is `tests/smoke/yolo_smoke.py` (not run by pytest): it trains a tiny model
+from scratch and checks the events and files.
+
 ## Pinned package versions
 
 A new release of PyTorch or timm must not change results or break a first install (#160), so the training
@@ -323,6 +387,8 @@ To update the versions:
 | --- | --- | --- |
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
 | GET | `/api/training/augmentations?type=` | augmentation levels and, per kind of task, the techniques with their settings and the list of each preset |
+| GET | `/api/training/licences` | the licences to accept before a package is installed (`ultralytics`: AGPL-3.0) and whether each was accepted, with its date |
+| POST | `/api/training/licences/{id}/accept` | `{"accept": true}`: record the acceptance in the workspace settings |
 | GET | `/api/training/environment` | installed packages, the GPU found and `devices` (the device choices of this computer: `auto`, `cpu`, `cuda:N`, `mps`); with `?model=<id>` also `missing` (packages that model needs) and `install_needed`, which the *New run* dialog uses to say that the first run installs packages |
 | GET/POST | `/api/projects/{id}/runs` | list (each run has `model_number`, the saved model made from it, and `has_weights`) / create (queued job): the configuration plus an optional `device` (default `auto`) |
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
@@ -346,8 +412,9 @@ instance segmentation (Mask R-CNN) and keypoints (torchvision), grid search and 
 Pre-annotation works with classification, detection, keypoint, instance segmentation and semantic
 segmentation models (docs/PREANNOTATE.md).
 
-Not yet: YOLO / Ultralytics models (training them is refused), ONNX for instance, detection and keypoint
-models, and regression.
+Not yet: the YOLO models in the training dialog (the API trains them after the licence is accepted),
+pre-annotation and ONNX export of YOLO models, ONNX for instance, detection and keypoint models, and
+regression.
 
 ## Image orientation
 

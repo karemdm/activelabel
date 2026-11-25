@@ -427,7 +427,7 @@ def _torchvision_models() -> list[ModelSpec]:
 
 
 def _yolo_models() -> list[ModelSpec]:
-    """The Ultralytics YOLO models: listed, not trainable yet (no worker reads their parameters).
+    """The Ultralytics YOLO models (trained by ``workers/yolo.py`` once the AGPL licence is accepted).
 
     Returns:
         One spec per generation, size and task.
@@ -450,7 +450,7 @@ def _yolo_models() -> list[ModelSpec]:
                         kind,
                         _ULTRA,
                         640,
-                        notes="Ultralytics is licensed AGPL-3.0.",
+                        notes="Ultralytics is licensed AGPL-3.0: accept the licence before it is installed.",
                         params=(_MOSAIC, _CLOSE_MOSAIC),
                         defaults=_YOLO,
                     )

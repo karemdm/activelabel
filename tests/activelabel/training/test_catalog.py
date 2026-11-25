@@ -21,10 +21,16 @@ from activelabel.training.catalog import (
     models_for,
 )
 from activelabel.training.config import ConfigError, RunConfig, validate
-from activelabel.training.runner import RESOLVED_PARAMS, WORKER_FILES, WORKERS_DIR
+from activelabel.training.runner import (
+    FAMILY_WORKER_FILES,
+    RESOLVED_PARAMS,
+    WORKER_FILES,
+    WORKERS_DIR,
+    worker_key,
+)
 
 #: Families listed in the catalogue that no worker trains yet (the API refuses them, the form hides them).
-NOT_TRAINABLE = {"ultralytics"}
+NOT_TRAINABLE: set[str] = set()
 
 
 def _is_params(node: ast.expr) -> bool:
@@ -66,7 +72,9 @@ TRAINABLE = [m for m in MODELS if m.family not in NOT_TRAINABLE]
 
 @pytest.mark.parametrize("model", TRAINABLE, ids=lambda m: m.id)
 def test_every_declared_parameter_is_read_by_the_worker(model):
-    params, spec = _reads(WORKERS_DIR / WORKER_FILES[model.task_kind])
+    params, spec = _reads(
+        WORKERS_DIR / (FAMILY_WORKER_FILES.get(model.family) or WORKER_FILES[model.task_kind])
+    )
     declared = {p.name for p in model.param_specs()}
     assert "start" in spec  # the start is a field of the run, not of params
     assert "augmentations" in spec  # the augmentation level reaches the worker as a list of techniques
@@ -75,10 +83,12 @@ def test_every_declared_parameter_is_read_by_the_worker(model):
     assert params <= declared, f"{model.id}: read but not declared: {params - declared}"
 
 
-def test_untrainable_families_have_no_worker_reading_their_own_parameters():
-    every_read = set().union(*(_reads(WORKERS_DIR / name)[0] for name in set(WORKER_FILES.values())))
-    own = {p.name for m in MODELS if m.family in NOT_TRAINABLE for p in m.params}
-    assert own and not own & every_read  # when a YOLO worker comes, move the family out of NOT_TRAINABLE
+def test_yolo_worker_reads_the_options_only_yolo_models_declare():
+    read = _reads(WORKERS_DIR / FAMILY_WORKER_FILES["ultralytics"])[0]
+    assert {"mosaic", "close_mosaic"} <= read
+    assert all(worker_key(m) == "ultralytics" for m in MODELS if m.family == "ultralytics")
+    torchvision_read = set().union(*(_reads(WORKERS_DIR / name)[0] for name in set(WORKER_FILES.values())))
+    assert not {"mosaic", "close_mosaic"} & torchvision_read  # the other workers know no mosaic option
 
 
 @pytest.mark.parametrize("model", MODELS, ids=lambda m: m.id)

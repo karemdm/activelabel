@@ -28,6 +28,8 @@ from typing import Any
 
 import psutil
 
+from activelabel.training.licences import LicenceStore, licences_of_packages
+
 IS_WINDOWS = sys.platform == "win32"
 MAX_PATH_LENGTH = 90  # longer environment paths break the 260-character limit on Windows
 #: PyTorch CUDA builds that have the pinned torch and torchvision, newest first. A driver older than the
@@ -561,9 +563,12 @@ class TrainingEnvironment:
 
         Raises:
             TrainingEnvError: the environment could not be created or a package could not be installed.
+            LicenceNotAccepted: a package needs a licence the person has not accepted (nothing is installed).
         """
+        packages = list(packages)
+        LicenceStore(self.workspace).require(licences_of_packages(packages))
         self.create(check, step)
-        todo = self.missing(list(packages))
+        todo = self.missing(packages)
         if not todo:
             return
         step("train_env_install:" + ",".join(todo))
