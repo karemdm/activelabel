@@ -548,3 +548,11 @@ def test_closing_an_empty_task_removes_it_and_says_so(tmp_path):
     closed = client.patch(f"/api/projects/1/tasks/{made['task']['id']}", json={"open": False}).json()
     assert closed["removed"] is True
     assert client.get("/api/projects/1/tasks").json()["tasks"] == []
+
+
+def test_task_card_tells_about_excluded_images():
+    """The task and its jobs say how many images are excluded (#413)."""
+    assert re.search(r"task\.images - task\.active", JS)
+    assert re.search(r"j\.images - j\.active", JS)
+    assert "tasks.meta_excluded" in JS and "tasks.job_excluded" in JS
+    assert ".job-excluded" in CSS
