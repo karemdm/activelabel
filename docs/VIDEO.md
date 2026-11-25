@@ -119,7 +119,8 @@ video size.
 - **YOLO** and **COCO** work as for images except for the matching. COCO `track_id` or
   `instance_id` becomes the track id. A COCO image without any frame number is matched by file
   name. YOLO files without a number at the end of the name are reported and skipped.
-- Images between the first and the last annotated frame (CVAT: the task range in the meta) that
+- Images between the first and the last annotated frame (CVAT: the task range `start_frame`..`stop_frame`
+  in the meta, whether the file numbers its frames by task or by video) that
   have no label count as annotated without objects; YOLO and COCO only count the frames they list.
 - The project's only video task is used by default for CVAT video and MOT files; when there are
   several, one must be chosen (`task` in `POST /projects/{id}/annotations`). COCO and YOLO use

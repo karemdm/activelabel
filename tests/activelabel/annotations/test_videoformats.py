@@ -208,3 +208,10 @@ def test_cvat_export_uses_video_frame_numbers(tmp_path, target):
     got = by_frame(run([path], "cvatvideo", target), target)
     assert [lb.track for lb in got[10]] == [7, 8] and [lb.label for lb in got[20]] == ["car", "person"]
     assert [lb.label for lb in got[40]] == ["car"]
+
+
+def test_cvat_video_numbered_frames_cover_the_whole_task_range(tmp_path, target):
+    """The last frames without objects are annotated empty, as with task-relative numbers."""
+    path = cvat_file(tmp_path, f0=10, f1=20, f2=30, f9=20)  # nothing visible after frame 20
+    res = run([path], "cvatvideo", target)
+    assert set(res.labels) == {target.frames[f].id for f in FRAMES}
