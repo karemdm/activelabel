@@ -9,7 +9,7 @@ pre-annotate new images, which a person reviews in CVAT or FiftyOne and feeds ba
 training.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph G1["Data"]
     direction LR
     A["1 Images"] --> B["2 Annotations"] --> C["3 Curation"]
@@ -22,13 +22,13 @@ flowchart LR
     direction LR
     N["New images"] --> P["Pre-annotate"] --> R["Review"]
   end
-  C --> D
-  F --> P
-  R --> D
+  G1 --> G2
+  G2 -- "current model" --> G3
+  G3 -- "reviewed images" --> G2
 ```
 
 The current model pre-annotates new images, a person reviews them, and the reviewed images go into a new
-split and a new training (the arrows from *6 Models* to *Pre-annotate*, and from *Review* to *4 Data split*).
+split and a new training (the arrows between *Model* and *Improve the model*).
 
 Guia em português: [docs/GUIA.pt-BR.md](docs/GUIA.pt-BR.md). Engineering overview with diagrams:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
