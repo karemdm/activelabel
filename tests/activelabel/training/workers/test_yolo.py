@@ -12,6 +12,8 @@ from worker_loader import load_worker
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 
+torch = pytest.importorskip("torch", reason="the YOLO worker needs torch (CI job 'training workers')")
+
 CLASSES = ["a", "b"]
 
 
@@ -63,8 +65,6 @@ class FakeYOLO:
         self.callbacks[name] = function
 
     def train(self, **kwargs):
-        import torch
-
         self.train_kwargs = kwargs
         if FakeYOLO.failure is not None:
             raise FakeYOLO.failure
