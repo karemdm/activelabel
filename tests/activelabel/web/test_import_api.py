@@ -157,3 +157,14 @@ def test_a_project_imported_before_from_a_removed_tool_still_opens(env):
     shown = client.get(f"/api/projects/{pid}")
     assert shown.status_code == 200 and shown.json()["origin"]["tool"] == "labelstudio"
     assert client.get("/api/projects").status_code == 200
+
+
+def test_import_errors_carry_codes(env, monkeypatch):
+    client, _, _ = env
+    configure_cvat(client)
+    bad = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": "folder"})
+    assert bad.status_code == 400 and bad.json()["code"] == "import_kind_invalid"
+    routes = {("GET", "/api/tasks/5"): FakeResp(404)}
+    monkeypatch.setattr(requests, "Session", lambda: FakeSession(routes, "http://cvat"))
+    gone = client.post("/api/import", json={"tool": "cvat", "remote_id": "5", "kind": "task"})
+    assert gone.status_code == 404 and gone.json()["code"] == "remote_not_found"

@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import IO, Any, BinaryIO
 
 from activelabel.annotations.folders import folder_classes
+from activelabel.errors import CodedError
 
 STAGING = "staging"
 MAX_AGE_SECONDS = 24 * 3600
@@ -68,10 +69,10 @@ def _check_token(token: str) -> None:
         token: the token to check.
 
     Raises:
-        ValueError: the token is not 16 lowercase hex digits.
+        CodedError: ``staging_token_invalid``, the token is not 16 lowercase hex digits.
     """
     if not _TOKEN.match(token):
-        raise ValueError("Invalid staging token.")
+        raise CodedError("staging_token_invalid", "Invalid staging token.")
 
 
 def cleanup(project_dir: Path) -> None:
