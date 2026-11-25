@@ -613,3 +613,8 @@ def test_closing_the_new_task_dialog_mid_upload_does_not_hide_it_and_leaving_ask
     assert "images.upload_running" in JS
     assert "ctx.busy.add('upload')" in JS and "ctx.busy.delete('upload')" in JS
     assert "addEventListener('beforeunload'" in JS
+
+
+def test_progress_message_tool_names_are_matched_in_lower_case():
+    """The server writes ``Listing CVAT data``; the tool lookup is lower case, so lower the name (#460)."""
+    assert "toolName(found[1].toLowerCase())" in JS
