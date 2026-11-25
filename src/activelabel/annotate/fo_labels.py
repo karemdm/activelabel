@@ -104,25 +104,46 @@ def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
             continue
         box = [_r(v) for v in det.bounding_box]
         if getattr(det, "mask", None) is not None:
-            notes["mask_only"] = notes.get("mask_only", 0) + 1  # kept as a box: masks are not converted
+            _note(notes, "mask_only")  # kept as a box: masks are not converted
         out.append(Label(str(det.label), bbox=box, track=_track(det)))
     return out
 
 
-def _polylines(value: Any) -> list[Label]:
+def _note(notes: dict[str, int], code: str) -> None:
+    """Count one note.
+
+    Args:
+        notes: counters by code.
+        code: the note to count.
+    """
+    notes[code] = notes.get(code, 0) + 1
+
+
+def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
     """Labels of a ``Polylines`` value: those with a class and a ring of at least 3 points.
+
+    A line that is neither closed nor filled is not a polygon: it is left out and noted
+    (``open_polyline``). A ring of fewer than 3 points is left out and noted (``polygon_too_few_points``);
+    the polyline is kept when it has other rings.
 
     Args:
         value: the ``Polylines`` label.
+        notes: counters; ``open_polyline`` and ``polygon_too_few_points`` are increased once per polyline.
 
     Returns:
-        One label with polygons and their bounding box per polyline.
+        One label with polygons and their bounding box per usable polyline.
     """
     out: list[Label] = []
     for poly in value.polylines or []:
         if not poly.label:
             continue
-        rings = [[[_r(x), _r(y)] for x, y in ring] for ring in poly.points or [] if len(ring) >= 3]
+        if not getattr(poly, "closed", False) and not getattr(poly, "filled", False):
+            _note(notes, "open_polyline")
+            continue
+        points = list(poly.points or [])
+        rings = [[[_r(x), _r(y)] for x, y in ring] for ring in points if len(ring) >= 3]
+        if len(rings) < len(points):
+            _note(notes, "polygon_too_few_points")
         if not rings:
             continue
         flat = [p for ring in rings for p in ring]
@@ -179,7 +200,10 @@ def _keypoints(value: Any) -> list[Label]:
 
 
 def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int]]:
-    """Like :func:`labels_from_fo`, plus notes (``mask_only``: masks kept as boxes).
+    """Like :func:`labels_from_fo`, plus notes on shapes that were changed or left out to be read.
+
+    Notes: ``mask_only`` (a detection mask kept as its box), ``open_polyline`` (a line that is not closed
+    nor filled, left out) and ``polygon_too_few_points`` (a ring of fewer than 3 points, left out).
 
     Args:
         value: the FiftyOne label field value, or None.
@@ -200,7 +224,7 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     elif kind == "Detections":
         labels = _detections(value, notes)
     elif kind == "Polylines":
-        labels = _polylines(value)
+        labels = _polylines(value, notes)
     elif kind == "Keypoints":
         labels = _keypoints(value)
     else:

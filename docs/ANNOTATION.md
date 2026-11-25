@@ -42,7 +42,11 @@ detection (bounding boxes), segmentation (polygons) and keypoints.
 3. **Bring back** (*Bring annotations back*, a job): read the `ground_truth` field of those samples,
    convert it to the internal format (`activelabel.labels`) and **diff** it against the project ground
    truth for the session images: per image, labels added / removed / edited (class change, geometry
-   change). Also validate against the type and the class list (unknown classes are reported). Only the
+   change). Also validate against the type and the class list (unknown classes are reported) and the
+   geometry: a polygon ring of fewer than 3 points (`polygon_too_few_points`), an open line that is
+   neither closed nor filled (`open_polyline`), a pose with another number of points than the
+   project's (`keypoints_count_mismatch`) or a box without area (`box_invalid`) is listed as a problem
+   and skipped on apply, never stored silently; a detection mask keeps only its box (`mask_only`). Only the
    images edited in FiftyOne bring FiftyOne's version; the others keep the project's current labels, so
    a project edit is never undone by an image nobody touched in FiftyOne. **Conflicts**: an image edited
    in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under

@@ -86,6 +86,8 @@ class Pulled(dict[str, list[Label]]):
         written: hash (:func:`activelabel.sync.links.label_hash`) of the project labels ActiveLabel wrote
             into the tool, by image id: an edited image whose project labels no longer have this hash was
             edited on both sides.
+        problems: ``{image_id: {code: count}}`` for shapes found in the tool that could not be read as
+            labels, or were changed to be read.
     """
 
     def __init__(
@@ -93,6 +95,7 @@ class Pulled(dict[str, list[Label]]):
         labels: dict[str, list[Label]],
         edited: set[str],
         written: dict[str, str] | None = None,
+        problems: dict[str, dict[str, int]] | None = None,
     ) -> None:
         """Wrap the labels of a pull.
 
@@ -100,10 +103,12 @@ class Pulled(dict[str, list[Label]]):
             labels: the labels of each image, keyed by image id.
             edited: the images changed in the tool since ActiveLabel wrote them.
             written: hash of the project labels written into the tool, by image id.
+            problems: problem counts by image id.
         """
         super().__init__(labels)
         self.edited = set(edited)
         self.written = dict(written or {})
+        self.problems = dict(problems or {})
 
 
 class AnnotationTool(Protocol):

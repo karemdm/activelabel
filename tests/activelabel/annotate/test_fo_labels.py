@@ -57,7 +57,7 @@ def test_track_is_the_fiftyone_index():
         ]
     )
     assert [x.track for x in labels_from_fo(dets, Task.DETECTION)] == [3, None]
-    poly = fo.Polyline(label="a", points=[[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]], index=4)
+    poly = fo.Polyline(label="a", points=[[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]], index=4, filled=True)
     assert labels_from_fo(fo.Polylines(polylines=[poly]), Task.SEGMENTATION)[0].track == 4
     kp = fo.Keypoint(label="p", points=[(0.2, 0.3)], index=5)
     assert labels_from_fo(fo.Keypoints(keypoints=[kp]), Task.KEYPOINTS)[0].track == 5
@@ -98,3 +98,18 @@ def test_fingerprint_ignores_float_noise_and_scores_but_not_edits():
     assert fingerprint(written, Task.DETECTION) != fingerprint(moved, Task.DETECTION)
     assert fingerprint(written, Task.DETECTION) != fingerprint(renamed, Task.DETECTION)
     assert fingerprint(None, Task.DETECTION) == fingerprint(fo.Detections(), Task.DETECTION)
+
+
+def test_open_polyline_is_left_out_and_noted():
+    line = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1), (0.5, 0.5)]], closed=False, filled=False)
+    closed = fo.Polyline(label="a", points=[[(0.1, 0.1), (0.5, 0.1), (0.5, 0.5)]], closed=True)
+    labels, notes = labels_and_notes(fo.Polylines(polylines=[line, closed]), Task.SEGMENTATION)
+    assert len(labels) == 1 and notes == {"open_polyline": 1}
+
+
+def test_ring_of_fewer_than_three_points_is_left_out_and_noted():
+    short = fo.Polyline(label="a", points=[[(0.2, 0.2), (0.5, 0.5)]], filled=True)
+    mixed = fo.Polyline(label="b", points=[[(0.1, 0.1), (0.2, 0.1), (0.2, 0.2)], [(0.5, 0.5)]], filled=True)
+    labels, notes = labels_and_notes(fo.Polylines(polylines=[short, mixed]), Task.SEGMENTATION)
+    assert [(lb.label, len(lb.polygons or [])) for lb in labels] == [("b", 1)]
+    assert notes == {"polygon_too_few_points": 2}
