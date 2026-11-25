@@ -31,7 +31,7 @@ test('the tab reads the pre-annotations of the project and says when no model fi
   let changed = 0;
   const pre = preannotateBlock({ projectId: 4 }, { changed: () => { changed += 1; }, reviewCvat: () => {}, reviewFiftyone: () => {} });
   const asked = await withApi({ models: [{ number: 1, supported: false }], runs: [] }, () => pre.load());
-  assert.deepEqual(asked, ['/api/projects/4/preannotations']);
+  assert.deepEqual(asked.sort(), ['/api/projects/4/preannotations', '/api/training/environment']);  // the devices are read once
   assert.match(pre.node.textContent, /No model can pre-annotate this project yet/);
   assert.equal(changed, 0);
   assert.equal(typeof pre.choose, 'function');

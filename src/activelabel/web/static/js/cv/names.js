@@ -56,3 +56,6 @@ export function annotationStatus(c) {
   if (c.annotated > 0) return tn('status.annotated', c.annotated);
   return c.empty > 0 ? tn('status.empty', c.empty) : t('status.annotations_none');
 }
+
+/** A device (``auto``, ``cpu``, ``cuda:N``, ``mps``) as the training dialog and the Pre-annotate tab name it. */
+export const deviceName = (d) => (d.startsWith('cuda:') ? t('tr.device_gpu', { n: d.slice(5) }) : tr(`tr.device_${d}`, d));

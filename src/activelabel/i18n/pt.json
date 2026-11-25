@@ -1272,6 +1272,7 @@
   "pre.task": "Task",
   "pre.images": "Imagens",
   "pre.threshold": "Confiança mínima",
+  "pre.device_help": "Onde o modelo roda; o automático usa a GPU quando houver uma.",
   "pre.scope_unlabeled": "Sem anotação",
   "pre.scope_unreviewed": "Pré-anotadas, não revisadas",
   "pre.threshold_cls": "Abaixo dela a imagem fica sem rótulo.",

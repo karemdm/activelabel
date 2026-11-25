@@ -67,7 +67,8 @@ written only when the run ends; a cancelled or failed run writes nothing.
 **Device.** The run works on the device it was asked for: `auto` (a CUDA GPU when there is one, else Apple MPS,
 else the CPU), `cpu`, `cuda:N` or `mps`. The API takes it as `device` (default `auto`; a device the computer does
 not have is refused with 400 `device_unavailable`, a name that is not a device with `device_invalid`) and the run
-keeps it; the *Pre-annotate* screen does not offer the choice and always uses `auto`. An image that cannot be read
+keeps it; the *Pre-annotate* screen offers the same list as the training dialog (*Device* / *Dispositivo*: the
+devices of the training environment, *Automatic* first). An image that cannot be read
 is skipped and counted (`counts.unreadable`). A run interrupted by a restart ends as failed with the
 error `interrupted`; it can be started again. Logs:
 `<project>/preannotations/p<N>.log`; runs: `<project>/preannotations.json`.

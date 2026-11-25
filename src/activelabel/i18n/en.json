@@ -1272,6 +1272,7 @@
   "pre.task": "Task",
   "pre.images": "Images",
   "pre.threshold": "Minimum confidence",
+  "pre.device_help": "Where the model runs; automatic takes the GPU when there is one.",
   "pre.scope_unlabeled": "Without annotations",
   "pre.scope_unreviewed": "Pre-annotated, not reviewed",
   "pre.threshold_cls": "Below it the image stays without a label.",
