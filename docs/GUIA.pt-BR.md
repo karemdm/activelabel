@@ -120,7 +120,7 @@ do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no env
 ### Grupo Modelo
 
 **4. Divisão dos dados.** Cria uma *versão do dataset*: partes de treino, validação e teste
-(ou K dobras mais uma parte de teste). Quadros do mesmo vídeo e quase duplicadas ficam juntos,
+(ou K folds mais uma parte de teste). Quadros do mesmo vídeo e quase duplicadas ficam juntos,
 e as classes são distribuídas de forma equilibrada. Escolha as tasks, as porcentagens (números
 que somam 100; para treinar é preciso ter validação), imagens de fundo, modo de vídeos e a
 semente; a prévia mostra os avisos antes de salvar. Rótulos que o modelo não conseguiria usar ficam de
@@ -129,7 +129,7 @@ fora, com aviso, e uma versão cujo treino ou validação ficaria vazio é recus
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
-todas as dobras. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
+todos os folds. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
 pontos-chave (torchvision); os modelos YOLO/Ultralytics ainda não estão disponíveis e ficam
 escondidos na interface. Os pacotes necessários são instalados sob demanda, em versões fixas e
