@@ -32,6 +32,20 @@ A link is created:
 - when the person chooses *Synchronise* (*Sincronizar*) for an existing remote project with the same name
   (images matched by file name; unmatched ones are reported).
 
+**After an import from CVAT.** A CVAT project, or a task that belongs to one, is imported through the
+synchronisation engine and is **linked right away**: one local task per CVAT task (same jobs), every image
+mapped, nothing to do in the next comparison. From the project page the person can at once:
+- open the project, a task or a job in CVAT (the links of the *Tasks and jobs* list);
+- *Compare* in the *CVAT* tab and synchronise in **both directions** (edits made in CVAT come back,
+  edits made here go there, conflicts are shown before anything changes);
+- *Edit in FiftyOne* (the FiftyOne tab of a task or job): the FiftyOne dataset is made on the first
+  send; edits applied from FiftyOne become project edits, which the next synchronisation sends to CVAT.
+
+So an edit made in either tool reaches the other: FiftyOne → project (apply) → CVAT (synchronise), and
+CVAT → project (synchronise) → FiftyOne (next send). A **task outside any CVAT project** is imported as a
+copy, **not linked** (synchronisation works with CVAT projects); the import result says so. To keep it in
+step, move the task into a project in CVAT and import that project.
+
 **Task guard.** In CVAT every task lives **inside** the linked CVAT project. The CVAT client refuses to
 create a task without a `project_id` (`POST /api/tasks` with none is stopped before anything is sent, with
 the text "Refusing to create a CVAT task outside a project"): a task outside any project would be invisible

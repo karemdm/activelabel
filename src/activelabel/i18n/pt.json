@@ -555,6 +555,8 @@
   "import.problems": "Pontos de atenção",
   "import.open": "Abrir o projeto",
   "import.another": "Importar outro projeto",
+  "import.linked": "Vinculado ao projeto de origem no CVAT: abra no CVAT, compare e sincronize nos dois sentidos pela aba CVAT de Anotações; Editar no FiftyOne já funciona.",
+  "import.not_linked": "Sem vínculo com o CVAT: esta task não está em nenhum projeto do CVAT, e a sincronização trabalha com projetos do CVAT. As imagens e anotações são uma cópia. Para manter os dois lados iguais, mova a task para um projeto no CVAT e importe esse projeto.",
   "import.failed_title": "A importação falhou",
   "import.cancelled": "Importação cancelada. Nenhum projeto foi criado.",
   "import.back": "Voltar à lista",

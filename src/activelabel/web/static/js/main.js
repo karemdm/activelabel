@@ -6588,6 +6588,7 @@
           fact(t('project.annotations'), tn('import.labels', r.labels || 0)),
           classes ? fact(t('field.classes'), tn('import.classes', classes)) : null),
         Array.isArray(r.classes) && r.classes.length ? classList(r.classes) : null,
+        r.linked === undefined ? null : el('p', { class: `report-line ${r.linked ? 'ok' : 'warn'}` }, icon(r.linked ? 'check' : 'warning'), t(r.linked ? 'import.linked' : 'import.not_linked')),   // what the link allows right away (docs/SYNC.md)
         problems.length ? el('div', { class: 'problems-box' }, el('h3', null, t('import.problems')), el('ul', { class: 'problems plain' }, ...problems.map(problemRow))) : null,
         el('div', { class: 'form-actions' },
           r.project_id ? el('a', { class: 'btn primary big', href: `/projects/${encodeURIComponent(r.project_id)}` }, t('import.open')) : null,
