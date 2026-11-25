@@ -43,7 +43,10 @@ half-made task is deleted.
 login): the tasks of every project of the configured server, saying which project is linked to one of
 ours, and the tasks that are in no project, grouped by name pattern (digits shown as `#`, e.g.
 `street_round_#`; the biggest group first). ActiveLabel only creates tasks inside a project, so those come
-from other tools or older versions. The audit never moves or deletes anything.
+from other tools or older versions. The audit never moves or deletes anything. A list CVAT does not
+offer (it answers 404, as an old version or an address that is not the root of CVAT does) is left out and
+named in `missing` (`projects` or `tasks`), the rest is shown; when neither list exists the answer is 400
+`cvat_audit_unavailable` with the address.
 
 ## A linked project that was deleted in CVAT
 
@@ -192,7 +195,7 @@ A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 | GET | `/api/projects/{id}/links` | | `{links: [{tool, url, remote_id, remote_name, last_sync, images}]}` |
 | DELETE | `/api/projects/{id}/links/{tool}` | | `{unlinked: true}` (remote untouched); 409 while a job of the project runs; 404 `not_linked` |
 | POST | `/api/projects/{id}/sync/{tool}` | `{create?, remote_id?, scope: "project"\|"task"\|"job" (default project), task?, job?, direction: "both"\|"pull"\|"push" (default both)}` | job `sync_plan` |
-| GET | `/api/cvat/audit` | | `{url, projects: [{id, name, url, linked_to: {id, name}\|null, tasks: [{id, name, size, url}]}], loose: [{pattern, tasks}]}`; read-only |
+| GET | `/api/cvat/audit` | | `{url, projects: [{id, name, url, linked_to: {id, name}\|null, tasks: [{id, name, size, url}]}], loose: [{pattern, tasks}], missing: ["projects"\|"tasks"]}`; read-only |
 | DELETE | `/api/projects/{id}/sync/{tool}/{plan_id}` | | `{discarded: true}`: the comparison is deleted, so no tab can apply it; 404 `plan_not_found` when it does not exist |
 | POST | `/api/projects/{id}/sync/{tool}/{plan_id}/apply` | `{resolutions, default, delete_tasks}` | job `sync_apply`; 404 when the comparison no longer exists |
 
@@ -202,7 +205,7 @@ A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 class RemoteProject(Protocol):          # activelabel/sync/remote.py
     tool: str
     def check(self, settings) -> str                                  # login test, "Connected to ..."
-    def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
+    def audit(self, settings) -> dict            # {projects: [...], loose: [...], missing: [...]}, read-only
     def find(self, settings, name: str) -> RemoteInfo | None
     def get(self, settings, remote_id: str) -> RemoteInfo            # {id, name, url, images}
     def create(self, settings, project: Project) -> RemoteInfo

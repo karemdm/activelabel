@@ -323,12 +323,30 @@ def test_audit_lists_tasks_per_project_and_groups_the_loose_ones(cvat: FakeCvat)
     }
     assert found["loose"][0]["pattern"] == "pets_round_#"  # the biggest group first
     assert {c[0] for c in cvat.calls} == {"GET"}  # read-only: nothing was created, changed or deleted
+    assert found["missing"] == []
 
 
 def test_audit_shows_the_tasks_of_a_project_the_account_cannot_list(cvat: FakeCvat) -> None:
     named_task(cvat, 999, "hidden project task")
     (only,) = CvatRemote().audit(SETTINGS)["projects"]
     assert only["id"] == "999" and only["name"] == "" and only["tasks"][0]["name"] == "hidden project task"
+
+
+def test_audit_lists_what_an_old_cvat_offers_and_names_the_missing_list(cvat: FakeCvat) -> None:
+    """#566: a 404 on one list (an old CVAT) showed a raw "Not Found"; the other list is still shown."""
+    named_task(cvat, None, "loose one")
+    cvat.fail[("GET", "/api/projects")] = 404
+    found = CvatRemote().audit(SETTINGS)
+    assert found["missing"] == ["projects"] and found["projects"] == []
+    assert [t["name"] for g in found["loose"] for t in g["tasks"]] == ["loose one"]
+
+
+def test_audit_without_both_lists_is_a_coded_error(cvat: FakeCvat) -> None:
+    cvat.fail[("GET", "/api/projects")] = 404
+    cvat.fail[("GET", "/api/tasks")] = 404
+    with pytest.raises(ToolError) as err:
+        CvatRemote().audit(SETTINGS)
+    assert err.value.code == "cvat_audit_unavailable" and err.value.params == {"url": "https://cvat.test"}
 
 
 def test_get_missing_is_readable(cvat: FakeCvat) -> None:
