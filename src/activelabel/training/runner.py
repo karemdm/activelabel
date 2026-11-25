@@ -150,6 +150,28 @@ KIND_TASK = {
 }
 
 
+def pose_box(label: Label) -> list[float] | None:
+    """Box of a pose label for training: its stored box grown to hold every visible point.
+
+    A point moved outside the stored box (an edit, or a file whose box was not updated) must stay inside
+    the box the model learns, so the box is the union of both.
+
+    Args:
+        label: a label with keypoints ``[x, y, visibility]`` and maybe a stored box.
+
+    Returns:
+        ``[x, y, w, h]`` (relative), or None when there is no box and no visible point.
+    """
+    shown = [p for p in label.keypoints or [] if (p[2] if len(p) > 2 else 2) > 0]
+    xs, ys = [p[0] for p in shown], [p[1] for p in shown]
+    if label.bbox:
+        x, y, w, h = label.bbox[:4]
+        xs, ys = [*xs, x, x + w], [*ys, y, y + h]
+    if not xs:
+        return None
+    return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
+
+
 def _objects(
     own: list[dict[str, Any]], classes: list[str], kind: str, keypoints: int | None
 ) -> list[dict[str, Any]]:
@@ -157,16 +179,18 @@ def _objects(
 
     A box for detection, polygons (3 or more points each) for instance segmentation (a box stands in
     for the polygon only in semantic segmentation), points for pose (all with ``keypoints`` points).
-    Labels of another class or without that shape are left out.
+    Labels of another class or without that shape are left out. The geometry is the truth: an instance
+    object carries no stored box (the worker takes the extent of its polygons, so box and mask agree),
+    and a pose box always holds the visible points (:func:`pose_box`).
 
     Args:
-        own: the label dicts of the image.
-        classes: class names of the dataset version; the position is the class index.
-        kind: kind of task (``detection``, ``instance``, ``semantic`` or ``keypoints``).
-        keypoints: points every object must have (pose), or ``None``.
+        own: the labels of the image, as stored in the dataset version.
+        classes: the class names of the run (the index is the class id).
+        kind: ``detection``, ``instance``, ``semantic`` or ``keypoints``.
+        keypoints: how many points a pose label must have (None: not checked).
 
     Returns:
-        One dict per usable label: ``label`` (class index) plus its shape keys.
+        ``{"label": class index, <shape>: ...}`` per usable label.
     """
     out = []
     task = KIND_TASK[kind]
@@ -178,9 +202,12 @@ def _objects(
             shapes = {"bbox": item.bbox}
         elif geometry_problem(task, item, keypoints) is not None:
             continue
+        elif kind == "keypoints":
+            box = pose_box(item)
+            shapes = {"keypoints": label["keypoints"], **({"bbox": box} if box else {})}
         else:
-            names = {"detection": ("bbox",), "instance": ("polygons", "bbox"), "semantic": ("polygons",)}
-            shapes = {k: label[k] for k in names.get(kind, ("keypoints", "bbox")) if label.get(k)}
+            names = {"detection": ("bbox",), "instance": ("polygons",), "semantic": ("polygons",)}
+            shapes = {k: label[k] for k in names[kind] if label.get(k)}
         out.append({"label": classes.index(label["label"]), **shapes})
     return out
 

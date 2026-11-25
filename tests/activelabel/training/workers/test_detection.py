@@ -217,7 +217,7 @@ def test_build_spec_objects(det_project):
         assert objects and all(o["label"] == 0 for o in objects)  # the class "b" has no shape at all
         shapes = {
             "detection": {"bbox"},
-            "instance": {"polygons", "bbox"},
+            "instance": {"polygons"},  # the box comes from the polygons (#355)
             "semantic": {"polygons"},
             "keypoints": {"keypoints", "bbox"},
         }[kind]

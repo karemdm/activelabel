@@ -688,7 +688,6 @@ def test_moved_polygon_vertex_changes_the_mask_between_versions(tmp_path: Path, 
         assert new[inside_new[1], inside_new[0]] and not old[inside_new[1], inside_new[0]], kind
 
 
-@pytest.mark.xfail(strict=True, reason="#355")
 def test_instance_box_agrees_with_polygons_when_the_file_box_disagrees(tmp_path: Path, det: Any) -> None:
     scene = make_scene(tmp_path, "segmentation")
     truth = ring_truth()
@@ -801,7 +800,6 @@ def test_hidden_keypoint_with_coordinates_is_zeroed_and_occluded_is_kept(det: An
     assert points.tolist() == [[0.0, 0.0, 0.0], [20.0, 20.0, 1.0], [60.0, 20.0, 2.0]]
 
 
-@pytest.mark.xfail(strict=True, reason="#355")
 def test_keypoint_box_covers_the_points_when_a_point_was_moved_outside_the_stored_box(
     tmp_path: Path, det: Any
 ) -> None:
