@@ -56,3 +56,13 @@ def test_cvat_shape_without_label_is_a_problem_not_an_empty_class(env):
     assert [lb.label for lb in res.labels[recs["a.png"].id]] == ["cat"] and res.classes == ["cat"]
     problem = next(p for p in res.problems if p.code == "invalid_annotation")
     assert "without a label" in problem.examples[0]
+
+
+def test_voc_without_filename_uses_the_xml_name(env):
+    folder, images, recs = env
+    xml = (
+        "<annotation><object><name>cat</name><bndbox><xmin>10</xmin><ymin>5</ymin><xmax>30</xmax>"
+        "<ymax>15</ymax></bndbox></object></annotation>"
+    )
+    res = parse([write(folder, "b.xml", xml)], "voc", images)
+    assert len(res.labels[recs["b.png"].id]) == 1 and res.unmatched_count == 0

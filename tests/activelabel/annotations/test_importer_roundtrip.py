@@ -859,7 +859,6 @@ def test_voc_filename_decides_the_image_and_extra_fields_are_ignored(tmp_path):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="#360")
 def test_voc_without_filename_falls_back_to_the_xml_name(tmp_path):
     """The xml name is a fallback (``c.xml`` -> ``c``), but without extension ``c.png`` is not found."""
     rig = make_rig(tmp_path)
