@@ -6,7 +6,8 @@ never appears in logs or messages.
 
 Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/data/meta``):
 
-* rectangle -> bbox; polygon -> polygon ring + bbox; points -> one keypoints object (all the points
+* rectangle -> bbox (a rectangle with ``rotation`` -> the axis-aligned box that encloses it, see
+  :func:`enclosing_box`); polygon -> polygon ring + bbox; points -> one keypoints object (all the points
   of the shape; a point at the top-left corner is "not labeled", as in ``cvat_tool``) + bbox; tag ->
   image class (classification projects only).
 * *Tracks* (interpolation mode) become one label per visible frame with ``Label.track`` = the CVAT
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import mimetypes
 import re
 import shutil
@@ -236,6 +238,45 @@ def _box(xs: list[float], ys: list[float]) -> list[float]:
     return [x0, y0, max(xs) - x0, max(ys) - y0]
 
 
+def enclosing_box(points: list[float], rotation: float) -> list[float]:
+    """The axis-aligned box ``[x0, y0, x1, y1]`` around a rectangle turned by ``rotation`` about its centre.
+
+    CVAT keeps the corners of the rectangle before the turn (``xtl, ytl, xbr, ybr``) and the angle apart,
+    in degrees. Detection works on axis-aligned boxes, so a turned rectangle becomes the smallest box that
+    holds its four corners (the same for either direction of the turn).
+
+    Args:
+        points: ``[xtl, ytl, xbr, ybr]`` of the rectangle before the turn, in pixels.
+        rotation: The angle in degrees.
+
+    Returns:
+        The enclosing box in pixels; ``points`` itself when there is no turn.
+    """
+    x0, y0, x1, y1 = (float(v) for v in points[:4])
+    turn = math.radians(float(rotation or 0) % 360)
+    if not turn:
+        return [x0, y0, x1, y1]
+    cx, cy, hw, hh = (x0 + x1) / 2, (y0 + y1) / 2, abs(x1 - x0) / 2, abs(y1 - y0) / 2
+    ex = hw * abs(math.cos(turn)) + hh * abs(math.sin(turn))
+    ey = hw * abs(math.sin(turn)) + hh * abs(math.cos(turn))
+    return [cx - ex, cy - ey, cx + ex, cy + ey]
+
+
+def _seen_points(shape: dict[str, Any]) -> list[float]:
+    """The pixel points of a shape as the project sees them (a turned rectangle: its enclosing box).
+
+    Args:
+        shape: A CVAT shape.
+
+    Returns:
+        Flat ``[x0, y0, x1, y1, ...]`` in pixels.
+    """
+    pts = [float(p) for p in shape.get("points") or []]
+    if shape.get("type") == "rectangle" and len(pts) >= 4 and shape.get("rotation"):
+        return enclosing_box(pts, float(shape["rotation"]))
+    return pts
+
+
 def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | None:
     """One CVAT shape -> internal label (None for unsupported types).
 
@@ -248,7 +289,7 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | 
     Returns:
         The label with relative 0..1 geometry, or None for a type that is not converted or too few points.
     """
-    kind, pts = shape.get("type"), [float(p) for p in shape.get("points") or []]
+    kind, pts = shape.get("type"), _seen_points(shape)
     w, h = max(w, 1), max(h, 1)
     xs = [clamp01(x / w) for x in pts[0::2]]
     ys = [clamp01(y / h) for y in pts[1::2]]
@@ -350,7 +391,8 @@ def _between(a: dict[str, Any], b: dict[str, Any] | None, t: float) -> list[floa
 
     Rectangles and points are interpolated linearly, like CVAT; every other type (polygons) keeps the
     points of ``a`` (approximation: CVAT also interpolates polygons, but only when both keyframes
-    have matching points, which is not guaranteed here).
+    have matching points, which is not guaranteed here). The ``rotation`` of rectangles is interpolated
+    the short way round, see :func:`_turn_between`.
 
     Args:
         a: The keyframe the interval starts at (CVAT shape, points in pixels).
@@ -367,6 +409,24 @@ def _between(a: dict[str, Any], b: dict[str, Any] | None, t: float) -> list[floa
     if len(pa) != len(pb):
         return pa
     return [x + (y - x) * t for x, y in zip(pa, pb, strict=True)]
+
+
+def _turn_between(a: dict[str, Any], b: dict[str, Any] | None, t: float) -> float:
+    """``rotation`` at fraction ``t`` from keyframe ``a`` to keyframe ``b``, the short way round.
+
+    Args:
+        a: The keyframe the interval starts at.
+        b: The next keyframe, or None when there is none.
+        t: How far between ``a`` and ``b``, from 0 to 1.
+
+    Returns:
+        The angle in degrees, in ``[0, 360)``.
+    """
+    ra = float(a.get("rotation") or 0)
+    if b is None or b.get("outside") or a.get("type") != "rectangle" or b.get("type") != "rectangle":
+        return ra
+    step = (float(b.get("rotation") or 0) - ra + 180) % 360 - 180
+    return (ra + step * t) % 360
 
 
 def track_frames(track: dict[str, Any], count: int) -> dict[int, tuple[dict[str, Any], bool]]:
@@ -399,8 +459,11 @@ def track_frames(track: dict[str, Any], count: int) -> dict[int, tuple[dict[str,
             if f == first:
                 out[f] = (a, True)
             else:
-                points = _between(a, b, (f - first) / (end - first))
-                out[f] = ({**a, "frame": f, "points": points, "outside": False}, False)
+                t = (f - first) / (end - first)
+                shape = {**a, "frame": f, "points": _between(a, b, t), "outside": False}
+                if a.get("rotation"):
+                    shape["rotation"] = _turn_between(a, b, t)
+                out[f] = (shape, False)
     return out
 
 
@@ -561,11 +624,12 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
         h: Height of the frame in pixels.
 
     Returns:
-        True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side.
+        True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side
+        (a turned rectangle is compared by its enclosing box, which is what the project has of it).
     """
     if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
         return False
-    a, b = [float(v) for v in old.get("points") or []], [float(v) for v in new.get("points") or []]
+    a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
     if len(a) != len(b):
         return False
     sides = (max(w, 1), max(h, 1))
@@ -590,6 +654,8 @@ def _extent(points: list[float]) -> tuple[float, float, float, float]:
 def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
     """Intersection over union of the boxes around two shapes of the same type and class (0 otherwise).
 
+    A turned rectangle counts with its enclosing box.
+
     Args:
         old: A shape CVAT has (points in pixels).
         new: A shape built from a label (points in pixels).
@@ -599,7 +665,7 @@ def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
     """
     if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
         return 0.0
-    a, b = [float(v) for v in old.get("points") or []], [float(v) for v in new.get("points") or []]
+    a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
     if len(a) < 2 or len(b) < 2:
         return 0.0
     ax0, ay0, ax1, ay1 = _extent(a)
@@ -611,17 +677,32 @@ def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
     return inter / ((ax1 - ax0) * (ay1 - ay0) + (bx1 - bx0) * (by1 - by0) - inter)
 
 
-def _edited(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+def _edited(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> dict[str, Any]:
     """The old shape with the geometry of the new one: id, attributes, occluded, z_order... are kept.
+
+    A turned rectangle whose enclosing box was only moved (same size within :data:`SAME_SHAPE`) is moved
+    and keeps its turn. When the box was resized there is no honest way to turn it back: the rectangle
+    becomes the new axis-aligned box (``rotation`` 0), which is what the person drew.
 
     Args:
         old: A shape CVAT has.
         new: The shape built from the edited label.
+        w: Width of the frame in pixels.
+        h: Height of the frame in pixels.
 
     Returns:
-        A copy of ``old`` with the points of ``new``.
+        A copy of ``old`` with the geometry of ``new``.
     """
-    return {**old, "points": new["points"]}
+    if old.get("type") != "rectangle" or not old.get("rotation"):
+        return {**old, "points": new["points"]}
+    seen, box = _seen_points(old), [float(v) for v in new["points"]]
+    same_w = abs((seen[2] - seen[0]) - (box[2] - box[0])) / max(w, 1) <= SAME_SHAPE
+    same_h = abs((seen[3] - seen[1]) - (box[3] - box[1])) / max(h, 1) <= SAME_SHAPE
+    if not (same_w and same_h):
+        return {**old, "points": box, "rotation": 0}
+    dx, dy = box[0] - seen[0], box[1] - seen[1]
+    pts = [float(v) for v in old["points"]]
+    return {**old, "points": [v + (dx if i % 2 == 0 else dy) for i, v in enumerate(pts)]}
 
 
 def _visible(task: Task, label: Label) -> bool:
@@ -695,7 +776,7 @@ def _merge_frame(
         scores = [_overlap(o, shape) for o in convertible]
         best = max(range(len(scores)), key=scores.__getitem__, default=None)
         if best is not None and scores[best] > MATCH_IOU:
-            kept_shapes.append(_edited(convertible.pop(best), shape))
+            kept_shapes.append(_edited(convertible.pop(best), shape, w, h))
         else:
             kept_shapes.append(shape)
     # what is left in ``convertible`` is gone from the labels: it is deleted
