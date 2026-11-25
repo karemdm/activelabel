@@ -521,3 +521,9 @@ def test_a_task_error_404_or_409_reloads_the_tasks():
     """Rename/delete of a task already changed in another tab reloads the list: no dead card (#426)."""
     assert "async function reloadIfChanged(err)" in JS and "err.status !== 404 && err.status !== 409" in JS
     assert JS.count("reloadIfChanged(err)") >= 3
+
+
+def test_bulk_actions_on_a_selection_run_once_per_click():
+    """A double click on Exclude/Restore/Delete must not send a second, empty request (#430)."""
+    for act, handler in (("exclude", "exclude"), ("restore", "restore"), ("delete", "remove")):
+        assert re.search(rf"'data-act': '{act}', onclick: once\({handler}\)", JS), act
