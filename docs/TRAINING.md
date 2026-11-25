@@ -322,7 +322,7 @@ To update the versions:
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
 | GET | `/api/training/augmentations?type=` | augmentation levels and, per kind of task, the techniques with their settings and the list of each preset |
 | GET | `/api/training/environment` | installed packages, the GPU found and `devices` (the device choices of this computer: `auto`, `cpu`, `cuda:N`, `mps`); with `?model=<id>` also `missing` (packages that model needs) and `install_needed`, which the *New run* dialog uses to say that the first run installs packages |
-| GET/POST | `/api/projects/{id}/runs` | list (each run has `model` and `has_weights`) / create (queued job): the configuration plus an optional `device` (default `auto`) |
+| GET/POST | `/api/projects/{id}/runs` | list (each run has `model_number`, the saved model made from it, and `has_weights`) / create (queued job): the configuration plus an optional `device` (default `auto`) |
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
 | GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
 | GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
