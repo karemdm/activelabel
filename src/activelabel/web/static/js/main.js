@@ -19,6 +19,7 @@ import {
   serverName, statusLabel, statusText, toolName,
 } from './integrations/tools.js';
 import { initProjects } from './pages/projects.js';
+import { initNew } from './pages/new.js';
 
   const VL = window.VL || {};
   setMessages(window.I18N || {}, VL.locale || 'en');
@@ -38,36 +39,6 @@ import { initProjects } from './pages/projects.js';
 
   /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
      in view while the body scrolls). The X is added here so no dialog forgets it. */
-
-  // ---------------------------------------------------------------- page: new project
-  function initNew() {
-    const form = document.getElementById('new-form');
-    const picker = taskPicker('task', 'detection');
-    document.getElementById('task-picker').replaceWith(picker.node);
-    const chips = chipsInput('classes-input', []);
-    document.getElementById('classes-field').replaceWith(chips.node);
-    const btn = document.getElementById('create-btn');
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const name = form.elements.name.value.trim();
-      if (!name) {
-        toastError(new Error(t('new.name_required')));
-        form.elements.name.focus();
-        return;
-      }
-      btn.disabled = true;
-      try {
-        const project = await api('POST', '/projects', {
-          json: { name, description: form.elements.description.value.trim(), task: picker.get(), classes: chips.get() },
-        });
-        location.href = `/projects/${project.id}`;
-      } catch (err) {
-        btn.disabled = false;
-        toastError(err);
-      }
-    });
-    form.elements.name.focus();
-  }
 
   // ---------------------------------------------------------------- thumbnail grid
   /**
