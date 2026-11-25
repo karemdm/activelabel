@@ -109,6 +109,12 @@ segmentation), and each halving is a warning saying which batch size the trainin
 `run.json`, and a `warning:` line in the log). If not even the smallest batch fits, the run fails with a text that
 suggests a smaller image size or the CPU. The CPU and MPS are not probed.
 
+**Resume, warnings and failures.** A failed or cancelled single run that kept a checkpoint (`checkpoint_epoch` in
+`run.json` and its `last.pt`) shows **Resume** (*Retomar*): it goes on from that epoch with the same number and
+settings (`POST /api/projects/{id}/runs/{n}/resume`); it is refused when the configuration or the data changed since,
+and grid and all-folds runs cannot be resumed yet. The card and the details of a run show its warnings and its failure
+in the interface language, by their codes (`tr.warn.*`, `error.*`); a run made before the codes keeps the text it has.
+
 **Data augmentation.** The `augmentation` level (default `light`) is a preset (`none`, `light`, `standard`,
 `strong`) or `custom`. Each preset is a list of techniques for the model's kind of task (the same techniques the
 workers applied before they could be chosen); `custom` takes the list from the `augmentations` option of the

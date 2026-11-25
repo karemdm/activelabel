@@ -74,3 +74,27 @@ test('the new-run dialog asks for the family first; families that cannot train h
   document.querySelector('dialog[open]').close();
   panel.node.remove();
 });
+
+test('a failed run says why and warns in the interface language, and offers Resume when it has a checkpoint (#560)', async () => {
+  setMessages({
+    'error.training_failed': 'The training stopped with an error.', 'tr.warn.batch_halved': 'Batch {from} → {to}.', 'tr.resume': 'Resume',
+  }, 'en');
+  ANSWERS['/api/projects/5/runs'] = { runs: [
+    { number: 2, status: 'failed', model: 'frcnn', mode: 'single', fold: null, checkpoint_epoch: 3, error: 'raw', error_code: 'training_failed', error_params: {},
+      warnings: [{ code: 'batch_halved', params: { from: 16, to: 8 }, message: 'raw warning' }, { code: '', params: {}, message: 'old text' }] },
+    { number: 1, status: 'cancelled', model: 'frcnn', mode: 'grid', checkpoint_epoch: 2, warnings: [] },
+  ] };
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  await withApi(async () => {
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const failed = panel.node.querySelector('#run-2');
+  assert.equal(failed.querySelector('.tr-fail').textContent, 'The training stopped with an error.');
+  assert.deepEqual([...failed.querySelectorAll('.tr-warnings li')].map((li) => li.textContent), ['Batch 16 → 8.', 'old text']);
+  assert.equal(failed.querySelector('[data-act="resume"]').textContent, 'Resume');
+  assert.equal(panel.node.querySelector('#run-1 [data-act="resume"]'), null);  // a grid resumes later
+  ANSWERS['/api/projects/5/runs'] = { runs: [] };
+  panel.node.remove();
+});

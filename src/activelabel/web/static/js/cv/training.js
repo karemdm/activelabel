@@ -2,7 +2,7 @@
  * model, hyperparameters, grid search) and saving a run as a model. */
 import { staleCount } from './datasets.js';
 import { taskName } from './names.js';
-import { api } from '../shell/api.js';
+import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
 import { LOCALE, fmtDate, fmtDateTime, lower, num, t, tn, tr } from '../shell/i18n.js';
@@ -109,6 +109,26 @@ export function trainingPanel(page) {
     if (!first || ACTIVE(r)) announcer.textContent = `${t('tr.run_n', { n: r.number })}: ${text}`;
   }
 
+  /* a run's failure and warnings in the interface language, by their codes; the server's own words for a run made
+     before the codes (#560) */
+  const runError = (r) => jobFailure(r);
+  const warningText = (w) => (w.code ? tr(`tr.warn.${w.code}`, w.message, errorParams(w.params)) : w.message);
+  function warningsBlock(r) {
+    const list = (r.warnings || []).map(warningText).filter(Boolean);
+    return list.length
+      ? el('ul', { class: 'tr-warnings', 'aria-label': t('tr.warnings') }, ...list.map((w) => el('li', null, icon('warning', 14), el('span', null, w))))
+      : null;
+  }
+  /* a failed or cancelled single run with a checkpoint goes on from it (same number); grids and all-folds runs later */
+  const resumable = (r) => (r.status === 'failed' || r.status === 'cancelled') && !!r.checkpoint_epoch && r.mode !== 'grid' && r.fold !== 'all';
+  async function resumeRun(r) {
+    try {
+      await api('POST', `/projects/${projectId}/runs/${r.number}/resume`);
+      toast(t('tr.resumed', { n: r.number, epoch: num(r.checkpoint_epoch) }), 'success', 4000);
+    } catch (err) { toastError(err); }
+    await load(true);
+  }
+
   // ---- list
   function runCard(r) {
     const m = modelOf(r.model);
@@ -134,7 +154,8 @@ export function trainingPanel(page) {
       pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null,
       r.status === 'running' && r.message ? el('p', { class: 'muted tr-msg' }, r.message) : null,
       configError(r),
-      r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null,
+      r.status === 'failed' && runError(r) ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, runError(r))) : null,
+      warningsBlock(r),
       noWeights ? el('p', { class: 'muted tr-msg tr-noweights', id: `${id}-noweights` }, icon('info', 14), t('md.no_weights')) : null,
       best || facts.length
         ? el('p', { class: 'tr-facts' }, best ? el('strong', null, best) : null, best && facts.length ? ' · ' : null, el('span', { class: 'muted' }, facts.join(' · ')))
@@ -146,6 +167,7 @@ export function trainingPanel(page) {
           : null,
         r.status === 'done' && !r.model_number ? saveButton : null,
         ACTIVE(r) ? act('cancel', t('tr.cancel'), () => cancelRun(r), 'danger-outline') : null,
+        resumable(r) ? el('button', { type: 'button', class: 'btn small primary', 'data-act': 'resume', title: t('tr.resume_from', { epoch: num(r.checkpoint_epoch) }), onclick: once(() => resumeRun(r)) }, t('tr.resume')) : null,
         r.config_error ? null : act('again', t('tr.reproduce'), once(() => reproduceRun(r))),
         ACTIVE(r) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('tr.delete_aria', { n: r.number }), title: t('tr.delete'), onclick: () => removeRun(r) }, icon('trash', 18))));
   }
@@ -947,7 +969,7 @@ export function trainingPanel(page) {
     }
 
     function progressBlock(r) {
-      if (!ACTIVE(r)) return r.status === 'failed' && r.error ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, r.error)) : null;
+      if (!ACTIVE(r)) return el('div', null, r.status === 'failed' && runError(r) ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, runError(r))) : null, warningsBlock(r));
       const pct = percentOf(r);
       return el('div', { class: 'tr-live' },
         el('p', { class: 'tr-live-line' }, el('strong', null, phaseText(r)), r.message ? el('span', { class: 'muted' }, ` · ${r.message}`) : null),

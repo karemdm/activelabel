@@ -754,3 +754,14 @@ def test_the_training_dialog_asks_for_the_family_before_the_model():
             "tr.family_unavailable",
         ):
             assert texts[key], key
+
+
+def test_runs_show_coded_warnings_and_failures_and_offer_resume():
+    """#560: warnings by ``tr.warn.<code>``, a failure by ``error.<code>``, Resume calls the resume route."""
+    assert "tr(`tr.warn.${w.code}`, w.message, errorParams(w.params))" in JS
+    assert "const runError = (r) => jobFailure(r);" in JS
+    assert "/runs/${r.number}/resume`" in JS and "'data-act': 'resume'" in JS
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in ("tr.resume", "tr.resume_from", "tr.resumed", "tr.warnings", "error.resume_no_checkpoint"):
+            assert texts[key], key
