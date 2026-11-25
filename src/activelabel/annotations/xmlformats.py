@@ -10,7 +10,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from activelabel.annotations.context import ParseContext, bbox_of_points, declared_size, norm_name
+from activelabel.annotations.context import ParseContext, bbox_of_points, declared_size, norm_name, stem_parts
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label
 
@@ -106,8 +106,11 @@ def parse_voc(ctx: ParseContext, files: list[Path]) -> None:
             ctx.problem("invalid_file", f"{path.name}: {exc}")
             continue
         filename = _text(root, "filename")
-        names = [n for n in (filename, norm_name(_text(root, "path")), path.stem) if n]
-        rec = ctx.match(*names, example=filename or path.name)
+        names = [n for n in (filename, norm_name(_text(root, "path"))) if n]
+        if names:
+            rec = ctx.match(*names, path.stem, example=filename or path.name)
+        else:  # no name inside the file: the xml name stands for the image (``c.xml`` -> ``c.png``)
+            rec = ctx.match_stem(stem_parts(path.name), path.name)
         if rec is None or not ctx.claim(rec, filename or path.name):
             continue
         ctx.files.append(path.name)
