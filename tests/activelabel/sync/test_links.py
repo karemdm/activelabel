@@ -83,6 +83,20 @@ def test_same_labels_tolerates_round_trip_noise():
     assert not same_labels(a, a[:1])
 
 
+def test_same_labels_ignores_the_derived_box_of_a_polygon():
+    """#589: a COCO box is one pixel wider than the box of its polygon; the polygon decides."""
+    ring = [[0.1, 0.1], [0.4, 0.1], [0.4, 0.5], [0.1, 0.5]]
+    coco = [Label("pessoa", bbox=[0.1, 0.1, 0.303, 0.403], polygons=[ring])]
+    from_tool = [Label("pessoa", bbox=[0.1, 0.1, 0.3, 0.4], polygons=[ring])]
+    assert same_labels(coco, from_tool)
+    moved = [
+        Label(
+            "pessoa", bbox=[0.1, 0.1, 0.3, 0.4], polygons=[[[0.1, 0.1], [0.4, 0.1], [0.4, 0.6], [0.1, 0.6]]]
+        )
+    ]
+    assert not same_labels(coco, moved)
+
+
 def test_match_by_name_duplicate_names_are_not_collapsed():
     twin_a, twin_b, other = record("a", "same.png"), record("b", "same.png"), record("c", "other.png")
     items = [RemoteItem("1", "same.png", 1, 1), RemoteItem("2", "other.png", 1, 1)]

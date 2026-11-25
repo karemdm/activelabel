@@ -25,7 +25,8 @@ keeps the labels as they were at the last sync (`labels`) and their hash (`base`
 the labels in the internal format, sorted, coordinates rounded to 4 decimals); `removed` marks an image
 removed on both sides. Whether a side changed is decided by comparing its labels with `labels` with a
 tolerance of 0.2 % of the image side, so geometry noise from the round trip does not count as a change;
-links written by older versions only have the hash and are compared exactly.
+links written by older versions only have the hash and are compared exactly. For a label with polygons only the polygons are compared: its box is derived from them (a COCO box is a pixel wider
+than the one the tool computes).
 
 A link is created:
 - when a project is **imported** (the remote project/task it came from; every image mapped);

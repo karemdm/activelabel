@@ -109,6 +109,9 @@ def _close(a: Any, b: Any, tol: float) -> bool:
 def _label_close(a: Label, b: Label, tol: float) -> bool:
     """Whether two labels have the same class, track id and geometry within ``tol``.
 
+    The box of a label with polygons is derived from them (a COCO box is a pixel wider than the box the tool
+    computes), so only the polygons are compared then.
+
     Args:
         a: First label.
         b: Second label.
@@ -119,7 +122,8 @@ def _label_close(a: Label, b: Label, tol: float) -> bool:
     """
     if a.label != b.label or a.track != b.track:
         return False
-    return all(_close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints"))
+    fields = ("polygons", "keypoints") if a.polygons and b.polygons else ("bbox", "polygons", "keypoints")
+    return all(_close(getattr(a, f), getattr(b, f), tol) for f in fields)
 
 
 def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
