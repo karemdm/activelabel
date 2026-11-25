@@ -349,7 +349,7 @@ def test_the_portuguese_texts_keep_task_and_say_no_english_for_boxes():
 
 def test_changing_only_the_step_in_the_address_closes_the_open_windows():
     """A hashchange to another step closes the open dialogs (an upload that cannot be cancelled stays)."""
-    handler = re.search(r"addEventListener\('hashchange', \(\) => \{.*?\n    \}\);", JS, re.S)
+    handler = re.search(r"^( *)[^\n]*addEventListener\('hashchange', \(\) => \{.*?\n\1\}\);", JS, re.S | re.M)
     assert handler and "closeOpenDialogs();" in handler.group(0)
     assert "dispatchEvent(new Event('cancel', { cancelable: true }))" in JS
 
@@ -358,7 +358,7 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
     """Like the other dialogs, its foot is "Cancel"; only a finished upload or video turns it into "Close"."""
     button = re.search(r"id: 'new-task-close'.*?\n", JS).group(0)
     assert "t('common.cancel')" in button
-    stage = re.search(r"function setStage\(stage\) \{.*?\n      \}", JS, re.S).group(0)
+    stage = re.search(r"^( *)function setStage\(stage\) \{.*?\n\1\}", JS, re.S | re.M).group(0)
     assert "closeBtn.textContent = t(stage === 'done' ? 'common.close' : 'common.cancel')" in stage
 
 
@@ -386,7 +386,7 @@ def test_equal_toasts_are_shown_once_and_a_stale_setup_message_is_cleared():
 
 def test_the_import_page_has_one_setup_button_per_tool():
     """The error card under the source cards no longer repeats the card's own Configurar button (#465)."""
-    card = re.search(r"function drawMain\(\) \{.*?\n    \}\n", JS, re.S).group(0)
+    card = re.search(r"^( *)function drawMain\(\) \{.*?\n\1\}\n", JS, re.S | re.M).group(0)
     assert "setup(state.tool)" not in card
     assert "onclick: () => setup(tool)" in JS
 
@@ -423,7 +423,7 @@ def test_the_safety_copy_list_reads_the_fields_the_api_sends(tmp_path):
     save_annotations(folder, AnnotationSet(Task.DETECTION, [], {}, {}))
     make_backup(folder, "classes")
     (item,) = client.get("/api/projects/1/annotations/backups").json()["items"]
-    body = re.search(r"async function loadBackups\(\) \{.*?\n      \}\n", JS, re.S)
+    body = re.search(r"^( *)async function loadBackups\(\) \{.*?\n\1\}\n", JS, re.S | re.M)
     assert body is not None
     code = body.group(0)
     assert "/annotations/backups`" in code and "encodeURIComponent(copy.name)}/restore`" in code
@@ -608,7 +608,7 @@ def test_tasks_counts_are_reloaded_when_the_images_step_is_shown_again():
 def test_step_summaries_are_read_again_with_the_task_list():
     """Back on Images after another tab deleted a task, the project counts are read too (#464)."""
     assert re.search(r"async function refreshCounts\(\) \{.*?renderStepper\(\);", JS, re.S)
-    body = re.search(r"async function refreshCounts\(\) \{(.*?)\n    \}", JS, re.S).group(1)
+    body = re.search(r"^( *)async function refreshCounts\(\) \{(.*?)\n\1\}", JS, re.S | re.M).group(2)
     assert "showTab" not in body
 
 
@@ -660,7 +660,7 @@ def test_on_a_phone_the_review_table_fits_and_the_scrolling_tabs_show_their_edge
 def test_the_fiftyone_scope_defaults_to_all_or_the_last_choice_and_every_class_shows_its_count():
     """#425: no silent "only the unannotated" default; the report counts a class with no annotations."""
     assert "return 'unlabeled'" not in re.search(
-        r"function defaultScope\(\) \{.*?\n      \}", JS, re.S
+        r"^( *)function defaultScope\(\) \{.*?\n\1\}", JS, re.S | re.M
     ).group(0)
     assert "al-scope-" in JS
     assert "perClass[c] != null ?" not in JS
