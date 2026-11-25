@@ -113,6 +113,30 @@ is the run's headline value; the weights of a model saved from such a run are th
 not an average. The screen shows the ranking (or,
 while running, every child with its status) and the curves of any child.
 
+## Metrics
+
+How every score is computed (`training/workers/`, `training/runner.py`). Validated against
+scikit-learn (classification, segmentation) and pycocotools `COCOeval` (box, mask and keypoint AP) on random
+cases, and against hand-computed examples (`tests/activelabel/training/test_metrics_validation.py`).
+
+| Metric | Definition | Conventions |
+|---|---|---|
+| Accuracy (classification) | correct / images | all classes |
+| Precision, recall, F1 per class | TP/(TP+FP), TP/(TP+FN), 2PR/(P+R) | 0 when the denominator is 0 (no error); `support` = true images of the class |
+| Macro F1 | unweighted mean of the per-class F1 | over the classes present in the truth **or** the predictions (as scikit-learn); a class absent from both is left out |
+| Confusion matrix | `matrix[true][predicted]` | image counts (classification), pixel counts (segmentation, index 0 = background) |
+| IoU, Dice per class (segmentation) | TP/(TP+FP+FN), 2TP/(2TP+FP+FN) | from one confusion matrix summed over all images of the part (not a mean of per-image scores) |
+| mIoU, mean Dice | mean over the object classes | the background is left out of the means (reported as `background_iou`); a class absent from truth and prediction is left out |
+| Pixel accuracy | correct pixels / pixels | background included |
+| AP, mAP50, mAP50-95 (box, mask) | COCO: detections ranked by score over the whole part; greedy match, per image, to the unmatched object of the class with the highest IoU ≥ t; precision made monotone; mean of the precision at 101 recall points (0, 0.01 … 1; 0 beyond the last recall reached) | mAP50 at IoU 0.50 (required among the thresholds), mAP50-95 the mean over 0.50:0.05:0.95; mean over the classes with ground truth in the part. Every detection the model returns is used (up to 100 per image): `score_thresh` only limits what a saved model shows or pre-annotates |
+| Keypoint mAP (`kp_map50`, `kp_map50_95`) | AP as above with OKS instead of IoU: OKS = mean over the labelled points of exp(−d² / (2·s²·(2σ)²)) | s² = area of the object's box, σ = 1/K for every point; a pose without any labelled point is ignored (not counted, and a detection on it is neither a hit nor a miss), as COCO does |
+| PCK@0.1 | labelled points within 0.1 × the longer side of the object's box / labelled points | predictions with score ≥ 0.5 are paired with objects of the same class at box IoU ≥ 0.5 (greedy by score); the points of an unpaired object count as wrong |
+| K-fold mean ± std | mean of the per-fold validation values and their **population** standard deviation (ddof = 0) | not a pooled metric over all folds; folds have about the same size |
+
+Segmentation metrics are measured on the images resized to the run's `image_size` (both sides), not at
+their original resolution, so every image weighs the same number of pixels. No metric is rounded in the
+results; the interface rounds only for display. A part without images gives 0 for every metric.
+
 ## Storage
 
 `<project>/runs/r<N>/` (numbers never reused):
