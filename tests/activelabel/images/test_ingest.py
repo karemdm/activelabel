@@ -300,3 +300,15 @@ def test_report_tells_which_image_each_file_became(manifest, tmp_path):
         report.per_file[1] == first and third is None and fourth == report.ids[1]
     )  # a duplicate points to the first
     assert len(report.per_file) == 4 and report.ids == [first, fourth]
+
+
+def test_an_empty_file_and_an_archive_inside_an_archive_get_their_own_reasons(manifest, tmp_path):
+    """A 0-byte file is "empty" (not "corrupt") and a zip in a zip is "nested archive" (#433)."""
+    inner = _zip({"a.jpg": _bytes(tmp_path, "a.jpg", seed=3)}).getvalue()
+    outer = _zip({"inner.zip": inner})
+    report = ingest_files(manifest, [("zero.jpg", io.BytesIO(b"")), ("outer.zip", outer)])
+    assert report.added == 0
+    assert {(r["name"], r["reason"]) for r in report.rejected} == {
+        ("zero.jpg", "empty"),
+        ("inner.zip", "nested archive"),
+    }

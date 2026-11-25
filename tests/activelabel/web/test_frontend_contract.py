@@ -444,3 +444,11 @@ def test_a_count_in_an_error_or_a_summary_is_singular_for_one():
         "errorMessage must pick the plural form of a counted error"
     )
     assert "t('audit.summary'" not in JS and "tn('audit.summary_projects'" in JS
+
+
+def test_forms_answer_in_the_apps_language_before_saving():
+    """Empty names get the app's own message; the delete dialog says why it is off (#433)."""
+    assert "error.task_name_empty" in JS and "noValidate = true" in JS
+    assert JS.count("maxlength: '100'") >= 3  # new task, rename and project name: the server's limit
+    assert "maxlength: '200'" not in JS
+    assert "delete.mismatch" in JS

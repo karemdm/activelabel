@@ -500,9 +500,14 @@
         ? el('input', { type: 'text', 'aria-label': t('delete.type_name'), autocomplete: 'off' })
         : null;
       const okBtn = el('button', { type: 'submit', value: 'ok', class: `btn ${danger ? 'danger' : 'primary'}` }, confirmLabel);
+      const mismatch = el('p', { class: 'hint', role: 'status', hidden: true }, t('delete.mismatch'));
       if (input) {
         okBtn.disabled = true;
-        input.addEventListener('input', () => { okBtn.disabled = input.value !== requireText; });
+        input.addEventListener('input', () => {
+          okBtn.disabled = input.value !== requireText;
+          mismatch.hidden = !input.value || !okBtn.disabled;  // say why the button is off
+          if (mismatch.hidden) input.removeAttribute('aria-invalid'); else input.setAttribute('aria-invalid', 'true');
+        });
       }
       const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel'));
       const dlg = el('dialog', { class: 'dialog', 'aria-label': title },
@@ -510,6 +515,7 @@
           el('h2', null, title),
           el('p', null, text),
           input,
+          input ? mismatch : null,
           el('div', { class: 'form-actions' },
             okBtn,
             cancelBtn)));
@@ -1265,8 +1271,10 @@
               el('div', { class: 'field' }, el('label', { for: 'e-classes' }, t('field.classes')), chips.node)),
             el('fieldset', { class: 'field' }, el('legend', null, t('field.task')), picker.node)),
           el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+      dlg.querySelector('form').noValidate = true;  // the app's own message, in the app's language, not the browser's bubble
       dlg.querySelector('form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!nameInput.value.trim()) { toastError(new Error(t('new.name_required'))); nameInput.focus(); return; }
         save.disabled = true;
         const body = { name: nameInput.value.trim(), description: descInput.value.trim(), task: picker.get(), classes: chips.get() };
         try {
@@ -1972,14 +1980,15 @@
 
         let title;
         if (isRenaming) {
-          const input = el('input', { type: 'text', id: `${cid}-name`, value: renameDraft == null ? task.name : renameDraft, 'aria-label': t('tasks.rename_label', { name: task.name }), autocomplete: 'off' });
+          const input = el('input', { type: 'text', id: `${cid}-name`, value: renameDraft == null ? task.name : renameDraft, 'aria-label': t('tasks.rename_label', { name: task.name }), autocomplete: 'off', maxlength: '100' });
           input.addEventListener('input', () => { renameDraft = input.value; });
           const cancel = () => { renaming = null; renameDraft = null; focusAfter = `#${cid}-rename`; drawTasks(); };
           const form = el('form', { class: 'task-rename', novalidate: true,
             onsubmit: async (e) => {
               e.preventDefault();
               const name = input.value.trim();
-              if (!name || name === task.name) { cancel(); return; }
+              if (!name) { toastError(new Error(t('error.task_name_empty'))); input.focus(); return; }
+              if (name === task.name) { cancel(); return; }
               try {
                 await api('PATCH', `/projects/${projectId}/tasks/${task.id}`, { json: { name } });
                 toast(t('tasks.renamed'), 'success', 3000);
@@ -2136,7 +2145,7 @@
       }
 
       // ---- "new task" dialog (name, images per job, then the files; upload progress and report)
-      const nameInput = el('input', { type: 'text', id: 'task-name', autocomplete: 'off', maxlength: '200' });
+      const nameInput = el('input', { type: 'text', id: 'task-name', autocomplete: 'off', maxlength: '100' });  // the server's limit
       const jobSizeInput = el('input', { type: 'number', id: 'task-job-size', min: '1', step: '1', inputmode: 'numeric', 'aria-describedby': 'task-job-size-hint' });
       jobSizeInput.addEventListener('input', () => jobSizeInput.removeAttribute('aria-invalid'));
       const stagedBox = el('div', { class: 'staged', hidden: true });
