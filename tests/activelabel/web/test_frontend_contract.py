@@ -166,6 +166,19 @@ def test_the_split_preview_ranks_classes_by_rarity_and_marks_zero_cells():
             assert f'"{key}"' in texts, (lang, key)
 
 
+def test_the_safety_gap_is_a_switch_and_shared_video_parts_are_flagged():
+    """The gap is an on-by-default switch (off sends 0 and warns), "new version from this" restores it, and
+    the ``video_parts_shared`` warning and the per-video ``gap_seconds`` are shown."""
+    assert "ds-gap-on" in JS and "gapBox.checked ? parseFloat(gapInput.value) : 0" in JS
+    assert "gapBox.checked = gapSeconds > 0" in JS
+    assert "video_parts_shared" in JS and "gap_seconds" in JS and "sharedAlert(" in JS
+    assert ".ds-shared" in CSS and ".ds-gap-off" in CSS
+    for lang in ("pt", "en"):
+        texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
+        for key in ("ds.gap_switch", "ds.gap_off_warn", "ds.video_gap_s", "ds.w_video_parts_shared"):
+            assert f'"{key}"' in texts, (lang, key)
+
+
 def test_the_training_settings_are_closed_with_a_line_for_what_is_not_the_default():
     """The hyperparameters sit in a closed section whose line lists only the changed values."""
     assert "changedLine()" in JS and "tr.params_default" in JS

@@ -4025,10 +4025,17 @@
 
       /* information about the videos that were cut into segments (not a warning) */
       const videoInfos = (warnings) => (warnings || []).filter((w) => w.code === 'video_split');
-      function videoText(w) {
+      /* parts of one video sit in training and in validation/test: the scores may be optimistic (shown prominently) */
+      const sharedVideos = (warnings) => (warnings || []).find((w) => w.code === 'video_parts_shared') || null;
+      const sharedAlert = (w, tag = 'div') => (w ? el(tag, { class: 'ds-shared', role: 'alert' }, icon('warning', 16), el('strong', null, t('ds.w_video_parts_shared'))) : null);
+      /* the gap actually used for a video, from the version's or the preview's video list */
+      const gapSecondsOf = (w, videos) => { const v = (videos || []).find((x) => x.video === w.video); return v && Number(v.gap_seconds) > 0 ? Number(v.gap_seconds) : 0; };
+      function videoText(w, videos = null) {
         const parts = (w.parts || []).map((p) => (p === 'fold' ? t('ds.folds_word') : partName(p))).join(t('ds.and'));
         const vars = { name: w.name || w.video, n: num(w.segments), parts, gap: num(w.gap || 0) };
-        return t(w.gap > 0 ? 'ds.w_video_split' : 'ds.w_video_split_nogap', vars);
+        const secs = gapSecondsOf(w, videos);
+        const gapNote = secs ? ` ${t('ds.video_gap_s', { s: num(secs) })}` : '';
+        return t(w.gap > 0 ? 'ds.w_video_split' : 'ds.w_video_split_nogap', vars) + gapNote;
       }
 
       /* whether a missing class could have been in every part (the API says; older versions do not) */
@@ -4095,9 +4102,9 @@
         const sizes = normSizes(v);
         const items = partItems(sizes, v.options);
         const bg = backgroundOf(v.stats);
-        const cleaned = cleanWarnings(v.warnings, items);
+        const cleaned = cleanWarnings(v.warnings, items).filter((w) => w.code !== 'video_parts_shared');
         const warns = cleaned.map((w) => el('li', { class: 'ds-badge warn', title: warnText(w, items) }, icon('warning', 14), warnText(w, items, true)));
-        const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
+        const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w, v.videos) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
         const id = `ds-v${v.version}`;
         const noTrain = trainBlockReason(sizes);
         const stale = staleCount(v);
@@ -4115,6 +4122,7 @@
           warns.length ? el('details', { class: 'ds-warn-group' },
             el('summary', null, icon('warning', 14), warnSummary(cleaned)),
             el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns)) : null,
+          sharedAlert(sharedVideos(v.warnings)),
           infoBadges.length ? el('ul', { class: 'ds-badges' }, ...infoBadges) : null,
           noTrain ? el('p', { class: 'ds-block', id: `${id}-block` }, icon('warning', 14), noTrain) : null,
           stale ? el('div', { class: 'ds-stale', role: 'status' },
@@ -4204,6 +4212,13 @@
         const bgBox = el('input', { type: 'checkbox', id: 'ds-bg', role: 'switch' });
         const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
         const gapInput = el('input', { type: 'number', id: 'ds-gap', inputmode: 'decimal', min: '0', max: '3600', step: '0.1', value: '0.5' });
+        /* the safety gap is a choice: on by default, off sends 0 seconds (frames of one video may then sit on both sides) */
+        const gapBox = el('input', { type: 'checkbox', id: 'ds-gap-on', role: 'switch', checked: true });
+        const gapField = el('div', { class: 'ds-gap-field' }, el('div', { class: 'field ds-num' }, el('label', { for: 'ds-gap' }, t('ds.gap')), gapInput),
+          el('p', { class: 'muted ds-help' }, t('ds.gap_help')));
+        const gapOff = el('p', { class: 'ds-gap-off', role: 'status', hidden: true }, icon('warning', 14), t('ds.gap_off_warn'));
+        const syncGap = () => { gapField.hidden = !gapBox.checked; gapOff.hidden = gapBox.checked; };
+        gapBox.addEventListener('change', () => { syncGap(); changed(); });
         const create = el('button', { type: 'submit', class: 'btn primary' }, t('ds.create'));
         if (from) {
           const o = from.options || {};
@@ -4213,7 +4228,9 @@
           bgBox.checked = st.bg;
           seed.value = String(o.seed != null ? o.seed : 42);
           videosSel.value = o.videos || 'auto';
-          gapInput.value = String(o.gap_seconds != null ? o.gap_seconds : 0.5);
+          const gapSeconds = o.gap_seconds != null ? Number(o.gap_seconds) : 0.5;
+          gapBox.checked = gapSeconds > 0;
+          gapInput.value = String(gapSeconds > 0 ? gapSeconds : 0.5);
           const sp = o.split || {};
           if (o.kfold) {
             st.mode = 'kfold';
@@ -4290,8 +4307,8 @@
           if (!st.tasks.size) return { error: t('ds.err_tasks') };
           const sd = parseInt(seed.value, 10);
           if (!Number.isFinite(sd)) return { error: t('ds.err_seed') };
-          const gap = parseFloat(gapInput.value);
-          if (!(gap >= 0 && gap <= 3600)) return { error: t('ds.err_gap') };
+          const gap = gapBox.checked ? parseFloat(gapInput.value) : 0;
+          if (!(gap >= 0 && gap <= 3600) || (gapBox.checked && gap === 0)) return { error: t('ds.err_gap') };
           const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd, videos: videosSel.value, gap_seconds: gap };
           if (st.mode === 'split') {
             const s = { train: int(train), val: int(val), test: int(test) };
@@ -4375,14 +4392,16 @@
           }
           paint();
           const warns = cleanWarnings(d.warnings, items).filter((w) => !(w.code === 'part_empty' && blocked.includes(w.part)))  // said above, with the choice
+            .filter((w) => w.code !== 'video_parts_shared')
             .map((w) => el('li', { class: 'report-line ds-warn' }, icon('warning'), warnText(w, items)));
-          const infos = videoInfos(d.warnings).map((w) => el('li', { class: 'report-line ds-info' }, icon('info'), videoText(w)));
+          const infos = videoInfos(d.warnings).map((w) => el('li', { class: 'report-line ds-info' }, icon('info'), videoText(w, d.videos)));
           fill(previewBox,
             el('h3', { class: 'section-title' }, t('ds.preview'), el('span', { class: 'muted' }, ` · ${tn('status.images_active', total)}`)),
             partsBar(items, barLabel(items)),
             legend(items),
             el('div', { class: 'ds-table-wrap' }, el('table', { class: 'ds-table' }, el('thead', null, head), body)),
             more,
+            sharedAlert(sharedVideos(d.warnings)),
             warns.length || emptyNote ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, emptyNote, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')),
             infos.length ? el('ul', { class: 'ds-warns ds-infos' }, ...infos) : null);
         }
@@ -4439,7 +4458,8 @@
               el('details', { class: 'ds-adv field' }, el('summary', null, t('ds.advanced')),
                 field(t('ds.seed'), seed), el('p', { class: 'muted ds-help' }, t('ds.seed_help')),
                 field(t('ds.videos'), videosSel), el('p', { class: 'muted ds-help' }, t('ds.videos_help')),
-                field(t('ds.gap'), gapInput), el('p', { class: 'muted ds-help' }, t('ds.gap_help'))),
+                el('div', { class: 'field ds-switch' }, el('label', { for: 'ds-gap-on', class: 'ds-check' }, gapBox, el('span', null, t('ds.gap_switch')))),
+                gapField, gapOff),
               el('div', { class: 'field' }, el('label', { for: 'ds-note' }, `${t('ds.note')} `, el('span', { class: 'muted' }, `(${t('step.optional')})`)), note)),
             el('aside', { class: 'ds-side', 'aria-label': t('ds.preview') }, previewBox)),
           el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
@@ -4470,6 +4490,7 @@
         });
         dlg.addEventListener('close', () => { clearTimeout(timer); token += 1; dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
         drawMode();
+        syncGap();
         document.body.appendChild(dlg);
         openModal(dlg);
         changed();
