@@ -643,3 +643,10 @@ def test_see_all_classes_shows_only_when_a_class_is_hidden_and_stays_next_to_the
     assert re.search(r"\.class-line-chips\.overflowing\s*\{[^}]*mask-image", CSS)
     assert not re.search(r"\.class-line-chips\s*\{[^}]*mask-image", CSS)
     assert re.search(r"\.class-line-chips\s*\{[^}]*flex: 0 1 auto", CSS)
+
+
+def test_on_a_phone_the_review_table_fits_and_the_scrolling_tabs_show_their_edge():
+    """#422: the class table shrinks its columns on small screens; the tab bar fades where it can scroll."""
+    small = re.search(r"@media \(max-width: 480px\) \{(.*?)\n\}", CSS, re.S)
+    assert small and re.search(r"\.diff-table th, \.diff-table td \{[^}]*padding", small.group(1))
+    assert re.search(r"\.step-tabs \{[^}]*background:[^}]*local", CSS), "scroll shadows on the tab bar"
