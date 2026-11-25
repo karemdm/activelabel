@@ -1,0 +1,95 @@
+# Nightly smoke test of the CVAT synchronisation against a REAL CVAT started in containers (issue #367).
+#
+# What it proves that the in-memory fake (tests/helpers/cvat_fake.py) cannot: the real serializer (unknown
+# fields, ids in a PUT, `version`), the ids CVAT assigns, differences between CVAT versions, real
+# interpolation, and rotation/masks as CVAT stores them.
+#
+# It never runs against anyone's server: the CVAT is built from the official docker-compose.yml inside the
+# job, the superuser password is generated here (never a repository secret) and everything is removed at the
+# end. It is not triggered by push or pull_request; the normal CI skips tests/activelabel/sync/test_cvat_live.py.
+name: cvat-live
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      cvat_version:
+        description: "CVAT release tag to test (cvat-ai/cvat)"
+        required: false
+        default: "v2.84.0"
+
+permissions:
+  contents: read
+
+jobs:
+  cvat-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # on a schedule: the pinned current version and one older one; by hand: only the chosen version
+        cvat_version: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.cvat_version)) || fromJSON('["v2.84.0", "v2.60.0"]') }}
+    steps:
+      - name: Check out ActiveLabel
+        uses: actions/checkout@v4
+
+      - name: Check out CVAT ${{ matrix.cvat_version }}
+        uses: actions/checkout@v4
+        with:
+          repository: cvat-ai/cvat
+          ref: ${{ matrix.cvat_version }}
+          path: cvat
+
+      - name: Start CVAT
+        working-directory: cvat
+        env:
+          CVAT_VERSION: ${{ matrix.cvat_version }}
+        run: docker compose up -d
+
+      - name: Wait for CVAT to be healthy
+        working-directory: cvat
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "http://localhost:8080/api/server/health/?format=json" > /dev/null; then
+              echo "CVAT is healthy after $((i * 10)) s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "CVAT did not become healthy in 10 minutes"
+          docker compose ps
+          docker logs cvat_server --tail 200 || true
+          exit 1
+
+      - name: Create the superuser
+        run: |
+          PW="$(openssl rand -hex 16)"
+          echo "::add-mask::$PW"
+          echo "CVAT_LIVE_PASSWORD=$PW" >> "$GITHUB_ENV"
+          docker exec -e DJANGO_SUPERUSER_PASSWORD="$PW" cvat_server bash -c 'python3 ~/manage.py createsuperuser --noinput --username ci --email ci@example.invalid'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ActiveLabel
+        run: pip install -e ".[dev]"
+
+      - name: Run the live tests
+        env:
+          ACTIVELABEL_CVAT_LIVE_URL: http://localhost:8080
+          ACTIVELABEL_CVAT_LIVE_USER: ci
+          ACTIVELABEL_CVAT_LIVE_PASSWORD: ${{ env.CVAT_LIVE_PASSWORD }}
+        run: python -m pytest -q -m cvat_live tests/activelabel/sync/test_cvat_live.py
+
+      - name: Show the CVAT server log after a failure
+        if: failure()
+        run: docker logs cvat_server --tail 200 || true
+
+      - name: Remove CVAT and its volumes
+        if: always()
+        working-directory: cvat
+        run: docker compose down -v
