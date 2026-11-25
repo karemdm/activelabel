@@ -41,10 +41,7 @@ polygon, so such a ring is one (closed implicitly), even when it was saved as `c
 Only a polyline that is neither closed nor filled and has no ring of 3 points is a line, and is skipped
 (`open_polyline`).
 
-The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`;
-inside a GitHub Codespace (`CODESPACE_NAME` and `GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` set) they
-point to the codespace's forwarded address, `https://<codespace>-<port>.<domain>`, so they also open in
-a codespace used from the browser.
+The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`.
 
 ## Flow (FiftyOne)
 
