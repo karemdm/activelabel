@@ -235,6 +235,22 @@ def _rename_classes(store: ProjectStore, project_id: int, renames: list[dict[str
     return backup
 
 
+def not_converted(items: list[RemoteItem]) -> dict[str, int]:
+    """What the tool has but the comparison cannot see, summed over the items read (by kind, sorted).
+
+    Args:
+        items: The remote items read for the plan.
+
+    Returns:
+        ``{kind: count}`` (for example ``{"ellipse": 2, "tracks": 1}``); empty when everything was read.
+    """
+    out: dict[str, int] = {}
+    for it in items:
+        for kind, n in it.not_converted.items():
+            out[kind] = out.get(kind, 0) + int(n)
+    return dict(sorted(out.items()))
+
+
 def _local_labels(project_dir: Path) -> dict[str, list[Label]]:
     """Labels of the project by image id.
 
@@ -779,6 +795,7 @@ def make_plan(
         "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
         "diff_push": _push_summary(project, names, push_changes),
         "renamed_classes": renames,
+        "not_converted": not_converted(items),
     }
 
 

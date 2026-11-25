@@ -1015,7 +1015,6 @@ def test_unsupported_shapes_are_kept_when_the_frame_is_pushed(detection: Env) ->
     assert kinds == ["ellipse", "mask", "polyline", "rectangle", "rectangle", "rectangle"]
 
 
-@pytest.mark.xfail(strict=True, reason="#365")
 def test_defect_unsupported_shapes_are_silently_invisible(detection: Env) -> None:
     """Ellipses, polylines, masks, cuboids and skeletons never reach the project and nothing says so."""
     env = detection
@@ -1028,7 +1027,6 @@ def test_defect_unsupported_shapes_are_silently_invisible(detection: Env) -> Non
     )
 
 
-@pytest.mark.xfail(strict=True, reason="#365")
 def test_defect_cvat_skeletons_are_not_read_as_keypoints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1066,6 +1064,82 @@ def test_defect_cvat_skeletons_are_not_read_as_keypoints(
     sync(env)
     (found,) = local(env, 1)
     assert flat(found.keypoints) == pytest.approx([0.2, 0.3, 2, 0.6, 0.6, 1], abs=TOL)
+
+
+def skeleton_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Env, int, int, int]:
+    """A keypoints project sent to CVAT, with a skeleton label ``body`` (head, tail) drawn on frame 1.
+
+    Args:
+        tmp_path: pytest temp dir.
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        The environment, the skeleton label id and the head and tail sublabel ids.
+    """
+    env = make_env(
+        tmp_path,
+        monkeypatch,
+        Task.KEYPOINTS,
+        labels={0: [Label("cat", bbox=px(20, 20, 100, 50), keypoints=[[0.1, 0.2, 2.0]])]},
+    )
+    first_push(env)
+    sk = env.server._add_label(  # noqa: SLF001 - what a person does in CVAT
+        env.pid,
+        {
+            "name": "body",
+            "type": "skeleton",
+            "sublabels": [{"name": "head", "type": "points"}, {"name": "tail"}],
+        },
+    )
+    head, tail = (x["id"] for x in sk["sublabels"])
+    env.server.add_shape(
+        env.tid,
+        {
+            "type": "skeleton",
+            "frame": 1,
+            "label_id": sk["id"],
+            "points": [],
+            "elements": [
+                {"type": "points", "label_id": head, "points": [40, 30]},
+                {"type": "points", "label_id": tail, "points": [120, 60], "occluded": True},
+            ],
+        },
+    )
+    return env, sk["id"], head, tail
+
+
+def test_a_skeleton_is_written_back_as_a_skeleton(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env, body, head, tail = skeleton_env(tmp_path, monkeypatch)
+    sync(env)
+    (before,) = shapes(env, 1)
+    set_local(env, 1, [*local(env, 1), Label("cat", bbox=px(5, 5, 20, 20), keypoints=[[0.05, 0.1, 2.0]])])
+    sync(env)  # another pose on the frame: the skeleton is left as it is
+    assert [s for s in shapes(env, 1) if s["type"] == "skeleton"] == [before]
+    (pose,) = [lb for lb in local(env, 1) if lb.label == "body"]
+    pose.keypoints = [[0.25, 0.3, 2.0], [0.6, 0.6, 2.0]]  # head moved, tail visible now
+    set_local(env, 1, [lb for lb in local(env, 1) if lb.label != "body"] + [pose])
+    p, _ = sync(env)
+    assert p["push"] == 1
+    (after,) = [s for s in shapes(env, 1) if s["type"] == "skeleton"]
+    parts = {el["label_id"]: el for el in after["elements"]}
+    assert after["id"] == before["id"] and parts[head]["points"] == pytest.approx([50, 30])
+    assert parts[tail]["occluded"] is False and not [
+        s for s in shapes(env, 1) if s["label_id"] == body and s["type"] == "points"
+    ]
+    set_local(env, 2, [Label("body", bbox=px(10, 10, 30, 30), keypoints=[[0.05, 0.1, 2.0], [0.0, 0.0, 0.0]])])
+    sync(env)  # a new pose of the skeleton class: a new skeleton, the missing point outside
+    (made,) = shapes(env, 2)
+    assert made["type"] == "skeleton" and [el["outside"] for el in made["elements"]] == [False, True]
+    assert plan(env)["push"] == 0 and plan(env)["pull"] == 0
+
+
+def test_plan_counts_what_it_cannot_convert(detection: Env) -> None:
+    env = detection
+    add_unsupported(env)
+    srv = env.server
+    srv.edit_shape(env.tid, shapes(env, 1)[0]["id"], rotation=30)
+    p = plan(env)
+    assert p["not_converted"] == {"ellipse": 1, "mask": 1, "polyline": 1, "rotated_rectangle": 1}
 
 
 # -- tasks, jobs, frames, pagination --------------------------------------------------------------------

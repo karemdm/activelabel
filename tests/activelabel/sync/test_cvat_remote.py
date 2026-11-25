@@ -1078,3 +1078,52 @@ def test_a_shape_of_a_label_that_differs_in_case_keeps_its_label(cvat: FakeCvat)
     CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": moved})
     (shape,) = cvat.tasks[tid]["ann"]["shapes"]
     assert shape["label_id"] == big and shape["points"] == pytest.approx([22, 10, 122, 60])
+
+
+# -- skeletons and shapes that are not converted (#365) -----------------------------------------------
+def test_skeleton_parts_in_the_order_of_the_sublabels() -> None:
+    rows = [
+        {"id": 5, "name": "body", "type": "skeleton"},
+        {"id": 9, "name": "tail", "parent_id": 5},
+        {"id": 7, "name": "head", "parent_id": 5},
+        {"id": 8, "name": "cat", "type": "any"},
+    ]
+    assert cvat_remote.skeleton_parts(rows) == {5: [7, 9]}
+
+
+def test_skeleton_to_label_and_back() -> None:
+    shape = {
+        "type": "skeleton",
+        "label_id": 5,
+        "points": [],
+        "elements": [
+            {"label_id": 9, "points": [50, 50], "occluded": True},
+            {"label_id": 7, "points": [10, 20]},
+        ],
+    }
+    label = cvat_remote.shape_to_label(shape, "body", 100, 100, None, [7, 8, 9])
+    assert label is not None and label.keypoints == [[0.1, 0.2, 2.0], [0.0, 0.0, 0.0], [0.5, 0.5, 1.0]]
+    (made,), _ = cvat_remote.labels_to_cvat([label], {"body": 5}, 0, 100, 100, None, {5: [7, 8, 9]})
+    assert made["type"] == "skeleton" and made["points"] == []
+    assert [(e["label_id"], e["outside"], e["occluded"]) for e in made["elements"]] == [
+        (7, False, False),
+        (8, True, False),
+        (9, False, True),
+    ]
+    assert cvat_remote._same_shape(made, made, 100, 100)
+    assert set(made["elements"][0]) <= set(cvat_remote.ELEMENT_FIELDS)
+
+
+@pytest.mark.parametrize(
+    ("shape", "task", "why"),
+    [
+        ({"type": "ellipse"}, Task.DETECTION, "ellipse"),
+        ({"type": "mask"}, Task.SEGMENTATION, "mask"),
+        ({"type": "skeleton", "label_id": 5}, Task.KEYPOINTS, None),
+        ({"type": "skeleton", "label_id": 5}, Task.DETECTION, "skeleton"),
+        ({"type": "rectangle", "rotation": 30}, Task.DETECTION, "rotated_rectangle"),
+        ({"type": "rectangle", "rotation": 0}, Task.DETECTION, None),
+    ],
+)
+def test_not_converted_names_what_the_project_cannot_see(shape, task, why) -> None:
+    assert cvat_remote._not_converted(shape, task, {5: [7]}) == why

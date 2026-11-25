@@ -17,8 +17,14 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
 * *Tracks* (interpolation mode) become one label per visible frame with ``Label.track`` = the CVAT
   track id (see :func:`track_frames` for how the frames between keyframes are filled, and
   :func:`_write_tracks` for how edits go back into the tracks).
-* Other shape types (polyline, ellipse, cuboid, mask, skeleton) are not converted: they are neither
-  read nor touched when writing (tracks of those types are kept as they are).
+* skeleton (keypoints projects) -> one keypoints object: one point per sublabel of the skeleton label,
+  in the order of the sublabels (their ids); an element that is missing or ``outside`` is "not labeled"
+  (0), an ``occluded`` one is 1 (see :func:`skeleton_parts`). A pose of a skeleton class is written back
+  as a skeleton.
+* Other shape types (polyline, ellipse, cuboid, mask) are not converted: they are neither read nor
+  touched when writing (tracks of those types, and skeleton tracks, are kept as they are). Each item
+  counts what it could not convert in :attr:`RemoteItem.not_converted`, by type (plus ``tracks`` and
+  ``rotated_rectangle``, see :func:`_not_converted`), so the plan can say it.
 * Attributes are never invented (CVAT rejects attribute specs of another label): a new shape has none.
 * Class names are matched ignoring case, like the project's classes (:func:`class_id`): a shape of the
   CVAT label ``Cat`` is the class ``cat`` and stays on its own label when it is written back.
@@ -269,7 +275,9 @@ def enclosing_box(points: list[float], rotation: float) -> list[float]:
 
 
 def _seen_points(shape: dict[str, Any]) -> list[float]:
-    """The pixel points of a shape as the project sees them (a turned rectangle: its enclosing box).
+    """The pixel points of a shape as the project sees them.
+
+    A turned rectangle gives its enclosing box; a skeleton its labeled points.
 
     Args:
         shape: A CVAT shape.
@@ -277,6 +285,8 @@ def _seen_points(shape: dict[str, Any]) -> list[float]:
     Returns:
         Flat ``[x0, y0, x1, y1, ...]`` in pixels.
     """
+    if shape.get("type") == "skeleton":
+        return [c for x, y, v in _elements(shape).values() if v > 0 for c in (x, y)]
     pts = [float(p) for p in shape.get("points") or []]
     if shape.get("type") == "rectangle" and len(pts) >= 4 and shape.get("rotation"):
         return enclosing_box(pts, float(shape["rotation"]))
@@ -372,7 +382,88 @@ def _visibility_attrs(label: Label, spec: int | None) -> tuple[bool, list[dict[s
     return False, []
 
 
-def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int, spec: int | None = None) -> Label | None:
+def skeleton_parts(rows: list[dict[str, Any]]) -> dict[int, list[int]]:
+    """The sublabels of each skeleton label, in order (their ids, ascending: the order they were made in).
+
+    Args:
+        rows: Labels as ``GET /api/labels`` lists them (sublabels have a ``parent_id``).
+
+    Returns:
+        ``{skeleton label id: [sublabel id, ...]}``.
+    """
+    skeletons = {int(r["id"]) for r in rows if r.get("type") == "skeleton" and not r.get("parent_id")}
+    out: dict[int, list[int]] = {sid: [] for sid in skeletons}
+    for r in sorted(rows, key=lambda r: int(r["id"])):
+        if r.get("parent_id") in skeletons:
+            out[int(r["parent_id"])].append(int(r["id"]))
+    return out
+
+
+def _elements(shape: dict[str, Any]) -> dict[int, tuple[float, float, float]]:
+    """The points of a skeleton shape by sublabel: ``(x, y, visibility)`` in pixels.
+
+    Args:
+        shape: A CVAT skeleton shape (its ``elements`` are points shapes of one point each).
+
+    Returns:
+        ``{sublabel id: (x, y, v)}`` with v 0 (outside or no point), 1 (occluded) or 2.
+    """
+    out: dict[int, tuple[float, float, float]] = {}
+    for el in shape.get("elements") or []:
+        pts = [float(v) for v in el.get("points") or []]
+        if el.get("label_id") is None:
+            continue
+        if el.get("outside") or len(pts) < 2:
+            out[int(el["label_id"])] = (0.0, 0.0, 0.0)
+        else:
+            out[int(el["label_id"])] = (pts[0], pts[1], 1.0 if el.get("occluded") else 2.0)
+    return out
+
+
+ELEMENT_FIELDS = (  # what a part of a skeleton shape has (no rotation, no parts of its own)
+    "id",
+    "type",
+    "frame",
+    "label_id",
+    "points",
+    "occluded",
+    "outside",
+    "z_order",
+    "source",
+    "attributes",
+)
+
+
+def _skeleton_payload(
+    frame: int, label_id: int, parts: list[int], points: list[list[float]]
+) -> dict[str, Any]:
+    """A new CVAT skeleton shape: one element per sublabel (a missing point is an ``outside`` element).
+
+    Args:
+        frame: Index of the frame in the task.
+        label_id: The CVAT id of the skeleton label.
+        parts: The sublabel ids, in order.
+        points: ``[x, y, v]`` per point, in pixels (v 0: not labeled, 1: occluded, 2: visible).
+
+    Returns:
+        The shape as the annotations endpoint takes it.
+    """
+    elements = []
+    for n, sub in enumerate(parts):
+        x, y, v = (points[n] + [0.0, 0.0, 0.0])[:3] if n < len(points) else (0.0, 0.0, 0.0)
+        part = {**_shape_payload("points", frame, sub, [x, y]), "occluded": v == 1, "outside": v <= 0}
+        elements.append({k: part[k] for k in ELEMENT_FIELDS if k in part})
+    return {**_shape_payload("skeleton", frame, label_id, []), "elements": elements}
+
+
+def shape_to_label(
+    shape: dict[str, Any],
+    name: str,
+    w: int,
+    h: int,
+    spec: int | None = None,
+    parts: list[int] | None = None,
+) -> Label | None:
     """One CVAT shape -> internal label (None for unsupported types).
 
     Args:
@@ -381,10 +472,13 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int, spec: int |
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
         spec: Id of the :data:`VISIBILITY` attribute of the shape's label (points), or None.
+        parts: The sublabel ids of the shape's label when it is a skeleton (:func:`skeleton_parts`).
 
     Returns:
         The label with relative 0..1 geometry, or None for a type that is not converted or too few points.
     """
+    if shape.get("type") == "skeleton":
+        return _skeleton_to_label(shape, name, w, h, parts or [])
     kind, pts = shape.get("type"), _seen_points(shape)
     w, h = max(w, 1), max(h, 1)
     xs = [clamp01(x / w) for x in pts[0::2]]
@@ -405,6 +499,32 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int, spec: int |
         box = _box([k[0] for k in seen], [k[1] for k in seen]) if seen else [0.0, 0.0, 0.0, 0.0]
         return Label(name, bbox=box, keypoints=kps)
     return None
+
+
+def _skeleton_to_label(shape: dict[str, Any], name: str, w: int, h: int, parts: list[int]) -> Label | None:
+    """A CVAT skeleton -> one pose label, its points in the order of ``parts``.
+
+    Args:
+        shape: A CVAT skeleton shape.
+        name: The class name to give the label.
+        w: Width of the frame in pixels.
+        h: Height of the frame in pixels.
+        parts: The sublabel ids of the skeleton label, in order.
+
+    Returns:
+        The pose (a box around its labeled points), or None when the skeleton has no part.
+    """
+    found = _elements(shape)
+    if not parts or not found:
+        return None
+    w, h = max(w, 1), max(h, 1)
+    kps: list[list[float]] = []
+    for sub in parts:
+        x, y, v = found.get(sub, (0.0, 0.0, 0.0))
+        kps.append([clamp01(x / w), clamp01(y / h), v] if v > 0 else [0.0, 0.0, 0.0])
+    seen = [k for k in kps if k[2]]
+    box = _box([k[0] for k in seen], [k[1] for k in seen]) if seen else [0.0, 0.0, 0.0, 0.0]
+    return Label(name, bbox=box, keypoints=kps)
 
 
 def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) -> dict[str, Any]:
@@ -488,6 +608,7 @@ def labels_to_cvat(
     w: int,
     h: int,
     specs: dict[int, int] | None = None,
+    skeletons: dict[int, list[int]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped).
 
@@ -499,6 +620,8 @@ def labels_to_cvat(
         h: Height of the frame in pixels.
         specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one (poses that mix
             visibilities 1 and 2 need it, see :func:`_visibility_attrs`).
+        skeletons: The sublabels of each skeleton label (:func:`skeleton_parts`): a pose of such a class
+            is written as a skeleton.
 
     Returns:
         The CVAT shapes and the CVAT tags (labels without geometry) of the frame.
@@ -516,6 +639,9 @@ def labels_to_cvat(
                     shapes.append(
                         _shape_payload("polygon", frame, lid, [v for p in ring for v in (p[0] * w, p[1] * h)])
                     )
+        elif lb.keypoints and lid in (skeletons or {}):
+            pixels = [[kp[0] * w, kp[1] * h, kp[2] if len(kp) > 2 else 2.0] for kp in lb.keypoints]
+            shapes.append(_skeleton_payload(frame, lid, (skeletons or {})[lid], pixels))
         elif lb.keypoints:
             flat: list[float] = []
             for kp in lb.keypoints:
@@ -791,16 +917,26 @@ def _same_shape(
     Returns:
         True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side
         (a turned rectangle is compared by its enclosing box, which is what the project has of it); points
-        must also have the same visibility (:func:`visibility_of`).
+        must also have the same visibility (:func:`visibility_of`), skeletons the same parts.
     """
     if old.get("type") != new.get("type") or not _same_class(
         old.get("label_id"), new.get("label_id"), aliases
     ):
         return False
+    sides = (max(w, 1), max(h, 1))
+    if old.get("type") == "skeleton":
+        ea, eb = _elements(old), _elements(new)
+        return set(ea) == set(eb) and all(
+            ea[k][2] == eb[k][2]
+            and (
+                ea[k][2] == 0
+                or max(abs(ea[k][0] - eb[k][0]) / sides[0], abs(ea[k][1] - eb[k][1]) / sides[1]) <= SAME_SHAPE
+            )
+            for k in ea
+        )
     a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
     if len(a) != len(b):
         return False
-    sides = (max(w, 1), max(h, 1))
     if not all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True))):
         return False
     count = len(a) // 2
@@ -839,7 +975,7 @@ def _overlap(old: dict[str, Any], new: dict[str, Any], aliases: dict[int, int] |
         old.get("label_id"), new.get("label_id"), aliases
     ):
         return 0.0
-    a, b = _seen_points(old), [float(v) for v in new.get("points") or []]
+    a, b = _seen_points(old), _seen_points(new)
     if len(a) < 2 or len(b) < 2:
         return 0.0
     ax0, ay0, ax1, ay1 = _extent(a)
@@ -856,7 +992,8 @@ def _edited(
 ) -> dict[str, Any]:
     """The old shape with the geometry of the new one: id, attributes, occluded, z_order... are kept.
 
-    Points also take the visibility of the new shape (``occluded`` and the :data:`VISIBILITY` attribute;
+    A skeleton takes the points of the new one part by part (:func:`_edited_skeleton`). Points also take
+    the visibility of the new shape (``occluded`` and the :data:`VISIBILITY` attribute;
     the other attributes are kept). A turned rectangle whose enclosing box was only moved (same size
     within :data:`SAME_SHAPE`) is moved and keeps its turn. When the box was resized there is no honest
     way to turn it back: the rectangle becomes the new axis-aligned box (``rotation`` 0), which is what
@@ -872,6 +1009,8 @@ def _edited(
     Returns:
         A copy of ``old`` with the geometry of ``new``.
     """
+    if old.get("type") == "skeleton":
+        return _edited_skeleton(old, new)
     if old.get("type") == "points":
         others = [a for a in old.get("attributes") or [] if spec is None or a.get("spec_id") != spec]
         mine = [a for a in new.get("attributes") or [] if spec is not None and a.get("spec_id") == spec]
@@ -891,6 +1030,26 @@ def _edited(
     dx, dy = box[0] - seen[0], box[1] - seen[1]
     pts = [float(v) for v in old["points"]]
     return {**old, "points": [v + (dx if i % 2 == 0 else dy) for i, v in enumerate(pts)]}
+
+
+def _edited_skeleton(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """The old skeleton with the points of the new one: each element keeps its id and attributes.
+
+    Args:
+        old: A skeleton CVAT has.
+        new: The skeleton built from the edited label.
+
+    Returns:
+        A copy of ``old`` whose elements have the points, ``occluded`` and ``outside`` of ``new`` (and only
+        the fields of a skeleton element, :data:`ELEMENT_FIELDS`).
+    """
+    fresh = {el.get("label_id"): el for el in new.get("elements") or []}
+    elements = []
+    for el in old.get("elements") or []:
+        src = fresh.pop(el.get("label_id"), None)
+        changed = {**el, **{k: src[k] for k in ("points", "occluded", "outside")}} if src is not None else el
+        elements.append({k: v for k, v in changed.items() if k in ELEMENT_FIELDS})
+    return {**old, "elements": elements + list(fresh.values())}
 
 
 def _visible(task: Task, label: Label) -> bool:
@@ -921,6 +1080,7 @@ def _merge_frame(
     size: tuple[int, int],
     task: Task,
     specs: dict[int, int] | None = None,
+    skeletons: dict[int, list[int]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Shapes and tags of one frame after writing ``labels``: what CVAT has, changed only where needed.
 
@@ -940,21 +1100,26 @@ def _merge_frame(
         size: ``(width, height)`` of the frame in pixels.
         task: The task type of the project.
         specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
+        skeletons: The sublabels of each skeleton label (:func:`skeleton_parts`); skeletons of those labels
+            are converted (keypoints projects).
 
     Returns:
         The shapes and the tags the frame has after the write.
     """
     classification = task is Task.CLASSIFICATION
     w, h = size
-    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs)
+    parts = skeletons or {}
+    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs, parts)
     vis = specs or {}
     aliases = class_aliases(ids)
     known = set(ids.values())
     kept_shapes: list[dict[str, Any]] = []
     convertible: list[dict[str, Any]] = []
     for s in old_shapes:
-        mine = not classification and s.get("type") in TRACKABLE and s.get("label_id") in known
-        converted = shape_to_label(s, "x", w, h) if mine else None
+        lid = int(s.get("label_id") or -1)  # -1: no label (never a CVAT id)
+        kind_ok = s.get("type") in TRACKABLE or (s.get("type") == "skeleton" and lid in parts)
+        mine = not classification and kind_ok and lid in known
+        converted = shape_to_label(s, "x", w, h, vis.get(lid), parts.get(lid)) if mine else None
         mine = converted is not None and _visible(task, converted)
         (convertible if mine else kept_shapes).append(s)
     unmatched: list[dict[str, Any]] = []
@@ -1034,6 +1199,45 @@ def _add_delta(
     for o in old:
         if id(o) not in kept and (o.get("id") is None or o["id"] not in updated):
             patch["delete"][kind].append(o)
+
+
+def _not_converted(shape: dict[str, Any], task: Task, parts: dict[int, list[int]]) -> str | None:
+    """Why a CVAT shape does not reach the project as it is, as a key of :attr:`RemoteItem.not_converted`.
+
+    Args:
+        shape: A CVAT shape of a known label.
+        task: The task type of the project.
+        parts: The sublabels of each skeleton label.
+
+    Returns:
+        The shape type when ActiveLabel does not convert it (``ellipse``, ``mask``, ``polyline``,
+        ``cuboid``, or ``skeleton`` outside keypoints projects / without parts), ``rotated_rectangle`` for
+        a turned rectangle read as its enclosing box, else None.
+    """
+    kind = str(shape.get("type"))
+    if kind == "skeleton":
+        return None if task is Task.KEYPOINTS and shape.get("label_id") in parts else kind
+    if kind not in TRACKABLE:
+        return kind
+    return "rotated_rectangle" if kind == "rectangle" and shape.get("rotation") else None
+
+
+def _sendable(item: dict[str, Any]) -> dict[str, Any]:
+    """An annotation object as it is sent back: the parts of a skeleton keep only their own fields.
+
+    Args:
+        item: A tag, shape or track (as read, or built here).
+
+    Returns:
+        ``item`` itself, or for a skeleton shape a copy whose ``elements`` keep only
+        :data:`ELEMENT_FIELDS` (tracks are returned as they are).
+    """
+    if not item.get("elements") or item.get("shapes"):
+        return item
+    return {
+        **item,
+        "elements": [{k: v for k, v in el.items() if k in ELEMENT_FIELDS} for el in item["elements"]],
+    }
 
 
 def _audit_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -1529,7 +1733,9 @@ class CvatRemote:
     ) -> list[RemoteItem]:
         """Every frame of every task of the project (or of ``task_ids``) with its shapes/tags converted.
 
-        Tracks give one label per frame where the object is visible (see :func:`track_frames`).
+        Tracks give one label per frame where the object is visible (see :func:`track_frames`). What
+        cannot be converted is counted per item in ``not_converted`` (see :func:`_not_converted`; tracks
+        that are not read count once, on their first frame).
 
         Args:
             settings: Address and login of the CVAT server.
@@ -1544,6 +1750,7 @@ class CvatRemote:
         rows = self._label_rows(api, remote_id)
         names = {int(r["id"]): str(r["name"]) for r in rows if r.get("name") and not r.get("parent_id")}
         specs = visibility_specs(rows)
+        parts = skeleton_parts(rows)
         out: list[RemoteItem] = []
         for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
             tid = t["id"]
@@ -1553,18 +1760,27 @@ class CvatRemote:
             frames = _meta_frames(meta)
             ann = api.get(f"/api/tasks/{tid}/annotations") or {}
             per_frame: dict[int, list[Label]] = {}
+            skipped: dict[int, dict[str, int]] = {}
             for s in ann.get("shapes") or []:
-                f, name = int(s.get("frame", -1)), names.get(s.get("label_id"))
+                f, lid = int(s.get("frame", -1)), s.get("label_id")
+                name = names.get(lid)
                 if task is Task.CLASSIFICATION or name is None or not 0 <= f < len(frames):
                     continue
+                why = _not_converted(s, task, parts)
+                if why:
+                    skipped.setdefault(f, {})[why] = skipped.get(f, {}).get(why, 0) + 1
                 size = int(frames[f]["width"]), int(frames[f]["height"])
-                label = shape_to_label(s, name, *size, specs.get(s.get("label_id")))
+                label = shape_to_label(s, name, *size, specs.get(lid), parts.get(lid))
                 if label:
                     per_frame.setdefault(f, []).append(label)
             ids = {n: i for i, n in names.items()}
             for tr in ann.get("tracks") or []:
                 name = names.get(tr.get("label_id"))
-                if task is Task.CLASSIFICATION or name is None or _trackable(tr, ids) is None:
+                if task is Task.CLASSIFICATION or name is None:
+                    continue
+                if _trackable(tr, ids) is None:  # skeleton tracks, other types: kept, not read
+                    f = int(tr.get("frame") or 0)
+                    skipped.setdefault(f, {})["tracks"] = skipped.get(f, {}).get("tracks", 0) + 1
                     continue
                 for f, (s, _) in sorted(track_frames(tr, len(frames)).items()):
                     size = int(frames[f]["width"]), int(frames[f]["height"])
@@ -1588,6 +1804,7 @@ class CvatRemote:
                         int(fr["width"]),
                         int(fr["height"]),
                         per_frame.get(f, []),
+                        skipped.get(f, {}),
                     )
                 )
         return out
@@ -1636,7 +1853,9 @@ class CvatRemote:
         wanted = [lb.label for per in by_task.values() for labels in per.values() for lb in labels]
         ids = self._ensure(api, remote_id, wanted)
         every = [lb for per in by_task.values() for labels in per.values() for lb in labels]
-        specs = self._pose_specs(api, remote_id, ids, every) if project.task is Task.KEYPOINTS else {}
+        pose = project.task is Task.KEYPOINTS
+        specs = self._pose_specs(api, remote_id, ids, every) if pose else {}
+        skeletons = skeleton_parts(self._label_rows(api, remote_id)) if pose else {}
         for tid, per in by_task.items():
             frames = self._frames(api, tid)
             for frame in per:
@@ -1656,7 +1875,7 @@ class CvatRemote:
                 old_shapes = [s for s in ann.get("shapes") or [] if s.get("frame") == frame]
                 old_tags = [t for t in ann.get("tags") or [] if t.get("frame") == frame]
                 new_shapes, new_tags = _merge_frame(
-                    old_shapes, old_tags, labels, ids, frame, size, project.task, specs
+                    old_shapes, old_tags, labels, ids, frame, size, project.task, specs, skeletons
                 )
                 _add_delta(patch, "shapes", old_shapes, new_shapes)
                 _add_delta(patch, "tags", old_tags, new_tags)
@@ -1675,7 +1894,7 @@ class CvatRemote:
             version: The ``version`` of the annotations as read.
         """
         for action in ACTIONS:
-            body = patch[action]
+            body = {kind: [_sendable(x) for x in patch[action][kind]] for kind in KINDS}
             if any(body[kind] for kind in KINDS):
                 api.request(
                     "PATCH",
@@ -1772,11 +1991,13 @@ class CvatRemote:
         if job_size:
             body["segment_size"] = int(job_size)
             body["overlap"] = 0  # CVAT repeats frames between jobs of a video by default
-        specs = self._pose_specs(api, rid, ids, [lb for _, _, labels in batch for lb in labels])
+        every = [lb for _, _, labels in batch for lb in labels]
+        specs = self._pose_specs(api, rid, ids, every)
+        skeletons = skeleton_parts(self._label_rows(api, rid)) if any(lb.keypoints for lb in every) else {}
         task = api.request("POST", "/api/tasks", json=body)
         tid = task["id"]
         try:
-            return self._populate_task(api, tid, job_size, batch, ids, video, specs)
+            return self._populate_task(api, tid, job_size, batch, ids, video, specs, skeletons)
         except Exception:
             self._discard_task(api, tid)  # a retry must not leave empty tasks (they count in the plan)
             raise
@@ -1803,6 +2024,7 @@ class CvatRemote:
         ids: dict[str, int],
         video: tuple[Path, dict[str, Any]] | None,
         specs: dict[int, int] | None = None,
+        skeletons: dict[int, list[int]] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Upload the images (or the video) to an empty task and write the labels.
 
@@ -1814,6 +2036,7 @@ class CvatRemote:
             ids: CVAT label id of each class name.
             video: The video file and its selection, or None to upload the images.
             specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
+            skeletons: The sublabels of each skeleton label (poses of those classes become skeletons).
 
         Returns:
             The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
@@ -1822,7 +2045,7 @@ class CvatRemote:
             ToolError: CVAT did not register an image or changed the order of the images.
         """
         if video is not None:
-            return self._fill_from_video(api, tid, video, job_size, batch, ids, specs)
+            return self._fill_from_video(api, tid, video, job_size, batch, ids, specs, skeletons)
         names: dict[str, str] = {}  # image id -> file name in CVAT (unique inside the task)
         for rec, _, _ in batch:
             name = rec.name if rec.name not in names.values() else f"{rec.id}_{Path(rec.name).name}"
@@ -1861,7 +2084,13 @@ class CvatRemote:
                 )
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
-                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"]), specs
+                labels,
+                ids,
+                frame,
+                int(frames[frame]["width"]),
+                int(frames[frame]["height"]),
+                specs,
+                skeletons,
             )
             shapes += s
             tags += t
@@ -1882,6 +2111,7 @@ class CvatRemote:
         batch: list[tuple[ImageRecord, Path, list[Label]]],
         ids: dict[str, int],
         specs: dict[int, int] | None = None,
+        skeletons: dict[int, list[int]] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Send the original video with the task's selection; map frame *i* to image *i*.
 
@@ -1893,6 +2123,7 @@ class CvatRemote:
             batch: For each image its record, the file (not used here) and its labels (relative 0..1).
             ids: CVAT label id of each class name.
             specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
+            skeletons: The sublabels of each skeleton label (poses of those classes become skeletons).
 
         Returns:
             The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
@@ -1931,7 +2162,13 @@ class CvatRemote:
         for frame, (rec, _, labels) in enumerate(batch):
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
-                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"]), specs
+                labels,
+                ids,
+                frame,
+                int(frames[frame]["width"]),
+                int(frames[frame]["height"]),
+                specs,
+                skeletons,
             )
             shapes += s
             tags += t

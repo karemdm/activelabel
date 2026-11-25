@@ -74,7 +74,8 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
    add, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
    tasks_new, tasks_delete, conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
-   per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], diff_pull: <diff as in ANNOTATION.md>, diff_push:
+   per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], not_converted: {kind: n},
+   diff_pull: <diff as in ANNOTATION.md>, diff_push:
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
    plans are kept).
 2. **Apply** (job `sync_apply`) with `{plan_id, resolutions: {"<image_id>": "local"|"remote"},
@@ -112,7 +113,8 @@ object is visible, all with `track` = the CVAT track id (FiftyOne: the `index` a
 keyframes as they are; between two keyframes rectangles and points are interpolated linearly like
 CVAT, **polygons use the previous keyframe's points** (approximation); an `outside` keyframe hides the
 object until the next visible keyframe; after the last keyframe the object continues unless it is
-outside. Skeleton tracks and tracks of other shape types are not read and are kept as they are.
+outside. Skeleton tracks and tracks of other shape types are not read and are kept as they are
+(counted in the plan's `not_converted`).
 Writing: a label with a `track` of the task changes that track (a keyframe on that frame, replacing
 or inserted; CVAT interpolates the frames around it again); a track missing from a frame's labels gets
 an `outside` keyframe there, plus keyframes on the neighbouring frames so they keep their shape;
@@ -134,7 +136,14 @@ one track id per job.
 | rectangle with `rotation` | the axis-aligned box that **encloses** the turned rectangle (detection trains on axis-aligned boxes). The rectangle stays turned in CVAT: a push of its frame leaves it alone while its enclosing box is unchanged; moving the box moves the rectangle and keeps its turn; resizing it replaces the rectangle by the new box, without a turn. In tracks the turn is interpolated between keyframes, the short way round |
 | polygon | polygon and its box (segmentation) |
 | points | one pose object (keypoints). A point at the top-left corner is *not labeled* (0). CVAT has one `occluded` flag per shape: a pose whose labeled points are all *labeled but not visible* (1) is an occluded shape; a pose that mixes 1 and 2 keeps each point's visibility in the text attribute `visibility` of its CVAT label (`"2,1,0"`; added to that label the first time a pose needs it). CVAT has no box for a pose: a pose whose points did not change keeps the box the project has (from COCO, for example), so the box alone is never a change; when the points change the box becomes the box of the points |
+| skeleton | one pose object (keypoints projects): one point per sublabel of the skeleton label, in the order of the sublabels; a missing or `outside` part is *not labeled* (0), an `occluded` one is 1. The class is the skeleton label. A pose of a skeleton class is written back as a skeleton (each part keeps its id) |
 | tag | image class (classification) |
+
+Shapes of other types (ellipse, mask, polyline, cuboid), skeletons outside a keypoints project and tracks
+that are not read (skeleton tracks, tracks of other types) stay in CVAT as they are and never reach the
+project or the training. The plan says so: `not_converted` counts them by kind (`{"ellipse": 2,
+"mask": 1, "tracks": 1, ...}`), and `rotated_rectangle` counts the turned rectangles read as their
+enclosing box.
 
 ## What a push sends to CVAT
 
@@ -181,4 +190,5 @@ class RemoteProject(Protocol):          # activelabel/sync/remote.py
     def ensure_classes(self, settings, remote_id: str, classes: list[str]) -> None
     def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
 ```
-`RemoteItem = {key, file_name, width, height, labels: list[Label]}` (labels relative 0..1).
+`RemoteItem = {key, file_name, width, height, labels: list[Label], not_converted: {kind: n}}` (labels
+relative 0..1).
