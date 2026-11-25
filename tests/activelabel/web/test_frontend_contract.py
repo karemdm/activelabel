@@ -742,7 +742,7 @@ def test_the_training_dialog_asks_for_the_family_before_the_model():
     """#537: family first; one with no model for the type, and Ultralytics (AGPL), are disabled with why."""
     assert "sel('tr-family'" in JS and "for: 'tr-family'" in JS
     assert JS.index("for: 'tr-family'") < JS.index("for: 'tr-model'")
-    assert "disabled: !!reason" in JS and "t('tr.family_license')" in JS and "t('tr.family_none'" in JS
+    assert "disabled: !!reason" in JS and "t('tr.family_licence'" in JS and "t('tr.family_none'" in JS
     assert "models.filter((m) => m.family === st.family)" in JS
     for lang in ("pt", "en"):
         texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
@@ -750,7 +750,7 @@ def test_the_training_dialog_asks_for_the_family_before_the_model():
             "tr.family",
             "tr.family_help",
             "tr.family_none",
-            "tr.family_license",
+            "tr.family_licence",
             "tr.family_unavailable",
         ):
             assert texts[key], key
@@ -784,3 +784,33 @@ def test_the_pre_annotate_tab_offers_the_device():
     assert JS.count("export const deviceName") == 1 and "    const deviceName" not in JS  # one shared namer
     for lang in ("pt", "en"):
         assert json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))["pre.device_help"]
+
+
+def test_the_agpl_licence_is_accepted_in_a_dialog_before_ultralytics_can_be_chosen():
+    """#213: plain texts of what AGPL-3.0 means, the link, an explicit checkbox, then the accept route."""
+    start = JS.index("function openLicence(")
+    dialog = JS[start : JS.index("async function openNew(", start)]
+    assert "type: 'checkbox', id: 'lic-confirm'" in dialog and "disabled: true" in dialog
+    assert "href: licence.url, target: '_blank', rel: 'noopener'" in dialog
+    assert "/accept`, { json: { accept: true } }" in dialog
+    assert "api('GET', '/training/licences')" in JS and "data-act': `licence-${f}`" in JS
+    assert "filter((m) => m.family !== 'ultralytics')" not in JS
+    keys = (
+        "tr.licence_title",
+        "tr.licence_text_what",
+        "tr.licence_text_share",
+        "tr.licence_text_private",
+        "tr.licence_text_kept",
+        "tr.licence_link",
+        "tr.licence_confirm",
+        "tr.licence_accept",
+        "tr.licence_accepted",
+        "tr.licence_open",
+        "tr.family_licence",
+        "tr.note.ultralytics",
+    )
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in keys:
+            assert texts[key], key
+        assert "tr.family_license" not in texts

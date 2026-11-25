@@ -302,19 +302,57 @@ export function trainingPanel(page) {
   }
 
   // ---------------------------------------------------------------- new run dialog
+  /* What accepting the AGPL-3.0 licence of Ultralytics means, in plain words, with the link to its text and an explicit
+     confirmation (#213); `onAccepted` gets the licence as the server keeps it. */
+  function openLicence(licence, onAccepted) {
+    const check = el('input', { type: 'checkbox', id: 'lic-confirm' });
+    const accept = el('button', { type: 'submit', class: 'btn primary', disabled: true }, t('tr.licence_accept'));
+    check.addEventListener('change', () => { accept.disabled = !check.checked; });
+    const dlg = el('dialog', { class: 'dialog', 'aria-labelledby': 'lic-title' },
+      el('form', { class: 'dialog-body form', method: 'dialog', onsubmit: async (e) => {
+        e.preventDefault();
+        if (!check.checked) return;
+        accept.disabled = true;
+        try {
+          const saved = await api('POST', `/training/licences/${encodeURIComponent(licence.id)}/accept`, { json: { accept: true } });
+          dlg.close();
+          toast(t('tr.licence_accepted', { name: licence.name, family: tr(`tr.family.${licence.id}`, licence.id) }), 'success', 6000);
+          onAccepted(saved);
+        } catch (err) { accept.disabled = false; toastError(err); }
+      } },
+        el('h2', { id: 'lic-title' }, t('tr.licence_title', { name: licence.name.replace(/-/g, '‑'), package: tr(`tr.family.${licence.id}`, licence.package) })),
+        el('p', null, t('tr.licence_text_what')),
+        el('p', null, t('tr.licence_text_share')),
+        el('p', null, t('tr.licence_text_private')),
+        el('p', null, t('tr.licence_text_kept')),
+        el('p', null, el('a', { href: licence.url, target: '_blank', rel: 'noopener' }, t('tr.licence_link', { name: licence.name }), ' ', icon('external', 14))),
+        el('label', { class: 'ds-check', for: 'lic-confirm' }, check, el('span', null, t('tr.licence_confirm', { name: licence.name }))),
+        el('div', { class: 'form-actions' }, accept, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    openModal(dlg);
+    check.focus();
+  }
+
   async function openNew(trigger, version = null) {
     let cat;
     let versions;
     let augCat;
+    let licences;
     try {
       cat = await ensureCatalog();
+      licences = (await api('GET', '/training/licences')).licences || [];
       augCat = await api('GET', `/training/augmentations?type=${encodeURIComponent(ctx.project.task)}`);
       versions = ((await api('GET', `/projects/${projectId}/datasets`)).versions || []).filter((v) => !v.incomplete).sort((a, b) => b.version - a.version);
     } catch (err) { toastError(err); return; }
-    const models = (cat.models || []).filter((m) => m.family !== 'ultralytics');   // YOLO: not trainable yet
-    if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
+    const models = cat.models || [];
+    /* a family whose licence was not accepted (Ultralytics, AGPL-3.0) cannot be chosen until it is (#213) */
+    const licenceOf = (f) => licences.find((l) => l.id === f) || null;
+    const blocked = (f) => !!licenceOf(f) && !licenceOf(f).accepted;
+    const first = models.find((m) => !blocked(m.family));
+    if (!versions.length || !first) { toast(t('tr.no_options'), 'error'); return; }
 
-    const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: models[0].family, model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
+    const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: first.family, model: first.id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
     const versionOf = () => versions.find((v) => v.version === st.dataset);
     const modelNow = () => models.find((m) => m.id === st.model);
     let active = [];       // parameter specs shown now
@@ -351,18 +389,33 @@ export function trainingPanel(page) {
     // family, then model (#537): a family without a model for this project type stays in the list, disabled, with the reason
     const FAMILIES = ['torchvision', 'timm', 'ultralytics'];
     const familyReason = (f) => {
-      if (f === 'ultralytics') return t('tr.family_license');   // AGPL: trainable once the licence can be accepted (#213)
-      return models.some((m) => m.family === f) ? null : t('tr.family_none', { type: lower(taskName(ctx.project.task)) });
+      if (!models.some((m) => m.family === f)) return t('tr.family_none', { type: lower(taskName(ctx.project.task)) });
+      return blocked(f) ? t('tr.family_licence', { name: licenceOf(f).name }) : null;
     };
-    const familySel = sel('tr-family', ...FAMILIES.map((f) => {
-      const reason = familyReason(f);
-      return el('option', { value: f, disabled: !!reason }, reason ? `${tr(`tr.family.${f}`, f)} (${reason})` : tr(`tr.family.${f}`, f));
-    }));
-    familySel.value = st.family;
-    const unavailable = FAMILIES.filter(familyReason).map((f) => `${tr(`tr.family.${f}`, f)} (${familyReason(f)})`);
-    /* the reasons stay in view, not only inside the closed list */
-    const familyNote = el('p', { class: 'hint', id: 'tr-family-note' },
-      [t('tr.family_help'), unavailable.length ? t('tr.family_unavailable', { list: unavailable.join(' · ') }) : null].filter(Boolean).join(' '));
+    const familySel = sel('tr-family');
+    const familyNote = el('div', { class: 'hint tr-family-note', id: 'tr-family-note' });
+    /* the list and its hint; drawn again when a licence is accepted. The reasons stay in view, not only inside the
+       closed list, and a family that waits for its licence offers to read and accept it */
+    function drawFamilies() {
+      fill(familySel, ...FAMILIES.map((f) => {
+        const reason = familyReason(f);
+        return el('option', { value: f, disabled: !!reason }, reason ? `${tr(`tr.family.${f}`, f)} (${reason})` : tr(`tr.family.${f}`, f));
+      }));
+      familySel.value = st.family;
+      const unavailable = FAMILIES.filter(familyReason).map((f) => `${tr(`tr.family.${f}`, f)} (${familyReason(f)})`);
+      const waiting = FAMILIES.filter((f) => models.some((m) => m.family === f) && blocked(f));
+      fill(familyNote,
+        el('p', null, [t('tr.family_help'), unavailable.length ? t('tr.family_unavailable', { list: unavailable.join(' · ') }) : null].filter(Boolean).join(' ')),
+        ...waiting.map((f) => el('button', { type: 'button', class: 'btn small', 'data-act': `licence-${f}`, onclick: () => openLicence(licenceOf(f), (accepted) => {
+          Object.assign(licenceOf(f), accepted);
+          st.family = f;
+          drawFamilies();
+          drawModelList();
+          drawModel();
+          familySel.focus();
+        }) }, t('tr.licence_open', { name: licenceOf(f).name }))));
+    }
+    drawFamilies();
     familySel.setAttribute('aria-describedby', 'tr-family-note');
     const modelSel = sel('tr-model');
     const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
@@ -660,7 +713,8 @@ export function trainingPanel(page) {
     }
     function drawModel() {
       const m = modelNow();
-      modelNote.textContent = [m.notes, m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
+      /* the catalogue's own note is English: the screen says it by family, in the interface language */
+      modelNote.textContent = [tr(`tr.note.${m.family}`, ''), m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
       const notes = carryValues(shownModel);
       if (!m.metrics.includes(st.metric)) {   // a metric the person chose stays while the new model has it
         if (shownModel && st.metric) notes.push(t('tr.chg_default', { p: t('tr.select_metric'), v: metricName(m.default_metric) }));
