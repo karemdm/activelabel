@@ -18,6 +18,7 @@ from pathlib import Path
 REQUIRED = [
     "activelabel/web/templates/*.html",
     "activelabel/web/static/js/main.js",
+    "activelabel/web/static/js/*/*.js",
     "activelabel/web/static/app.css",
     "activelabel/i18n/*.json",
     "activelabel/training/workers/*.py",
