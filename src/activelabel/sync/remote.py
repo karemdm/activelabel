@@ -25,13 +25,19 @@ class RemoteInfo:
 
 @dataclass
 class RemoteItem:
-    """One image of the remote project with its current labels (relative coordinates 0..1)."""
+    """One image of the remote project with its current labels (relative coordinates 0..1).
+
+    ``not_converted`` counts what the tool has on that image but the labels do not show, by kind
+    (CVAT: shape types such as ``ellipse`` or ``mask``, ``tracks`` that are not read,
+    ``rotated_rectangle`` read as its enclosing box).
+    """
 
     key: str  # "<task_id>:<frame>" in CVAT
     file_name: str
     width: int
     height: int
     labels: list[Label] = field(default_factory=list)
+    not_converted: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
