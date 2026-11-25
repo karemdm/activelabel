@@ -17,6 +17,7 @@ from activelabel.config import Settings
 from activelabel.web import (
     annotate_api,
     api,
+    backups_api,
     datasets_api,
     import_api,
     models_api,
@@ -70,6 +71,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.add_exception_handler(StarletteHTTPException, pages.unknown_address)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
+    app.include_router(backups_api.router)
     app.include_router(datasets_api.router)
     app.include_router(import_api.router)
     app.include_router(sync_api.router)

@@ -10,6 +10,9 @@ from api_client import make_client, upload
 from sample_images import make_image
 
 from activelabel import i18n
+from activelabel.backups import REASONS, make_backup
+from activelabel.labels import AnnotationSet, save_annotations
+from activelabel.tasks import Task
 from activelabel.web import pages
 
 STATIC = Path(pages.STATIC_DIR)
@@ -405,3 +408,22 @@ def test_the_update_button_shows_only_for_cvat_tasks_and_answers_when_clicked():
     assert "tasks.some((x) => x.remote)" in JS
     refresh = JS[JS.index("async function refreshTasks") :][:400]
     assert "toast(t('tasks.refreshed')" in refresh
+
+
+def test_the_safety_copy_list_reads_the_fields_the_api_sends(tmp_path):
+    """loadBackups lists and restores through the backups routes, and every copy field it reads exists."""
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection"})
+    folder = state.store.dir(1)
+    save_annotations(folder, AnnotationSet(Task.DETECTION, [], {}, {}))
+    make_backup(folder, "classes")
+    (item,) = client.get("/api/projects/1/annotations/backups").json()["items"]
+    body = re.search(r"async function loadBackups\(\) \{.*?\n      \}\n", JS, re.S)
+    assert body is not None
+    code = body.group(0)
+    assert "/annotations/backups`" in code and "encodeURIComponent(copy.name)}/restore`" in code
+    read = set(re.findall(r"\bcopy\.(\w+)", code))
+    assert read and read <= set(item), read - set(item)
+    assert "ann.backup_reason_${copy.reason}" in code
+    en = json.loads((SRC / "i18n" / "en.json").read_text(encoding="utf-8"))
+    assert all(f"ann.backup_reason_{reason}" in en for reason in REASONS)

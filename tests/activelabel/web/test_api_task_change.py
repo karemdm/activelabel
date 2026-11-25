@@ -193,12 +193,12 @@ def test_project_update_holds_the_annotations_lock(tmp_path, monkeypatch):
 
     client, state, _ = setup(tmp_path)
     held = []
-    real = api._backup_annotations
+    real = api.make_backup
 
-    def backup(project_dir):
+    def backup(project_dir, reason=""):
         held.append(annotations_lock(project_dir)._is_owned())  # noqa: SLF001 - held since the load
-        return real(project_dir)
+        return real(project_dir, reason)
 
-    monkeypatch.setattr(api, "_backup_annotations", backup)
+    monkeypatch.setattr(api, "make_backup", backup)
     r = client.patch("/api/projects/1", json={"task": "detection", "annotations": "discard"})
     assert r.status_code == 200 and held == [True]

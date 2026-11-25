@@ -79,7 +79,7 @@ the split of `app.js` and of the runner, generated endpoint tables, a lock file 
   conflict, and a downgrade silently misreads newer files.
 - Dataset versions copy the labels (good for reproducibility) but there is no tool to verify a workspace
   or repair one (missing image file, orphan thumbnail, run without config).
-- `annotations.<timestamp>.bak.json` backups accumulate with no clean-up.
+- `annotations.<timestamp>.bak.json` backups: only the newest 20 per project are kept (activelabel/backups.py).
 
 ### Packaging and installation
 

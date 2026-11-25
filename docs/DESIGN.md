@@ -43,7 +43,7 @@ Principles (from what went wrong in the previous tool):
   origin.json         where an imported project came from (docs/IMPORT.md)
   fiftyone.json       {"dataset": "<name>"}: the project's FiftyOne dataset (see below)
   annotations.json    ground truth in the internal format (activelabel.labels)
-  annotations.<timestamp>.bak.json   backup made before a change that removes or rewrites annotations
+  annotations.<UTC time>Z[.<reason>].bak.json   backup made before a change that removes or rewrites annotations (a replacing import, class removal, a task change that discards labels, FiftyOne or CVAT apply, a class renamed in CVAT, a restore); the newest 20 are kept; see activelabel/backups.py
   curation.json       thresholds and near-duplicate groups
   datasets/v<N>.json  frozen dataset versions: train/val/test split + label copy (docs/DATASETS.md)
   datasets/counter.json  {"next": N+1}: numbers are never reused
@@ -197,6 +197,8 @@ running.
 | POST | `/projects/{id}/annotations/{token}/apply` | `{action, mode}` (`action`: `import`, `change_task_and_import`, `convert_and_import` or `discard`; `mode`: `replace` by default, or `merge`) | import summary |
 | DELETE | `/projects/{id}/annotations/{token}` | | discard staged files |
 | GET | `/projects/{id}/annotations` | | summary of the ground truth |
+| GET | `/projects/{id}/annotations/backups` | | safety copies of the annotations, newest first: `name`, `created` (UTC), `images`, `labels`, `reason`, `valid` |
+| POST | `/projects/{id}/annotations/backups/{name}/restore` | | makes that copy the annotations again (the current file is copied first; 409 while an activity runs; 400 `backup_name_invalid` / `backup_unreadable`, 404 `backup_not_found`) |
 | POST | `/projects/{id}/curation/analyze` | `{recompute}` | job |
 | GET | `/projects/{id}/curation` | | summary (counts, ids per issue, histograms, thresholds) |
 | DELETE | `/projects/{id}/curation` | | `{reset}`: forgets measures, issues, hashes and duplicate groups; thresholds stay (409 while a job runs) |

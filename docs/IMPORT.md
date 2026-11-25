@@ -45,6 +45,13 @@ says what was found. Nothing changes until the person chooses an action.
   files are removed at once and the answer is a 400 with a code (`annotation_format_unknown`,
   `annotation_unreadable`). Files that were kept and never decided are removed after 24 hours and when the
   service starts.
+- **Excluded images are never changed by an import.** Replace swaps the labels of the *active* images only;
+  the labels an excluded image already has are kept (also when the file has entries for it, which are
+  skipped and reported as `excluded_image_entries`, not as images missing from the project), so excluding
+  and restoring an image never loses its labels. The exception is *Change the type ... and import*: labels
+  of the old type cannot stay beside the new ones, so they are left out (they are in the backup). Every
+  replace first copies `annotations.json` (`annotations.<UTC time>Z.replace.bak.json`, see docs/DESIGN.md);
+  the answer names it in `backup`.
 - **Labels the project's type cannot use are reported and left out**, never imported as empty or broken
   labels: a box project does not take a label that has no box (`no_geometry`: "Some labels do not have the
   shape this project type needs (box, polygon or keypoints); they are left out."), and a keypoints project

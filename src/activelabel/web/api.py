@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
 import threading
-import time
 from dataclasses import asdict
 from functools import partial
 from pathlib import Path
@@ -16,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from activelabel import annotations as ann
 from activelabel import fiftyone_bridge
+from activelabel.backups import make_backup
 from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
@@ -321,16 +320,6 @@ def _classes_used(annotations: AnnotationSet, keep: set[str]) -> dict[str, dict[
     return used
 
 
-def _backup_annotations(project_dir: Path) -> None:
-    """Copy annotations.json to annotations.<timestamp>.bak.json.
-
-    Args:
-        project_dir: Folder of the project.
-    """
-    stamp = time.strftime("%Y%m%dT%H%M%S")
-    shutil.copyfile(annotations_path(project_dir), project_dir / f"annotations.{stamp}.bak.json")
-
-
 def _with_classes(annotations: AnnotationSet, project: Project) -> AnnotationSet:
     """The ground truth with the class list of the project (so ``class_names`` never lags behind).
 
@@ -477,10 +466,10 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
     if converted is not None:
         save_annotations(project_dir, _with_classes(cleaned or converted, project))
     elif result is not None:
-        _backup_annotations(project_dir)
+        make_backup(project_dir, "task")
         annotations_path(project_dir).unlink()
     elif cleaned is not None:
-        _backup_annotations(project_dir)
+        make_backup(project_dir, "classes")
         save_annotations(project_dir, _with_classes(cleaned, project))
     elif body.classes is not None or body.task is not None:
         current = load_annotations(project_dir)  # one without images needed no decision: it just follows
@@ -995,7 +984,9 @@ def check_annotations(
     if target is not None:
         ann.set_target(project_dir, token, {"task": target.task, "class_name": target.class_name})
     try:
-        result = ann.parse(staged, fmt, target.images() if target else manifest.active(), target)
+        result = ann.parse(
+            staged, fmt, target.images() if target else manifest.active(), target, manifest.excluded()
+        )
         report = ann.validate(result, project)
     except (ValueError, ArithmeticError) as exc:  # a parser tripping on a malformed file
         ann.discard_staged(project_dir, token)

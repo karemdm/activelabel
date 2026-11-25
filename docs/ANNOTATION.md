@@ -50,10 +50,26 @@ detection (bounding boxes), segmentation (polygons) and keypoints.
    summary (apply, or discard and send again).
 4. **Review and apply**: the person sees the summary (counts per class, images changed, problems) and
    chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
-   classes are added to the project) or *Discard these changes*. A backup of `annotations.json` is kept
-   before applying. If the project's labels of those images changed after they were brought back,
+   classes are added to the project) or *Discard these changes*. A safety copy of `annotations.json` is made
+   before applying (see *Safety copies* below). If the project's labels of those images changed after they were brought back,
    applying is refused (409) and they must be brought back again.
 5. **Close** a session (*Close session*): forget it.
+
+## Safety copies
+
+Before anything that removes or rewrites annotations in bulk, `annotations.json` is copied next to itself as
+`annotations.<UTC time>Z.<reason>.bak.json`. The reason is one of: `classes` (a used class was removed),
+`task` (a task change that discards the labels), `apply` (FiftyOne edits applied), `sync` (CVAT synchronised),
+`rename` (a class renamed in CVAT), `replace` (an import that replaces) or `restore` (the file a restore
+replaced). Copies made by older versions have no `Z`; their time is the file's modification time. Only the
+newest 20 copies of a project are kept: making a new one deletes the oldest beyond that.
+
+The *Annotations* step lists them under the summary (*Safety copies*): time, reason, images and labels, and
+*Restore*, after a confirmation. Restoring makes the copy the annotations again, after making a copy of the
+current file (so a restore can be undone the same way). The project takes the task of the copy and gets the
+classes of the copy that it does not have, so no label is left with an unknown class. The API is
+`GET /projects/{id}/annotations/backups` and `POST .../backups/{name}/restore` (docs/DESIGN.md); the name is
+checked against the names the app writes, so no other file can be reached. Copies are never removed by the app.
 
 ## Credentials
 

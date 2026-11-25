@@ -3175,6 +3175,7 @@
       const fileInput = el('input', { type: 'file', multiple: true, class: 'sr-only', id: 'ann-input', tabindex: '-1' });
       const reportBox = el('div', { class: 'ann-report', 'aria-live': 'polite' });
       const gtBox = el('section', { class: 'annot-section gt-box', 'aria-label': t('ann.current') });
+      const backupsBox = el('section', { class: 'annot-section backups-box', 'aria-label': t('ann.backups_title') });
       let busy = false;
       const annotate = annotateBlock();
 
@@ -3336,7 +3337,43 @@
           (report.problems || []).length ? el('ul', { class: 'plain problems' }, ...report.problems.map(problemRow)) : null));
       }
 
+      /* the safety copies of the annotations: a closed list under the summary, each with Restore */
+      async function loadBackups() {
+        let items = [];
+        try {
+          items = ((await api('GET', `/projects/${projectId}/annotations/backups`)) || {}).items || [];
+        } catch (err) {
+          if (err.status !== 404) toastError(err);
+        }
+        if (!items.length) { fill(backupsBox); return; }
+        const restore = async (copy, button) => {
+          const when = fmtDateTime(copy.created);
+          const ok = await confirmDialog({ title: t('ann.backup_restore_title'), text: t('ann.backup_restore_text', { when }), confirmLabel: t('ann.backup_restore'), danger: false });
+          if (!ok) return;
+          button.disabled = true;
+          try {
+            await api('POST', `/projects/${projectId}/annotations/backups/${encodeURIComponent(copy.name)}/restore`);
+            toast(t('ann.backup_restored', { when }), 'success');
+            refreshProject();
+            loadGt();
+          } catch (err) {
+            button.disabled = false;
+            toastError(err);
+          }
+        };
+        const row = (copy) => el('li', { class: 'backup-row' },
+          el('span', { class: 'backup-when', title: copy.created }, fmtDateTime(copy.created)),
+          el('span', { class: 'muted' }, copy.reason ? t(`ann.backup_reason_${copy.reason}`) : t('ann.backup_reason_unknown')),
+          el('span', { class: 'muted' }, copy.valid ? `${tn('ann.backup_images', copy.images)}, ${tn('ann.backup_labels', copy.labels)}` : t('ann.backup_unreadable')),
+          copy.valid ? el('button', { type: 'button', class: 'btn small', onclick: (e) => restore(copy, e.currentTarget) }, t('ann.backup_restore')) : null);
+        fill(backupsBox, el('details', { class: 'backups' },
+          el('summary', null, tn('ann.backups_summary', items.length)),
+          el('p', { class: 'muted' }, t('ann.backups_help')),
+          el('ul', { class: 'plain backup-list' }, ...items.map(row))));
+      }
+
       async function loadGt() {
+        loadBackups();
         let data;
         try {
           data = await api('GET', `/projects/${projectId}/annotations`);
@@ -3400,7 +3437,7 @@
         changed: () => { loadGt(); refreshProject(); },
       });
       const annTabs = tabsView('annotations', t('step.annotations'), [
-        { id: 'summary', label: t('ann.tab_summary'), nodes: [gtBox] },
+        { id: 'summary', label: t('ann.tab_summary'), nodes: [gtBox, backupsBox] },
         { id: 'preannotate', label: t('pre.tab'), nodes: [pre.node], onShow: () => pre.load() },
         { id: 'cvat', label: toolName('cvat'), nodes: [annotate.cvatSection] },
         { id: 'fiftyone', label: toolName('fiftyone'), nodes: [annotate.fiftyoneSection] },

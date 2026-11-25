@@ -10,7 +10,8 @@ from activelabel.annotations.parsing import detect_format, parse
 from activelabel.annotations.staging import discard_staged, get_target, load_staged
 from activelabel.annotations.target import build_target
 from activelabel.annotations.validation import CHANGE_TASK, CONVERT, DISCARD, IMPORT, to_detection, validate
-from activelabel.images.manifest import Manifest
+from activelabel.backups import make_backup
+from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.labels import (
     AnnotationSet,
     Label,
@@ -93,12 +94,14 @@ def apply(
         manifest: images of the project (active ones are matched).
         token: staging token from :func:`activelabel.annotations.staging.stage`.
         action: import, change_task_and_import, convert_and_import or discard.
-        mode: ``replace`` swaps the ground truth; ``merge`` adds labels only for images that have
-            none yet and keeps the existing ones; only the classes of the labels added are added to
-            the project.
+        mode: ``replace`` swaps the labels of the active images (the labels of excluded images are kept, and
+            the old file is copied first, see :mod:`activelabel.backups`); ``merge`` adds labels only for
+            images that have none yet and keeps the existing ones; only the classes of the labels added
+            are added to the project.
 
     Returns:
-        Summary: action, mode, format, task, images/labels imported, kept (merge), added classes, and
+        Summary: action, mode, format, task, images/labels imported, kept (merge), added classes,
+        ``backup`` (the copy of the previous file, empty when there was none) and
         ``labels_dropped`` (``{reason: count}`` of labels without the shape the task needs).
 
     Raises:
@@ -125,7 +128,7 @@ def apply(
         target = build_target(
             project_dir, manifest, saved_target.get("task"), str(saved_target.get("class_name") or "")
         )
-    result = parse(files, fmt, target.images() if target else manifest.active(), target)
+    result = parse(files, fmt, target.images() if target else manifest.active(), target, manifest.excluded())
     report = validate(result, project)
     if action not in report.options:
         raise ValueError(f"Action '{action}' is not possible for these files (options: {report.options}).")
@@ -189,9 +192,15 @@ def apply(
             added = sum(1 for v in labels.values() if v)
             n_labels = sum(len(v) for v in labels.values())
         else:
-            final = labels
+            # excluded images are out of the import: they keep their labels (unless those are of another task)
+            final = {}
+            if existing is not None and existing.task == task:
+                inactive = {r.id for r in manifest.all() if r.status != ACTIVE}
+                final = {k: v for k, v in existing.images.items() if k in inactive}
+            final.update(labels)
             added = sum(1 for v in labels.values() if v)
             n_labels = sum(len(v) for v in labels.values())
+        backup = make_backup(project_dir, "replace") if mode == "replace" else ""
         source = {"format": fmt, "files": result.files, "imported": now(), "mode": mode}
         save_annotations(project_dir, AnnotationSet(task, new_classes, final, source))
         changes: dict[str, Any] = {}
@@ -214,6 +223,7 @@ def apply(
         "converted": converted,
         "classes_reduced": reduced,
         "labels_dropped": dropped,
+        "backup": backup,
         "classes_added": [c for c in updated.classes if c not in project.classes],
         "problems": [p.as_dict() for p in report.problems],
     }

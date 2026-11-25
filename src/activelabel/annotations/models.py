@@ -15,6 +15,10 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     "no_images_matched": ("error", "No annotation matches an image of this project."),
     "no_labels": ("error", "No usable annotations were found."),
     "unmatched_entries": ("warning", "Some annotations refer to images that are not in the project."),
+    "excluded_image_entries": (
+        "warning",
+        "Some annotations are for excluded images and were not imported; those images keep their labels.",
+    ),
     "ambiguous_image_name": ("warning", "Several images have this name, so the annotations were skipped."),
     "duplicate_image_entry": (
         "warning",

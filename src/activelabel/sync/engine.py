@@ -16,19 +16,19 @@ import logging
 import re
 import shutil
 import tempfile
-import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.backups import make_backup
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore, probe
 from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Progress
-from activelabel.labels import Label, annotations_lock, annotations_path, load_annotations, save_annotations
+from activelabel.labels import Label, annotations_lock, load_annotations, save_annotations
 from activelabel.projects import Project, ProjectStore
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
@@ -223,8 +223,7 @@ def _rename_classes(store: ProjectStore, project_id: int, renames: list[dict[str
     with annotations_lock(project_dir):
         found = load_annotations(project_dir)
         if found is not None:
-            backup = f"annotations.{time.strftime('%Y%m%dT%H%M%S')}.rename.bak.json"
-            shutil.copyfile(annotations_path(project_dir), project_dir / backup)
+            backup = make_backup(project_dir, "rename")
             for labels in found.images.values():
                 for lb in labels:
                     lb.label = names.get(lb.label, lb.label)
@@ -1168,7 +1167,7 @@ def apply_plan(
     progress.update(message="Updating the project")
     counts: dict[str, Any] = {"new_classes": [], "backup": "", "skipped": 0}
     if pull_ids:
-        counts = diffing.apply(store, project_id, manifest, pull_ids, new_labels)
+        counts = diffing.apply(store, project_id, manifest, pull_ids, new_labels, "sync")
     removed_here = _ids_of(final_action, REMOVE_LOCAL)
     if removed_here:
         manifest.set_status(removed_here, EXCLUDED, f"deleted in {tool}")
@@ -1601,7 +1600,7 @@ def _import_remote_task(
     if removed:  # deleted frames stay in the task (same positions, same jobs) as excluded images
         manifest.set_status(removed, EXCLUDED, f"deleted in {tool}")
     if any(pulled.values()):
-        diffing.apply(store, project_id, manifest, list(pulled), pulled)
+        diffing.apply(store, project_id, manifest, list(pulled), pulled, "sync")
     tmap[str(task.id)] = {
         "remote_task": str(spec["remote_task"]),
         "name": task.name,
