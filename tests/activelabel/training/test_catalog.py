@@ -6,10 +6,12 @@ declares must be read by its worker (``start`` is read from the run spec itself)
 """
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
 
+from activelabel import i18n
 from activelabel.training.catalog import (
     COMMON_PARAMS,
     MODELS,
@@ -163,3 +165,20 @@ def test_resize_policy_defaults_keep_what_each_model_did():
     assert get_model("resnet18").param("resize").choices == ("stretch", "letterbox", "center_crop")
     old = RunConfig.from_dict({"dataset": 1, "model": "resnet18"})  # a config made before the policy
     assert old.effective_params()["resize"] == "stretch"
+
+
+def test_every_hyperparameter_has_its_name_help_and_choices_in_both_languages():
+    """The dialog showed raw names ("warmup epochs", "onecycle") and English help inside the pt interface."""
+    folder = Path(i18n.__file__).parent
+    missing = []
+    for lang in ("pt", "en"):
+        texts = json.loads((folder / f"{lang}.json").read_text(encoding="utf-8"))
+        for model in MODELS:
+            for spec in model.param_specs():
+                if spec.name == "start":  # shown as the start cards (tr.start_*)
+                    continue
+                keys = [f"tr.p.{spec.name}", f"tr.ph.{spec.name}"] + [
+                    f"tr.opt.{c}" for c in spec.choices or ()
+                ]
+                missing += [f"{lang}: {key}" for key in keys if key not in texts]
+    assert not sorted(set(missing))
