@@ -84,6 +84,7 @@ export function openCvatAudit() {
     const inProjects = data.projects.reduce((a, p) => a + p.tasks.length, 0);
     const loose = data.loose.reduce((a, g) => a + g.tasks.length, 0);
     fill(body,
+      ...(data.missing || []).map((what) => el('p', { class: 'report-line warn' }, icon('warning'), t('audit.missing', { what: tr(`audit.missing_${what}`, what) }))),   // an old CVAT lacks one of the lists
       el('p', { class: 'audit-summary' }, [
         tn('audit.summary_projects', data.projects.length),
         tn('audit.summary_inprojects', inProjects),
