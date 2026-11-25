@@ -12,12 +12,13 @@ from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
+from activelabel.storage import now
 from activelabel.training import augmentations, devices
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
 from activelabel.training.models import WEIGHTS, ModelStore
-from activelabel.training.runner import EXTRA_PACKAGES
+from activelabel.training.runner import EXTRA_PACKAGES, RunnerError, check_resume
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
@@ -511,6 +512,47 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
             409, "run_config_damaged", "The configuration of this run is missing or damaged."
         ) from None
     return _create(state, project, config, _device(state, choice))
+
+
+@router.post("/projects/{project_id}/runs/{number}/resume")
+def resume_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
+    """Queue a failed or cancelled run again: it goes on from its last checkpoint (same number, same folder).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the run.
+        state: The shared state of the application.
+
+    Returns:
+        The run, queued, with ``resumes`` (``{at, from_epoch}`` per resume).
+    """
+    store = _store(state, project_id)
+    try:
+        check_resume(state.store.dir(project_id), store, number)
+        run = store.get(number)
+    except RunNotFound:
+        raise ApiError(404, "run_not_found", "This run does not exist.") from None
+    except (OSError, ValueError):
+        raise ApiError(
+            409, "run_config_damaged", "The configuration of this run is missing or damaged."
+        ) from None
+    except RunnerError as error:
+        status = 400 if error.code == "resume_composite" else 409
+        raise ApiError(status, error.code or "run_not_resumable", str(error)) from None
+    resumes = [*(run.get("resumes") or []), {"at": now(), "from_epoch": run.get("checkpoint_epoch")}]
+    store.update(
+        number,
+        status=QUEUED,
+        resume=True,
+        resumes=resumes,
+        error="",
+        error_code="",
+        error_params={},
+        finished=None,
+        phase="",
+    )
+    start_run(state, project_id, number)
+    return _summary(store, store.get(number))
 
 
 @router.post("/projects/{project_id}/runs/{number}/cancel")
