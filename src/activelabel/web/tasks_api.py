@@ -163,10 +163,33 @@ def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) 
     active, annotated = _sets(state, project_id)
     views = [task_view(t, active, annotated) for t in store.load()]
     remote = remote_status(state, project_id, refresh)
+    configured = credentials.is_configured(credentials.load_settings(state.settings.workspace, "cvat"))
+    link = links.get_link(state.store.dir(project_id), "cvat")
     for view in views:
         if str(view["id"]) in remote:
             view["remote"] = remote[str(view["id"])]
+        view["cvat"] = "ready" if "remote" in view else cvat_reason(view["id"], configured, link)
     return {"tasks": views}
+
+
+def cvat_reason(task_id: int, configured: bool, link: dict[str, Any] | None) -> str:
+    """Why a task has no CVAT task to open.
+
+    Args:
+        task_id: the local task.
+        configured: whether the CVAT connection is set up.
+        link: the project's link with CVAT, or None.
+
+    Returns:
+        ``not_configured`` (no CVAT connection), ``not_linked`` (the project is not linked with a CVAT
+        project), ``not_synchronised`` (the task is not in CVAT yet) or ``unreachable`` (it is, but CVAT
+        did not answer).
+    """
+    if not configured:
+        return "not_configured"
+    if not link:
+        return "not_linked"
+    return "unreachable" if str(task_id) in ((link.get("tasks")) or {}) else "not_synchronised"
 
 
 REMOTE_TTL = 60.0  # seconds a read of the CVAT tasks/jobs (or its failure) is reused

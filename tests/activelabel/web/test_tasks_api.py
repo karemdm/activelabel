@@ -220,6 +220,7 @@ def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_k
         "/api/projects/1/tasks", files=_files(paths), data={"name": "A", "job_size": "2", "open": "false"}
     )
     assert client.get("/api/projects/1/tasks").json()["tasks"][0].get("remote") is None  # not linked
+    assert client.get("/api/projects/1/tasks").json()["tasks"][0]["cvat"] == "not_configured"
     fake = FakeRemote("cvat")
     monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
@@ -230,11 +231,44 @@ def test_tasks_show_cvat_jobs_when_linked(tmp_path, monkeypatch, remotes, fake_k
     links.save_link(state.store.dir(1), "cvat", link)
     body = {"url": "http://cvat", "username": "u", "secret": "pw"}
     assert client.put("/api/annotation-tools/cvat", json=body).status_code == 200
-    remote = client.get("/api/projects/1/tasks").json()["tasks"][0]["remote"]
+    listed = client.get("/api/projects/1/tasks").json()["tasks"][0]
+    remote = listed["remote"]
     assert remote["task"] == tid and [j["n"] for j in remote["jobs"]] == [1, 2]
+    assert listed["cvat"] == "ready" and remote["url"]
     fake.fail = "Cannot reach CVAT"  # cached for a minute; and a failure never breaks the list
     monkeypatch.setattr(tasks_api, "_remote_cache", {})
     assert client.get("/api/projects/1/tasks").status_code == 200
+
+
+def test_a_task_says_why_it_cannot_be_opened_in_cvat(tmp_path, monkeypatch, remotes, fake_keyring):
+    from sync_fakes import FakeRemote
+
+    from activelabel.sync import links, registry
+    from activelabel.web import tasks_api
+
+    client, state, paths = _setup(tmp_path, 4)
+    client.post("/api/projects/1/tasks", files=_files(paths[:2]), data={"name": "A", "open": "false"})
+    client.post("/api/projects/1/tasks", files=_files(paths[2:]), data={"name": "B", "open": "false"})
+
+    def reasons():
+        monkeypatch.setattr(tasks_api, "_remote_cache", {})
+        return [t["cvat"] for t in client.get("/api/projects/1/tasks").json()["tasks"]]
+
+    assert reasons() == ["not_configured"] * 2
+    body = {"url": "http://cvat", "username": "u", "secret": "pw"}
+    assert client.put("/api/annotation-tools/cvat", json=body).status_code == 200
+    assert reasons() == ["not_linked"] * 2
+    fake = FakeRemote("cvat")
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    rid = fake.seed("P").id
+    tid = fake.new_task(rid, "A", [(p.name, []) for p in paths[:2]])
+    link = links.new_link("http://cvat", rid, "P")
+    link["tasks"] = {"1": {"remote_task": tid}}  # task 2 was never synchronised
+    links.save_link(state.store.dir(1), "cvat", link)
+    assert reasons() == ["ready", "not_synchronised"]
+    link["tasks"]["2"] = {"remote_task": 999}  # synchronised once, but CVAT does not list it now
+    links.save_link(state.store.dir(1), "cvat", link)
+    assert reasons() == ["ready", "unreachable"]
 
 
 def test_bad_job_size_is_a_readable_400(tmp_path):

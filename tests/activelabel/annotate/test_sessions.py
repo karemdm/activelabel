@@ -2,8 +2,10 @@ import pytest
 from ann_helpers import make_project
 
 from activelabel.annotate import sessions
+from activelabel.errors import CodedError
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
+from activelabel.tasks_store import TaskStore
 
 
 @pytest.fixture
@@ -34,6 +36,31 @@ def test_scopes(proj):
 def test_empty_or_bad_selection(proj, scope, ids, issue):
     with pytest.raises(ValueError, match=r"\w"):
         sessions.select_images(proj[1], scope, ids, issue)
+
+
+def test_task_and_job_scopes_choose_the_active_images_of_that_task_or_job(proj):
+    folder, manifest, ids = proj
+    task = TaskStore(folder).create("T", 1, ids)  # three jobs of one image; the second image is excluded
+    assert sessions.select_images(manifest, "task", task=task.id) == [ids[0], ids[2]]
+    assert sessions.select_images(manifest, "task", task=task.id, job=3) == [ids[2]]
+    for task_id, job, code in [
+        (task.id, 2, "no_images_match"),
+        (task.id, 9, "job_not_found"),
+        (99, None, "task_not_found"),
+    ]:
+        with pytest.raises(CodedError) as error:
+            sessions.select_images(manifest, "task", task=task_id, job=job)
+        assert error.value.code == code
+    with pytest.raises(CodedError, match="task_required|Choose a task"):
+        sessions.select_images(manifest, "task")
+
+
+def test_a_session_records_its_task_and_job_and_shows_them(proj):
+    folder, _, ids = proj
+    session = sessions.create(folder, "fiftyone", "task", ids[:1], [], {}, task=4, job=2)
+    assert (session["task"], session["job"]) == (4, 2)
+    assert sessions.public(session)["task"] == 4
+    assert "task" not in sessions.create(folder, "fiftyone", "all", ids[:1], [], {})
 
 
 def test_lifecycle(proj):

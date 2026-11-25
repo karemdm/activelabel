@@ -13,8 +13,9 @@ from activelabel.images.manifest import Manifest
 from activelabel.labels import load_annotations
 from activelabel.preannotate import unreviewed_images
 from activelabel.storage import now, read_json, write_json
+from activelabel.tasks_store import TaskNotFound, TaskStore, jobs
 
-SCOPES = ("all", "unlabeled", "selected", "issue", "preannotated")
+SCOPES = ("all", "unlabeled", "selected", "issue", "preannotated", "task")
 OPEN, PULLED, APPLIED, DISCARDED = "open", "pulled", "applied", "discarded"
 _lock = threading.RLock()
 
@@ -57,7 +58,42 @@ def new_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
-def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, issue: str = "") -> list[str]:
+def _task_images(manifest: Manifest, task: int | None, job: int | None) -> set[str]:
+    """Ids of the images of a task, or of one of its jobs.
+
+    Args:
+        manifest: the images of the project.
+        task: id of the task.
+        job: number of the job (1-based), or None for the whole task.
+
+    Returns:
+        The image ids.
+
+    Raises:
+        CodedError: no task chosen, or the task or the job does not exist.
+    """
+    if task is None:
+        raise CodedError("task_required", "Choose a task.")
+    try:
+        found = TaskStore(manifest.project_dir).get(task)
+    except TaskNotFound:
+        raise CodedError("task_not_found", "This task does not exist.", task=task) from None
+    if job is None:
+        return set(found.images)
+    for item in jobs(found):
+        if item.n == job:
+            return set(item.image_ids)
+    raise CodedError("job_not_found", "This job does not exist.", task=task, job=job)
+
+
+def select_images(
+    manifest: Manifest,
+    scope: str,
+    ids: list[str] | None = None,
+    issue: str = "",
+    task: int | None = None,
+    job: int | None = None,
+) -> list[str]:
     """Ids of the images a session covers.
 
     Args:
@@ -65,12 +101,14 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
         scope: one of :data:`SCOPES`.
         ids: for scope ``selected``, the image ids to keep.
         issue: for scope ``issue``, the quality issue the images must have.
+        task: for scope ``task``, the id of the task.
+        job: for scope ``task``, the job (1-based) to keep; None for the whole task.
 
     Returns:
         The ids of the chosen images, in manifest order.
 
     Raises:
-        CodedError: unknown scope or nothing selected (message is readable).
+        CodedError: unknown scope, unknown task or job, or nothing selected (message is readable).
     """
     active = manifest.active()
     if scope == "all":
@@ -85,6 +123,9 @@ def select_images(manifest: Manifest, scope: str, ids: list[str] | None = None, 
     elif scope == "preannotated":  # labelled by a model, not reviewed yet
         pending = set(unreviewed_images(manifest.project_dir))
         chosen = [r.id for r in active if r.id in pending]
+    elif scope == "task":
+        wanted = _task_images(manifest, task, job)
+        chosen = [r.id for r in active if r.id in wanted]
     elif scope == "issue":
         if not issue:
             raise CodedError("issue_required", "Choose an issue.")
@@ -133,6 +174,8 @@ def create(
     links: list[dict[str, str]],
     ref: dict[str, Any],
     session_id: str | None = None,
+    task: int | None = None,
+    job: int | None = None,
 ) -> dict[str, Any]:
     """Record a new open session.
 
@@ -144,6 +187,8 @@ def create(
         links: links to open in the tool (``{"label", "url"}``).
         ref: the tool's own reference of the session.
         session_id: id to use; a new one is made when None.
+        task: for scope ``task``, the id of the task the images belong to.
+        job: for scope ``task``, the job of that task (None: the whole task).
 
     Returns:
         The new session.
@@ -164,6 +209,10 @@ def create(
         "links": links,
         "ref": ref,
     }
+    if task is not None:
+        session["task"] = task
+        if job is not None:
+            session["job"] = job
     with _lock:
         _save(project_dir, [*_load(project_dir), session])
     return session

@@ -465,3 +465,45 @@ def test_a_session_button_refused_with_404_or_409_reloads_the_sessions():
     start = JS.index("async function reloadIfChanged(err)")
     helper = JS[start : JS.index("function drawSessions()", start)]
     assert "404" in helper and "409" in helper and "loadSessions()" in helper
+
+
+def test_the_open_icon_of_a_task_and_of_a_job_is_an_accessible_menu():
+    """Both open a menu (FiftyOne edit session, CVAT), not only FiftyOne: aria, keyboard and Escape."""
+    start = JS.index("function menuButton(")
+    helper = JS[start : JS.index("\n  }\n", start)]
+    for needle in (
+        "'aria-haspopup': 'menu'",
+        "'aria-expanded'",
+        "role: 'menuitem'",
+        "'ArrowDown'",
+        "'Escape'",
+        "'Home'",
+    ):
+        assert needle in helper, needle
+    assert "menuButton(" in JS[JS.index("function taskCard(") :]
+    card = JS[JS.index("function taskCard(") : JS.index("function drawTasks()")]
+    assert card.count("openMenu(") >= 2  # the task and each job row
+    assert "scope: 'task'" in JS and "tasks.cvat_not_synced" in JS and "tasks.fo_no_keypoints" in JS
+    assert ".menu-wrap" in CSS and '.menu [aria-disabled="true"]' in CSS
+
+
+def test_the_menu_texts_exist_in_both_languages():
+    import json
+
+    keys = [
+        "tasks.open_menu",
+        "tasks.open_menu_job",
+        "tasks.menu_edit_fo",
+        "tasks.menu_view_fo",
+        "tasks.menu_cvat",
+        "tasks.fo_no_keypoints",
+        "tasks.cvat_not_configured",
+        "tasks.cvat_not_linked",
+        "tasks.cvat_not_synced",
+        "tasks.cvat_unreachable",
+        "annotate.scope_task_named",
+        "annotate.scope_job_named",
+    ]
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert all(texts.get(k) for k in keys), lang

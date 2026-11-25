@@ -155,6 +155,25 @@ def test_discard_and_tool_errors(env):
     assert env.client.post(f"/api/projects/{env.pid}/annotate/nope/pull").status_code == 404
 
 
+def test_a_task_or_job_can_be_sent_for_editing(env):
+    """Scope ``task`` sends exactly the active images of one task (or of one of its jobs)."""
+    task = env.client.get(f"/api/projects/{env.pid}/tasks").json()["tasks"][0]
+    assert task["images"] == 2
+    job = wait(env, start(env, scope="task", task=task["id"]).json())
+    assert job["status"] == "done", job
+    session = job["result"]["session"]
+    assert (session["scope"], session["task"], session["images"]) == ("task", task["id"], 2)
+    assert "job" not in session
+    whole = start(env, scope="task", task=task["id"], job=1).json()  # a single job holds the whole task
+    assert wait(env, whole)["result"]["session"]["job"] == 1
+
+
+def test_sending_a_task_that_does_not_exist_or_without_one_is_refused(env):
+    assert start(env, scope="task", task=99).status_code == 404
+    assert start(env, scope="task", task=1, job=9).json()["code"] == "job_not_found"
+    assert start(env, scope="task").json()["code"] == "task_required"
+
+
 def _pulled_session(env):
     session = wait(env, start(env, scope="all").json())["result"]["session"]
     base = f"/api/projects/{env.pid}/annotate/{session['id']}"

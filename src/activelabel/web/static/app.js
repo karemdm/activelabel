@@ -170,6 +170,63 @@
     }
   };
 
+  /** An icon button that opens a small menu. `getItems()` is read each time it opens and gives
+   *  `{label, reason?, disabled?, href?, onclick?}`: a disabled item stays in the list (and in the keyboard
+   *  order) with its `reason` written under it. Enter, Space or ArrowDown open it on the first item; the arrows,
+   *  Home and End move; Escape closes it and gives the focus back to the button; Tab or a click outside close it. */
+  let closeOpenMenu = null;
+  function menuButton(iconName, label, getItems, extraClass = '') {
+    const trigger = el('button', { type: 'button', class: `icon-btn small${extraClass ? ` ${extraClass}` : ''}`, 'aria-label': label, title: label, 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon(iconName, 16));
+    const wrap = el('span', { class: 'menu-wrap' }, trigger);
+    let menu = null;
+    const entries = () => (menu ? [...menu.querySelectorAll('[role="menuitem"]')] : []);
+    function onOutside(e) { if (menu && !wrap.contains(e.target)) close(false); }
+    function close(refocus) {
+      if (!menu) return;
+      menu.remove();
+      menu = null;
+      trigger.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', onOutside, true);
+      if (closeOpenMenu === close) closeOpenMenu = null;
+      if (refocus) trigger.focus();
+    }
+    function onKey(e) {
+      const all = entries();
+      const at = all.indexOf(document.activeElement);
+      const go = (i) => { e.preventDefault(); all[(i + all.length) % all.length].focus(); };
+      if (e.key === 'Escape') { e.preventDefault(); close(true); }
+      else if (e.key === 'Tab') close(false);
+      else if (e.key === 'ArrowDown') go(at + 1);
+      else if (e.key === 'ArrowUp') go(at < 0 ? -1 : at - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(-1);
+      else if (e.key === ' ' && document.activeElement.tagName === 'A') { e.preventDefault(); document.activeElement.click(); }
+    }
+    function item(it) {
+      const body = [el('span', { class: 'menu-label' }, it.label), it.reason ? el('span', { class: 'menu-reason' }, it.reason) : null];
+      if (it.disabled) return el('span', { class: 'menu-item', role: 'menuitem', 'aria-disabled': 'true', tabindex: '-1' }, ...body);
+      if (it.href) return el('a', { class: 'menu-item', role: 'menuitem', tabindex: '-1', href: it.href, target: '_blank', rel: 'noopener', onclick: () => close(false) }, ...body);
+      return el('button', { type: 'button', class: 'menu-item', role: 'menuitem', tabindex: '-1', onclick: () => { close(true); it.onclick(); } }, ...body);
+    }
+    function open() {
+      if (closeOpenMenu) closeOpenMenu(false);
+      menu = el('div', { class: 'menu', role: 'menu', 'aria-label': label }, ...getItems().map(item));
+      menu.addEventListener('keydown', onKey);
+      wrap.appendChild(menu);
+      trigger.setAttribute('aria-expanded', 'true');
+      document.addEventListener('pointerdown', onOutside, true);
+      closeOpenMenu = close;
+      const box = menu.getBoundingClientRect();  // on a narrow screen the button may sit near the left edge: keep the menu in view
+      const shift = Math.max(8 - box.left, 0) - Math.max(box.right - (window.innerWidth - 8), 0);
+      if (shift) menu.style.transform = `translateX(${shift}px)`;
+      const first = entries().find((x) => !x.hasAttribute('aria-disabled')) || entries()[0];
+      if (first) first.focus();
+    }
+    trigger.addEventListener('click', () => (menu ? close(true) : open()));
+    trigger.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && !menu) { e.preventDefault(); open(); } });
+    return wrap;
+  }
+
   /** Redraws a box whose controls carry `data-act` keys and keeps keyboard focus on the same control
    *  (or on the first one when it is gone), so a refresh does not send the person back to the page top. */
   function redraw(box, ...nodes) {
@@ -1900,7 +1957,6 @@
       let focusAfter = null; // selector to focus once the cards are drawn
 
       const tasksBox = el('div', { class: 'tasks-wrap' });
-      ctx.watchers.push(() => tasksBox.querySelectorAll('[data-fo]').forEach((b) => { b.disabled = kindActive('fiftyone'); }));
       const filterBox = el('div', { class: 'task-filter' });
       const taskById = (id) => tasks.find((x) => x.id === id);
 
@@ -2023,12 +2079,10 @@
               src ? el('span', { class: 'task-video-icon', title: t('video.mode_video') }, icon('video', 16)) : null, task.name));
         }
 
-        const foButton = (task) => {
-          const b = iconButton('fiftyone', `${t('tasks.open_fo')}: ${task.name}`, '', once(() => openTaskInFiftyOne(task), () => kindActive('fiftyone')));
-          b.dataset.fo = '1';
-          b.disabled = kindActive('fiftyone');
-          return b;
-        };
+        /* the open icon of a task or of one of its jobs: a menu with the tools it can be opened in */
+        const openMenu = (job) => menuButton('external',
+          job ? t('tasks.open_menu_job', { n: job, name: task.name }) : t('tasks.open_menu', { name: task.name }),
+          () => openItems(task, job));
         const iconButton = (name, label, extra, onclick, id) => el('button', { type: 'button', class: `icon-btn small${extra ? ` ${extra}` : ''}`, id, 'aria-label': label, title: label, onclick }, icon(name, 16));
         let everyText = null;
         if (src && src.step) {
@@ -2059,7 +2113,7 @@
               /* who works on it and at which stage, as text under the row */
               const who = [rj && rj.stage ? tr(`tasks.job_stage.${rj.stage}`, rj.stage) : null,
                 rj && rj.assignee ? t('tasks.job_assignee', { name: rj.assignee }) : null].filter(Boolean).join(' · ');
-              return el('li', null,
+              return el('li', { class: 'job-li' },
                 el('button', { type: 'button', class: `job-row${on ? ' is-filtered' : ''}${badge ? ' has-state' : ''}`, 'aria-pressed': on ? 'true' : 'false',
                   'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => taskSelectSync(task.id, j.n) },
                 el('span', { class: 'job-name' }, t('tasks.job_name', { n: j.n })),
@@ -2067,7 +2121,8 @@
                 thinBar(j.annotated, j.active, t('tasks.progress', { done: num(j.annotated), total: num(j.active) })),
                 el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`),
                 badge,
-                who ? el('span', { class: 'job-who muted small' }, who) : null));
+                who ? el('span', { class: 'job-who muted small' }, who) : null),
+                openMenu(j.n));
             }))
           : null;
 
@@ -2075,7 +2130,7 @@
           el('div', { class: 'task-head' },
             title,
             isRenaming ? null : el('div', { class: 'task-actions' },
-              foButton(task),
+              openMenu(null),
               iconButton('edit', `${t('tasks.rename')}: ${task.name}`, '', () => { renaming = task.id; renameDraft = null; drawTasks(); }, `${cid}-rename`),
               iconButton('trash', `${t('tasks.delete')}: ${task.name}`, 'danger', () => deleteTask(task)),
               manyJobs
@@ -2129,13 +2184,40 @@
         }
       }
 
-      /** The task's own FiftyOne view (a video task shows each video as an ordered sequence). */
-      async function openTaskInFiftyOne(task) {
+      /** What a task (or one of its jobs) can be opened in. A disabled item says why. */
+      function openItems(task, job) {
+        const keypoints = ctx.project && ctx.project.task === 'keypoints';
+        const remote = task.remote || {};
+        const remoteJob = job ? (remote.jobs || []).find((x) => x.n === job) : null;
+        const cvatUrl = (remoteJob && remoteJob.url) || remote.url;
+        const cvatOk = task.cvat === 'ready' && isHttp(cvatUrl);
+        const cvatReasons = { not_configured: 'tasks.cvat_not_configured', not_linked: 'tasks.cvat_not_linked', unreachable: 'tasks.cvat_unreachable' };
+        const items = [keypoints
+          ? { label: t('tasks.menu_edit_fo'), disabled: true, reason: t('tasks.fo_no_keypoints') }
+          : { label: t('tasks.menu_edit_fo'), onclick: () => editInFiftyOne(task, job) }];
+        if (keypoints) items.push({ label: t('tasks.menu_view_fo'), onclick: () => openTaskInFiftyOne(task, job) });
+        items.push(cvatOk
+          ? { label: t('tasks.menu_cvat'), href: cvatUrl }
+          : { label: t('tasks.menu_cvat'), disabled: true, reason: t(cvatReasons[task.cvat] || 'tasks.cvat_not_synced') });
+        return items;
+      }
+
+      /** The FiftyOne view of a task or job, to look at (a video task shows each video as an ordered sequence). */
+      async function openTaskInFiftyOne(task, job) {
         try {
-          const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { task: task.id } });
-          if (job && job.id) ctx.openWhenDone.add(job.id);
+          const started = await api('POST', `/projects/${projectId}/fiftyone`, { json: job ? { task: task.id, job } : { task: task.id } });
+          if (started && started.id) ctx.openWhenDone.add(started.id);
           toast(t('cur.fo_starting'), 'info', 4000);
-          await jobStarted(job);
+          await jobStarted(started);
+        } catch (err) { toastError(err); }
+      }
+
+      /** An edit session on exactly the active images of the task or job (its card is in Annotations). */
+      async function editInFiftyOne(task, job) {
+        try {
+          const started = await api('POST', `/projects/${projectId}/annotate`, { json: { tool: 'fiftyone', scope: 'task', task: task.id, ...(job ? { job } : {}) } });
+          toast(t('annotate.send_started', { tool: toolName('fiftyone') }), 'info', 4000);
+          await jobStarted(started);
         } catch (err) { toastError(err); }
       }
 
@@ -2846,9 +2928,11 @@
         const tool = s.tool;
         const sid = encodeURIComponent(s.id);
         const links = (s.links || []).filter((l) => l && isHttp(l.url));
-        const scopeText = s.scope === 'issue' && s.issue
-          ? t('annotate.scope_issue_named', { issue: issueName(s.issue) })
-          : tr(`annotate.scope.${s.scope}`, s.scope || '');
+        const sessionTask = s.scope === 'task' ? (ctx.tasksList || []).find((x) => x.id === s.task) : null;
+        const taskLabel = sessionTask ? sessionTask.name : `#${s.task}`;
+        let scopeText = tr(`annotate.scope.${s.scope}`, s.scope || '');
+        if (s.scope === 'issue' && s.issue) scopeText = t('annotate.scope_issue_named', { issue: issueName(s.issue) });
+        else if (s.scope === 'task' && s.task != null) scopeText = s.job ? t('annotate.scope_job_named', { task: taskLabel, n: s.job }) : t('annotate.scope_task_named', { task: taskLabel });
         const legacy = !SESSION_TOOLS.includes(tool);
         const legacyTool = !TOOLS.includes(tool);  // links to a tool this version does not have are not offered
         const live = !legacy && (s.status === 'open' || s.status === 'pulled');
