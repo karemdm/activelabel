@@ -9,7 +9,7 @@ modelo treinado pode então pré-anotar imagens novas, que uma pessoa revisa no 
 FiftyOne e devolve ao próximo treinamento.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph G1["Dados"]
     direction LR
     A["1 Imagens"] --> B["2 Anotações"] --> C["3 Curadoria"]
@@ -22,9 +22,9 @@ flowchart LR
     direction LR
     N["Imagens novas"] --> P["Pré-anotar"] --> R["Revisar"]
   end
-  C --> D
-  F --> P
-  R --> D
+  G1 --> G2
+  G2 -- "modelo atual" --> G3
+  G3 -- "imagens revisadas" --> G2
 ```
 
 No desenho, o modelo atual pré-anota imagens novas, uma pessoa revisa, e as imagens revisadas entram numa

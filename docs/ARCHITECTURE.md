@@ -87,7 +87,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-  S(["New or imported project"]) --> A1
+  S(["New or imported project"]) --> Data
   subgraph Data
     direction LR
     A1["1 Images"] --> A2["2 Annotations"] --> A3["3 Curation"]
@@ -96,8 +96,8 @@ flowchart TB
     direction LR
     B4["4 Data split"] --> B5["5 Training"] --> B6["6 Models"]
   end
-  A3 --> B4
-  B6 --> PRE["Pre-annotate"]
+  Data --> Model
+  Model -- "current model" --> PRE["Pre-annotate"]
   NEW["New images"] --> PRE
   PRE --> REV{"Review"}
   REV --> CV["CVAT sync"]
@@ -106,7 +106,7 @@ flowchart TB
   CV --> LAB["Reviewed labels"]
   FO --> LAB
   AC --> LAB
-  LAB --> B4
+  LAB -- "new version" --> Model
 ```
 
 Pre-annotations (labels with a score) are ignored by a dataset version until they are reviewed, so
