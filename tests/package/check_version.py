@@ -4,8 +4,8 @@ Usage: ``python tests/package/check_version.py <wheel> [expected version] [--no-
 
 The version comes from the git tag through setuptools-scm (``[tool.setuptools_scm]`` in pyproject.toml):
 
-- ``0.0.0+unknown`` is the fallback of a build without any git data; it is always refused.
-- ``0.0`` is what a checkout without any ``v*`` tag builds (or a shallow clone that lost the tags). It is
+- ``0.0.0+unknown`` is the fallback of a build without a version from git (no git data, or no ``v*``
+  tag at all with "only-version"); ``0.0`` is what some setuptools-scm versions give without a tag. Both are
   refused, except with ``--no-tag-yet``: the CI passes that flag only while ``git describe --tags`` finds no
   tag, so pull requests are not blocked before the first release. The release workflow never passes it.
 - With an expected version (the tag without its ``v``) the wheel must carry exactly that.
@@ -52,11 +52,13 @@ def problem(found: str, expected: str | None, no_tag_yet: bool) -> str | None:
     Args:
         found: the version of the wheel.
         expected: the version it must be (the tag without its ``v``), or ``None`` for any real version.
-        no_tag_yet: the repository has no ``v*`` tag yet, so ``0.0`` is accepted.
+        no_tag_yet: the repository has no ``v*`` tag yet, so ``0.0`` and the fallback are accepted.
 
     Returns:
         A message, or ``None`` when the version is acceptable.
     """
+    if no_tag_yet and (found == UNTAGGED or found == FALLBACK) and expected is None:
+        return None
     if found == FALLBACK or found.startswith("0.0.0"):
         return "the wheel has the fallback version: it was built without git data"
     if found == UNTAGGED and not no_tag_yet:
@@ -78,7 +80,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("wheel", type=Path)
     parser.add_argument("expected", nargs="?")
-    parser.add_argument("--no-tag-yet", action="store_true", help="accept 0.0: the repository has no tag yet")
+    parser.add_argument("--no-tag-yet", action="store_true", help="accept 0.0 and the fallback: no tag yet")
     args = parser.parse_args(argv)
     found = wheel_version(args.wheel)
     print(f"wheel version: {found}")
