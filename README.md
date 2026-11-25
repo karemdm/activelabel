@@ -78,7 +78,10 @@ project is its *type*.)
    *Tasks and jobs* (*Tasks e jobs*) lists the tasks (one upload, or one video, is one task) split
    into jobs of a chosen size, as in CVAT; *New task* takes files, a folder, a .zip or a video.
    Files are stored unchanged (the kind of an image is decided by its content, not its extension),
-   identical images are added once and unreadable files are listed with the reason. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
+   identical images are added once and unreadable files are listed with the reason. Each task and job has
+   an open menu: *Edit in FiftyOne* (*Editar no FiftyOne*) and *Open in CVAT* (*Abrir no CVAT*), an entry
+   that cannot be used yet being disabled with the reason (for example, project not linked to CVAT); FiftyOne does not edit keypoints, so a keypoints project offers *View in
+   FiftyOne* and is edited in CVAT. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs:
    - *Summary* (*Resumo*): what the project has, as tiles (images annotated, annotations, classes with
      annotations, to review) and the top classes, with a search and *Show all*.
@@ -88,7 +91,9 @@ project is its *type*.)
      *Compare with CVAT* (*Comparar com o CVAT*), a review, and *Apply synchronisation*
      (*Aplicar a sincronização*); see [docs/ANNOTATION.md](docs/ANNOTATION.md) and
      [docs/SYNC.md](docs/SYNC.md).
-   - *FiftyOne*: edit annotations in the FiftyOne App and bring them back.
+   - *FiftyOne*: edit annotations in the FiftyOne App and bring them back after a review; the label
+     schema the App needs is written by ActiveLabel, and a safety copy of the annotations is made before
+     anything is replaced (the newest 20 are kept).
    - *Import annotations* (*Importar anotações*): drop annotation files (or a .zip). The format is
      detected (COCO JSON, YOLO txt with `data.yaml`/`classes.txt`, Pascal VOC XML, CVAT for images or
      video XML, MOT, class folders), the files are matched with the images and a
@@ -115,29 +120,37 @@ project is its *type*.)
 
 4. **Data split** freezes a *dataset version*: train, validation and test parts (or K folds
    plus a test part) that keep frames of one video and near duplicates together, balanced by
-   class; labels a model could not use are left out with a warning, and a version whose training or
-   validation part would be empty is refused; each version card has *Train with this version*; see
-   [docs/DATASETS.md](docs/DATASETS.md).
+   class, with rare classes placed in every part first. Videos stay whole when that works and are cut
+   into distant segments with a safety gap (a switch, on by default) when it does not. The preview shows
+   the classes by rarity and warns about missing classes (saying whether it could be avoided), empty
+   parts and labels left out; a version whose training or validation part would be empty is refused; a
+   version whose labels changed afterwards says so. Each version card has *Train with this version*;
+   see [docs/DATASETS.md](docs/DATASETS.md).
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
    fine-tuning or from scratch; single run, grid search or all folds) with live curves and
    evaluation on the test part. Classification, detection, semantic segmentation, instance
    segmentation (Mask R-CNN) and keypoints (torchvision) are available; YOLO/Ultralytics models are
    listed in the API catalogue but hidden in the interface and refused by the API until they are
-   supported. Packages are installed on demand in a separate environment. See
+   supported. A run chooses its device (automatic, CPU, a GPU or Apple MPS), the resize policy
+   (stretch, letterbox or centre crop), the learning rate schedule with warmup, mixed precision on a CUDA
+   GPU and the data augmentation techniques; when the GPU runs out of memory the batch is halved. Packages
+   are installed on demand, at pinned and tested versions, in a separate environment. See
    [docs/TRAINING.md](docs/TRAINING.md).
 6. **Models** keeps the runs you save (*Save as model*): compare them, choose the current one
    (*Make current*), download the weights and export ONNX (classification and semantic
-   segmentation). *Add a public model* adds a pretrained COCO model that needs no training. The
+   segmentation). *Add a public model* adds a pretrained COCO model that needs no training (detection
+   and keypoints projects). The
    current model pre-annotates new images (*Annotations*, *Pre-annotate*, or *Pre-annotate with this
    one* on its card) for classification, detection, keypoints and both kinds of segmentation (masks
    become polygons).
 
 ### Activities
 
-Background jobs (analysis, uploads, synchronisation, training, export, pre-annotation) appear
-in a small card in the bottom-right corner of the project page, with progress, *Stop* (*Parar*) and
-*See result*. It can be minimised or closed; finished activities stay in its history. Only one
-heavy process (training, export or pre-annotation) runs at a time; the others wait in a queue.
+Background jobs (analysis, uploads, synchronisation, training, export, pre-annotation) appear as a
+small pill in the bottom-right corner of the project page; it opens a card with progress, *Stop*
+(*Parar*) and *See result*. A success fades; a failure stays red until it is opened or dismissed;
+finished activities stay in the history. Only one heavy process (training, export or pre-annotation)
+runs at a time; the others wait in a queue.
 
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
@@ -169,9 +182,12 @@ python -m pytest -m "not integration"   # fast tests
 python -m pytest -m integration         # tests that use FiftyOne
 ```
 
-Continuous integration (`.github/workflows/ci.yml`) runs ruff, mypy and the fast tests on Linux and
-Windows on every push to `main` and on pull requests, plus the FiftyOne tests on Linux. macOS runs
-only on demand (Actions tab, *ci*, *Run workflow*).
+Continuous integration (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests:
+ruff, mypy and the fast tests with coverage on Linux, Windows and macOS (from a path with accents and
+spaces), the FiftyOne tests, a check of the built wheel, the training workers with a CPU PyTorch, and the
+interface tests (JavaScript unit tests and Playwright). A nightly workflow tests the CVAT synchronisation
+against a real CVAT. The list of jobs and which ones must pass is in docs/DEVELOPMENT.md. The version comes
+from the git tag; releases are described in [RELEASING.md](RELEASING.md).
 
 ## License
 
