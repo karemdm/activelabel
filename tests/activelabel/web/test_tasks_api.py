@@ -1,9 +1,13 @@
 import time
+from unittest.mock import MagicMock
 
 from api_client import make_client, upload
 from sample_images import make_image
+from sync_fakes import FakeRemote
 
+from activelabel.sync import registry
 from activelabel.tasks_store import TaskStore
+from activelabel.web import tasks_api
 
 
 def _setup(tmp_path, n=5):
@@ -298,3 +302,20 @@ def test_slow_cvat_does_not_hang_the_list(tmp_path, monkeypatch, remotes, fake_k
         assert time.monotonic() - started < 3
     finally:
         release.set()
+
+
+def test_refresh_reads_the_cvat_states_again_instead_of_the_cached_ones(
+    tmp_path, monkeypatch, remotes, fake_keyring
+):
+    client, state, paths = _setup(tmp_path, 2)
+    client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
+    fake = FakeRemote("cvat")
+    fake.tasks = MagicMock(return_value=[])
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    monkeypatch.setattr(tasks_api, "_remote_cache", {})
+    _link_cvat(client, state, fake)
+    client.get("/api/projects/1/tasks")
+    client.get("/api/projects/1/tasks")
+    assert fake.tasks.call_count == 1  # the second read came from the cache
+    assert client.get("/api/projects/1/tasks", params={"refresh": "true"}).status_code == 200
+    assert fake.tasks.call_count == 2  # an explicit refresh asks CVAT again

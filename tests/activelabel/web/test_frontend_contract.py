@@ -381,3 +381,20 @@ def test_the_import_page_has_one_setup_button_per_tool():
     card = re.search(r"function drawMain\(\) \{.*?\n    \}\n", JS, re.S).group(0)
     assert "setup(state.tool)" not in card
     assert "onclick: () => setup(tool)" in JS
+
+
+def test_the_tasks_tab_can_refresh_the_cvat_states_and_shows_stage_and_assignee_in_the_row():
+    """#423: an Update button reads CVAT again; stage and assignee of a job are text, not a tooltip."""
+    assert "`/projects/${projectId}/tasks${refresh ? '?refresh=true' : ''}`" in JS
+    assert "id: 'tasks-refresh'" in JS
+    assert "class: 'job-who muted small'" in JS
+    assert "title: rj.assignee" not in JS
+    for lang in ("pt", "en"):
+        messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in (
+            "tasks.refresh",
+            "tasks.job_stage.annotation",
+            "tasks.job_stage.validation",
+            "tasks.job_stage.acceptance",
+        ):
+            assert key in messages, (lang, key)

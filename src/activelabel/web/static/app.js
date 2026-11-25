@@ -94,6 +94,7 @@
     cvat: '<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
     chart: '<path d="M4 20V4M4 20h16M8 15l4-5 3 3 5-7"/>',
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
@@ -1873,9 +1874,10 @@
       });
       const gridTitle = el('h3', { class: 'section-title', id: 'h-images-grid', tabindex: '-1' }, t('images.grid_title'));
 
-      async function loadTasks() {
+      /** Reads the tasks; `refresh` makes the server ask CVAT for the job states again instead of reusing a read of the last minute. */
+      async function loadTasks(refresh = false) {
         try {
-          tasks = (await api('GET', `/projects/${projectId}/tasks`)).tasks || [];
+          tasks = (await api('GET', `/projects/${projectId}/tasks${refresh ? '?refresh=true' : ''}`)).tasks || [];
         } catch (err) {
           toastError(err);
           return;
@@ -2008,9 +2010,11 @@
               const rj = task.remote && (task.remote.jobs || []).find((x) => x.n === j.n);
               const state = rj && rj.state ? String(rj.state).replace(/\s+/g, '_') : '';
               const badge = state
-                ? el('span', { class: `job-state state-${state}`, title: rj.assignee ? t('tasks.job_assignee', { name: rj.assignee }) : '' },
-                  tr(`tasks.job_state.${state}`, rj.state))
+                ? el('span', { class: `job-state state-${state}` }, tr(`tasks.job_state.${state}`, rj.state))
                 : null;
+              /* who works on it and at which stage, as text under the row */
+              const who = [rj && rj.stage ? tr(`tasks.job_stage.${rj.stage}`, rj.stage) : null,
+                rj && rj.assignee ? t('tasks.job_assignee', { name: rj.assignee }) : null].filter(Boolean).join(' · ');
               return el('li', null,
                 el('button', { type: 'button', class: `job-row${on ? ' is-filtered' : ''}${badge ? ' has-state' : ''}`, 'aria-pressed': on ? 'true' : 'false',
                   'aria-label': t('tasks.see_images_job', { n: j.n, name: task.name }), onclick: () => taskSelectSync(task.id, j.n) },
@@ -2018,7 +2022,8 @@
                 el('span', { class: 'job-range muted' }, `${num(j.first)}–${num(j.last)}`),
                 thinBar(j.annotated, j.active, t('tasks.progress', { done: num(j.annotated), total: num(j.active) })),
                 el('span', { class: 'job-count' }, `${num(j.annotated)}/${num(j.active)}`),
-                badge));
+                badge,
+                who ? el('span', { class: 'job-who muted small' }, who) : null));
             }))
           : null;
 
@@ -2047,10 +2052,18 @@
 
       const taskSelectSync = (task, job) => setFilter(task, job, { reveal: true });
 
+      /** The Update button: reads the tasks again, CVAT job states included, and keeps the focus on it. */
+      async function refreshTasks() {
+        focusAfter = '#tasks-refresh';
+        await loadTasks(true);
+      }
+
       function drawTasks() {
         const head = el('div', { class: 'tasks-head' },
           el('h3', { class: 'tasks-title sr-only' }, t('tasks.title'), tasks.length ? el('span', { class: 'count-badge' }, num(tasks.length)) : null),   // the tab already names and counts them
-          tasks.length ? el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title')) : null);
+          tasks.length ? el('div', { class: 'tasks-head-actions' },
+            el('button', { type: 'button', class: 'btn', id: 'tasks-refresh', title: t('tasks.refresh_help'), onclick: refreshTasks }, icon('refresh', 16), t('tasks.refresh')),
+            el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title'))) : null);
         let body;
         if (tasks.length) {
           body = el('ul', { class: 'plain task-list' }, ...tasks.map(taskCard));
