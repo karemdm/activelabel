@@ -38,3 +38,18 @@ def test_problems_are_aggregated_by_code(tmp_path):
     ctx.problem("invalid_annotation", "y")
     (problem,) = ctx.result().problems
     assert problem.code == "invalid_annotation" and problem.count == 2 and problem.examples == ["x", "y"]
+
+
+def test_polygon_and_keypoints_outside_the_image_are_clipped_and_reported(tmp_path):
+    ctx = ParseContext("coco", make_manifest(tmp_path, ["a.png"]).all())
+    assert ctx.ring([(10, 5), (80, 8), (110, 30)], 100, 50, "a.png") == [[0.1, 0.1], [0.8, 0.16], [1.0, 0.6]]
+    assert ctx.point(-5, 20, 2, 100, 50, "a.png") == [0.0, 0.4, 2.0]
+    (problem,) = ctx.result().problems
+    assert problem.code == "geometry_clipped" and problem.count == 2
+
+
+def test_polygon_and_keypoints_inside_the_image_report_nothing(tmp_path):
+    ctx = ParseContext("coco", make_manifest(tmp_path, ["a.png"]).all())
+    ctx.ring([(0, 0), (100, 0), (100, 50)], 100, 50, "a.png")  # on the border is inside
+    ctx.point(100, 50, 2, 100, 50, "a.png")
+    assert ctx.result().problems == []

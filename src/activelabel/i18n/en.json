@@ -180,6 +180,7 @@
   "problem.duplicate_image_entry": "The same image appears more than once; later entries were skipped.",
   "problem.size_mismatch": "The image size in the file differs from the uploaded image.",
   "problem.box_clipped": "Some boxes went outside the image and were clipped.",
+  "problem.geometry_clipped": "Some polygon points or keypoints went outside the image and were moved to its border.",
   "problem.box_degenerate": "Some boxes have no area and were skipped.",
   "problem.polygon_too_few_points": "Some polygons have fewer than 3 points and were skipped.",
   "problem.no_geometry": "Some labels do not have the shape this project type needs (box, polygon or keypoints); they are left out.",
