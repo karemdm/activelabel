@@ -3926,6 +3926,9 @@
     const kindActive = (...kinds) => ctx.jobs.some((j) => kinds.includes(j.kind) && isActive(j));
 
     // ---- step 4: dataset versions (frozen splits, see docs/DATASETS.md)
+    /* images whose labels changed after the version was made (0 when none); the version keeps the old ones */
+    const staleCount = (v) => { const s = v.stale || {}; return (s.changed_images || 0) + (s.added || 0) + (s.removed || 0); };
+
     function datasetsPanel() {
       const node = el('section', { class: 'panel', id: 'panel-datasets', 'aria-labelledby': 'h-datasets' });
       const panel = { node, mounted: false };
@@ -4080,6 +4083,7 @@
         const infoBadges = videoInfos(v.warnings).map((w) => el('li', { class: 'ds-badge', title: videoText(w) }, icon('video', 14), t('ds.b_video_split', { n: num(w.segments) })));
         const id = `ds-v${v.version}`;
         const noTrain = trainBlockReason(sizes);
+        const stale = staleCount(v);
         return el('li', { class: 'ds-card card', id, 'aria-labelledby': `${id}-title` },
           el('div', { class: 'ds-card-head' },
             el('h3', { id: `${id}-title` }, `v${v.version}`),
@@ -4096,6 +4100,9 @@
             el('ul', { class: 'ds-badges', 'aria-label': t('ds.warnings') }, ...warns)) : null,
           infoBadges.length ? el('ul', { class: 'ds-badges' }, ...infoBadges) : null,
           noTrain ? el('p', { class: 'ds-block', id: `${id}-block` }, icon('warning', 14), noTrain) : null,
+          stale ? el('div', { class: 'ds-stale', role: 'status' },
+            el('p', null, icon('warning', 14), el('strong', null, tn('ds.stale', stale, { n: num(stale) }))),
+            el('button', { type: 'button', class: 'btn small ds-new-from', onclick: once(() => openNew(null, v)) }, icon('plus', 14), t('ds.new_from'))) : null,
           el('div', { class: 'ds-view' },
             el('span', { class: 'muted' }, t('ds.see_images')),
             ...items.filter((x) => x.n > 0).map((x) => el('button', { type: 'button', class: 'btn small', 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
@@ -4152,7 +4159,8 @@
       }
 
       // ---------------------------------------------------------------- new version form
-      async function openNew(trigger) {
+      /* `from`: a version whose options fill the form ("new version from this one") */
+      async function openNew(trigger, from = null) {
         let tasks;
         try {
           tasks = ((await api('GET', `/projects/${projectId}/tasks`)).tasks || []).filter((x) => x.active > 0);
@@ -4180,12 +4188,30 @@
         const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
         const gapInput = el('input', { type: 'number', id: 'ds-gap', inputmode: 'decimal', min: '0', max: '3600', step: '0.1', value: '0.5' });
         const create = el('button', { type: 'submit', class: 'btn primary' }, t('ds.create'));
+        if (from) {
+          const o = from.options || {};
+          const asked = new Set(o.tasks || []);
+          if (asked.size) st.tasks = new Set(tasks.filter((x) => asked.has(x.id)).map((x) => x.id));
+          st.bg = !!o.background && !cls;
+          bgBox.checked = st.bg;
+          seed.value = String(o.seed != null ? o.seed : 42);
+          videosSel.value = o.videos || 'auto';
+          gapInput.value = String(o.gap_seconds != null ? o.gap_seconds : 0.5);
+          const sp = o.split || {};
+          if (o.kfold) {
+            st.mode = 'kfold';
+            kInput.value = String(o.kfold);
+            ktestInput.value = String(sp.test != null ? sp.test : 10);
+          } else {
+            [train.value, val.value, test.value] = [sp.train, sp.val, sp.test].map((x, i) => String(x != null ? x : [70, 20, 10][i]));
+          }
+        }
         /* a version whose training or validation part is empty is created only on an explicit "create anyway" */
         const syncCreate = () => { create.disabled = st.blocked && !allowBox.checked; };
 
         // tasks
         const taskBoxes = tasks.map((x) => {
-          const box = el('input', { type: 'checkbox', id: `ds-task-${x.id}`, checked: true, onchange: (e) => { if (e.target.checked) st.tasks.add(x.id); else st.tasks.delete(x.id); changed(); } });
+          const box = el('input', { type: 'checkbox', id: `ds-task-${x.id}`, checked: st.tasks.has(x.id), onchange: (e) => { if (e.target.checked) st.tasks.add(x.id); else st.tasks.delete(x.id); changed(); } });
           return el('li', null, el('label', { for: box.id, class: 'ds-check' }, box, el('span', { class: 'ds-check-name' }, x.name), el('span', { class: 'muted' }, tn('tasks.meta_images', x.active))));
         });
 
@@ -4746,7 +4772,15 @@
           fill(foldSel, el('option', { value: 'all' }, t('tr.fold_all')), ...Array.from({ length: k }, (_, i) => el('option', { value: String(i) }, t('ds.fold', { n: i + 1 }))));
           st.fold = 'all';
         }
-        datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); changed(); });
+        /* a version freezes its labels: say so when the labels changed afterwards (training is not blocked) */
+        const staleNote = el('p', { class: 'ds-stale-note', id: 'tr-dataset-stale', role: 'status', hidden: true });
+        function drawStale() {
+          const n = staleCount(versionOf());
+          staleNote.hidden = !n;
+          fill(staleNote, ...(n ? [icon('warning', 14), tn('ds.stale_train', n, { n: num(n), version: st.dataset })] : []));
+        }
+        datasetSel.setAttribute('aria-describedby', 'tr-dataset-stale');
+        datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); drawStale(); changed(); });
         foldSel.addEventListener('change', () => { st.fold = foldSel.value; changed(); });
 
         // model
@@ -5129,7 +5163,7 @@
           el('h2', null, t('tr.new_title')),
           el('div', { class: 'tr-form-grid' },
             el('div', { class: 'tr-col' },
-              el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel),
+              el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel, staleNote),
               foldField,
               el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote, modelChanges),
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
@@ -5161,6 +5195,7 @@
         });
         dlg.addEventListener('close', () => { dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
         drawFolds();
+        drawStale();
         drawModel();
         document.body.appendChild(dlg);
         openModal(dlg);

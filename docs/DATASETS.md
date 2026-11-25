@@ -140,6 +140,20 @@ validation part of run *i*; the other folds are its training part). Its `stats` 
 version. The images themselves are not copied (they never change; an image deleted from the project
 makes the version *incomplete*, shown on its card).
 
+### Labels changed after a version
+
+A version keeps its labels on purpose, so training stays reproducible. To make sure nobody trains on old
+labels without knowing, the summary of every version carries `stale: {changed_images, added, removed}`:
+the usable human labels of the version's images today, compared per image (by hash) with the copy in the
+version. `changed_images` counts images whose labels differ, `added` images that had none and have some now,
+`removed` images that had some and have none (or left the project). Predictions (labels with a score) do
+not count. All zeros means the version is current. The result is cached per version and recomputed only when
+`annotations.json` changes.
+
+The version card shows a warning (icon and text, not only colour) with the number of images and a
+*New version from this one* button that opens the new-version form with this version's options; the
+training dialog shows the same warning under the version chosen. Neither blocks training.
+
 ## HTTP API
 
 | Method | Path | Body | Returns |
@@ -152,7 +166,7 @@ makes the version *incomplete*, shown on its card).
 | GET | `/api/projects/{id}/images?dataset=n&part=train` | | images of a part (also `fold=i`) |
 
 Summary: `{version, created, note, type, classes, options, sizes: {train, val, test} or {test, folds: [...]},
-stats, warnings, videos, incomplete}`. Options accepted:
+stats, warnings, videos, incomplete, stale}`. Options accepted:
 `tasks, split, kfold, background, seed, videos, gap_seconds` (plus `note` on create). Segments of a
 folded version carry `{"part": "fold", "fold": n}`.
 

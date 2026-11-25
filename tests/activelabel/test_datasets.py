@@ -240,6 +240,24 @@ def test_store_versions_immutable_numbering_and_incomplete(tmp_path):
     assert store.get(3)["incomplete"] is True and store.versions()[0]["incomplete"] is True
 
 
+def test_stale_counts_labels_changed_after_the_version(tmp_path):
+    pdir, project = build(tmp_path, {**balanced(30), "bg": []}, tasks=None)
+    store = DatasetStore(pdir)
+    store.create(plan(pdir, project, background=True))
+    fresh = {"changed_images": 0, "added": 0, "removed": 0}
+    assert store.get(1)["stale"] == fresh and store.versions()[0]["stale"] == fresh
+    annotations = load_annotations(pdir)
+    annotations.images["i000"] = [Label("rare", bbox=[0, 0, 1, 1])]  # changed
+    annotations.images["i001"].append(Label("a", bbox=[0, 0, 0.5, 0.5], score=0.9))  # a prediction: ignored
+    annotations.images["bg"] = [Label("b", bbox=[0, 0, 1, 1])]  # added
+    del annotations.images["i002"]  # removed
+    save_annotations(pdir, annotations)
+    expected = {"changed_images": 1, "added": 1, "removed": 1}
+    assert store.versions()[0]["stale"] == expected and store.get(1)["stale"] == expected
+    assert store.create(plan(pdir, project, background=True))["stale"] == fresh
+    assert store.get(2)["stale"] == fresh and store.get(1)["stale"] == expected
+
+
 def test_image_ids_parts_and_folds(tmp_path):
     pdir, project = build(tmp_path, balanced())
     store = DatasetStore(pdir)

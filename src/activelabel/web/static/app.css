@@ -842,6 +842,10 @@ dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .ds-ok { color: var(--ok); margin: 0; }
 .ds-blocked p { margin: 0 0 var(--space-2); }
 .ds-blocked .ds-check { color: var(--text); }
+.ds-stale { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--warn); border-radius: var(--radius); }
+.ds-stale p { display: flex; align-items: flex-start; gap: var(--space-1); margin: 0; color: var(--warn); font-size: var(--font-sm); }
+.ds-stale-note { display: flex; align-items: flex-start; gap: var(--space-1); margin: var(--space-1) 0 0; color: var(--warn); font-size: var(--font-sm); }
+.ds-stale-note[hidden] { display: none; }
 .ds-block { display: flex; align-items: flex-start; gap: var(--space-1); margin: 0; color: var(--warn); font-size: var(--font-sm); }
 .ds-info { margin: 0; color: var(--muted); }
 
