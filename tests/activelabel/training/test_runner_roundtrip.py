@@ -498,7 +498,6 @@ def test_classification_case_only_rename_keeps_labels_and_classes(tmp_path: Path
     assert len(items_by_index(scene, spec)) == 9  # no image silently dropped
 
 
-@pytest.mark.xfail(strict=True, reason="#354")
 def test_version_summary_signals_that_labels_changed_since(tmp_path: Path) -> None:
     scene = make_scene(tmp_path, "classification")
     post_labels(scene, "a.xml", tags_bytes(tag_truth()))
