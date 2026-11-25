@@ -33,6 +33,14 @@ dataset as you make them; bring them back from the *FiftyOne* tab. Edits made in
 session (a task or a curation view opened for a look) are kept too — a refresh never overwrites a sample
 edited in FiftyOne — and come back with the next session that holds those images.
 
+**Polygons.** A segmentation polygon is sent as a FiftyOne polyline with `closed=True, filled=True`, and the
+label schema of `ground_truth` makes a polyline drawn in the App closed and filled too (the App's own default
+is an open, unfilled line, which the schema's attribute defaults override). When labels are brought back,
+`closed` and `filled` are not read for a ring of 3 points or more: every label of a segmentation project is a
+polygon, so such a ring is one (closed implicitly), even when it was saved as `closed=False, filled=False`.
+Only a polyline that is neither closed nor filled and has no ring of 3 points is a line, and is skipped
+(`open_polyline`).
+
 The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`;
 inside a GitHub Codespace (`CODESPACE_NAME` and `GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` set) they
 point to the codespace's forwarded address, `https://<codespace>-<port>.<domain>`, so they also open in
@@ -60,8 +68,8 @@ a codespace used from the browser.
    convert it to the internal format (`activelabel.labels`) and **diff** it against the project ground
    truth for the session images: per image, labels added / removed / edited (class change, geometry
    change). Also validate against the type and the class list (unknown classes are reported) and the
-   geometry: a polygon ring of fewer than 3 points (`polygon_too_few_points`), an open line that is
-   neither closed nor filled (`open_polyline`), a pose with another number of points than the
+   geometry: a polygon ring of fewer than 3 points (`polygon_too_few_points`), an open line (not closed
+   nor filled) without a ring of 3 points (`open_polyline`), a pose with another number of points than the
    project's (`keypoints_count_mismatch`) or a box without area (`box_invalid`) is listed as a problem
    and skipped on apply, never stored silently; a detection mask keeps only its box (`mask_only`). Only the
    images edited in FiftyOne bring FiftyOne's version; the others keep the project's current labels, so

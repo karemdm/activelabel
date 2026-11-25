@@ -455,3 +455,15 @@ def test_an_edit_made_outside_a_session_is_kept(tmp_path, project):
         0.2,
     ]
     assert shown["i1"].detections[0].label == "dog"  # not edited: refreshed from the project
+
+
+def test_polygons_are_written_closed_and_filled_and_new_ones_default_to_that(tmp_path, project):
+    """#457: closed+filled polygons; the label schema makes polylines drawn in the App closed and filled."""
+    project.task = Task.SEGMENTATION
+    manifest = build(tmp_path, 1)
+    labels = {"i0": [Label("cat", polygons=[[[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]])]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.SEGMENTATION, ["cat"], labels, {}))
+    polyline = dataset.first().ground_truth.polylines[0]
+    assert polyline.closed and polyline.filled
+    attributes = {a["name"]: a for a in dataset.label_schemas[bridge.GROUND_TRUTH]["attributes"]}
+    assert attributes["closed"]["default"] is True and attributes["filled"]["default"] is True

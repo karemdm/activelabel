@@ -560,12 +560,12 @@ def test_send_keypoints_matches_project(kp_scene):
                     assert list(got) == pytest.approx(want[:2], abs=EPS)
 
 
-def test_send_segmentation_polylines_are_filled(seg_scene):
-    """A polygon is sent as a filled polyline (FiftyOne draws a filled one closed)."""
+def test_send_segmentation_polylines_are_closed_and_filled(seg_scene):
+    """#457: a polygon is sent as a closed and filled polyline (the App draws it as a polygon)."""
     flow(seg_scene)
     for k in (0, 1, 3):
-        for *_, _closed, filled in fo_dump(sample_of(seg_scene, k).ground_truth):
-            assert filled, f"image {k}: filled={filled}"
+        for *_, closed, filled in fo_dump(sample_of(seg_scene, k).ground_truth):
+            assert closed and filled, f"image {k}: closed={closed} filled={filled}"
 
 
 def test_send_classification_matches_project(cls_scene):
@@ -1240,8 +1240,8 @@ def test_detection_with_a_mask_comes_back_as_its_box(det_scene):
     assert_same(det_scene.labels()[det_scene.ids[0]], det_truth()[0], "image 0")
 
 
-def open_polyline_is_not_img2(sample: Any) -> None:
-    """Edit one sample for ``test_open_polyline_is_not_imported_as_a_polygon`` (img2).
+def drawn_in_the_app_img2(sample: Any) -> None:
+    """Edit one sample for ``test_polygon_drawn_in_the_app_reaches_the_project`` (img2).
 
     Args:
         sample: the sample to change in place.
@@ -1255,15 +1255,39 @@ def open_polyline_is_not_img2(sample: Any) -> None:
     )
 
 
-def test_open_polyline_is_not_imported_as_a_polygon(seg_scene):
-    """A line the person draws (not closed, not filled) is not a segmentation polygon."""
+def test_polygon_drawn_in_the_app_reaches_the_project(seg_scene):
+    """#457: the App makes new polylines closed=False, filled=False; with 3 points they are polygons."""
     session, _ = flow(seg_scene)
 
-    edit(seg_scene, 2, open_polyline_is_not_img2)
+    edit(seg_scene, 2, drawn_in_the_app_img2)
     diff = pull(seg_scene, session)
-    assert diff["added"] == 0 or "open_polyline" in problem_codes(diff), (
-        "an open line was imported as a polygon without a warning"
+    assert_counts(diff, 1, 0, 0, 1)
+    assert "open_polyline" not in problem_codes(diff)
+    assert apply(seg_scene, session).status_code == 200
+    assert_same(
+        seg_scene.labels()[seg_scene.ids[2]],
+        [Label("cat", bbox=[0.1, 0.1, 0.4, 0.4], polygons=[[[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]])],
+        "image 2",
     )
+
+
+def open_line_img2(sample: Any) -> None:
+    """Edit one sample for ``test_a_two_point_open_line_is_not_imported_as_a_polygon`` (img2).
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.ground_truth = fo.Polylines(
+        polylines=[fo.Polyline(label="cat", points=[[(0.1, 0.1), (0.5, 0.1)]], closed=False, filled=False)]
+    )
+
+
+def test_a_two_point_open_line_is_not_imported_as_a_polygon(seg_scene):
+    session, _ = flow(seg_scene)
+
+    edit(seg_scene, 2, open_line_img2)
+    diff = pull(seg_scene, session)
+    assert diff["added"] == 0 and "open_polyline" in problem_codes(diff)
 
 
 def polygon_reduced_to_two_img1(sample: Any) -> None:
