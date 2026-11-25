@@ -2179,6 +2179,8 @@
                   } }, icon('chevron', 16))
                 : null)),
           el('p', { class: 'task-meta muted' }, meta),
+          /* an upload cut off midway: the app closed the task, some images may be missing (#434) */
+          task.incomplete ? el('p', { class: 'task-incomplete', title: t('tasks.incomplete_help') }, icon('error', 14), t('tasks.incomplete')) : null,
           el('div', { class: 'task-progress' },
             thinBar(task.annotated, task.active, progressText),
             el('span', { class: 'task-progress-text' }, progressText)),

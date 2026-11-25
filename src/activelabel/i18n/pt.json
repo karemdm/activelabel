@@ -652,6 +652,8 @@
   "tasks.create": "Criar task",
   "tasks.meta_images_one": "{n} imagem",
   "tasks.meta_images_other": "{n} imagens",
+  "tasks.incomplete": "Envio interrompido: podem faltar imagens",
+  "tasks.incomplete_help": "O envio desta task parou no meio (a página foi fechada ou a conexão caiu). As imagens que chegaram ficaram; envie as que faltam numa nova task.",
   "tasks.meta_job_size": "{n} por job",
   "tasks.meta_jobs_one": "{n} job",
   "tasks.meta_jobs_other": "{n} jobs",

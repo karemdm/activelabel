@@ -710,3 +710,13 @@ def test_a_failed_activity_pill_has_a_dismiss_button():
     assert ".jobs-dismiss" in CSS
     for lang in ("pt", "en"):
         assert json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))["jobs.dismiss"]
+
+
+def test_a_task_cut_off_midway_says_so_on_its_card():
+    """The task view sends ``incomplete`` (#434); the card shows it with an explanation in both languages."""
+    card = JS[JS.index("function taskCard(") : JS.index("function drawTasks()")]
+    assert "task.incomplete ? el('p', { class: 'task-incomplete'" in card
+    assert ".task-incomplete" in CSS
+    for lang in ("pt", "en"):
+        messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert messages["tasks.incomplete"] and messages["tasks.incomplete_help"]
