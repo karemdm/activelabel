@@ -956,3 +956,37 @@ def test_add_delta_sorts_objects_into_actions() -> None:
     assert patch["update"]["shapes"] == [{"id": 2, "points": [9]}]
     assert patch["create"]["shapes"] == [{"points": [7]}]
     assert patch["delete"]["shapes"] == [gone]
+
+
+# -- rotated rectangles (#359) ------------------------------------------------------------------------
+def test_enclosing_box_of_a_turned_rectangle() -> None:
+    assert cvat_remote.enclosing_box([10, 10, 30, 20], 0) == [10, 10, 30, 20]
+    assert cvat_remote.enclosing_box([10, 10, 30, 20], 90) == pytest.approx([15, 5, 25, 25])
+    half = 50**0.5  # half the diagonal of a 10 x 10 square
+    assert cvat_remote.enclosing_box([0, 0, 10, 10], 45) == pytest.approx(
+        [5 - half, 5 - half, 5 + half, 5 + half]
+    )
+    assert cvat_remote.enclosing_box([0, 0, 10, 10], 30) == pytest.approx(
+        cvat_remote.enclosing_box([0, 0, 10, 10], 330)
+    )
+
+
+def test_turned_rectangle_is_read_as_its_enclosing_box() -> None:
+    shape = {"type": "rectangle", "points": [10, 10, 30, 20], "rotation": 90}
+    label = cvat_remote.shape_to_label(shape, "cat", 100, 100)
+    assert label is not None and label.bbox == pytest.approx([0.15, 0.05, 0.1, 0.2])
+
+
+def test_edited_turned_rectangle_moves_with_its_turn_or_becomes_the_new_box() -> None:
+    old = {"id": 3, "type": "rectangle", "label_id": 1, "points": [10, 10, 30, 20], "rotation": 90}
+    moved = cvat_remote._edited(old, {"points": [20, 5, 30, 25]}, 100, 100)  # the enclosing box, 5 px right
+    assert moved["points"] == pytest.approx([15, 10, 35, 20]) and moved["rotation"] == 90 and moved["id"] == 3
+    resized = cvat_remote._edited(old, {"points": [15, 5, 45, 25]}, 100, 100)
+    assert resized["points"] == [15, 5, 45, 25] and resized["rotation"] == 0 and resized["id"] == 3
+
+
+def test_track_rotation_is_interpolated_the_short_way() -> None:
+    a = {"type": "rectangle", "frame": 0, "points": [0, 0, 10, 10], "rotation": 350}
+    b = {"type": "rectangle", "frame": 2, "points": [0, 0, 10, 10], "rotation": 10}
+    shown = cvat_remote.track_frames({"shapes": [a, b]}, 3)
+    assert shown[1][0]["rotation"] == pytest.approx(0)

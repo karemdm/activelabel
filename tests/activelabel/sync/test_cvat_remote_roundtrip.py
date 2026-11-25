@@ -573,7 +573,6 @@ def test_pull_occluded_z_order_and_group_are_not_changes(detection: Env) -> None
     assert [lb.label for lb in local(env, 0)] == ["cat", "dog"]  # still there, untouched
 
 
-@pytest.mark.xfail(strict=True, reason="#359")
 def test_defect_rotated_rectangle_is_read_as_unrotated(detection: Env) -> None:
     """A rectangle rotated by 30 degrees in CVAT must reach the project as the box that encloses it."""
     env, srv = detection, detection.server
@@ -586,7 +585,7 @@ def test_defect_rotated_rectangle_is_read_as_unrotated(detection: Env) -> None:
 
 
 def test_rotated_rectangle_survives_a_push_of_its_frame(detection: Env) -> None:
-    """Today the rotation survives because the project keeps the unrotated box (see the defect above)."""
+    """The project keeps the enclosing box; a push of another box of the frame keeps the rotated one."""
     env, srv = detection, detection.server
     a, _ = shapes(env, 0)
     srv.edit_shape(env.tid, a["id"], rotation=30, z_order=2)
@@ -727,7 +726,7 @@ def test_push_keeps_untouched_shapes_exactly(detection: Env) -> None:
     cat, dog = env.label_id("cat"), env.label_id("dog")
     before = decorate(env)
     # the same image gets a third box locally; the other two boxes are not edited
-    sync(env)  # the decorations change nothing the project sees (but the rotation: see the defect test)
+    sync(env)  # the decorations change nothing the project sees (the rotation gives the enclosing box)
     set_local(env, 0, [*local(env, 0), rel_box("cat", 150, 60, 190, 90)])
     p, _ = sync(env)
     assert p["push"] == 1
@@ -754,6 +753,7 @@ def test_defect_edited_box_loses_its_attributes_in_cvat(detection: Env) -> None:
     env = detection
     before = decorate(env)
     cat = env.label_id("cat")
+    sync(env)  # the dog turned in CVAT comes as its enclosing box (#359)
     set_local(env, 0, [rel_box("cat", 25, 22, 85, 62), local(env, 0)[1]])  # the cat moved a little
     p, _ = sync(env)
     assert p["push"] == 1
@@ -1284,7 +1284,6 @@ def test_video_deleting_a_tracked_label_adds_an_outside_keyframe(video: Env) -> 
     assert len(srv.annotations(env.tid)["tracks"]) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="#359")
 def test_defect_rotated_keyframes_of_a_track_are_read_unrotated(video: Env) -> None:
     env, srv = video, video.server
     track = srv.annotations(env.tid)["tracks"][0]

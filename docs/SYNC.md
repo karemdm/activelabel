@@ -119,6 +119,16 @@ has now (re-interpolated boxes, and a new track id if the server gave one), so t
 nothing to do. Note that CVAT splits a track at the end of each job: one object that crosses jobs has
 one track id per job.
 
+## Shapes and how they are read
+
+| CVAT | ActiveLabel |
+| --- | --- |
+| rectangle | box (detection) |
+| rectangle with `rotation` | the axis-aligned box that **encloses** the turned rectangle (detection trains on axis-aligned boxes). The rectangle stays turned in CVAT: a push of its frame leaves it alone while its enclosing box is unchanged; moving the box moves the rectangle and keeps its turn; resizing it replaces the rectangle by the new box, without a turn. In tracks the turn is interpolated between keyframes, the short way round |
+| polygon | polygon and its box (segmentation) |
+| points | one pose object (keypoints) |
+| tag | image class (classification) |
+
 ## What a push sends to CVAT
 
 A push never replaces the annotations of a task. For each task it reads the annotations, works out
