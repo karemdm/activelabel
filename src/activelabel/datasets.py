@@ -1686,7 +1686,15 @@ class DatasetStore:
         return out
 
     def _stale(self, number: int, data: dict[str, Any]) -> dict[str, int]:
-        """The ``stale`` counts of a version, recomputed only when ``annotations.json`` changed."""
+        """The ``stale`` counts of a version, recomputed only when ``annotations.json`` changed.
+
+        Args:
+            number: the version number.
+            data: the stored file of the version.
+
+        Returns:
+            ``{changed_images, added, removed}`` (see ``stale_counts``).
+        """
         path = annotations_path(self.project_dir)
         try:
             info = path.stat()

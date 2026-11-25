@@ -91,7 +91,10 @@ src = ["src", "tests"]
 extend-exclude = [".venv"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "D", "ANN"]
+# PLC0415: imports only at the top of the module (#306); DOC201/DOC402: Returns/Yields in docstrings (#307)
+select = ["E", "F", "W", "I", "B", "UP", "D", "ANN", "PLC0415", "DOC201", "DOC402"]
+preview = true          # the DOC rules are in preview
+explicit-preview-rules = true
 ignore = [
     "ANN401",        # Any is used for third-party objects without type hints
     "D105", "D107",  # magic methods / __init__ documented by the class
@@ -101,7 +104,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ANN"]
+"tests/**" = ["D", "ANN", "DOC", "PLC0415"]  # PLC0415 in tests: being cleaned up (#306), then enforced
 
 [tool.ruff.lint.isort]
 known-first-party = ["activelabel"]

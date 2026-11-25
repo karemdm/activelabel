@@ -105,7 +105,14 @@ class ImageTask:
 
 
 def _last_touch(task: ImageTask) -> datetime:
-    """When the last chunk of a task came (its creation for a task saved without the mark)."""
+    """When the last chunk of a task came (its creation for a task saved without the mark).
+
+    Args:
+        task: the task.
+
+    Returns:
+        The time of its last chunk.
+    """
     return datetime.fromisoformat(task.touched or task.created)
 
 
