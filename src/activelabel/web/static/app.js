@@ -2056,13 +2056,16 @@
       async function refreshTasks() {
         focusAfter = '#tasks-refresh';
         await loadTasks(true);
+        toast(t('tasks.refreshed'), 'success', 2500);   // a visible answer even when nothing changed
       }
 
       function drawTasks() {
         const head = el('div', { class: 'tasks-head' },
           el('h3', { class: 'tasks-title sr-only' }, t('tasks.title'), tasks.length ? el('span', { class: 'count-badge' }, num(tasks.length)) : null),   // the tab already names and counts them
           tasks.length ? el('div', { class: 'tasks-head-actions' },
-            el('button', { type: 'button', class: 'btn', id: 'tasks-refresh', title: t('tasks.refresh_help'), onclick: refreshTasks }, icon('refresh', 16), t('tasks.refresh')),
+            tasks.some((x) => x.remote)   // only tasks linked to CVAT have job states to read again
+              ? el('button', { type: 'button', class: 'btn', id: 'tasks-refresh', title: t('tasks.refresh_help'), onclick: refreshTasks }, icon('refresh', 16), t('tasks.refresh'))
+              : null,
             el('button', { type: 'button', class: 'btn primary', id: 'new-task-btn', onclick: () => openNewTask() }, icon('plus', 16), t('tasks.new_title'))) : null);
         let body;
         if (tasks.length) {
