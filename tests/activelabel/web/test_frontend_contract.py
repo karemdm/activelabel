@@ -367,3 +367,10 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def test_on_a_phone_the_review_table_fits_and_the_scrolling_tabs_show_their_edge():
+    """#422: the class table shrinks its columns on small screens; the tab bar fades where it can scroll."""
+    small = re.search(r"@media \(max-width: 480px\) \{(.*?)\n\}", CSS, re.S)
+    assert small and re.search(r"\.diff-table th, \.diff-table td \{[^}]*padding", small.group(1))
+    assert re.search(r"\.step-tabs \{[^}]*background:[^}]*local", CSS), "scroll shadows on the tab bar"
