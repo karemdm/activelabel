@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import threading
 import uuid
 from pathlib import Path
@@ -49,6 +50,7 @@ TASK_VIEW_PREFIX = "task-"  # saved view of a task: ``task-<id>`` (stable; the n
 
 APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
 PORT_TRIES = 11  # APP_PORT and the next 10 ports
+_launched: set[int] = set()  # ports where this process started the App (its own App may be rejoined)
 
 DATASET_PREFIX = "activelabel"  # datasets are ``<prefix>-<project id>[-<random>]``
 
@@ -735,13 +737,36 @@ def launch_app(
             _session = None
     last: Exception | None = None
     for candidate in range(port, port + PORT_TRIES):
+        if candidate not in _launched and port_answers(candidate):  # another program's App: never join it
+            last = OSError(f"port {candidate} is in use")
+            continue
         try:
             _session = fo.launch_app(target, port=candidate, remote=True)
         except Exception as exc:  # noqa: BLE001 - port busy: try the next one
             last = exc
             continue
+        _launched.add(candidate)
         return app_url(dataset, view, candidate)
     raise OSError(f"No free port for the FiftyOne App ({port}-{port + PORT_TRIES - 1}): {last}")
+
+
+def port_answers(port: int) -> bool:
+    """Whether something already listens on ``port`` of this computer.
+
+    ``fo.launch_app`` does not fail on such a port: when a FiftyOne App of another program answers there
+    it just connects to it, and the link would then show that program's App and database.
+
+    Args:
+        port: The port.
+
+    Returns:
+        True when a connection to 127.0.0.1 on that port succeeds.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def pull_exclusions(dataset: fo.Dataset, manifest: Manifest, tag: str = "exclude") -> int:

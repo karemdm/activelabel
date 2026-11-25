@@ -1,3 +1,4 @@
+import socket
 import uuid
 from types import SimpleNamespace
 
@@ -199,9 +200,32 @@ def test_launch_app_tries_next_port_when_busy(tmp_path, project, monkeypatch):
 
     monkeypatch.setattr(bridge.fo, "launch_app", fake_launch)
     monkeypatch.setattr(bridge, "_session", None)
+    monkeypatch.setattr(bridge, "port_answers", lambda port: False)
     url = bridge.launch_app(dataset)
     assert tried == [5161, 5162, 5163] and url == f"http://localhost:5163/datasets/{dataset.name}"
     bridge._session = None
+
+
+def test_launch_app_never_joins_the_app_of_another_program(tmp_path, project, monkeypatch):
+    """#410: fo.launch_app connects to an App that already answers on the port (another database)."""
+    manifest = build(tmp_path, 1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    tried = []
+    monkeypatch.setattr(
+        bridge.fo, "launch_app", lambda target, port, remote: tried.append(port) or SimpleNamespace(port=port)
+    )
+    monkeypatch.setattr(bridge, "_session", None)
+    monkeypatch.setattr(bridge, "port_answers", lambda port: port == 5161)  # another program's App
+    url = bridge.launch_app(dataset)
+    assert tried == [5162] and url == f"http://localhost:5162/datasets/{dataset.name}"
+    bridge._session = None
+
+
+def test_port_answers_sees_a_listening_socket():
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        assert bridge.port_answers(server.getsockname()[1])
 
 
 @pytest.mark.integration
