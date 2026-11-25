@@ -272,6 +272,18 @@ class RemoteProject(Protocol):
         """
         ...
 
+    def classes(self, settings: ToolSettings, remote_id: str) -> dict[str, str]:
+        """The classes of the remote project by their id in the tool (an id stays when a class is renamed).
+
+        Args:
+            settings: Connection settings of the tool (server address and credentials).
+            remote_id: Id of the remote project.
+
+        Returns:
+            ``{class id: name}``.
+        """
+        ...
+
     def ensure_classes(self, settings: ToolSettings, remote_id: str, classes: list[str]) -> None:
         """Make sure the remote project knows these classes (adds the missing ones).
 

@@ -16,6 +16,7 @@ import logging
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore, probe
 from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Progress
-from activelabel.labels import Label, load_annotations
+from activelabel.labels import Label, annotations_lock, annotations_path, load_annotations, save_annotations
 from activelabel.projects import Project, ProjectStore
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
@@ -174,6 +175,64 @@ def _theirs(
         The cleaned labels, with the boxes of unchanged poses carried over.
     """
     return links.carry_pose_boxes([*mine, *(base or [])], _clean(project, labels))
+
+
+def renamed_classes(
+    project: Project, before: dict[str, str] | None, now: dict[str, str]
+) -> list[dict[str, str]]:
+    """Classes renamed in the tool since the last synchronisation, found by their id there.
+
+    A class counts as renamed when the tool still has its id under another name (not only another case),
+    the old name is a class of this project and the new one is not (else it would be two classes merged,
+    which is left to the person).
+
+    Args:
+        project: The project (its classes).
+        before: ``{class id: name}`` stored in the link at the last synchronisation, or None when unknown.
+        now: ``{class id: name}`` as the tool has them now.
+
+    Returns:
+        ``[{"from": class here, "to": name there}]``, in the order of the project's classes.
+    """
+    mine = {c.casefold(): c for c in project.classes}
+    out: list[dict[str, str]] = []
+    for cid, old in (before or {}).items():
+        new = now.get(cid)
+        if new is None or new.casefold() == old.casefold():
+            continue
+        if old.casefold() in mine and new.casefold() not in mine:
+            out.append({"from": mine[old.casefold()], "to": new})
+    order = {c: n for n, c in enumerate(project.classes)}
+    return sorted(out, key=lambda r: order[r["from"]])
+
+
+def _rename_classes(store: ProjectStore, project_id: int, renames: list[dict[str, str]]) -> str:
+    """Rename classes of the project and of every label of its ground truth (after a backup).
+
+    Args:
+        store: The projects.
+        project_id: The project.
+        renames: ``[{"from": old name, "to": new name}]``.
+
+    Returns:
+        The name of the backup of ``annotations.json`` ("" when there was nothing to back up).
+    """
+    names = {r["from"]: r["to"] for r in renames}
+    project_dir = store.dir(project_id)
+    backup = ""
+    with annotations_lock(project_dir):
+        found = load_annotations(project_dir)
+        if found is not None:
+            backup = f"annotations.{time.strftime('%Y%m%dT%H%M%S')}.rename.bak.json"
+            shutil.copyfile(annotations_path(project_dir), project_dir / backup)
+            for labels in found.images.values():
+                for lb in labels:
+                    lb.label = names.get(lb.label, lb.label)
+            found.classes = [names.get(c, c) for c in found.classes]
+            save_annotations(project_dir, found)
+        project = store.get(project_id)
+        store.update(project_id, classes=[names.get(c, c) for c in project.classes])
+    return backup
 
 
 def _local_labels(project_dir: Path) -> dict[str, list[Label]]:
@@ -476,6 +535,11 @@ def make_plan(
     progress.update(message=f"Reading {tool}")
     info = _find_remote(remote, settings, project, link, remote_id, create)
     rtasks = remote.tasks(settings, info.id) if info else []
+    renames = (
+        renamed_classes(project, link.get("classes"), remote.classes(settings, info.id))
+        if link and info
+        else []
+    )
     rtask_ids = {rt.id for rt in rtasks}
     mapping = _task_mapping(local_tasks, tmap, link_items)
 
@@ -681,6 +745,7 @@ def make_plan(
         "tasks_delete": tasks_delete,
         "link": _link_token(link),
         "new_items": {rt: _new_task_items(remote, settings, project, rt, items) for rt in new_remote},
+        "renamed_classes": renames,
     }
     write_json(plans_dir(project_dir) / f"{plan_id}.json", plan)
     _prune(project_dir)
@@ -713,6 +778,7 @@ def make_plan(
         "unchanged": count[SAME] + count[GONE],
         "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
         "diff_push": _push_summary(project, names, push_changes),
+        "renamed_classes": renames,
     }
 
 
@@ -890,8 +956,8 @@ def apply_plan(
     Returns:
         Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
-        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``backup``, ``skipped``,
-        ``warnings``.
+        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``renamed_classes`` (classes
+        renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``, ``skipped``, ``warnings``.
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -954,6 +1020,16 @@ def apply_plan(
             or links.label_hash(local.get(image_id, [])) != decisions[image_id]["local_hash"]
         ):
             raise RemoteChanged(CHANGED_LOCAL)
+
+    # classes renamed in the tool (checked again now): renamed here too, so they are not created again
+    old_link = links.get_link(project_dir, tool) or {}
+    renames: list[dict[str, str]] = []
+    if not to_create and old_link.get("classes"):
+        renames = renamed_classes(project, old_link["classes"], remote.classes(settings, rid))
+    if renames:
+        _rename_classes(store, project_id, renames)
+        project = store.get(project_id)
+        local = _local_labels(project_dir)
 
     pull_ids = _ids_of(final_action, PULL, RESTORE_LOCAL)
     new_labels = {
@@ -1100,6 +1176,7 @@ def apply_plan(
         items = {i: e for i, e in items.items() if _key_task(str(e.get("key", ""))) not in dropping}
     record = links.new_link(info.url, rid, info.name, items)
     record["tasks"] = tmap
+    record["classes"] = remote.classes(settings, rid)  # to notice a class renamed there next time
     if old and keep:
         record["created"] = old.get("created", record["created"])
     links.save_link(project_dir, tool, record)
@@ -1120,6 +1197,7 @@ def apply_plan(
         "conflicts_left": conflicts_left,
         "unchanged": len(_ids_of(final_action, SAME, GONE)),
         "new_classes": counts["new_classes"],
+        "renamed_classes": renames,
         "backup": counts["backup"],
         "skipped": counts["skipped"],
         "warnings": warnings,

@@ -962,7 +962,6 @@ def test_label_renamed_in_cvat_comes_back_with_the_new_name(detection: Env) -> N
     assert "kitten" in (load_annotations(env.dir).classes)
 
 
-@pytest.mark.xfail(strict=True, reason="#364")
 def test_defect_label_renamed_in_cvat_is_created_again_by_the_next_push(detection: Env) -> None:
     """The old class stays in the project, so a later push adds a 'cat' label again to the CVAT project."""
     env = detection
@@ -973,7 +972,6 @@ def test_defect_label_renamed_in_cvat_is_created_again_by_the_next_push(detectio
     assert env.server.label_names(env.pid) == ["kitten", "dog"]
 
 
-@pytest.mark.xfail(strict=True, reason="#364")
 def test_defect_labels_that_differ_only_in_case_are_merged_and_the_cvat_shape_changes_class(
     detection: Env,
 ) -> None:

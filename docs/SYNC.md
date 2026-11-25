@@ -13,11 +13,12 @@ unlinked, which changes nothing in that tool.
 ## Link
 
 `<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, created, last_sync, revision,
-tasks?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
+tasks?, classes?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
 "removed"?: true}}}}`
 (one link per tool; `key` identifies the image in the remote project, `"<task_id>:<frame>"` in CVAT;
 `revision` goes up on every save, so a comparison made before
-another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md). For each image the link
+another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md; `classes` is
+`{"<class id in the tool>": "<name>"}` at the last sync, to notice a class renamed there). For each image the link
 keeps the labels as they were at the last sync (`labels`) and their hash (`base`, a stable SHA-256 of
 the labels in the internal format, sorted, coordinates rounded to 4 decimals); `removed` marks an image
 removed on both sides. Whether a side changed is decided by comparing its labels with `labels` with a
@@ -73,7 +74,7 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
    add, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
    tasks_new, tasks_delete, conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
-   per_class}, ...}], remote_only, unchanged, diff_pull: <diff as in ANNOTATION.md>, diff_push:
+   per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], diff_pull: <diff as in ANNOTATION.md>, diff_push:
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
    plans are kept).
 2. **Apply** (job `sync_apply`) with `{plan_id, resolutions: {"<image_id>": "local"|"remote"},
@@ -84,7 +85,13 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    link (`base` hashes, keys, `last_sync`). Result: counts.
 
 Classes: classes found remotely but missing locally are added to the project; local classes
-missing in the remote project are added to it (CVAT labels).
+missing in the remote project are added to it (CVAT labels). Class names are compared ignoring case,
+like the project's classes: a CVAT label `Cat` is the class `cat` (no second label is created, and a
+shape of `Cat` stays on that label when its frame is pushed). A class **renamed in CVAT** keeps its
+label id there: the link remembers the ids (`classes`), so the plan lists it in `renamed_classes` and
+the apply renames the class here too, in the class list and in every label of the ground truth (after a
+backup `annotations.<time>.rename.bak.json`); it is not created again in CVAT. A rename to a name that
+is already another class here (two classes merged) is not done automatically.
 
 ## Direction
 
@@ -170,6 +177,7 @@ class RemoteProject(Protocol):          # activelabel/sync/remote.py
             images: list[tuple[ImageRecord, Path, list[Label]]]) -> dict[str, str]   # image_id -> key
     def write(self, settings, remote_id: str, project: Project,
               updates: dict[str, list[Label]]) -> None                # key -> labels (replace)
+    def classes(self, settings, remote_id: str) -> dict[str, str]      # {class id: name}
     def ensure_classes(self, settings, remote_id: str, classes: list[str]) -> None
     def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
 ```
