@@ -4003,12 +4003,16 @@
           if (w.code !== 'class_missing') { grouped.push(w); continue; }
           const where = w.fold != null ? `fold${w.fold}` : w.part;
           if (!byPart.has(where)) {
-            byPart.set(where, { code: 'classes_missing', part: w.part, fold: w.fold, classes: [] });
+            byPart.set(where, { code: 'classes_missing', part: w.part, fold: w.fold, classes: [], available: [], avoidable: [] });
             grouped.push(byPart.get(where));
           }
-          byPart.get(where).classes.push(w.class);
+          const group = byPart.get(where);
+          group.classes.push(w.class);
+          group.available.push(w.available);
+          group.avoidable.push(w.avoidable);
         }
-        return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1 ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0] } : w));
+        return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1
+          ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0], available: w.available[0], avoidable: w.avoidable[0] } : w));
       }
 
       /* why a hold-out version cannot train a model (an empty training or validation part), or null */
@@ -4027,14 +4031,27 @@
         return t(w.gap > 0 ? 'ds.w_video_split' : 'ds.w_video_split_nogap', vars);
       }
 
+      /* whether a missing class could have been in every part (the API says; older versions do not) */
+      function avoidText(w) {
+        if (w.code === 'class_missing') {
+          if (w.avoidable == null) return '';
+          return w.avoidable ? tn('ds.w_avoidable', w.available || 0) : tn('ds.w_unavoidable', w.available || 0);
+        }
+        const flags = (w.avoidable || []).filter((x) => x != null);
+        if (!flags.length) return '';
+        const fixed = flags.filter((x) => x === false).length;
+        if (fixed === 0) return t('ds.w_avoidable_all');
+        return fixed === flags.length ? t('ds.w_unavoidable_all') : tn('ds.w_unavoidable_some', fixed, { total: num(flags.length) });
+      }
+
       /* warnings in plain words; short = for the badges on a card */
       function warnText(w, items, short = false) {
         const part = w.fold != null ? t('ds.fold', { n: w.fold + 1 }) : partName(w.part);
         const code = String(w.code || '');
-        if (code === 'class_missing') return short ? t('ds.b_class_missing', { class: w.class, part }) : t('ds.w_class_missing', { class: w.class, part });
+        if (code === 'class_missing') return short ? t('ds.b_class_missing', { class: w.class, part }) : `${t('ds.w_class_missing', { class: w.class, part })} ${avoidText(w)}`.trim();
         if (code === 'classes_missing') {
           const list = w.classes.slice(0, 6).join(', ') + (w.classes.length > 6 ? ` (+${w.classes.length - 6})` : '');
-          return short ? tn('ds.b_classes_missing', w.classes.length, { part }) : tn('ds.w_classes_missing', w.classes.length, { part, list });
+          return short ? tn('ds.b_classes_missing', w.classes.length, { part }) : `${tn('ds.w_classes_missing', w.classes.length, { part, list })} ${avoidText(w)}`.trim();
         }
         if (code === 'part_empty') return short ? t('ds.b_part_empty', { part }) : t('ds.w_part_empty', { part });
         if (code === 'few_images') return short ? t('ds.b_few_images', { part }) : t('ds.w_few_images', { part });
@@ -4328,7 +4345,20 @@
           per.forEach((s) => Object.keys(s.objects || {}).forEach((c) => { if (!names.includes(c)) names.push(c); }));
           const head = el('tr', null, el('th', { scope: 'col' }, ''), ...items.map((x) => el('th', { scope: 'col' }, x.label)));
           const row = (label, cells, cl = '') => el('tr', { class: cl }, el('th', { scope: 'row' }, label), ...cells.map((c) => el('td', null, num(c))));
-          const classRows = names.map((c) => row(c, per.map((s) => (s.objects || {})[c] || 0)));
+          /* a class row: the count, the share of the class in each part, and a marked 0 in a part that has images */
+          const classRow = (c, cells, zero) => {
+            const sum = cells.reduce((a, n) => a + n, 0);
+            return el('tr', { class: zero ? 'ds-rare' : '' }, el('th', { scope: 'row' }, c),
+              ...cells.map((n, i) => (n === 0 && items[i].n > 0
+                ? el('td', { class: 'ds-zero', title: t('ds.zero_help', { class: c, part: items[i].label }) }, icon('warning', 12), el('strong', null, '0'), el('span', { class: 'sr-only' }, ` ${t('ds.zero_sr')}`))
+                : el('td', { title: sum ? t('ds.class_share', { pct: pctOf(n, sum) }) : null }, num(n), el('small', { class: 'ds-share' }, sum ? `${pctOf(n, sum)}%` : '')))));
+          };
+          /* the rarest classes first (those missing from a part before the others): they are the ones at risk */
+          const classRows = names.map((c) => {
+            const cells = per.map((s) => (s.objects || {})[c] || 0);
+            const zero = cells.some((n, i) => n === 0 && items[i].n > 0);
+            return { c, cells, zero, sum: cells.reduce((a, n) => a + n, 0) };
+          }).sort((a, b) => (Number(b.zero) - Number(a.zero)) || (a.sum - b.sum) || a.c.localeCompare(b.c)).map((r) => classRow(r.c, r.cells, r.zero));
           const SHOWN = 8;
           let all = false;
           const body = el('tbody');

@@ -147,6 +147,25 @@ def test_a_stale_version_is_flagged_on_its_card_and_in_the_training_dialog():
             assert f'"{key}"' in texts, (lang, key)
 
 
+def test_the_split_preview_ranks_classes_by_rarity_and_marks_zero_cells():
+    """Rare classes come first; a 0 in a part with images has an icon and a hidden text; each cell shows
+    the class's share; a missing-class warning says whether the class could have been in every part."""
+    api = (SRC / "datasets.py").read_text(encoding="utf-8")
+    assert '"available"' in api and '"avoidable"' in api
+    assert "avoidable" in JS and "available" in JS and "ds-zero" in JS and "ds.zero_sr" in JS
+    assert "Number(b.zero) - Number(a.zero)" in JS and "a.sum - b.sum" in JS
+    assert ".ds-zero" in CSS and ".ds-share" in CSS
+    for lang in ("pt", "en"):
+        texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
+        for key in (
+            "ds.w_avoidable_one",
+            "ds.w_unavoidable_other",
+            "ds.w_unavoidable_some_one",
+            "ds.zero_sr",
+        ):
+            assert f'"{key}"' in texts, (lang, key)
+
+
 def test_the_training_settings_are_closed_with_a_line_for_what_is_not_the_default():
     """The hyperparameters sit in a closed section whose line lists only the changed values."""
     assert "changedLine()" in JS and "tr.params_default" in JS

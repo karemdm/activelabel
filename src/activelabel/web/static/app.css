@@ -835,6 +835,9 @@ dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .ds-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: var(--font-sm); }
 .ds-table th, .ds-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
 .ds-table th[scope="row"], .ds-table thead th:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; max-width: 18ch; }
+.ds-table td.ds-zero { color: var(--warn); }
+.ds-table td.ds-zero svg { vertical-align: -1px; margin-right: 0.25rem; }
+.ds-table .ds-share { display: block; color: var(--muted); font-size: var(--font-xs); }
 .ds-table tr.strong th, .ds-table tr.strong td { font-weight: 700; }
 .ds-table tr.sub th { text-align: left; color: var(--muted); font-size: var(--font-xs); font-weight: 600; background: var(--surface-2); }
 .ds-warns { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
