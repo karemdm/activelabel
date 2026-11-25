@@ -973,21 +973,16 @@ def test_cvat_tags_are_image_classes(tmp_path):
     assert got["a.png"][0].bbox is None
 
 
-@pytest.mark.xfail(strict=True, reason="#359")
-def test_cvat_rotated_box_is_not_imported_silently_as_an_unrotated_box(tmp_path):
-    """A CVAT box with ``rotation`` has xtl/ytl/xbr/ybr of the UNROTATED rectangle."""
+def test_cvat_rotated_box_is_imported_as_its_enclosing_box(tmp_path):
+    """A CVAT box with ``rotation`` has xtl/ytl/xbr/ybr of the UNROTATED rectangle (#359, #520)."""
     rig = make_rig(tmp_path)
     shape = (
         '<box label="cat" occluded="0" source="manual" xtl="10" ytl="10" xbr="30" ybr="20" '
         'rotation="90.0" z_order="0"/>'
     )
-    report = rig.check([("c.xml", cvat_doc(cvat_image("a.png", shape)))])
-    warned = any("rotat" in (p["code"] + p["message"]).lower() for p in report["problems"])
     rig.load([("c.xml", cvat_doc(cvat_image("a.png", shape)))])
     stored = flat(rig.stored()["a.png"][0].bbox)
-    unrotated = rel_box(10, 10, 20, 10)
-    moved = stored != pytest.approx(unrotated)
-    assert warned or moved, "rotation=90 box stored as the unrotated rectangle, no warning in the report"
+    assert stored == pytest.approx(rel_box(15, 5, 10, 20))
 
 
 def test_cvat_unsupported_shapes_and_unlabelled_shapes_are_reported_not_stored(tmp_path):

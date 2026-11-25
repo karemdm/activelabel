@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from activelabel.annotations.context import ParseContext, bbox_of_points, declared_size, norm_name, stem_parts
+from activelabel.annotations.geometry import enclosing_box
 from activelabel.images.manifest import ImageRecord
 from activelabel.labels import Label
 
@@ -210,6 +211,8 @@ def _shape(ctx: ParseContext, shape: ET.Element, width: float, height: float, wh
         return Label(name)
     if kind == "box":
         x0, y0, x1, y1 = (_f(shape.get(k)) for k in ("xtl", "ytl", "xbr", "ybr"))
+        # CVAT keeps the corners before the turn; a rotated box is read as the box that encloses it
+        x0, y0, x1, y1 = enclosing_box([x0, y0, x1, y1], _f(shape.get("rotation")))
         box = ctx.box(x0, y0, x1 - x0, y1 - y0, width, height, where)
         return Label(name, bbox=box) if box else None
     if kind == "polygon":

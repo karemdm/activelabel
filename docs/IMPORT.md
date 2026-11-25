@@ -71,6 +71,8 @@ says what was found. Nothing changes until the person chooses an action.
 - A Pascal VOC file without `<filename>` (and without `<path>`) is matched by its own name: `c.xml` goes with
   `c.png`.
 - CVAT shapes without a label are reported and left out, not imported as an empty class.
+- **Rotated CVAT boxes** (`rotation` on a `box`, in images and in video tracks) are read as the axis-aligned
+  box that encloses the turned rectangle, as the CVAT synchronisation does (docs/SYNC.md); the angle itself is not kept.
 - **Shapes outside the image are reported**: a box is clipped to the image (`box_clipped`); a polygon vertex or
   a keypoint outside it is moved to its border and the report says so (`geometry_clipped`), since the shape
   changed.
