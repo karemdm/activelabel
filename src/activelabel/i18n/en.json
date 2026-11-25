@@ -362,6 +362,7 @@
   "classes.in_use_item": "{name} ({labels} annotations in {images} images)",
   "classes.in_use_remove": "Remove classes and their annotations",
   "problem.multiple_classes": "Images with more than one class (only the first one is kept)",
+  "problem.edited_on_both_sides": "Images edited in FiftyOne whose project labels also changed since they were sent: applying replaces the project's version with FiftyOne's.",
   "ann.load_title": "Bring annotations from files",
   "annotate.tool.fiftyone": "FiftyOne",
   "annotate.tool.cvat": "CVAT",

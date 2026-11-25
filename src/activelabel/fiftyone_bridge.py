@@ -5,6 +5,10 @@ database, so the name must not repeat across workspaces: it is ``activelabel-<pr
 chosen once and recorded in ``<project>/fiftyone.json`` (see :func:`dataset_name`). Samples are keyed by
 the image id (field ``image_id``). Segmentation polygons become ``Polylines`` with
 ``filled=True`` (simpler than rasterised masks, and they keep their exact shape).
+
+Each sample also records what ActiveLabel wrote in ``ground_truth`` (``activelabel_written``: its
+fingerprint; ``activelabel_labels``: the hash of the project labels it came from). A sample whose
+``ground_truth`` no longer matches its fingerprint was edited in FiftyOne (see :func:`edited_images`).
 """
 
 from __future__ import annotations
@@ -22,16 +26,20 @@ from fiftyone import ViewField as F
 from fiftyone.core.utils import to_slug
 
 from activelabel.annotate import sessions
+from activelabel.annotate.fo_labels import fingerprint
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 from activelabel.tasks_store import ImageTask, TaskStore, jobs
 
 GROUND_TRUTH = "ground_truth"
+WRITTEN = "activelabel_written"  # fingerprint of the ground_truth ActiveLabel last wrote
+WRITTEN_LABELS = "activelabel_labels"  # label_hash of the project labels it was written from
 EXCLUDED_TAG = "excluded"
 VIEW_ALL_ISSUES = "curation - quality issues"
 VIEW_EXCLUDED = "curation - excluded"
@@ -161,12 +169,15 @@ def _label_type(task: Task) -> type:
     }[task]
 
 
-def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
+def _declare_fields(dataset: fo.Dataset, task: Task) -> bool:
     """Make sure every field exists with the right type (also when there are no samples).
 
     Args:
         dataset: the project's dataset.
         task: task of the project (decides the type of ``ground_truth``; a field of another type is dropped).
+
+    Returns:
+        Whether ``ground_truth`` was dropped (the task of the project changed): no sample holds edits now.
     """
     scalars: dict[str, Any] = {
         "image_id": fo.StringField,
@@ -185,17 +196,22 @@ def _declare_fields(dataset: fo.Dataset, task: Task) -> None:
         "position": fo.IntField,
         "frame_number": fo.IntField,
         "time": fo.FloatField,
+        WRITTEN: fo.StringField,
+        WRITTEN_LABELS: fo.StringField,
     }
     for name, kind in scalars.items():
         dataset.add_sample_field(name, kind)
     dataset.add_sample_field("image_size", fo.ListField, subfield=fo.IntField)
     dataset.add_sample_field("quality_issues", fo.ListField, subfield=fo.StringField)
     wanted = _label_type(task)
+    dropped = False
     if GROUND_TRUTH in dataset.get_field_schema():
         current = dataset.get_field(GROUND_TRUTH)
         if getattr(current, "document_type", None) is not wanted:  # the task of the project changed
             dataset.delete_sample_field(GROUND_TRUTH)
+            dropped = True
     dataset.add_sample_field(GROUND_TRUTH, fo.EmbeddedDocumentField, embedded_doc_type=wanted)
+    return dropped
 
 
 def _visibility(point: list[float]) -> int:
@@ -272,7 +288,7 @@ def _apply(
     duplicate_of: dict[str, str],
     kept: set[str],
     where: dict[str, dict[str, Any]],
-    keep_ground_truth: bool = False,
+    protected: bool = False,
 ) -> None:
     """Copy the data of one image record into its FiftyOne sample.
 
@@ -285,7 +301,8 @@ def _apply(
         duplicate_of: near-duplicate image id -> id of the image it duplicates.
         kept: ids of the images that others duplicate.
         where: placement (task, job, position, video name) by image id, see :func:`_placement`.
-        keep_ground_truth: leave ``ground_truth`` as it is (an open FiftyOne session may hold edits).
+        protected: the image is in an open FiftyOne session: when its ``ground_truth`` was edited in
+            FiftyOne (see :func:`is_edited`) it is left as it is; otherwise it is rewritten like any other.
     """
     sample.filepath = str(manifest.file_path(record).resolve())
     sample["image_id"] = record.id
@@ -308,10 +325,59 @@ def _apply(
     sample["time"] = record.time if record.video else None
     tags = [t for t in sample.tags if t != EXCLUDED_TAG]
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
-    if not keep_ground_truth:  # an open FiftyOne session may hold edits not brought back yet
-        sample[GROUND_TRUTH] = _ground_truth(
-            task, annotations.images.get(record.id, []) if annotations else []
-        )
+    if protected and is_edited(sample, task):  # edits not brought back yet: FiftyOne keeps its version
+        return
+    labels = annotations.images.get(record.id, []) if annotations else []
+    sample[GROUND_TRUTH] = _ground_truth(task, labels)
+    sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+    sample[WRITTEN_LABELS] = label_hash(labels)
+
+
+def is_edited(sample: fo.Sample, task: Task) -> bool:
+    """Whether the ``ground_truth`` of a sample was changed in FiftyOne since ActiveLabel wrote it.
+
+    Args:
+        sample: the sample.
+        task: task of the project.
+
+    Returns:
+        True when it differs from the recorded fingerprint, or when there is none (a dataset written by
+        an earlier version: its edits cannot be told apart, so they are kept).
+    """
+    written = sample[WRITTEN] if sample.has_field(WRITTEN) else None
+    return written is None or fingerprint(sample[GROUND_TRUTH], task) != written
+
+
+def edited_images(dataset: fo.Dataset, image_ids: list[str], task: Task) -> set[str]:
+    """Images whose ``ground_truth`` was changed in FiftyOne since ActiveLabel wrote it (:func:`is_edited`).
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images to look at (those without a sample are left out).
+        task: task of the project.
+
+    Returns:
+        The ids of the edited images.
+    """
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    return {sample["image_id"] for sample in view.iter_samples() if is_edited(sample, task)}
+
+
+def written_labels(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, str]:
+    """Hash of the project labels ActiveLabel last wrote into each sample (``activelabel_labels``).
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images to look at.
+
+    Returns:
+        The hash by image id (images without a sample or without a record are left out).
+    """
+    if WRITTEN_LABELS not in dataset.get_field_schema():
+        return {}
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    pairs = zip(view.values("image_id"), view.values(WRITTEN_LABELS), strict=True)
+    return {image_id: value for image_id, value in pairs if value}
 
 
 def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
@@ -407,7 +473,7 @@ def _save_views(dataset: fo.Dataset, tasks: list[ImageTask]) -> None:
 
 
 def open_session_images(project_dir: Any) -> set[str]:
-    """Images of open FiftyOne annotation sessions: their ``ground_truth`` is left as it is.
+    """Images of open FiftyOne annotation sessions: an edited ``ground_truth`` of theirs is left as it is.
 
     Args:
         project_dir: the project folder.
@@ -427,8 +493,9 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     one ``curation - <issue>`` per issue (spaces instead of underscores) are refreshed too, and so is
     one saved view ``task-<id>`` per task (description ``Task: <name>``); views of deleted tasks
     are removed. Every sample gets ``task``, ``task_name``, ``job``, ``position`` and, for video
-    frames, ``video``, ``video_name``, ``frame_number`` and ``time``. The ``ground_truth`` of images in
-    an open FiftyOne annotation session is not overwritten (it may hold edits not saved to the project).
+    frames, ``video``, ``video_name``, ``frame_number`` and ``time``. The ``ground_truth`` of an image in
+    an open FiftyOne annotation session that was edited in FiftyOne is not overwritten (the edits are not
+    in the project yet); every other sample shows the project's labels and records their fingerprint.
 
     Args:
         project: the project (name of the dataset, task, classes).
@@ -441,14 +508,14 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     name = dataset_name(manifest.project_dir, project.id)
     dataset = fo.load_dataset(name) if fo.dataset_exists(name) else fo.Dataset(name, persistent=True)
     dataset.persistent = True
-    _declare_fields(dataset, project.task)
+    reset = _declare_fields(dataset, project.task)
 
     records = {r.id: r for r in manifest.all()}
     duplicate_of = load_duplicate_of(manifest.project_dir)
     kept = set(duplicate_of.values())
     tasks = TaskStore(manifest.project_dir).load()
     where = _placement(manifest.project_dir, tasks)
-    protected = open_session_images(manifest.project_dir)
+    protected = set() if reset else open_session_images(manifest.project_dir)
 
     known: dict[str, str] = {}
     stale: list[str] = []
@@ -478,7 +545,7 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
             duplicate_of,
             kept,
             where,
-            keep_ground_truth=sample["image_id"] in protected,
+            protected=sample["image_id"] in protected,
         )
 
     dataset.classes = {GROUND_TRUTH: list(project.classes)}

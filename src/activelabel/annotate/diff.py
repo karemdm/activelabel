@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from activelabel.annotate.base import Pulled
 from activelabel.images.manifest import Manifest
 from activelabel.labels import (
     AnnotationSet,
@@ -20,6 +21,7 @@ from activelabel.labels import (
     save_annotations,
 )
 from activelabel.projects import Project, ProjectStore
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 SAME_CLASS_IOU = 0.5  # same class and this much overlap: the same object
@@ -214,12 +216,46 @@ def clean_labels(project: Project, labels: list[Label]) -> tuple[list[Label], di
     return out, dropped
 
 
+# -- what the tool changed ------------------------------------------------------
+def settle(
+    pulled: dict[str, list[Label]], current: dict[str, list[Label]]
+) -> tuple[dict[str, list[Label]], list[str]]:
+    """The labels to diff and apply: the tool's version only for the images edited in the tool.
+
+    An image the tool did not change keeps the project's current labels, so a project edit made after the
+    images were sent is not undone. An image changed in the tool whose project labels also changed since
+    they were written into the tool is a conflict: the tool's version still wins (the person reviews the
+    summary before applying), and the image is listed.
+
+    Args:
+        pulled: what the tool's pull returned (a :class:`~activelabel.annotate.base.Pulled`, or a plain
+            dict when the tool cannot tell which images were edited: then all of them are taken).
+        current: the project's labels now, by image id.
+
+    Returns:
+        The labels of each pulled image and the ids of the images edited on both sides.
+    """
+    if not isinstance(pulled, Pulled):
+        return dict(pulled), []
+    labels = {i: (items if i in pulled.edited else list(current.get(i, []))) for i, items in pulled.items()}
+    conflicts = [
+        i
+        for i in pulled
+        if i in pulled.edited and i in pulled.written and pulled.written[i] != label_hash(current.get(i, []))
+    ]
+    return labels, conflicts
+
+
 # -- diff -----------------------------------------------------------------------
 _MESSAGES = {
     "unknown_class": "Labels with classes that are not in the project (added to the project on apply).",
     "no_geometry": "Labels without the shape this task needs (they are skipped on apply).",
     "multiple_classes": "Images with more than one class (classification keeps the first).",
     "missing_images": "Images the tool did not return (they are left unchanged).",
+    "edited_on_both_sides": (
+        "Images edited in the tool whose project labels also changed since they were sent: applying "
+        "replaces the project's version with the tool's."
+    ),
 }
 
 
@@ -260,6 +296,7 @@ def _compare_all(
     image_ids: list[str],
     new_labels: dict[str, list[Label]],
     project: Project,
+    conflicts: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Label]]]:
     """Clean the new labels and compare them with the ground truth, image by image.
 
@@ -268,6 +305,7 @@ def _compare_all(
         image_ids: the images of the session.
         new_labels: labels brought back from the tool, by image id.
         project: the project (task and class list).
+        conflicts: images edited both in the tool and in the project (see :func:`settle`).
 
     Returns:
         The summary (see :func:`diff`) and the cleaned labels of each image present in ``new_labels``.
@@ -282,6 +320,8 @@ def _compare_all(
     examples: list[dict[str, Any]] = []
     cleaned: dict[str, list[Label]] = {}
     changed = 0
+    for image_id in conflicts or []:
+        tally.problem("edited_on_both_sides", image_id)
 
     for image_id in image_ids:
         if image_id not in new_labels:
@@ -329,7 +369,11 @@ def _compare_all(
 
 
 def diff(
-    project_dir: Path, image_ids: list[str], new_labels: dict[str, list[Label]], project: Project
+    project_dir: Path,
+    image_ids: list[str],
+    new_labels: dict[str, list[Label]],
+    project: Project,
+    conflicts: list[str] | None = None,
 ) -> dict[str, Any]:
     """Summary of the changes between the project ground truth and ``new_labels`` for these images.
 
@@ -338,12 +382,13 @@ def diff(
         image_ids: the images of the session.
         new_labels: labels brought back from the tool, by image id.
         project: the project (task and class list).
+        conflicts: images edited both in the tool and in the project (``edited_on_both_sides``).
 
     Returns:
         ``{images_changed, added, removed, edited, per_class, unknown_classes, problems, examples}``
         (see docs/ANNOTATION.md).
     """
-    return _compare_all(project_dir, image_ids, new_labels, project)[0]
+    return _compare_all(project_dir, image_ids, new_labels, project, conflicts)[0]
 
 
 # -- apply ----------------------------------------------------------------------

@@ -6,11 +6,13 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate import fiftyone_tool as ft
-from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.annotate import sessions
+from activelabel.annotate.base import Pulled, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
 from activelabel.images.manifest import ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 pytestmark = pytest.mark.integration
@@ -69,3 +71,25 @@ def test_tools_say_so_when_the_project_was_never_opened_in_fiftyone():
         tool.send(None, ["a"], project, settings, "s1")
     with pytest.raises(ToolError, match="Open the project in FiftyOne"):
         tool.pull(None, ["a"], project, settings, {})
+
+
+def test_pull_tells_which_images_were_edited_and_send_counts_the_kept_ones(tmp_path, project):
+    manifest = Manifest(tmp_path)
+    for i in range(2):
+        make_image(tmp_path / "images" / f"i{i}.png", seed=i)
+    manifest.add([ImageRecord(f"i{i}", f"i{i}.png", f"images/i{i}.png", 64, 48, 1, "2026") for i in range(2)])
+    cat = [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {"i0": cat}, {}))
+    tool, settings = get_tool("fiftyone"), ToolSettings("fiftyone")
+    assert tool.send(dataset, ["i0", "i1"], project, settings, "s1").kept == 0
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample["ground_truth"].detections[0].bounding_box = [0.3, 0.3, 0.2, 0.2]
+    sample.save()
+
+    pulled = tool.pull(dataset, ["i0", "i1"], project, settings, {})
+    assert isinstance(pulled, Pulled)
+    assert pulled.edited == {"i0"} and pulled.written == {"i0": label_hash(cat), "i1": label_hash([])}
+    # not brought back yet: a refresh keeps the edit while a session is open, and send counts it
+    sessions.create(tmp_path, "fiftyone", "all", ["i0", "i1"], [], {})
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {"i0": cat}, {}))
+    assert tool.send(dataset, ["i0", "i1"], project, settings, "s2").kept == 1

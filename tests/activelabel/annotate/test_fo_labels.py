@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from fiftyone import core  # noqa: F401
 
-from activelabel.annotate.fo_labels import labels_and_notes, labels_from_fo
+from activelabel.annotate.fo_labels import fingerprint, labels_and_notes, labels_from_fo
 from activelabel.fiftyone_bridge import _ground_truth
 from activelabel.labels import Label
 from activelabel.tasks import Task
@@ -85,3 +85,16 @@ def test_keypoint_visibility_and_pose_box_survive_a_round_trip():
     assert moved.bbox == [0.2, 0.3, 0.75, 0.65]  # the box follows the points again
     plain = fo.Keypoints(keypoints=[fo.Keypoint(label="p", points=[(0.2, 0.3)])])  # older datasets
     assert labels_from_fo(plain, Task.KEYPOINTS)[0].keypoints == [[0.2, 0.3, 2.0]]
+
+
+def test_fingerprint_ignores_float_noise_and_scores_but_not_edits():
+    written = _ground_truth(Task.DETECTION, [Label("cat", bbox=[0.1, 0.2, 0.3, 0.4])])
+    same = fo.Detections(
+        detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4000001], confidence=0.5)]
+    )
+    moved = fo.Detections(detections=[fo.Detection(label="cat", bounding_box=[0.15, 0.2, 0.3, 0.4])])
+    renamed = fo.Detections(detections=[fo.Detection(label="dog", bounding_box=[0.1, 0.2, 0.3, 0.4])])
+    assert fingerprint(written, Task.DETECTION) == fingerprint(same, Task.DETECTION)
+    assert fingerprint(written, Task.DETECTION) != fingerprint(moved, Task.DETECTION)
+    assert fingerprint(written, Task.DETECTION) != fingerprint(renamed, Task.DETECTION)
+    assert fingerprint(None, Task.DETECTION) == fingerprint(fo.Detections(), Task.DETECTION)

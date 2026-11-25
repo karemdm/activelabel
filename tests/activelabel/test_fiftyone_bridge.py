@@ -5,10 +5,12 @@ import pytest
 from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
+from activelabel.annotate import sessions
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 
@@ -319,3 +321,35 @@ def test_a_keypoint_without_visibility_counts_as_visible():
     assert list(pose.points[0]) == [0.1, 0.2] and list(pose.points[1]) == [0.3, 0.4]
     assert pose.points[2][0] != pose.points[2][0]  # not labeled: NaN
     assert pose.visibility == [2, 2, 0]
+
+
+def test_open_session_keeps_only_the_images_edited_in_fiftyone(tmp_path, project):
+    manifest = build(tmp_path)
+    cat, dog = [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])], [Label("dog", bbox=[0.5, 0.5, 0.2, 0.2])]
+    old = AnnotationSet(Task.DETECTION, ["cat", "dog"], {"i0": cat, "i1": cat}, {})
+    dataset = bridge.sync_dataset(project, manifest, old)
+    assert bridge.edited_images(dataset, ["i0", "i1", "i2"], Task.DETECTION) == set()
+    sessions.create(tmp_path, "fiftyone", "all", ["i0", "i1"], [], {})
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample[bridge.GROUND_TRUTH].detections[0].bounding_box = [0.2, 0.2, 0.2, 0.2]  # edited in the App
+    sample.save()
+    assert bridge.edited_images(dataset, ["i0", "i1"], Task.DETECTION) == {"i0"}
+
+    new = AnnotationSet(Task.DETECTION, ["cat", "dog"], {"i0": dog, "i1": dog}, {})
+    again = bridge.sync_dataset(project, manifest, new)
+    view = again.match(fo.ViewField("image_id").is_in(["i0", "i1"]))
+    shown = {s["image_id"]: s[bridge.GROUND_TRUTH].detections[0] for s in view}
+    assert shown["i0"].label == "cat" and shown["i0"].bounding_box == [0.2, 0.2, 0.2, 0.2]  # edit kept
+    assert shown["i1"].label == "dog"  # not edited in FiftyOne: shows the new project labels
+    assert bridge.written_labels(again, ["i0", "i1"]) == {"i0": label_hash(cat), "i1": label_hash(dog)}
+
+
+def test_a_sample_without_a_fingerprint_counts_as_edited(tmp_path, project):
+    """A dataset written by an earlier version: its edits cannot be told apart, so they are kept."""
+    manifest = build(tmp_path, count=1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    sample = dataset.first()
+    assert not bridge.is_edited(sample, Task.DETECTION)
+    sample[bridge.WRITTEN] = None
+    sample.save()
+    assert bridge.is_edited(sample, Task.DETECTION)

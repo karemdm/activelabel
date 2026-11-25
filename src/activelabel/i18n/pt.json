@@ -362,6 +362,7 @@
   "classes.in_use_item": "{name} ({labels} anotações em {images} imagens)",
   "classes.in_use_remove": "Remover classes e suas anotações",
   "problem.multiple_classes": "Imagens com mais de uma classe (só a primeira é mantida)",
+  "problem.edited_on_both_sides": "Imagens editadas no FiftyOne cujos rótulos no projeto também mudaram depois do envio: aplicar troca a versão do projeto pela do FiftyOne.",
   "ann.load_title": "Trazer anotações de arquivos",
   "annotate.tool.fiftyone": "FiftyOne",
   "annotate.tool.cvat": "CVAT",

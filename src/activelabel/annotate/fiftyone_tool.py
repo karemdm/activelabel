@@ -7,7 +7,7 @@ from typing import Any
 from fiftyone import ViewField as F
 
 from activelabel import fiftyone_bridge
-from activelabel.annotate.base import GROUND_TRUTH, Sent, ToolError, ToolSettings, need_dataset
+from activelabel.annotate.base import GROUND_TRUTH, Pulled, Sent, ToolError, ToolSettings, need_dataset
 from activelabel.annotate.fo_labels import labels_from_fo
 from activelabel.labels import Label
 from activelabel.projects import Project
@@ -49,12 +49,14 @@ class FiftyOneTool:
         Args:
             dataset: the project's FiftyOne dataset.
             image_ids: ids of the images of the session.
-            project: not used.
+            project: the project (its task tells how labels are read).
             settings: not used.
             session_id: id of the annotation session (names the saved view).
 
         Returns:
-            The link to the App on the view and the view name as reference.
+            The link to the App on the view, the view name as reference and how many images still hold
+            edits of an earlier session (the dataset was just refreshed, so only those differ from what
+            ActiveLabel wrote).
 
         Raises:
             ToolError: no dataset, none of the images is in it, or the App could not be started.
@@ -69,7 +71,8 @@ class FiftyOneTool:
             url = fiftyone_bridge.launch_app(dataset, name)
         except OSError as exc:
             raise ToolError(str(exc)) from exc
-        return Sent([{"label": "FiftyOne", "url": url}], {"view": name})
+        kept = len(fiftyone_bridge.edited_images(dataset, image_ids, project.task))
+        return Sent([{"label": "FiftyOne", "url": url}], {"view": name}, kept=kept)
 
     def pull(
         self,
@@ -78,8 +81,8 @@ class FiftyOneTool:
         project: Project,
         settings: ToolSettings,
         ref: dict[str, Any],
-    ) -> dict[str, list[Label]]:
-        """Read ``ground_truth`` of the session images.
+    ) -> Pulled:
+        """Read ``ground_truth`` of the session images, and which of them were edited in FiftyOne.
 
         Args:
             dataset: the project's FiftyOne dataset.
@@ -89,7 +92,9 @@ class FiftyOneTool:
             ref: not used.
 
         Returns:
-            The labels of each image, keyed by image id (an empty list when it has none).
+            The labels of each image, keyed by image id (an empty list when it has none), with the images
+            edited in FiftyOne since ActiveLabel wrote them, the hash of the project labels written into
+            each sample.
 
         Raises:
             ToolError: no dataset.
@@ -103,7 +108,8 @@ class FiftyOneTool:
         for image_id, value in zip(ids, values, strict=True):
             if image_id in wanted:
                 out[image_id] = labels_from_fo(value, project.task)
-        return out
+        edited = fiftyone_bridge.edited_images(dataset, image_ids, project.task)
+        return Pulled(out, edited, fiftyone_bridge.written_labels(dataset, image_ids))
 
     def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
         """Delete the saved view.
