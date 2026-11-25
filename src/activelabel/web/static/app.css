@@ -883,6 +883,17 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-adv[open] > summary { margin-bottom: var(--space-3); }
 .tr-adv-line { font-size: var(--font-sm); overflow-wrap: anywhere; }
 .tr-more { margin: var(--space-2) 0 var(--space-4); }
+/* training dialog: augmentation techniques (a full-width block under the augmentation level) */
+.tr-aug { grid-column: 1 / -1; margin: 0 0 0.9rem; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); }
+.tr-aug legend { font-weight: 600; padding: 0 var(--space-1); }
+.tr-aug-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--space-2) var(--space-4); }
+.tr-aug-item .hint { margin: 0 0 var(--space-1) 26px; font-size: var(--font-sm); }
+.tr-aug-set { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: 26px; }
+.tr-aug-set-item { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-sm); }
+.tr-aug-set-item.wide { flex-basis: 100%; }
+.tr-aug .tr-aug-set-item input.tr-aug-num { width: 7rem; }
+.tr-aug .tr-aug-set-item input.tr-aug-pairs { width: 100%; max-width: 16rem; }
+.tr-aug .tr-aug-set-item .hint { margin: var(--space-1) 0 0; }
 .tr-more summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-3); }
 .tr-more summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .tr-combos { margin: 0.4rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
