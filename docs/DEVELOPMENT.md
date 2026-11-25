@@ -101,10 +101,11 @@ Where to start for common changes:
 | Change | Look at |
 | --- | --- |
 | A new annotation format | `annotations/` (a parser, then `detect_format` and `parse` in `annotations/parsing.py`), tests in `tests/activelabel/annotations/` |
-| A new curation issue | `curation/issues.py` (flag, threshold, `ISSUES`), the `issue.*`, `tag.*` and `threshold.*` texts in `i18n`, and `static/js/main.js` |
+| A new curation issue | `curation/issues.py` (flag, threshold, `ISSUES`), the `issue.*`, `tag.*` and `threshold.*` texts in `i18n`, and `static/js/cv/names.js` (`ISSUES`) with the Curation step in `static/js/cv/curation.js` |
 | A new model in the catalogue | `training/catalog.py` (data only) and, for a new kind of task, a worker in `training/workers/` and `WORKER_FILES` in `runner.py` |
 | A new endpoint | the router of its area in `web/`, a test in `tests/activelabel/web/`, and the table in `docs/DESIGN.md` or the document of that area |
 | A new screen text | `i18n/en.json` and `i18n/pt.json` (same key, same placeholders) |
+| A step of the project page | its module in `static/js/cv/` (`images.js`, `annotations.js`, `curation.js`, `datasets.js`, `training.js`, `models.js`); what the steps share comes in the `page` object built by `cv/project.js` |
 
 ## Conventions
 
