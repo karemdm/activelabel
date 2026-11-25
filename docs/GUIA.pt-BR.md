@@ -154,8 +154,8 @@ Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
 todos os folds. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
-pontos-chave (torchvision); os modelos YOLO/Ultralytics ainda não estão disponíveis e ficam
-escondidos na interface. No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
+pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) treinam depois que a licença
+é aceita (veja *Licences* em TRAINING.md) e, por enquanto, ficam escondidos na interface. No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
 *GPU n* ou *GPU da Apple (MPS)*), como a foto vira a entrada quadrada (*Esticar*, *Letterbox* ou *Corte
 central*, o mesmo na avaliação, na pré-anotação e no ONNX), o agendamento da taxa de aprendizado
 (*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com épocas de aquecimento, a precisão mista (numa GPU

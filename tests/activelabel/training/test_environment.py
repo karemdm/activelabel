@@ -17,6 +17,7 @@ from activelabel.training.environment import (
     pinned_version,
     pip_commands,
 )
+from activelabel.training.licences import LicenceNotAccepted, LicenceStore
 
 PLAIN = """\
 +-----------------------------------------------------------------------------------------+
@@ -399,3 +400,17 @@ def test_run_logged_returns_exit_code(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Done())
     assert envmod.run_logged(["x"], tmp_path / "l.log", nothing) == 3
+
+
+def test_ensure_refuses_a_licensed_package_until_accepted(env, monkeypatch):
+    ran = []
+    monkeypatch.setattr(envmod, "run_logged", lambda cmd, log, check, poll=0.5: ran.append(cmd) or 0)
+    with pytest.raises(LicenceNotAccepted) as caught:
+        env.ensure(["ultralytics"], nothing, lambda s: None)
+    assert caught.value.code == "licence_not_accepted"
+    assert ran == [] and not env.path.exists()  # not even the environment is created
+    LicenceStore(env.workspace).accept("ultralytics")
+    monkeypatch.setattr(TrainingEnvironment, "create", lambda self, check, step: None)
+    monkeypatch.setattr(TrainingEnvironment, "installed", lambda self: {})
+    env.ensure(["ultralytics"], nothing, lambda s: None)
+    assert any("ultralytics==" + envmod.PINNED_VERSIONS["ultralytics"] in cmd for cmd in ran)

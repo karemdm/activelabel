@@ -129,9 +129,8 @@ project is its *type*.)
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
    fine-tuning or from scratch; single run, grid search or all folds) with live curves and
    evaluation on the test part. Classification, detection, semantic segmentation, instance
-   segmentation (Mask R-CNN) and keypoints (torchvision) are available; YOLO/Ultralytics models are
-   listed in the API catalogue but hidden in the interface and refused by the API until they are
-   supported. A run chooses its device (automatic, CPU, a GPU or Apple MPS), the resize policy
+   segmentation (Mask R-CNN) and keypoints (torchvision) are available; YOLO/Ultralytics models (AGPL-3.0)
+   train once the licence is accepted (docs/TRAINING.md, *Licences*), through the API for now. A run chooses its device (automatic, CPU, a GPU or Apple MPS), the resize policy
    (stretch, letterbox or centre crop), the learning rate schedule with warmup, mixed precision on a CUDA
    GPU and the data augmentation techniques; when the GPU runs out of memory the batch is halved. Packages
    are installed on demand, at pinned and tested versions, in a separate environment. See

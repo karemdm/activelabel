@@ -365,7 +365,7 @@ def test_create_run_rejections(setup):
     assert resp.status_code == 400 and "deleted" in resp.json()["detail"]
 
 
-def test_yolo_is_rejected_before_the_environment(tmp_path):
+def test_yolo_is_rejected_before_the_environment_until_the_licence_is_accepted(tmp_path):
     from api_client import make_client, upload
     from sample_images import make_image
 
@@ -381,7 +381,7 @@ def test_yolo_is_rejected_before_the_environment(tmp_path):
     save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["a"], images, {}))
     assert client.post("/api/projects/1/datasets", json={}).status_code == 200
     resp = client.post("/api/projects/1/runs", json={"dataset": 1, "model": "yolov8n"})
-    assert resp.status_code == 400 and "YOLO" in resp.json()["detail"]
+    assert resp.status_code == 400 and resp.json()["code"] == "licence_not_accepted"
     assert client.get("/api/projects/1/runs").json() == {"runs": []}
 
 

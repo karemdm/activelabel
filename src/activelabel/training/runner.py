@@ -37,6 +37,7 @@ from typing import IO, Any
 
 from activelabel import __version__, preannotate
 from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
+from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, JobManager, Progress
 from activelabel.labels import Label, geometry_problem
@@ -69,6 +70,8 @@ WORKER_FILES = {
     "keypoints": "detection.py",
     "semantic": "segmentation.py",
 }
+#: Worker script of the families that have their own (the others use ``WORKER_FILES`` by kind of task).
+FAMILY_WORKER_FILES = {"ultralytics": "yolo.py"}
 OBJECT_KINDS = ("detection", "instance", "keypoints", "semantic")
 EXTRA_PACKAGES = ("pillow", "numpy")  # the workers need nothing else
 EXPORT_SCRIPT = WORKERS_DIR / "export_onnx.py"
@@ -117,8 +120,9 @@ def failure_fields(exc: BaseException) -> dict[str, Any]:
     Returns:
         ``{"error", "error_code", "error_params"}`` (the code is "" for a failure without one).
     """
-    code = exc.code if isinstance(exc, RunnerError) else ""
-    params = exc.params if isinstance(exc, RunnerError) else {}
+    code, params = "", {}
+    if isinstance(exc, RunnerError | CodedError):
+        code, params = exc.code, exc.params
     return {"error": str(exc) or type(exc).__name__, "error_code": code, "error_params": params}
 
 
@@ -139,11 +143,24 @@ def warning_entry(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def worker_key(model: ModelSpec) -> str:
+    """What picks the worker of a model: its family when the family has its own worker, else its kind of task.
+
+    Args:
+        model: catalogue entry.
+
+    Returns:
+        A key of ``FAMILY_WORKER_FILES`` or ``WORKER_FILES``.
+    """
+    return model.family if model.family in FAMILY_WORKER_FILES else model.task_kind
+
+
 def worker_script(task_kind: str) -> Path:
     """Script that trains this kind of task.
 
     Args:
-        task_kind: kind of task of the model (a key of ``WORKER_FILES``).
+        task_kind: kind of task of the model (a key of ``WORKER_FILES``), or a family with its own worker
+            (a key of ``FAMILY_WORKER_FILES``).
 
     Returns:
         Path of the worker script in ``workers/``.
@@ -151,7 +168,7 @@ def worker_script(task_kind: str) -> Path:
     Raises:
         RunnerError: the kind of task has no worker yet.
     """
-    name = WORKER_FILES.get(task_kind)
+    name = FAMILY_WORKER_FILES.get(task_kind) or WORKER_FILES.get(task_kind)
     script = WORKERS_DIR / name if name else None
     if script is None or not script.exists():
         raise RunnerError(f"Training {task_kind} models {COMES_LATER}.")
@@ -653,7 +670,7 @@ class TrainingRunner:
             project_ids: function that lists the project ids (used by ``recover``); none by default.
             project: function that gives a project by id; by default it is read from its folder.
             environment: training environment; by default one inside ``workspace``.
-            scripts: function that gives the worker script of a kind of task.
+            scripts: function that gives the worker script of a kind of task (or of a family with its own).
             poll: seconds to wait for a line of output before checking for cancellation.
         """
         self.workspace = Path(workspace)
@@ -1363,6 +1380,7 @@ class TrainingRunner:
 
         Raises:
             RunnerError: unknown or not yet supported model, or the dataset version was deleted.
+        LicenceNotAccepted: the model's package needs a licence the person has not accepted (``ensure``).
         """
         project_id, number = key
         run_dir = store.path(number)
@@ -1370,9 +1388,7 @@ class TrainingRunner:
         model = get_model(config.model)
         if model is None:
             raise RunnerError(f"Unknown model '{config.model}'.")
-        if model.family == "ultralytics":
-            raise RunnerError(f"Training YOLO models {COMES_LATER}.")
-        script = self._scripts(model.task_kind)
+        script = self._scripts(worker_key(model))
 
         env = self.environment
         env.ensure(

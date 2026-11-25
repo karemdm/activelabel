@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from training_fakes import finished, tmp_dirs, wait_for
+from training_fakes import FakeEnv, finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
 from activelabel.labels import Label
@@ -10,6 +10,7 @@ from activelabel.training import runner as runner_module
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig, validate
+from activelabel.training.licences import LICENCES, LicenceNotAccepted, LicenceStore, licences_of_packages
 from activelabel.training.runner import (
     RunnerError,
     _objects,
@@ -18,6 +19,8 @@ from activelabel.training.runner import (
     failure_fields,
     pose_box,
     warning_entry,
+    worker_key,
+    worker_script,
 )
 from activelabel.training.runs import RunStore
 
@@ -63,14 +66,43 @@ def test_failure_cleans_up(setup):
     wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written
 
 
-def test_not_yet_supported_fails_before_install(setup):
+class LicensedEnv(FakeEnv):
+    """The fake environment with the licence check of the real one."""
+
+    def ensure(self, packages, check, step):
+        LicenceStore(self.workspace).require(licences_of_packages(packages))
+        super().ensure(packages, check, step)
+
+
+def test_yolo_run_needs_the_accepted_licence_before_anything_is_installed(setup):
     _, state, runner = setup
+    runner.environment = LicensedEnv(runner.workspace)
     store = RunStore(state.store.dir(1))
     n = store.create(RunConfig(dataset=1, model="yolov8n"))["number"]
     runner.enqueue(1, n)
     run = wait_for(finished(store, n))
-    assert run["status"] == "failed" and "comes later" in run["error"]
+    assert run["status"] == "failed" and run["error_code"] == "licence_not_accepted"
+    assert run["error_params"] == {"licence": "ultralytics", "name": "AGPL-3.0"}
     assert not hasattr(runner.environment, "ensured")
+    LicenceStore(runner.workspace).accept("ultralytics")
+    again = store.create(RunConfig(dataset=1, model="yolov8n"))["number"]
+    runner.enqueue(1, again)
+    run = wait_for(finished(store, again))
+    assert (
+        run["error_code"] != "licence_not_accepted"
+    )  # past the licence: this classification version has no boxes
+    assert runner.environment.ensured[0][0] == "ultralytics"
+
+
+def test_worker_key_and_script_pick_the_yolo_worker_for_its_family():
+    assert worker_key(get_model("yolov8n")) == "ultralytics" == worker_key(get_model("yolo11s-pose"))
+    assert worker_key(get_model("resnet18")) == "classification"
+    assert worker_key(get_model("maskrcnn_resnet50_fpn")) == "instance"
+    assert (
+        worker_script("ultralytics").name == "yolo.py" and worker_script("semantic").name == "segmentation.py"
+    )
+    with pytest.raises(RunnerError, match="comes later"):
+        worker_script("nothing")
 
 
 def composite(state, **kwargs):
@@ -384,6 +416,11 @@ def test_failures_and_warnings_keep_their_code_and_params():
         "error_params": {"smallest": 1},
     }
     assert failure_fields(ValueError("x")) == {"error": "x", "error_code": "", "error_params": {}}
+    licence = failure_fields(LicenceNotAccepted(LICENCES["ultralytics"]))
+    assert (
+        licence["error_code"] == "licence_not_accepted"
+        and licence["error_params"]["licence"] == "ultralytics"
+    )
     assert warning_entry({"message": "m", "code": "batch_halved", "params": {"from": 4, "to": 2}}) == {
         "code": "batch_halved",
         "params": {"from": 4, "to": 2},

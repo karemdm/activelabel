@@ -343,3 +343,48 @@ def test_warnings_and_errors_come_with_their_codes(tmp_path):
     assert run["error_code"] == "out_of_memory" and run["error_params"] == {}
     listed = client.get(RUNS).json()["runs"][0]
     assert listed["warnings"][1]["code"] == "batch_halved" and listed["error_code"] == "out_of_memory"
+
+
+def test_licences_are_listed_and_accepted_with_a_date(tmp_path):
+    client, state = make_client(tmp_path)
+    [entry] = client.get("/api/training/licences").json()["licences"]
+    assert entry["id"] == "ultralytics" and entry["name"] == "AGPL-3.0" and entry["accepted"] is False
+    assert (
+        client.post("/api/training/licences/ultralytics/accept", json={}).json()["code"]
+        == "licence_not_confirmed"
+    )
+    assert client.post("/api/training/licences/ultralytics/accept", json={"accept": False}).status_code == 400
+    missing = client.post("/api/training/licences/nothing/accept", json={"accept": True})
+    assert missing.status_code == 404 and missing.json()["code"] == "licence_not_found"
+    accepted = client.post("/api/training/licences/ultralytics/accept", json={"accept": True}).json()
+    assert accepted["accepted"] is True and accepted["accepted_at"]
+    assert client.get("/api/training/licences").json()["licences"] == [accepted]
+    again = client.post("/api/training/licences/ultralytics/accept", json={"accept": True}).json()
+    assert again["accepted_at"] == accepted["accepted_at"]  # the first date stays
+    assert (state.settings.workspace / "settings.json").exists()
+
+
+def test_yolo_run_is_refused_until_the_licence_is_accepted(tmp_path):
+    client, _ = _setup(tmp_path)
+    body = {"dataset": 1, "model": "yolov8n", "params": {"epochs": 1}}
+    refused = client.post(RUNS, json=body)
+    assert refused.status_code == 400 and refused.json()["code"] == "licence_not_accepted"
+    assert refused.json()["params"] == {"licence": "ultralytics", "name": "AGPL-3.0"}
+    assert client.get(RUNS).json() == {"runs": []}
+    assert client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).status_code == 200
+    client.post("/api/training/licences/ultralytics/accept", json={"accept": True})
+    created = client.post(RUNS, json=body)
+    assert created.status_code == 200 and created.json()["model"] == "yolov8n"
+
+
+def test_environment_tells_whether_the_licence_of_a_model_is_accepted(tmp_path):
+    client, _ = make_client(tmp_path)
+    yolo = client.get("/api/training/environment", params={"model": "yolov8n"}).json()
+    assert yolo["licence"] == "ultralytics" and yolo["licence_accepted"] is False
+    client.post("/api/training/licences/ultralytics/accept", json={"accept": True})
+    assert (
+        client.get("/api/training/environment", params={"model": "yolov8n"}).json()["licence_accepted"]
+        is True
+    )
+    plain = client.get("/api/training/environment", params={"model": "resnet18"}).json()
+    assert plain["licence"] is None and plain["licence_accepted"] is True

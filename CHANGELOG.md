@@ -18,6 +18,9 @@ Everything below goes into the first release, 0.1.0.
 - **Projects, images and tasks.** Projects of type classification, detection, segmentation or keypoints;
   images uploaded as files, a folder, a .zip or a video; tasks and jobs inside a project as in CVAT, with
   long videos cut into time-distant segments when needed (docs/TASKS.md, docs/VIDEO.md).
+- **YOLO training (Ultralytics).** YOLOv8 and YOLO11 detection, segmentation and pose models train with
+  their own worker once the AGPL-3.0 licence of Ultralytics is accepted; the acceptance is kept with its date in
+  the workspace settings, and nothing is installed or trained before it (docs/TRAINING.md, *Licences*).
 - **Import.** Annotation files in COCO, YOLO (also pose), Pascal VOC, CVAT and MOT, class folders as
   classification labels, and whole CVAT projects with their tasks and jobs, with a report of what was
   left out and why (docs/IMPORT.md).

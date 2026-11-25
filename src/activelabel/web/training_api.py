@@ -17,6 +17,12 @@ from activelabel.training import augmentations, devices
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
+from activelabel.training.licences import (
+    LICENCES,
+    LicenceNotAccepted,
+    LicenceStore,
+    licence_of_model,
+)
 from activelabel.training.models import WEIGHTS, ModelStore
 from activelabel.training.runner import EXTRA_PACKAGES, RunnerError, check_resume
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
@@ -152,8 +158,12 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
     except ConfigError as error:
         raise bad_request(error) from None
     model = get_model(checked.model)
-    if model is not None and model.family == "ultralytics":
-        raise ApiError(400, "training_unavailable", "Training YOLO models is not available yet.")
+    licence = licence_of_model(model) if model is not None else None
+    if licence is not None:
+        try:
+            LicenceStore(state.settings.workspace).require([licence])
+        except LicenceNotAccepted as error:
+            raise bad_request(error) from None
     if version.get("incomplete"):
         raise ApiError(
             400,
@@ -299,7 +309,55 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
         needed = [*spec.packages, *EXTRA_PACKAGES]
         answer["missing"] = env.missing(needed) if exists else needed
         answer["install_needed"] = bool(answer["missing"])
+        licence = licence_of_model(spec)
+        answer["licence"] = licence.id if licence else None
+        answer["licence_accepted"] = licence is None or LicenceStore(state.settings.workspace).is_accepted(
+            licence.id
+        )
     return answer
+
+
+class AcceptLicence(BaseModel):
+    """Body of POST /training/licences/{id}/accept."""
+
+    accept: bool = False
+
+
+@router.get("/training/licences")
+def licences(state: AppState = STATE) -> dict[str, Any]:
+    """The licences that must be accepted before their package is installed, and whether each was.
+
+    Args:
+        state: The shared state of the application.
+
+    Returns:
+        ``{"licences": [{id, name, package, url, accepted, accepted_at}]}``.
+    """
+    return {"licences": LicenceStore(state.settings.workspace).status()}
+
+
+@router.post("/training/licences/{licence_id}/accept")
+def accept_licence(licence_id: str, body: AcceptLicence, state: AppState = STATE) -> dict[str, Any]:
+    """Record that the person accepts a licence (the date is kept in the workspace settings).
+
+    Args:
+        licence_id: Id of the licence (``ultralytics``).
+        body: ``accept`` must be true.
+        state: The shared state of the application.
+
+    Returns:
+        The licence with its state, as in :func:`licences`.
+
+    Raises:
+        ApiError: unknown licence (404), or ``accept`` is not true (400, ``licence_not_confirmed``).
+    """
+    if licence_id not in LICENCES:
+        raise ApiError(404, "licence_not_found", "This licence does not exist.")
+    if not body.accept:
+        raise ApiError(400, "licence_not_confirmed", "Send accept: true to accept the licence.")
+    store = LicenceStore(state.settings.workspace)
+    store.accept(licence_id)
+    return next(entry for entry in store.status() if entry["id"] == licence_id)
 
 
 @router.get("/projects/{project_id}/runs/{number}/log")
