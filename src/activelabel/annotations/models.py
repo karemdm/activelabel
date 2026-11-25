@@ -22,6 +22,10 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     ),
     "size_mismatch": ("warning", "The image size in the file differs from the uploaded image."),
     "box_clipped": ("warning", "Some boxes went outside the image and were clipped."),
+    "geometry_clipped": (
+        "warning",
+        "Some polygon points or keypoints went outside the image and were moved to its border.",
+    ),
     "box_degenerate": ("warning", "Some boxes have no area and were skipped."),
     "polygon_too_few_points": ("warning", "Some polygons have fewer than 3 points and were skipped."),
     "unknown_class_id": ("warning", "Some annotations use a class that is not defined and were skipped."),

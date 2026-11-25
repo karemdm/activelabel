@@ -330,10 +330,25 @@ class ParseContext:
             return None
         return [cx0, cy0, cx1 - cx0, cy1 - cy0]
 
+    @staticmethod
+    def _outside(x: float, y: float) -> bool:
+        """Whether a relative position lies outside the image.
+
+        Args:
+            x: relative horizontal position.
+            y: relative vertical position.
+
+        Returns:
+            True when it is outside ``[0, 1]`` by more than the tolerance.
+        """
+        return not (-EPS <= x <= 1 + EPS and -EPS <= y <= 1 + EPS)
+
     def ring(
         self, points: Sequence[Sequence[float]], width: float, height: float, where: str
     ) -> list[Point] | None:
         """Relative polygon ring from absolute points; None (with a problem) when unusable.
+
+        Vertices outside the image are moved to its border and reported (``geometry_clipped``).
 
         Args:
             points: polygon ``(x, y)`` points in absolute units.
@@ -350,12 +365,17 @@ class ParseContext:
         if width <= 0 or height <= 0 or not all(math.isfinite(v) for p in points for v in p[:2]):
             self.problem("invalid_annotation", where)
             return None
-        return [[clamp01(p[0] / width), clamp01(p[1] / height)] for p in points]
+        ring = [[p[0] / width, p[1] / height] for p in points]
+        if any(self._outside(x, y) for x, y in ring):
+            self.problem("geometry_clipped", where)
+        return [[clamp01(x), clamp01(y)] for x, y in ring]
 
     def point(
         self, x: float, y: float, v: float, width: float, height: float, where: str
     ) -> list[float] | None:
         """Relative keypoint ``[x, y, v]``; None when the numbers are not finite.
+
+        A point outside the image is moved to its border and reported (``geometry_clipped``).
 
         Args:
             x: horizontal position.
@@ -371,7 +391,10 @@ class ParseContext:
         if not all(math.isfinite(t) for t in (x, y, v)) or width <= 0 or height <= 0:
             self.problem("invalid_annotation", where)
             return None
-        return [clamp01(x / width), clamp01(y / height), float(int(v))]
+        rx, ry = x / width, y / height
+        if self._outside(rx, ry):
+            self.problem("geometry_clipped", where)
+        return [clamp01(rx), clamp01(ry), float(int(v))]
 
     def result(self) -> ParseResult:
         """Final result of the run.

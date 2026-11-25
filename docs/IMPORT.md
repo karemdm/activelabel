@@ -56,6 +56,9 @@ says what was found. Nothing changes until the person chooses an action.
   called `labels.txt`, `classes.txt` or `names.txt` that holds label lines is the label file of an image of
   that name; one that only lists names gives the class names.
 - CVAT shapes without a label are reported and left out, not imported as an empty class.
+- **Shapes outside the image are reported**: a box is clipped to the image (`box_clipped`); a polygon vertex or
+  a keypoint outside it is moved to its border and the report says so (`geometry_clipped`), since the shape
+  changed.
 - *Change the type to {task} and import* always rewrites the stored type of the saved annotations as well
   as the project's; changing the type or the classes of a project (PATCH) waits for training, ONNX export
   and pre-annotation of the project to finish (409 `busy_training`), because they read both.

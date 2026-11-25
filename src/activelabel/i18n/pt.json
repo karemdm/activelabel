@@ -180,6 +180,7 @@
   "problem.duplicate_image_entry": "A mesma imagem aparece mais de uma vez; as entradas seguintes foram ignoradas.",
   "problem.size_mismatch": "O tamanho da imagem no arquivo difere da imagem enviada.",
   "problem.box_clipped": "Algumas caixas saíam da imagem e foram recortadas.",
+  "problem.geometry_clipped": "Alguns pontos de polígonos ou keypoints saíam da imagem e foram movidos para a borda.",
   "problem.box_degenerate": "Algumas caixas não têm área e foram ignoradas.",
   "problem.polygon_too_few_points": "Alguns polígonos têm menos de 3 pontos e foram ignorados.",
   "problem.no_geometry": "Alguns rótulos não têm a forma que este tipo de projeto usa (caixa, polígono ou pontos-chave); eles ficam de fora.",

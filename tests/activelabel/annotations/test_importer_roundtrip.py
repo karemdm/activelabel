@@ -694,7 +694,6 @@ def test_coco_declared_image_size_scales_the_coordinates_and_is_reported(tmp_pat
     same_images(rig.stored(), {"a.png": [box("cat", 6.4, 9.6, 32, 12)], **dict.fromkeys(NAMES[1:])}, "scaled")
 
 
-@pytest.mark.xfail(strict=True, reason="#357")
 @pytest.mark.parametrize("kind", ["polygon", "keypoints"])
 def test_coco_geometry_outside_the_image_is_reported_not_changed_silently(tmp_path, kind):
     rig = make_rig(tmp_path, task="segmentation" if kind == "polygon" else "keypoints")
