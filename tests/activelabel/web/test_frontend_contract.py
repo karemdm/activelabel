@@ -367,3 +367,9 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def test_sync_review_boxes_wrap_a_long_unbroken_name():
+    """A name without spaces breaks inside its box instead of crossing the border (#463)."""
+    assert re.search(r"\.sync-dir \{[^}]*min-width: 0; overflow-wrap: anywhere", CSS)
+    assert re.search(r"\.dir-sub \{[^}]*grid-template-columns: minmax\(0, 1fr\)", CSS)
