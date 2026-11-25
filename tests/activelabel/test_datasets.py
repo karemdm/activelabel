@@ -1,9 +1,12 @@
 import json
+import math
+import random
+from collections import Counter
 
 import pytest
 
 from activelabel.curation.issues import curation_path
-from activelabel.datasets import DatasetStore, parse_options, plan_split
+from activelabel.datasets import DatasetStore, Group, assign, build_groups, parse_options, plan_split
 from activelabel.errors import CodedError
 from activelabel.images.manifest import ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
@@ -507,3 +510,224 @@ def test_kfold_with_too_few_groups_says_how_many(tmp_path):
     with pytest.raises(CodedError) as caught:
         plan(pdir, project, kfold=3)
     assert caught.value.code == "kfold_too_few_groups" and caught.value.params == {"groups": 2, "folds": 3}
+
+
+# ---------------------------------------------------------------------------
+# Statistical properties of the split over many random datasets (seeded, so reproducible)
+
+SHARES = {"train": 0.7, "val": 0.2, "test": 0.1}
+KINDS = ("imbalanced", "longtail", "multilabel", "videos")
+
+
+def zipf_counts(rng: random.Random, classes: int, images: int) -> list[int]:
+    """Images per class following a Zipf-like law (at least 1 each).
+
+    Args:
+        rng: random generator.
+        classes: number of classes.
+        images: about how many images in total.
+
+    Returns:
+        The count of each class, most frequent first.
+    """
+    weights = [1 / (rank + 1) ** rng.uniform(0.8, 2.0) for rank in range(classes)]
+    return [max(1, round(images * w / sum(weights))) for w in weights]
+
+
+def synthetic(
+    kind: str, rng: random.Random
+) -> tuple[list[str], dict[str, set[str]], dict[str, str], dict[str, str]]:
+    """A random dataset of one of ``KINDS``.
+
+    ``imbalanced``/``longtail``: one class per image with Zipf counts (long tail: three classes of 1-6
+    images); ``multilabel``: 1-4 classes per image; ``videos``: 10-60 videos of 1-40 frames (a main class,
+    sometimes a second one) plus single images linked in near-duplicate pairs.
+
+    Args:
+        kind: one of ``KINDS``.
+        rng: random generator.
+
+    Returns:
+        Image ids, classes of each image, video of each frame, near-duplicate links (``dup -> kept``).
+    """
+    names = [f"c{j}" for j in range(rng.randint(3, 25))]
+    images: list[str] = []
+    classes_of: dict[str, set[str]] = {}
+    videos: dict[str, str] = {}
+    duplicate_of: dict[str, str] = {}
+    if kind in ("imbalanced", "longtail"):
+        counts = zipf_counts(rng, len(names), rng.randint(80, 600))
+        if kind == "longtail":
+            counts[-3:] = [rng.randint(1, 6) for _ in range(3)]
+        for name, count in zip(names, counts, strict=True):
+            for _ in range(count):
+                images.append(f"i{len(images)}")
+                classes_of[images[-1]] = {name}
+    elif kind == "multilabel":
+        weights = [1 / (rank + 1) ** 1.2 for rank in range(len(names))]
+        for _ in range(rng.randint(100, 600)):
+            images.append(f"i{len(images)}")
+            classes_of[images[-1]] = set(
+                rng.choices(names, weights=weights, k=rng.choice([1, 1, 2, 2, 3, 4]))
+            )
+    else:
+        for v in range(rng.randint(10, 60)):
+            main = rng.choices(names, weights=[1 / (rank + 1) for rank in range(len(names))])[0]
+            for f in range(rng.randint(1, 40)):
+                images.append(f"v{v}f{f}")
+                videos[images[-1]] = f"v{v}"
+                classes_of[images[-1]] = {main} | ({rng.choice(names)} if rng.random() < 0.3 else set())
+        singles = [f"s{k}" for k in range(rng.randint(20, 100))]
+        for image_id in singles:
+            images.append(image_id)
+            classes_of[image_id] = {rng.choice(names)}
+        for _ in range(len(singles) // 10):
+            dup, kept = rng.sample(singles, 2)
+            duplicate_of[dup] = kept
+    return images, classes_of, videos, duplicate_of
+
+
+def class_counts(groups: list[Group]) -> Counter[str]:
+    """Images per class over some groups.
+
+    Args:
+        groups: the groups.
+
+    Returns:
+        Class -> images that have it.
+    """
+    total: Counter[str] = Counter()
+    for g in groups:
+        total.update(g.classes)
+    return total
+
+
+def kl_divergence(part: Counter[str], whole: Counter[str]) -> float:
+    """KL divergence (nats) of the class distribution of a part from the global one.
+
+    Args:
+        part: class counts of the part.
+        whole: class counts of every image.
+
+    Returns:
+        ``sum p log(p / q)`` over the classes of the part (0 for identical distributions).
+    """
+    n_part, n_whole = sum(part.values()), sum(whole.values())
+    return sum((k / n_part) * math.log((k / n_part) / (whole[c] / n_whole)) for c, k in part.items() if k)
+
+
+def random_assign(groups: list[Group], seed: int) -> dict[str, list[Group]]:
+    """Baseline: every group to a part drawn with the requested probabilities.
+
+    Args:
+        groups: the groups.
+        seed: seed of the draw.
+
+    Returns:
+        Part -> its groups.
+    """
+    rng = random.Random(seed)
+    out: dict[str, list[Group]] = {p: [] for p in SHARES}
+    for g in groups:
+        out[rng.choices(list(SHARES), weights=list(SHARES.values()))[0]].append(g)
+    return out
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_split_is_deterministic_and_never_breaks_a_group(kind):
+    for seed in range(25):
+        images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
+        groups = build_groups(images, videos, duplicate_of, classes_of)
+        out = assign(groups, SHARES, random.Random(seed))
+        again = assign(build_groups(images, videos, duplicate_of, classes_of), SHARES, random.Random(seed))
+        assert {p: [g.images for g in gs] for p, gs in out.items()} == {
+            p: [g.images for g in gs] for p, gs in again.items()
+        }
+        where = {i: p for p, gs in out.items() for g in gs for i in g.images}
+        placed = [i for gs in out.values() for g in gs for i in g.images]
+        assert len(placed) == len(set(placed)) == len(images)  # disjoint and covering
+        for video in set(videos.values()):  # a whole video in one part: no leakage between its frames
+            assert len({where[i] for i in images if videos.get(i) == video}) == 1
+        for dup, kept in duplicate_of.items():  # near duplicates together
+            assert where[dup] == where[kept]
+
+
+@pytest.mark.parametrize("kind", ("imbalanced", "longtail"))
+def test_single_label_classes_follow_the_requested_shares(kind):
+    """Each class gets its share within one image, so a class with n * share >= 1 is in every part."""
+    for seed in range(25):
+        images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
+        groups = build_groups(images, videos, duplicate_of, classes_of)
+        out = assign(groups, SHARES, random.Random(seed))
+        totals = class_counts(groups)
+        got = {p: class_counts(gs) for p, gs in out.items()}
+        for c, n in totals.items():
+            for p, share in SHARES.items():
+                assert abs(got[p][c] - n * share) <= 1.0, (seed, c, p)
+                if n * share >= 1:
+                    assert got[p][c] > 0, (seed, c, p)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_split_beats_a_random_split(kind):
+    """Worst-part KL divergence well below a random split's (half; 0.8 with whole videos); shares close."""
+    ours, baseline = [], []
+    for seed in range(25):
+        images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
+        groups = build_groups(images, videos, duplicate_of, classes_of)
+        totals = class_counts(groups)
+        out = assign(groups, SHARES, random.Random(seed))
+        ours.append(max(kl_divergence(class_counts(gs), totals) for gs in out.values()))
+        baseline.append(
+            max(kl_divergence(class_counts(gs), totals) for gs in random_assign(groups, seed).values())
+        )
+        sizes = {p: sum(len(g.images) for g in gs) / len(images) for p, gs in out.items()}
+        if kind != "videos":  # whole videos of up to 40 frames move the shares more
+            assert max(abs(sizes[p] - s) for p, s in SHARES.items()) < 0.05
+    assert sum(ours) <= (0.8 if kind == "videos" else 0.5) * sum(baseline)  # whole videos limit the balance
+
+
+@pytest.mark.parametrize("k", (3, 5, 10))
+def test_kfold_folds_hold_every_class_with_enough_groups(k):
+    shares = {str(n): 1 / k for n in range(k)}
+    for kind in ("imbalanced", "multilabel"):
+        for seed in range(15):
+            images, classes_of, videos, duplicate_of = synthetic(kind, random.Random(seed))
+            groups = build_groups(images, videos, duplicate_of, classes_of)
+            folds = assign(groups, shares, random.Random(seed))
+            placed = [i for gs in folds.values() for g in gs for i in g.images]
+            assert len(placed) == len(set(placed)) == len(images)  # disjoint and covering
+            if kind == "imbalanced":
+                for c, n in Counter(c for g in groups for c in g.classes).items():
+                    if n >= k:
+                        assert all(class_counts(gs)[c] for gs in folds.values()), (seed, c)
+
+
+def test_rare_class_shares_today():
+    """Today's allocation of a class of n single images with 70/20/10 (see issue #347)."""
+    common = [Group([f"c{k}"], Counter({"common": 1})) for k in range(200)]
+    expected = {1: (1, 0, 0), 2: (2, 0, 0), 3: (2, 1, 0), 5: (4, 1, 0), 6: (4, 1, 1), 10: (7, 2, 1)}
+    for n, shares in expected.items():
+        rare = [Group([f"r{k}"], Counter({"rare": 1})) for k in range(n)]
+        out = assign(rare + common, SHARES, random.Random(0))
+        assert tuple(class_counts(out[p])["rare"] for p in SHARES) == shares, n
+
+
+@pytest.mark.xfail(
+    strict=True, reason="#347: a rare class stays out of val/test although it has enough groups"
+)
+def test_rare_class_reaches_every_part_when_it_has_enough_groups():
+    common = [Group([f"c{k}"], Counter({"common": 1})) for k in range(200)]
+    for n in (3, 4, 5):
+        rare = [Group([f"r{k}"], Counter({"rare": 1})) for k in range(n)]
+        out = assign(rare + common, SHARES, random.Random(0))
+        assert all(class_counts(out[p])["rare"] for p in SHARES), n
+
+
+def test_rare_class_missing_from_a_part_is_warned(tmp_path):
+    spec = {f"i{k:03d}": ["a"] for k in range(60)} | {f"r{k}": ["rare"] for k in range(3)}
+    pdir, project = build(tmp_path, spec)
+    p = plan(pdir, project)
+    missing = {(w["part"], w["class"]) for w in p.warnings if w["code"] == "class_missing"}
+    absent = {part for part in ("train", "val", "test") if "rare" not in p.stats[part]["objects"]}
+    assert absent and missing == {(part, "rare") for part in absent}
