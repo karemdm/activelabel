@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from activelabel import preannotate
 from activelabel.errors import CodedError
+from activelabel.training import devices
 from activelabel.training.catalog import get_model
 from activelabel.training.models import ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public
@@ -26,6 +27,7 @@ class StartBody(BaseModel):
     task: int
     scope: str = "unlabeled"
     threshold: float = 0.5
+    device: str = "auto"
 
 
 class AcceptBody(BaseModel):
@@ -98,7 +100,7 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
 
     Args:
         project_id: Id of the project.
-        body: The task, the model and the thresholds.
+        body: The task, the model, the threshold and the device (``auto``, ``cpu``, ``cuda:N`` or ``mps``).
         state: The shared state of the application.
 
     Returns:
@@ -132,6 +134,10 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
             f"Pre-annotation does not support this model ({kind}): YOLO models cannot be used for it.",
             kind=kind,
         )
+    try:
+        device = devices.check_here(body.device, state.settings.workspace)
+    except devices.DeviceError as error:
+        raise bad_request(error) from None
     threshold = round(body.threshold, 3)  # the value that is stored and used
     if not 0.0 < threshold < 1.0:  # also refuses NaN
         raise ApiError(400, "threshold_range", "The minimum confidence must be between 0.001 and 0.999.")
@@ -156,6 +162,7 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
         scope=body.scope,
         threshold=threshold,
         total=len(images),
+        device=device,
     )
     state.runner.enqueue_preannotation(project_id, run["number"])
     return run

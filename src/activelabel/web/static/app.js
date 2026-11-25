@@ -5194,6 +5194,11 @@
         // selection metric
         const metricSel = sel('tr-metric');
 
+        // device (#320): not part of the configuration; the list comes from the training environment
+        const deviceName = (d) => (d.startsWith('cuda:') ? t('tr.device_gpu', { n: d.slice(5) }) : t(`tr.device_${d}`));
+        const deviceSel = sel('tr-device', ...['auto', 'cpu'].map((d) => el('option', { value: d }, deviceName(d))));
+        api('GET', '/training/environment').then((env) => fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))))).catch(() => {});
+
         // parameters
         const paramsBox = el('div', { class: 'tr-params' });
         /* the settings stay closed: the line on the bar says what differs from the defaults */
@@ -5515,7 +5520,7 @@
             if (st.mode === 'grid' && list.length > 1) grid[spec.name] = list; else params[spec.name] = list[0];
           }
           const folds = foldCount(versionOf());
-          const body = { dataset: st.dataset, fold: folds ? (st.fold === 'all' ? 'all' : Number(st.fold)) : null, model: st.model, start: st.start, mode: st.mode, metric: st.metric, params, grid };
+          const body = { dataset: st.dataset, fold: folds ? (st.fold === 'all' ? 'all' : Number(st.fold)) : null, model: st.model, start: st.start, mode: st.mode, metric: st.metric, params, grid, device: deviceSel.value };
           if (params.augmentation === 'custom') body.augmentations = augEntries();
           return body;
         }
@@ -5530,7 +5535,8 @@
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
             el('div', { class: 'tr-col' },
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
-              el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help'))))),
+              el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help'))),
+              el('div', { class: 'field' }, el('label', { for: 'tr-device' }, t('tr.device_label')), deviceSel, el('p', { class: 'hint' }, t('tr.device_help'))))),
           el('div', { class: 'tr-adv-wrap' }, advBox),
           formError,
           el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));

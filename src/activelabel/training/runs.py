@@ -114,11 +114,12 @@ class RunStore:
             raise RunNotFound(number)
         return folder
 
-    def create(self, config: RunConfig) -> dict[str, Any]:
+    def create(self, config: RunConfig, device: str = "auto") -> dict[str, Any]:
         """Store a new run as queued, with the next number.
 
         Args:
             config: configuration of the run (saved as ``config.yaml``).
+            device: the device the run trains on (``devices.py``), kept as ``device_choice``.
 
         Returns:
             The new ``run.json`` content.
@@ -130,7 +131,13 @@ class RunStore:
             folder = self.path(number)
             folder.mkdir(parents=True)
             (folder / "config.yaml").write_text(config.to_yaml(), encoding="utf-8", newline="\n")
-            run = {"number": number, "status": QUEUED, "created": now(), "children": []}
+            run = {
+                "number": number,
+                "status": QUEUED,
+                "created": now(),
+                "children": [],
+                "device_choice": device,
+            }
             write_json(folder / "run.json", run)
             write_json(counter_file, {"next": number + 1})
         return run

@@ -4,7 +4,8 @@ Usage: ``python predict.py spec.json``. The spec has ``checkpoint`` (``best.pt``
 training worker module that builds the network: ``classification`` or ``detection``), ``task``
 (``classification``, ``detection`` or ``keypoints``), ``build`` (what that worker's ``build_model``
 reads), ``classes`` (in the order of the network's outputs), ``threshold`` (lowest confidence kept),
-``model`` (the saved model's name, e.g. ``m1``) and ``items`` (``[{"id", "path"}]``). For a public
+``model`` (the saved model's name, e.g. ``m1``), ``items`` (``[{"id", "path"}]``) and ``device`` (``auto``,
+``cpu``, ``cuda:N`` or ``mps``; ``auto`` when absent). For a public
 pretrained model the spec has ``public`` (``builder``, ``categories``, ``mapping``, ``task``) instead
 of ``checkpoint``, ``worker`` and ``build``: torchvision downloads the weights, and categories missing
 from the mapping are dropped.
@@ -357,7 +358,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         if bad or [k for k in result.unexpected_keys if not k.startswith("aux_classifier.")]:
             raise ValueError("The weights do not match the network.")
         classes = list(spec["classes"])
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = options.pick_device(torch, str(spec.get("device") or "auto"))
     model.to(device).eval()
     threshold, name = float(spec["threshold"]), str(spec["model"])
     if task in DETECTION_KINDS:

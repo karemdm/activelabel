@@ -213,7 +213,12 @@ def _objects(
 
 
 def build_spec(
-    project_dir: Path, config: RunConfig, model: ModelSpec, run_dir: Path, version: dict[str, Any]
+    project_dir: Path,
+    config: RunConfig,
+    model: ModelSpec,
+    run_dir: Path,
+    version: dict[str, Any],
+    device: str = "auto",
 ) -> dict[str, Any]:
     """The ``spec.json`` of the worker: absolute image paths and class indexes.
 
@@ -228,6 +233,7 @@ def build_spec(
         model: catalogue entry of the model.
         run_dir: folder where the worker writes its outputs.
         version: the dataset version (``classes``, ``parts``, ``folds``, ``labels``, ``type``).
+        device: the device the run asked for (``auto``, ``cpu``, ``cuda:N`` or ``mps``).
 
     Returns:
         The spec dict written to ``spec.json``.
@@ -320,6 +326,7 @@ def build_spec(
         "fold": config.fold if isinstance(config.fold, int) else None,
         "parts": out_parts,
         "output_dir": str(run_dir.resolve()),
+        "device": device,
     }
 
 
@@ -1009,6 +1016,7 @@ class TrainingRunner:
                 "threshold": float(run["threshold"]),
                 "model": f"m{card['number']}",
                 "items": items,
+                "device": str(run.get("device") or "auto"),
             }
             if public:
                 spec["public"] = {
@@ -1266,10 +1274,12 @@ class TrainingRunner:
             classes=list(version.get("classes") or []),
         )
         python = str(env.python())
+        device = str(store.get(number).get("device_choice") or "auto")
         if config.is_composite():
-            self._run_children(key, store, progress, config, model, version, [python, str(script)], tmp)
+            cmd = [python, str(script)]
+            self._run_children(key, store, progress, config, model, version, cmd, tmp, device)
             return
-        spec = build_spec(project_dir, config, model, run_dir, version)
+        spec = build_spec(project_dir, config, model, run_dir, version, device)
         spec_file = tmp / "spec.json"
         spec_file.write_text(json.dumps(spec), encoding="utf-8")
         store.update(
@@ -1293,6 +1303,7 @@ class TrainingRunner:
         version: dict[str, Any],
         cmd: list[str],
         tmp: Path,
+        device: str = "auto",
     ) -> None:
         """Train every child of a grid or all-folds run, then rank them and keep the best weights.
 
@@ -1308,6 +1319,7 @@ class TrainingRunner:
             version: the dataset version.
             cmd: worker command without the spec file (the spec of each child is appended).
             tmp: temporary folder of the run.
+            device: the device the run asked for.
 
         Raises:
             Cancelled: the job was cancelled.
@@ -1347,7 +1359,7 @@ class TrainingRunner:
                 log.write(f"== {cid}: {_describe(entries[i])} ==\n")
 
             try:
-                spec = build_spec(self._project_dir(project_id), child, model, child_dir, version)
+                spec = build_spec(self._project_dir(project_id), child, model, child_dir, version, device)
                 spec_dir = tmp / cid
                 spec_dir.mkdir(parents=True, exist_ok=True)
                 spec_file = spec_dir / "spec.json"

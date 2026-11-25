@@ -153,7 +153,7 @@ def test_dataset_and_tiny_model(worker, tmp_path):
     loss = worker.segmentation_loss(out, mask[None].repeat(2, 1, 1), torch.nn.CrossEntropyLoss())
     assert float(loss) > 0
     assert worker.make_optimizer(spec, model, torch) is not None
-    assert worker.pick_device(torch) in ("cuda", "mps", "cpu")
+    assert worker.options.pick_device(torch) in ("cuda", "mps", "cpu")
 
 
 def test_letterbox_bands_are_background_in_the_mask(worker, tmp_path):

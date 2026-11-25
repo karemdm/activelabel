@@ -14,8 +14,10 @@ The learning rate follows one schedule per step in every worker (:class:`LrSched
 warmup, then ``none``, ``cosine``, ``step``, ``onecycle`` (its own ramp up and down) or ``plateau``
 (divided by ten when the selection metric stops improving).
 
-Automatic mixed precision (:class:`Precision`) runs the training steps in float16 on a CUDA GPU (``amp``
-``auto`` or ``on``); on the CPU and on Apple GPUs (MPS) training stays in float32.
+The device (:func:`pick_device`) is the one the run asked for (``auto``, ``cpu``, ``cuda:N`` or ``mps``),
+checked before anything is trained. Automatic mixed precision (:class:`Precision`) runs the training steps
+in float16 on a CUDA GPU (``amp`` ``auto`` or ``on``); on the CPU and on Apple GPUs (MPS) training stays in
+float32.
 
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from typing import Any
 
 import numpy as np
@@ -49,6 +52,10 @@ ONECYCLE_END = 1 / 25e4  # ...and ends at this one (the PyTorch defaults)
 PLATEAU_PATIENCE = 2  # epochs without improvement before plateau lowers the rate
 PLATEAU_FACTOR = 0.1
 AMP_CHOICES = ("auto", "on", "off")
+
+
+class DeviceError(ValueError):
+    """The device asked for is not available to the training environment (the message is readable)."""
 
 
 def fit_layout(width: int, height: int, size: int, policy: str) -> tuple[int, int, int, int]:
@@ -446,3 +453,41 @@ class Precision:
         self.scaler.scale(loss).backward()
         self.scaler.step(optimizer)
         self.scaler.update()
+
+
+def pick_device(torch: Any, choice: str = "auto") -> str:
+    """The torch device of a choice: ``auto`` takes CUDA, then MPS (Apple), then the CPU.
+
+    Args:
+        torch: the torch module.
+        choice: ``auto``, ``cpu``, ``cuda`` (the first GPU), ``cuda:N`` or ``mps``.
+
+    Returns:
+        The device name (``cpu``, ``mps``, ``cuda`` or ``cuda:N``).
+
+    Raises:
+        DeviceError: the device asked for does not exist here, or the choice is not a device.
+    """
+    cuda = bool(torch.cuda.is_available())
+    mps_backend = getattr(torch.backends, "mps", None)
+    mps = bool(mps_backend is not None and mps_backend.is_available())
+    if choice in ("", "auto"):
+        return "cuda" if cuda else "mps" if mps else "cpu"
+    if choice == "cpu":
+        return "cpu"
+    if choice == "mps":
+        if not mps:
+            raise DeviceError("The Apple GPU (MPS) is not available on this computer: choose auto or CPU.")
+        return "mps"
+    match = re.fullmatch(r"cuda(?::(\d+))?", choice)
+    if match is None:
+        raise DeviceError(f"Unknown device '{choice}': use auto, cpu, cuda:N (a GPU) or mps.")
+    if not cuda:
+        raise DeviceError(
+            "No CUDA GPU is available to the training environment (no NVIDIA driver, or PyTorch without "
+            "CUDA): choose auto or CPU."
+        )
+    index, count = int(match.group(1) or 0), int(torch.cuda.device_count())
+    if index >= count:
+        raise DeviceError(f"GPU {index} does not exist: this computer has {count} (numbered from 0).")
+    return choice

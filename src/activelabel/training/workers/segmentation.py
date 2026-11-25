@@ -395,23 +395,6 @@ class SegmentationDataset:
 # Training (needs torch)
 
 
-def pick_device(torch: Any) -> str:
-    """``cuda`` when there is a GPU, ``mps`` on Apple silicon, else ``cpu``.
-
-    Args:
-        torch: The torch module.
-
-    Returns:
-        The device name.
-    """
-    if torch.cuda.is_available():
-        return "cuda"
-    mps = getattr(torch.backends, "mps", None)
-    if mps is not None and mps.is_available():
-        return "mps"
-    return "cpu"
-
-
 def seed_everything(seed: int, torch: Any) -> None:
     """Seed Python, numpy and torch.
 
@@ -658,6 +641,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
     Raises:
         SpecError: An unknown model or class.
+        options.DeviceError: The device the run asked for is not available.
         augment.AugmentError: A technique the worker cannot apply.
     """
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
@@ -665,7 +649,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     out = Path(spec["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
     seed_everything(int(spec.get("seed", p["seed"])), torch)
-    device = pick_device(torch)
+    device = options.pick_device(torch, str(spec.get("device") or "auto"))
     emit("log", message=f"Device: {device}. {split_folds_note(spec)}")
     use_amp, amp_note = options.amp_enabled(str(p["amp"]), device)
     if amp_note:
@@ -681,7 +665,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         )
     size, batch, policy = int(p["image_size"]), int(p["batch_size"]), str(p["resize"])
     generator = torch.Generator().manual_seed(int(p["seed"]))
-    workers = 4 if device == "cuda" else 0
+    workers = 4 if device.startswith("cuda") else 0
     parts = spec["parts"]
 
     loader = partial(

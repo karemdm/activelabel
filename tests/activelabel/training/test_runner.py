@@ -6,6 +6,7 @@ from training_fakes import finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
 from activelabel.labels import Label
+from activelabel.training import runner as runner_module
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig, validate
@@ -288,3 +289,80 @@ def test_instance_objects_carry_no_stored_box_and_detection_keeps_it():
     own = [{"label": "cat", "bbox": [0.3, 0.3, 0.1, 0.1], "polygons": [ring]}]
     assert _objects(own, ["cat"], "instance", None) == [{"label": 0, "polygons": [ring]}]
     assert _objects(own, ["cat"], "detection", None) == [{"label": 0, "bbox": [0.3, 0.3, 0.1, 0.1]}]
+
+
+def record_devices(monkeypatch):
+    """Make build_spec note the device it is given (the real one still runs)."""
+    seen = []
+    real = runner_module.build_spec
+
+    def spy(*args, **kwargs):
+        spec = real(*args, **kwargs)
+        seen.append(spec["device"])
+        return spec
+
+    monkeypatch.setattr(runner_module, "build_spec", spy)
+    return seen
+
+
+def test_build_spec_carries_the_device(setup):
+    _, state, _ = setup
+    project_dir = state.store.dir(1)
+    version = DatasetStore(project_dir).read(1)
+    model, run_dir, config = (
+        get_model("resnet18"),
+        project_dir / "runs" / "r1",
+        RunConfig(dataset=1, model="resnet18"),
+    )
+    assert build_spec(project_dir, config, model, run_dir, version)["device"] == "auto"
+    assert build_spec(project_dir, config, model, run_dir, version, "cpu")["device"] == "cpu"
+    assert build_spec(project_dir, config, model, run_dir, version, device="cuda:1")["device"] == "cuda:1"
+
+
+def test_run_store_keeps_the_device_choice(setup):
+    _, state, _ = setup
+    store = RunStore(state.store.dir(1))
+    config = RunConfig(dataset=1, model="resnet18")
+    assert store.create(config)["device_choice"] == "auto"
+    assert store.create(config, "cpu")["device_choice"] == "cpu"
+    assert store.get(2)["device_choice"] == "cpu"
+
+
+def test_a_run_trains_on_the_device_it_was_given(setup, monkeypatch):
+    _, state, runner = setup
+    seen = record_devices(monkeypatch)
+    store = RunStore(state.store.dir(1))
+    config = RunConfig(dataset=1, model="resnet18", params={"epochs": 2}, metric="accuracy")
+    n = store.create(config, "cpu")["number"]
+    runner.enqueue(1, n)
+    assert wait_for(finished(store, n))["status"] == "done"
+    assert seen == ["cpu"]
+
+
+def test_a_run_without_a_device_choice_uses_auto(setup, monkeypatch):
+    _, state, runner = setup
+    seen = record_devices(monkeypatch)
+    store = RunStore(state.store.dir(1))
+    n = new_run(state, epochs=2)
+    store.update(n, device_choice=None)  # a run made before the device existed
+    runner.enqueue(1, n)
+    assert wait_for(finished(store, n))["status"] == "done"
+    assert seen == ["auto"]
+
+
+def test_the_children_of_a_grid_use_the_device_of_the_run(setup, monkeypatch):
+    _, state, runner = setup
+    seen = record_devices(monkeypatch)
+    store = RunStore(state.store.dir(1))
+    config = RunConfig(
+        dataset=1,
+        model="resnet18",
+        metric="accuracy",
+        mode="grid",
+        params={"epochs": 2},
+        grid={"score": [0.3, 0.9]},
+    )
+    n = store.create(config, "cpu")["number"]
+    runner.enqueue(1, n)
+    assert wait_for(finished(store, n))["status"] == "done"
+    assert seen == ["cpu", "cpu"]

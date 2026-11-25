@@ -1,3 +1,4 @@
+import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
@@ -80,7 +81,7 @@ def test_readable_errors(tmp_path):
     cases = [
         ({"dataset": 1, "model": "resnet18"}, 400, "not for detection"),
         ({"dataset": 1, "model": "yolov8n", "params": {"epochs": 0}}, 400, "at least"),
-        ({"dataset": 1, "model": "yolov8n", "device": "cuda"}, 400, "Unknown option"),
+        ({"dataset": 1, "model": "yolov8n", "gpu": "cuda"}, 400, "Unknown option"),
         ({"dataset": 1, "model": "yolov8n", "fold": 0}, 400, "no folds"),
         ({"dataset": 5, "model": "yolov8n"}, 404, "does not exist"),
         ({"model": "yolov8n"}, 400, "dataset"),
@@ -128,8 +129,10 @@ def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
     assert client.get(f"{RUNS}/9/log").status_code == 404
     monkeypatch.setattr(environment.TrainingEnvironment, "gpu", lambda self: None)
     monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: False)
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu_count", lambda self: 0)
+    monkeypatch.setattr(environment.TrainingEnvironment, "mps_hint", staticmethod(lambda: False))
     body = client.get("/api/training/environment").json()
-    assert body == {"exists": False, "packages": {}, "gpu": None}
+    assert body == {"exists": False, "packages": {}, "gpu": None, "devices": ["auto", "cpu"]}
     first = client.get("/api/training/environment", params={"model": "resnet18"}).json()
     assert first["install_needed"] is True and {"torch", "torchvision", "pillow"} <= set(first["missing"])
     assert client.get("/api/training/environment", params={"model": "nope"}).status_code == 404
@@ -230,3 +233,85 @@ def test_reading_the_environment_writes_nothing(tmp_path, monkeypatch):
     client, state = make_client(tmp_path)
     assert client.get("/api/training/environment").status_code == 200
     assert not (state.settings.workspace / "training").exists()
+
+
+BODY = {"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}
+
+
+def _gpus(monkeypatch, count=0, mps=False):
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu_count", lambda self: count)
+    monkeypatch.setattr(environment.TrainingEnvironment, "mps_hint", staticmethod(lambda: mps))
+
+
+def _boom(self):
+    raise AssertionError("the computer must not be looked at")
+
+
+def test_a_run_stores_the_device_it_asked_for(tmp_path, monkeypatch):
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu_count", _boom)
+    client, state = _setup(tmp_path)
+    assert client.post(RUNS, json={**BODY, "device": "cpu"}).status_code == 200
+    assert client.post(RUNS, json=BODY).status_code == 200
+    assert client.post(RUNS, json={**BODY, "device": None}).status_code == 200
+    store = RunStore(state.store.dir(1))
+    assert [store.get(n)["device_choice"] for n in (1, 2, 3)] == ["cpu", "auto", "auto"]
+    assert "device" not in client.get(f"{RUNS}/1").json()["config"]  # not part of the configuration
+
+
+def test_a_gpu_that_exists_is_accepted(tmp_path, monkeypatch):
+    _gpus(monkeypatch, count=2)
+    client, state = _setup(tmp_path)
+    assert client.post(RUNS, json={**BODY, "device": "cuda:1"}).status_code == 200
+    assert RunStore(state.store.dir(1)).get(1)["device_choice"] == "cuda:1"
+
+
+def test_a_device_this_computer_lacks_is_refused_and_nothing_is_queued(tmp_path, monkeypatch):
+    _gpus(monkeypatch, count=1)
+    client, state = _setup(tmp_path)
+    for device in ("cuda:7", "mps"):
+        refused = client.post(RUNS, json={**BODY, "device": device})
+        assert refused.status_code == 400 and refused.json()["code"] == "device_unavailable", refused.text
+    assert client.get(RUNS).json()["runs"] == []
+    assert RunStore(state.store.dir(1)).list() == []
+
+
+@pytest.mark.parametrize("device", ["bogus", "gpu1", 5])
+def test_a_device_that_is_not_a_device_is_refused(tmp_path, monkeypatch, device):
+    _gpus(monkeypatch)
+    client, _ = _setup(tmp_path)
+    refused = client.post(RUNS, json={**BODY, "device": device})
+    assert refused.status_code == 400 and refused.json()["code"] == "device_invalid", refused.text
+    assert client.get(RUNS).json()["runs"] == []
+
+
+def test_reproducing_keeps_the_device_choice(tmp_path, monkeypatch):
+    _gpus(monkeypatch, count=1)
+    client, state = _setup(tmp_path)
+    assert client.post(RUNS, json={**BODY, "device": "cuda:0"}).status_code == 200
+    assert client.post(RUNS, json=BODY).status_code == 200
+    assert client.post(f"{RUNS}/1/reproduce").json()["number"] == 3
+    assert client.post(f"{RUNS}/2/reproduce").json()["number"] == 4
+    store = RunStore(state.store.dir(1))
+    assert [store.get(n)["device_choice"] for n in (3, 4)] == ["cuda:0", "auto"]
+
+
+def test_reproducing_a_run_without_a_stored_device_uses_auto(tmp_path, monkeypatch):
+    _gpus(monkeypatch)
+    client, state = _setup(tmp_path)
+    client.post(RUNS, json=BODY)
+    store = RunStore(state.store.dir(1))
+    store.update(1, device_choice=None)
+    assert client.post(f"{RUNS}/1/reproduce").status_code == 200
+    assert store.get(2)["device_choice"] == "auto"
+
+
+def test_the_environment_lists_the_devices(tmp_path, monkeypatch):
+    monkeypatch.setattr(environment.TrainingEnvironment, "gpu", lambda self: None)
+    monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: False)
+    client, _ = make_client(tmp_path)
+    _gpus(monkeypatch, count=2, mps=False)
+    assert client.get("/api/training/environment").json()["devices"] == ["auto", "cpu", "cuda:0", "cuda:1"]
+    _gpus(monkeypatch, count=0, mps=True)
+    assert client.get("/api/training/environment").json()["devices"] == ["auto", "cpu", "mps"]
+    _gpus(monkeypatch)
+    assert client.get("/api/training/environment").json()["devices"] == ["auto", "cpu"]
