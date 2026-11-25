@@ -605,3 +605,11 @@ def test_step_summaries_are_read_again_with_the_task_list():
     assert re.search(r"async function refreshCounts\(\) \{.*?renderStepper\(\);", JS, re.S)
     body = re.search(r"async function refreshCounts\(\) \{(.*?)\n    \}", JS, re.S).group(1)
     assert "showTab" not in body
+
+
+def test_closing_the_new_task_dialog_mid_upload_does_not_hide_it_and_leaving_asks():
+    """Esc cannot hide a running upload and leaving the page asks first (#435, #434)."""
+    assert re.search(r"if \(uploading\) \{ newDlg\.showModal\(\); return; \}", JS)
+    assert "images.upload_running" in JS
+    assert "ctx.busy.add('upload')" in JS and "ctx.busy.delete('upload')" in JS
+    assert "addEventListener('beforeunload'" in JS
