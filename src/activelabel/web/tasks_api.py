@@ -146,11 +146,12 @@ def _find(store: TaskStore, task_id: int) -> ImageTask:
 
 
 @router.get("/projects/{project_id}/tasks")
-def list_tasks(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) -> dict[str, Any]:
     """Every task of the project, in creation order.
 
     Args:
         project_id: Id of the project.
+        refresh: Read the state of the CVAT jobs again instead of reusing a read of the last minute.
         state: The shared state of the application.
 
     Returns:
@@ -159,7 +160,7 @@ def list_tasks(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     store = _store(state, project_id)
     active, annotated = _sets(state, project_id)
     views = [task_view(t, active, annotated) for t in store.load()]
-    remote = remote_status(state, project_id)
+    remote = remote_status(state, project_id, refresh)
     for view in views:
         if str(view["id"]) in remote:
             view["remote"] = remote[str(view["id"])]
@@ -172,7 +173,7 @@ _remote_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="activelabel
 _remote_cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
 
 
-def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
+def remote_status(state: AppState, project_id: int, refresh: bool = False) -> dict[str, Any]:
     """CVAT task and jobs (state, stage, assignee) of each linked local task: ``{task id: {...}}``.
 
     Read from CVAT at most once a minute per project; empty when the project is not linked, CVAT is
@@ -182,6 +183,7 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
     Args:
         state: The shared state of the application.
         project_id: Id of the project.
+        refresh: Ignore what was read in the last minute and ask CVAT again.
 
     Returns:
         ``{task id: {...}}``: the remote state of each linked task (empty when unknown).
@@ -192,7 +194,7 @@ def remote_status(state: AppState, project_id: int) -> dict[str, Any]:
         return {}
     key = (project_id, f"{link['remote_id']}@{link.get('last_sync', '')}")  # a new sync reads again
     cached = _remote_cache.get(key)
-    if cached and time.monotonic() - cached[0] < REMOTE_TTL:
+    if cached and not refresh and time.monotonic() - cached[0] < REMOTE_TTL:
         return cached[1]
     settings = credentials.load_settings(state.settings.workspace, "cvat")
     if not credentials.is_configured(settings):
