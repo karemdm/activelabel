@@ -32,8 +32,13 @@ from typing import Any
 import numpy
 import torch
 import torchvision
-from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 from torch.utils.data import DataLoader
+
+try:
+    from activelabel.training.workers import augment
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    import augment  # type: ignore[no-redef]
 
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
@@ -185,54 +190,6 @@ def rasterize_mask(objects: list[dict[str, Any]], width: int, height: int, class
     return mask
 
 
-def augmentation_plan(preset: str) -> dict[str, Any]:
-    """Settings of a training augmentation preset (applied to image and mask together).
-
-    Args:
-        preset: Augmentation preset (``none``, ``light``, ``standard`` or ``strong``).
-
-    Returns:
-        A dict with ``crop`` (smallest area share), ``hflip`` and ``vflip`` (probabilities),
-        ``rotate`` (largest angle in degrees) and ``jitter`` (colour amount).
-
-    Raises:
-        SpecError: unknown preset.
-    """
-    plans: dict[str, dict[str, Any]] = {
-        "none": {"crop": 1.0, "hflip": 0.0, "vflip": 0.0, "rotate": 0.0, "jitter": 0.0},
-        "light": {"crop": 0.8, "hflip": 0.5, "vflip": 0.0, "rotate": 0.0, "jitter": 0.0},
-        "standard": {"crop": 0.6, "hflip": 0.5, "vflip": 0.0, "rotate": 0.0, "jitter": 0.2},
-        "strong": {"crop": 0.4, "hflip": 0.5, "vflip": 0.2, "rotate": 15.0, "jitter": 0.4},
-    }
-    if preset not in plans:
-        raise SpecError(f"Unknown augmentation preset '{preset}'.")
-    return plans[preset]
-
-
-def random_crop_box(
-    width: int, height: int, min_scale: float, rng: Any = random
-) -> tuple[int, int, int, int]:
-    """Random crop ``(left, top, right, bottom)`` covering ``min_scale..1`` of the area.
-
-    Args:
-        width: Image width in pixels.
-        height: Image height in pixels.
-        min_scale: Smallest share of the area (1.0 or more keeps the whole image).
-        rng: Random source with ``uniform`` and ``randint`` (the ``random`` module by default).
-
-    Returns:
-        The crop box in pixels.
-    """
-    if min_scale >= 1.0:
-        return 0, 0, width, height
-    area = rng.uniform(min_scale, 1.0) * width * height
-    ratio = rng.uniform(3 / 4, 4 / 3)
-    w = min(width, max(1, round((area * ratio) ** 0.5)))
-    h = min(height, max(1, round((area / ratio) ** 0.5)))
-    left, top = rng.randint(0, width - w), rng.randint(0, height - h)
-    return left, top, left + w, top + h
-
-
 def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
     """Image (bilinear) and mask (nearest) resized to ``size`` x ``size``.
 
@@ -247,46 +204,6 @@ def resize_pair(image: Any, mask: Any, size: int) -> tuple[Any, Any]:
     return image.resize((size, size), Image.Resampling.BILINEAR), mask.resize(
         (size, size), Image.Resampling.NEAREST
     )
-
-
-def augment_pair(image: Any, mask: Any, preset: str, size: int, rng: Any = random) -> tuple[Any, Any]:
-    """Training augmentation applied consistently to image and mask, output ``size`` x ``size``.
-
-    Args:
-        image: PIL image.
-        mask: PIL class mask of the same size.
-        preset: Augmentation preset (see ``augmentation_plan``).
-        size: Side of the output square, in pixels.
-        rng: Random source with ``uniform``, ``randint`` and ``random`` (the ``random`` module by default).
-
-    Returns:
-        ``(image, mask)`` augmented.
-
-    Raises:
-        SpecError: Unknown preset.
-    """
-    plan = augmentation_plan(preset)
-    if plan["rotate"]:
-        angle = rng.uniform(-plan["rotate"], plan["rotate"])
-        image = image.rotate(angle, resample=Image.Resampling.BILINEAR)
-        mask = mask.rotate(angle, resample=Image.Resampling.NEAREST)  # the corners become background
-    box = random_crop_box(image.width, image.height, plan["crop"], rng)
-    image, mask = resize_pair(image.crop(box), mask.crop(box), size)
-    if rng.random() < plan["hflip"]:
-        image, mask = (
-            image.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-            mask.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-        )
-    if rng.random() < plan["vflip"]:
-        image, mask = (
-            image.transpose(Image.Transpose.FLIP_TOP_BOTTOM),
-            mask.transpose(Image.Transpose.FLIP_TOP_BOTTOM),
-        )
-    amount = plan["jitter"]
-    if amount:
-        for enhancer in (ImageEnhance.Brightness, ImageEnhance.Contrast, ImageEnhance.Color):
-            image = enhancer(image).enhance(rng.uniform(1 - amount, 1 + amount))
-    return image, mask
 
 
 def _ratio(a: float, b: float) -> float:
@@ -414,7 +331,11 @@ class SegmentationDataset:
     """Map-style dataset of image + class mask pairs (works with ``torch.utils.data.DataLoader``)."""
 
     def __init__(
-        self, items: list[dict[str, Any]], classes: list[str], size: int, preset: str | None
+        self,
+        items: list[dict[str, Any]],
+        classes: list[str],
+        size: int,
+        augmentations: list[dict[str, Any]] | None,
     ) -> None:
         """Keep the items and the settings.
 
@@ -422,12 +343,13 @@ class SegmentationDataset:
             items: The images of one part (``path`` and ``objects`` each).
             classes: The project's classes (without the background).
             size: Side of the square the images are resized to.
-            preset: Augmentation preset; ``None`` only resizes (evaluation).
+            augmentations: Techniques applied to image and mask together; ``None`` only resizes
+                (evaluation).
         """
         self.items = items
         self.classes = classes
         self.size = size
-        self.preset = preset  # None = evaluation (resize only)
+        self.augmentations = augmentations  # None = evaluation (resize only)
 
     def __len__(self) -> int:
         """Number of images.
@@ -451,10 +373,9 @@ class SegmentationDataset:
             # labels are drawn on the photo as shown (EXIF rotation applied)
             image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
         mask = rasterize_mask(item.get("objects") or [], image.width, image.height, self.classes)
-        if self.preset is None:
-            image, mask = resize_pair(image, mask, self.size)
-        else:
-            image, mask = augment_pair(image, mask, self.preset, self.size)
+        if self.augmentations:
+            image, mask = augment.augment_pair(image, mask, self.augmentations)
+        image, mask = resize_pair(image, mask, self.size)
         mean, std = numpy.array(MEAN, dtype="float32"), numpy.array(STD, dtype="float32")
         array = (numpy.asarray(image, dtype="float32") / 255.0 - mean) / std
         return torch.from_numpy(array.transpose(2, 0, 1).copy()), torch.from_numpy(
@@ -665,7 +586,7 @@ def run_epoch(
 
 def make_loader(
     items: list[dict[str, Any]],
-    preset: str | None,
+    augmentations: list[dict[str, Any]] | None,
     shuffle: bool,
     classes: list[str],
     size: int,
@@ -677,7 +598,7 @@ def make_loader(
 
     Args:
         items: the images of one part.
-        preset: the augmentation preset (None reads without augmentation: evaluation).
+        augmentations: the techniques (``None`` reads without augmentation: evaluation).
         shuffle: shuffle with ``generator`` (the training part).
         classes: the project's classes (without the background).
         size: side of the square the images are resized to.
@@ -689,7 +610,7 @@ def make_loader(
         A ``DataLoader``.
     """
     return DataLoader(
-        SegmentationDataset(items, classes, size, preset),
+        SegmentationDataset(items, classes, size, augmentations),
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=workers,
@@ -736,7 +657,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         ``test`` (``None`` without a test part).
 
     Raises:
-        SpecError: An unknown model, class or preset.
+        SpecError: An unknown model or class.
+        augment.AugmentError: A technique the worker cannot apply.
     """
     p, classes, metric = spec["params"], spec["classes"], spec["metric"]
     n_classes = len(classes) + 1
@@ -760,7 +682,10 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     loader = partial(
         make_loader, classes=classes, size=size, batch_size=batch, workers=workers, generator=generator
     )
-    train_loader = loader(parts["train"], p["augmentation"], True)
+    techniques = spec["augmentations"]
+    augment.check_objects(techniques)
+    emit("log", message=f"Augmentation: {augment.describe(techniques)}.")
+    train_loader = loader(parts["train"], techniques, True)
     val_loader = loader(parts["val"], None, False)
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)

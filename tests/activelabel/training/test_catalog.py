@@ -19,7 +19,7 @@ from activelabel.training.catalog import (
     models_for,
 )
 from activelabel.training.config import ConfigError, RunConfig, validate
-from activelabel.training.runner import WORKER_FILES, WORKERS_DIR
+from activelabel.training.runner import RESOLVED_PARAMS, WORKER_FILES, WORKERS_DIR
 
 #: Families listed in the catalogue that no worker trains yet (the API refuses them, the form hides them).
 NOT_TRAINABLE = {"ultralytics"}
@@ -67,9 +67,9 @@ def test_every_declared_parameter_is_read_by_the_worker(model):
     params, spec = _reads(WORKERS_DIR / WORKER_FILES[model.task_kind])
     declared = {p.name for p in model.param_specs()}
     assert "start" in spec  # the start is a field of the run, not of params
-    assert declared - {"start"} <= params, (
-        f"{model.id}: declared but not read: {declared - params - {'start'}}"
-    )
+    assert "augmentations" in spec  # the augmentation level reaches the worker as a list of techniques
+    unread = declared - params - {"start"} - set(RESOLVED_PARAMS)
+    assert not unread, f"{model.id}: declared but not read: {unread}"
     assert params <= declared, f"{model.id}: read but not declared: {params - declared}"
 
 

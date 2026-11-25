@@ -55,8 +55,23 @@ Options chosen on the screen and saved in `config.yaml`:
 | Data | dataset version; for K-fold versions, all folds or one fold |
 | Model | model; start: **transfer learning** (pretrained, backbone frozen, only the head trains) / **fine-tuning** (pretrained, everything trains; backbone learning rate × factor) / **from scratch** |
 | Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50) |
-| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer, weight decay, scheduler, image size, augmentation preset, early stopping patience, seed, and model-specific ones |
+| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer, weight decay, scheduler, image size, augmentation level (see below), early stopping patience, seed, and model-specific ones |
 | Selection | metric that chooses the best epoch / best run, per type: classification accuracy (default) or macro F1; detection, instance segmentation and keypoints mAP50-95 (default) or mAP50; semantic segmentation mIoU (default) or pixel accuracy |
+
+**Data augmentation.** The `augmentation` level is a preset (`none`, `light`, `standard`, `strong`) or
+`custom`. Each preset is a list of techniques for the model's kind of task (the same techniques the workers
+applied before they could be chosen); `custom` takes the list from the `augmentations` option of the
+configuration, `[{"name", "params"}]`, checked against the catalogue (`training/augmentations.py`,
+`GET /api/training/augmentations?type=`). Techniques: classification — random resized crop, horizontal and
+vertical flip, rotation, RandAugment or TrivialAugment, colour jitter, blur, greyscale, random erasing, mixup
+and cutmix; detection, instance segmentation, keypoints and semantic segmentation — flips, rotation, zoom
+(scale jitter), shift, colour jitter, blur, greyscale (and random resized crop for semantic segmentation).
+Geometric techniques move boxes, masks and keypoints with the image; a horizontal flip of keypoints needs the
+left/right `flip_pairs` (an empty list when no point has a mirror twin). The runner resolves the level into
+`spec.json` (`augmentations`) and records it in `run.json`; the worker applies exactly that list, in catalogue
+order, to the training images only, and writes it to the log. Configurations made before techniques could be
+chosen have no list and keep their preset. In the *New run* dialog, the level fills a list of techniques with
+their settings; ticking a technique or changing a setting makes the level *Custom*.
 
 There is no label conversion step. The runner writes a `spec.json` in the run's temporary folder (absolute
 image paths, class indexes and the labels of each part, plus the model and hyperparameters); the worker

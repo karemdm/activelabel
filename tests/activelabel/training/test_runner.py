@@ -5,8 +5,9 @@ import pytest
 from training_fakes import finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
+from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
-from activelabel.training.config import RunConfig
+from activelabel.training.config import RunConfig, validate
 from activelabel.training.runner import RunnerError, build_spec, download_env
 from activelabel.training.runs import RunStore
 
@@ -230,6 +231,24 @@ def test_build_spec_parts_and_folds(setup):
     config = RunConfig(dataset=2, model="resnet18", fold="all")
     with pytest.raises(RunnerError, match="one child at a time"):
         build_spec(project_dir, config, model, run_dir, folded)
+
+
+def test_build_spec_augmentations(setup):
+    _, state, _ = setup
+    project_dir = state.store.dir(1)
+    version = DatasetStore(project_dir).read(1)
+    model = get_model("resnet18")
+    run_dir = project_dir / "runs" / "r1"
+    default = build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, version)
+    assert default["augmentations"] == preset("light", "classification")
+    strong = RunConfig(dataset=1, model="resnet18", params={"augmentation": "strong"})
+    spec = build_spec(project_dir, strong, model, run_dir, version)
+    assert spec["augmentations"] == preset("strong", "classification")
+    custom = validate(
+        RunConfig(dataset=1, model="resnet18", augmentations=[{"name": "blur"}]), "classification"
+    )
+    spec = build_spec(project_dir, custom, model, run_dir, version)
+    assert spec["augmentations"] == [{"name": "blur", "params": {"p": 0.2, "sigma_max": 1.5}}]
 
 
 def test_download_env(tmp_path):

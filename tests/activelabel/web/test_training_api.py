@@ -31,6 +31,18 @@ def test_catalog(tmp_path):
     assert client.get("/api/training/catalog", params={"type": "x"}).status_code == 400
 
 
+def test_augmentation_catalog(tmp_path):
+    client, _ = make_client(tmp_path)
+    body = client.get("/api/training/augmentations").json()
+    assert body["levels"] == ["none", "light", "standard", "strong", "custom"]
+    assert {"classification", "keypoints"} <= set(body["kinds"])
+    assert {"techniques", "presets"} == set(body["kinds"]["detection"])
+    only = client.get("/api/training/augmentations", params={"type": "keypoints"}).json()
+    assert list(only["kinds"]) == ["keypoints"]
+    bad = client.get("/api/training/augmentations", params={"type": "bad"})
+    assert bad.status_code == 400 and bad.json()["code"] == "type_invalid"
+
+
 def test_create_list_get_reproduce_delete(tmp_path):
     client, _ = _setup(tmp_path)
     created = client.post(
@@ -39,6 +51,7 @@ def test_create_list_get_reproduce_delete(tmp_path):
     assert created.status_code == 200, created.text
     run = created.json()
     assert run["number"] == 1 and run["status"] == "queued" and run["model"] == "fasterrcnn_resnet50_fpn"
+    assert run["augmentations"] is None
     assert [r["number"] for r in client.get(RUNS).json()["runs"]] == [1]
 
     one = client.get(f"{RUNS}/1").json()

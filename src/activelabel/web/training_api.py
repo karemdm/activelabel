@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
+from activelabel.training import augmentations
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
@@ -88,6 +89,7 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
         "start": config.start,
         "mode": config.mode,
         "metric": config.metric,
+        "augmentations": config.augmentations,
     }
 
 
@@ -187,6 +189,30 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
         "common": [p.as_dict() for p in COMMON_PARAMS],
         "metrics": {kind: {"choices": list(v[0]), "default": v[1]} for kind, v in METRICS.items()},
     }
+
+
+@router.get("/training/augmentations")
+def augmentation_catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the query parameter is named type
+    """Augmentation techniques and preset lists per kind of task (of the type's models; all without a type).
+
+    Args:
+        type: project type, or ``None`` for every kind of task.
+
+    Returns:
+        ``{"levels": [...], "kinds": {kind: {"techniques": [...], "presets": {level: [entries]}}}}``.
+
+    Raises:
+        ApiError: unknown project type.
+    """
+    if type is not None and type not in PROJECT_TYPES:
+        raise ApiError(
+            400,
+            "type_invalid",
+            f"The type must be one of: {', '.join(PROJECT_TYPES)}.",
+            choices=list(PROJECT_TYPES),
+        )
+    kinds = sorted({m.task_kind for m in models_for(type)})
+    return {"levels": list(augmentations.LEVELS), "kinds": {k: augmentations.catalogue(k) for k in kinds}}
 
 
 @router.get("/training/environment")

@@ -12,7 +12,13 @@ import pytest
 from activelabel import i18n
 
 SRC = Path(i18n.__file__).parents[1]
-CODED = {"ApiError": 1, "CodedError": 0, "ConfigError": 0, "ModelError": 0}  # name -> position of the code
+CODED = {
+    "ApiError": 1,
+    "AugmentationError": 0,
+    "CodedError": 0,
+    "ConfigError": 0,
+    "ModelError": 0,
+}  # name -> position of the code
 LEGACY_BODIES = {"file_damaged", "task_change_annotations", "classes_in_use", "no_images_added"}
 
 

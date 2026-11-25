@@ -38,8 +38,6 @@ def test_classification_worker(rotated):
 def test_detection_worker(rotated):
     pytest.importorskip("torch")
     pytest.importorskip("torchvision")
-    dataset = _worker("detection").DetectionDataset(
-        [{"path": str(rotated), "objects": []}], "detection", 0, False, 0
-    )
+    dataset = _worker("detection").DetectionDataset([{"path": str(rotated), "objects": []}], "detection", 0)
     tensor, _ = dataset[0]
     assert tuple(tensor.shape) == (3, 40, 20)

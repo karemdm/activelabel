@@ -83,9 +83,6 @@ def test_targets(w):
     assert t["labels"].tolist() == [2, 1] and "masks" not in t
     t = w.build_target(item, 100, 50, "instance", 0)
     assert t["masks"].shape == (2, 50, 100) and t["masks"][1].sum() > 0 and t["masks"][1, 40, 90] == 0
-    flipped = w.flip_target(t, 100)
-    assert flipped["boxes"][0].tolist() == [40.0, 10.0, 90.0, 35.0]
-    assert flipped["masks"].shape == t["masks"].shape
     empty = w.build_target({"path": "x", "objects": []}, 10, 8, "instance", 0)
     assert empty["boxes"].shape == (0, 4) and empty["masks"].shape == (0, 8, 10)
 
@@ -110,12 +107,7 @@ def test_keypoints(w):
     assert w.pck_counts({**good, "scores": np.array([0.1])}, gt) == (0, 2)
 
 
-def test_plan_and_spec(w, tmp_path):
-    assert w.augmentation_plan("light", "detection")["flip"] is True
-    assert w.augmentation_plan("strong", "keypoints")["flip"] is False
-    assert w.augmentation_plan("none", "instance")["flip"] is False
-    with pytest.raises(w.SpecError):
-        w.augmentation_plan("x", "detection")
+def test_warmup_and_spec(w, tmp_path):
     assert w.warmup_factor(1, 1000) == pytest.approx(0.001) and w.warmup_factor(500, 1000) == 1.0
     assert w.warmup_factor(1, 1) == 1.0
     spec = {
@@ -149,8 +141,14 @@ def test_torch_model_and_dataset(w, tmp_path):
     pytest.importorskip("torchvision")
     image = make_image(tmp_path / "i.png", fmt="PNG")
     item = {"path": str(image), "objects": [{"label": 0, "bbox": [0.1, 0.1, 0.5, 0.5]}]}
-    tensor, target = w.DetectionDataset([item], "detection", 0, True, 0.2)[0]
+    tensor, target = w.DetectionDataset([item], "detection", 0)[0]
     assert tensor.shape[0] == 3 and target["boxes"].shape == (1, 4) and target["labels"].tolist() == [1]
+    flip = [{"name": "hflip", "params": {"p": 1.0}}]
+    flipped_tensor, flipped = w.DetectionDataset([item], "detection", 0, flip)[0]
+    width = tensor.shape[2]
+    x1, y1, x2, y2 = target["boxes"][0].tolist()
+    assert flipped["boxes"][0].tolist() == pytest.approx([width - x2, y1, width - x1, y2], abs=1e-4)
+    assert torch.allclose(flipped_tensor, tensor.flip(-1), atol=1e-5)
     spec = {
         "model": "fasterrcnn_mobilenet_v3_large_fpn",
         "start": "scratch",

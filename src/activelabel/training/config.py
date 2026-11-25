@@ -14,11 +14,23 @@ import yaml
 
 from activelabel.errors import CodedError
 from activelabel.textcheck import message_of
+from activelabel.training import augmentations
 from activelabel.training.catalog import METRICS, STARTS, ModelSpec, get_model
 
 MAX_GRID = 50
 MODES = ("single", "grid")
-KEYS = ("dataset", "dataset_fingerprint", "fold", "model", "start", "mode", "metric", "params", "grid")
+KEYS = (
+    "dataset",
+    "dataset_fingerprint",
+    "fold",
+    "model",
+    "start",
+    "mode",
+    "metric",
+    "params",
+    "grid",
+    "augmentations",
+)
 
 
 class ConfigError(CodedError):
@@ -39,6 +51,9 @@ class RunConfig:
         params: hyperparameters set explicitly (the rest take the catalogue default).
         grid: hyperparameter name -> list of values (grid mode); ``start`` may be a grid key.
         metric: selection metric ("" = the default of the model's kind of task).
+        augmentations: the augmentation techniques ``[{"name", "params"}]`` of the ``custom`` augmentation
+            level; ``None`` with a preset level (configurations made before techniques could be chosen
+            have none).
     """
 
     dataset: int
@@ -50,14 +65,15 @@ class RunConfig:
     grid: dict[str, list[Any]] = field(default_factory=dict)
     metric: str = ""
     dataset_fingerprint: str = ""
+    augmentations: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Plain dict in a stable key order (params and grid sorted by name).
 
         Returns:
-            The options as a dict.
+            The options as a dict; ``augmentations`` only when there is a list.
         """
-        return {
+        out = {
             "dataset": self.dataset,
             "dataset_fingerprint": self.dataset_fingerprint,
             "fold": self.fold,
@@ -68,6 +84,9 @@ class RunConfig:
             "params": {k: self.params[k] for k in sorted(self.params)},
             "grid": {k: list(self.grid[k]) for k in sorted(self.grid)},
         }
+        if self.augmentations is not None:
+            out["augmentations"] = [dict(e) for e in self.augmentations]
+        return out
 
     @classmethod
     def from_dict(cls, data: Any) -> RunConfig:
@@ -113,6 +132,7 @@ class RunConfig:
             grid={str(k): list(v) for k, v in grid.items()},
             metric=data.get("metric") or "",
             dataset_fingerprint=data.get("dataset_fingerprint") or "",
+            augmentations=data.get("augmentations"),
         )
 
     def to_yaml(self) -> str:
@@ -218,6 +238,7 @@ class RunConfig:
                     params={**self.params, **values},
                     metric=self.metric,
                     dataset_fingerprint=self.dataset_fingerprint,
+                    augmentations=self.augmentations,
                 )
             )
         return out
@@ -232,10 +253,11 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         folds: number of folds of the dataset version (0 when it has none).
 
     Returns:
-        A normalised copy: default metric filled in, fold ``"all"`` for a K-fold version.
+        A normalised copy: default metric filled in, fold ``"all"`` for a K-fold version, the ``custom``
+        augmentation level set when a list of techniques is given.
 
     Raises:
-        ConfigError: with a readable message.
+        ConfigError: with a readable message (also for the augmentation techniques).
     """
     model = get_model(config.model)
     if model is None:
@@ -330,7 +352,49 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         grid=grid,
         metric=metric,
         dataset_fingerprint=config.dataset_fingerprint,
+        augmentations=_check_augmentations(model, params, grid, config.augmentations),
     )
+
+
+def _check_augmentations(
+    model: ModelSpec, params: dict[str, Any], grid: dict[str, list[Any]], entries: Any
+) -> list[dict[str, Any]] | None:
+    """Check the ``augmentations`` list against the ``augmentation`` level.
+
+    A list goes with the ``custom`` level (set in ``params`` when the level was left out); ``custom`` needs a
+    list; the level cannot be a grid list together with a list of techniques.
+
+    Args:
+        model: catalogue entry.
+        params: the checked fixed hyperparameters (``augmentation`` may be added to them).
+        grid: the checked grid lists.
+        entries: the ``augmentations`` option of the configuration (``None`` when not given).
+
+    Returns:
+        The checked techniques, in the order the workers apply them, or ``None`` without a list.
+
+    Raises:
+        ConfigError: a list with a preset level or a grid of levels, ``custom`` without a list, or an invalid
+            list.
+    """
+    levels = grid.get("augmentation") or [params.get("augmentation")]
+    if entries is None:
+        if augmentations.CUSTOM in levels:
+            raise ConfigError(
+                "augmentation_custom_needs_list",
+                "The augmentation level 'custom' needs the list of techniques.",
+            )
+        return None
+    if "augmentation" in grid or params.get("augmentation", augmentations.CUSTOM) != augmentations.CUSTOM:
+        raise ConfigError(
+            "augmentation_list_needs_custom",
+            "A list of augmentation techniques goes with the augmentation level 'custom'.",
+        )
+    params["augmentation"] = augmentations.CUSTOM
+    try:
+        return augmentations.validate(entries, model.task_kind)
+    except CodedError as error:
+        raise ConfigError(error.code, message_of(error), **error.params) from None
 
 
 def _check_one(model: ModelSpec, name: str, value: Any) -> Any:
