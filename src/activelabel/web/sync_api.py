@@ -271,6 +271,18 @@ def _apply_job(
     )
 
 
+@router.delete("/projects/{project_id}/sync/{tool}/{plan_id}")
+def discard(project_id: int, tool: str, plan_id: str, state: AppState = STATE) -> dict[str, bool]:
+    """Throw a comparison away: it cannot be applied afterwards (404), from any tab."""
+    state.project(project_id)
+    _tool(tool)
+    if not engine.discard_plan(state.store.dir(project_id), plan_id):
+        raise ApiError(
+            404, "plan_not_found", "This comparison does not exist (it may be old). Synchronise again."
+        )
+    return {"discarded": True}
+
+
 @router.post("/projects/{project_id}/sync/{tool}/{plan_id}/apply")
 def apply(
     project_id: int, tool: str, plan_id: str, body: ApplyBody | None = None, state: AppState = STATE

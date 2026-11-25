@@ -246,3 +246,23 @@ def test_an_old_link_of_a_tool_that_cannot_be_synchronised_is_listed_and_can_be_
     assert env.client.delete(f"/api/projects/{env.pid}/links/labelstudio").json() == {"unlinked": True}
     assert set(links.load_links(project_dir)) == {"cvat"}
     assert env.client.get(f"/api/projects/{env.pid}").status_code == 200  # the project opens as usual
+
+
+def test_a_discarded_plan_cannot_be_applied(env):
+    job = plan(env, remote_id=env.rid)
+    plan_id = job["result"]["plan_id"]
+    url = f"/api/projects/{env.pid}/sync/cvat/{plan_id}"
+    assert env.client.delete(url).json() == {"discarded": True}
+    assert not (env.state.store.dir(env.pid) / "sync" / f"{plan_id}.json").exists()
+    again = env.client.delete(url)
+    assert (again.status_code, again.json()["code"]) == (404, "plan_not_found")
+    late = env.client.post(f"{url}/apply", json={})
+    assert (late.status_code, late.json()["code"]) == (404, "plan_not_found")
+
+
+def test_discarding_is_refused_for_an_unknown_tool_or_plan(env):
+    plan_id = plan(env, remote_id=env.rid)["result"]["plan_id"]
+    other = env.client.delete(f"/api/projects/{env.pid}/sync/labelstudio/{plan_id}")
+    assert (other.status_code, other.json()["code"]) == (404, "tool_unknown")
+    wrong = env.client.delete(f"/api/projects/{env.pid}/sync/cvat/not-a-plan")
+    assert (wrong.status_code, wrong.json()["code"]) == (404, "plan_not_found")

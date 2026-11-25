@@ -1575,6 +1575,17 @@
           }
         });
 
+        /* the comparison is deleted on the server too: another tab cannot apply it afterwards */
+        const discard = async () => {
+          try {
+            await api('DELETE', `/projects/${projectId}/sync/${tool}/${encodeURIComponent(pid)}`);
+          } catch (err) {
+            if (err.status !== 404) { toastError(err); return; }  // 404: it is gone already
+          }
+          ctx.syncDismissed.add(pid);
+          draw(true);
+        };
+
         const card = el('div', { class: 'card sync-plan', id: 'sync-plan', 'data-plan': pid },
           el('div', { class: 'session-head' },
             el('span', { class: 'session-tool' }, icon(TOOLS.includes(tool) ? tool : 'info', 22), el('strong', null, t('sync.preview_title', { tool: name }))),
@@ -1597,7 +1608,7 @@
           errorBox,
           el('div', { class: 'session-actions' },
             nothing ? null : apply,
-            el('button', { type: 'button', class: 'btn', onclick: () => { ctx.syncDismissed.add(pid); draw(true); } }, nothing ? t('common.close') : t('sync.discard')),
+            el('button', { type: 'button', class: 'btn', onclick: discard }, nothing ? t('common.close') : t('sync.discard')),
             hint));
         update();
         return card;
