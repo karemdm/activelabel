@@ -198,6 +198,6 @@ npx playwright install chromium     # Linux CI also needs --with-deps
   (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a
   temporary workspace, so it never touches the default port or your own data. Set `ACTIVELABEL_E2E_PYTHON` to use
   another Python than `python` on the path. They walk the main path (create a project, upload three generated
-  images, open Curation, switch language) and check that no raw text key shows and that nothing scrolls
-  sideways on a phone-width screen. The report of a failed run is in `playwright-report/`.
+  images, open every step in Portuguese and in English) and check that the page logs no error, that no raw text
+  key shows and that nothing scrolls sideways on a phone-width screen. The report of a failed run is in `playwright-report/`.
 - CI runs both in the job `ui (node + playwright)`.
