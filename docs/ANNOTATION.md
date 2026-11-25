@@ -23,6 +23,11 @@ imported-from records: they are shown as belonging to a discontinued tool and ca
 Same functions in the tool: add, edit, delete, change class — for classification (one class per image),
 detection (bounding boxes), segmentation (polygons) and keypoints.
 
+The FiftyOne App runs on port 5161 (or the next free one). Its links point to `http://localhost:<port>`;
+inside a GitHub Codespace (`CODESPACE_NAME` and `GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` set) they
+point to the codespace's forwarded address, `https://<codespace>-<port>.<domain>`, so they also open in
+a codespace used from the browser.
+
 ## Flow (FiftyOne)
 
 1. **Choose which images** (*Which images*): all active images, only images without annotations, the
