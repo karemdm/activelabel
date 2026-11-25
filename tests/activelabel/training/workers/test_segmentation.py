@@ -138,7 +138,6 @@ def test_load_spec(worker, tmp_path):
 def test_dataset_and_tiny_model(worker, tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("torchvision")
-    from PIL import Image
 
     Image.new("RGB", (32, 24), (200, 10, 10)).save(tmp_path / "a.png")
     items = [{"path": str(tmp_path / "a.png"), "objects": [{"label": 1, "polygons": [SQUARE]}]}]

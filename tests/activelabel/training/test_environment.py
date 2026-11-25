@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -296,9 +298,6 @@ def test_venv_without_pip_is_recreated(env, monkeypatch):
 
 
 def test_remove_tree_clears_read_only_and_never_raises(tmp_path):
-    import os
-    import stat
-
     folder = tmp_path / "x"
     (folder / "sub").mkdir(parents=True)
     locked = folder / "sub" / "f.txt"

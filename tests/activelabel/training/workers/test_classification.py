@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from PIL import Image
 from sample_images import make_image
 from worker_loader import load_worker
 
@@ -60,8 +61,6 @@ def test_worker_dataset_needs_torch(worker, tmp_path):
 
 
 def test_eval_transform_uses_the_resize_policy(worker):
-    from PIL import Image
-
     photo = Image.new("RGB", (64, 32), (255, 255, 255))
     boxed = worker.eval_transform(16, "letterbox")(photo)
     assert tuple(boxed.shape) == (3, 16, 16)

@@ -6,13 +6,17 @@ import stat
 import textwrap
 
 import pytest
+from api_client import make_client, upload
+from sample_images import make_image
 from training_fakes import finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
+from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.tasks import Task
 from activelabel.training import runner as runner_module
 from activelabel.training.catalog import ParamSpec
 from activelabel.training.config import ConfigError, RunConfig, validate
-from activelabel.training.models import ModelStore
+from activelabel.training.models import ModelNotFound, ModelStore
 from activelabel.training.runs import RunStore
 
 FAKE_EXPORT_PARTIAL = textwrap.dedent(
@@ -273,8 +277,6 @@ def test_export_missing_files_and_stale_files(setup, tmp_path):
 
 
 def test_export_of_a_model_deleted_midway_is_readable(setup, monkeypatch):
-    from activelabel.training.models import ModelNotFound
-
     client, state, runner = setup
     save_model(client, state, runner)
     store = ModelStore(state.store.dir(1))
@@ -366,12 +368,6 @@ def test_create_run_rejections(setup):
 
 
 def test_yolo_is_rejected_before_the_environment_until_the_licence_is_accepted(tmp_path):
-    from api_client import make_client, upload
-    from sample_images import make_image
-
-    from activelabel.labels import AnnotationSet, Label, save_annotations
-    from activelabel.tasks import Task
-
     client, state = make_client(tmp_path)
     client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["a"]})
     paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(10)]

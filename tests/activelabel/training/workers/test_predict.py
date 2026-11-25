@@ -1,5 +1,12 @@
+import numpy as np
 import pytest
+from PIL import Image
 from worker_loader import load_worker
+
+try:  # torch lives only in the worker environment; tests that need it are skipped without it
+    import torch
+except ImportError:
+    torch = None
 
 
 @pytest.fixture(scope="module")
@@ -36,8 +43,6 @@ def test_mask_step_and_clamp(module):
 
 
 def test_encode_mask_run_lengths(module):
-    import numpy as np
-
     mask = np.array([[True, True, False], [False, True, True]])
     assert module.encode_mask(mask) == {"size": [2, 3], "counts": [0, 2, 2, 2]}
     assert module.encode_mask(np.zeros((2, 2), dtype=bool)) == {"size": [2, 2], "counts": [4]}
@@ -47,8 +52,6 @@ class _FakeDetector:
     """Returns one box at fixed input pixels and remembers the size of the image it was given."""
 
     def __call__(self, images):
-        import torch
-
         self.shape = tuple(images[0].shape)
         return [
             {
@@ -62,8 +65,6 @@ class _FakeDetector:
 
 
 def test_detect_takes_a_letterbox_prediction_back_to_the_photo(module):
-    from PIL import Image
-
     model = _FakeDetector()
     found = module.detect(model, Image.new("RGB", (400, 200)), "keypoints", "cpu", 100, "letterbox")
     assert model.shape == (3, 100, 100)

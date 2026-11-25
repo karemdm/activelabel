@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from PIL import Image
 from worker_loader import load_worker
 
 
@@ -27,8 +28,6 @@ def test_layout_of_each_policy(o):
 
 
 def test_fit_image_bands_and_crop(o):
-    from PIL import Image
-
     photo = Image.new("RGB", (200, 100), (255, 0, 0))
     boxed = o.fit_image(photo, 50, "letterbox")
     assert boxed.size == (50, 50)

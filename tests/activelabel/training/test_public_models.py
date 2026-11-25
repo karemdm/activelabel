@@ -7,7 +7,10 @@ from api_client import upload
 from sample_images import make_image
 from training_fakes import tmp_dirs, wait_for
 
-from activelabel.labels import load_annotations
+from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.preannotate import PreannotationStore
+from activelabel.tasks import Task
+from activelabel.training import public_models
 from activelabel.training.public_models import (
     COCO_CATEGORIES,
     PUBLIC_MODELS,
@@ -133,8 +136,6 @@ def test_public_model_has_no_export_or_download_and_can_leave_the_catalogue(det,
         download = client.get(f"/api/projects/2/models/1/download/{kind}")
         assert download.status_code == 404 and "public model" in download.json()["detail"]
 
-    from activelabel.training import public_models
-
     monkeypatch.setattr(public_models, "PUBLIC_MODELS", ())  # a later version without this model
     model = client.get("/api/projects/2/preannotations").json()["models"][0]
     assert model["missing"] and not model["supported"]
@@ -152,8 +153,6 @@ def test_threshold_is_checked_as_stored_and_model_delete_waits(det):
         r = client.post("/api/projects/2/preannotations", json={"model": 1, "task": task, "threshold": bad})
         assert r.status_code == 400, bad
 
-    from activelabel.preannotate import PreannotationStore
-
     PreannotationStore(state.store.dir(2)).create(model=1, task=task, scope="unlabeled", threshold=0.3)
     delete = client.request("DELETE", "/api/projects/2/models/1", json={"confirm": True})
     assert delete.status_code == 409 and "pre-annotation" in delete.json()["detail"]
@@ -161,9 +160,6 @@ def test_threshold_is_checked_as_stored_and_model_delete_waits(det):
 
 
 def test_a_keypoint_model_with_another_skeleton_is_refused(det):
-    from activelabel.labels import AnnotationSet, Label, save_annotations
-    from activelabel.tasks import Task
-
     client, state, runner = det
     client.post("/api/projects", json={"name": "K", "task": "keypoints", "classes": ["person"]})
     paths = [make_image(tmp_path_of(state) / f"k{k}.png", seed=90 + k, fmt="PNG") for k in range(3)]
