@@ -173,6 +173,7 @@ A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 | DELETE | `/api/projects/{id}/links/{tool}` | | `{unlinked: true}` (remote untouched); 409 while a job of the project runs; 404 `not_linked` |
 | POST | `/api/projects/{id}/sync/{tool}` | `{create?, remote_id?, scope: "project"\|"task"\|"job" (default project), task?, job?, direction: "both"\|"pull"\|"push" (default both)}` | job `sync_plan` |
 | GET | `/api/cvat/audit` | | `{url, projects: [{id, name, url, linked_to: {id, name}\|null, tasks: [{id, name, size, url}]}], loose: [{pattern, tasks}]}`; read-only |
+| DELETE | `/api/projects/{id}/sync/{tool}/{plan_id}` | | `{discarded: true}`: the comparison is deleted, so no tab can apply it; 404 `plan_not_found` when it does not exist |
 | POST | `/api/projects/{id}/sync/{tool}/{plan_id}/apply` | `{resolutions, default, delete_tasks}` | job `sync_apply`; 404 when the comparison no longer exists |
 
 ## Remote adapters (Python)
