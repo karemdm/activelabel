@@ -3,7 +3,9 @@
 A project can be **linked** to one remote project in CVAT. Synchronising brings both sides to the same
 annotations, with a review before anything changes. In the interface this is the *CVAT* tab of
 *Annotations*; it is also the only way to review in CVAT (there are no CVAT edit sessions). The API takes
-`cvat` as `{tool}`; any other name answers 404 `tool_unknown`.
+`cvat` as `{tool}`; any other name answers 404 `tool_unknown`. When CVAT is set up, the tab says which
+server and user it is connected to (*Connected to ... as ...*); the connection is set as described in
+docs/ANNOTATION.md (*Credentials*).
 
 A link written for a tool that cannot be synchronised any more (an old workspace; see
 [CHANGELOG.md](../CHANGELOG.md)) is listed by `GET /api/projects/{id}/links` with `supported: false` and shown as "Linked to a
@@ -46,8 +48,15 @@ from other tools or older versions. The audit never moves or deletes anything.
 ## A linked project that was deleted in CVAT
 
 When the person compares (*Synchronise*) with a linked project that was deleted in CVAT, nothing is
-changed: the *CVAT* tab of *Annotations* says the project no longer exists and suggests *Unlink*
-(*Desvincular*); after unlinking, a new comparison creates a new project in CVAT.
+changed: the comparison fails with the code `remote_gone` and the *CVAT* tab of *Annotations* says, in the
+interface language, that the project no longer exists, with an *Unlink* (*Desvincular*) button; after
+unlinking, a new comparison creates a new project in CVAT.
+
+A job that fails with a coded error (`remote_gone` here; `sync_remote_changed`, `sync_local_changed`,
+`sync_link_changed`, `sync_task_has_new_images` or `plan_not_found` when something changed after the
+comparison; `sync_no_remote`, ...) carries `error_code` and `error_params` next to its `error` text, so the
+interface can translate it. When an apply fails with one of the "changed since the comparison" codes, the
+card says so and offers *Synchronise again* (*Sincronizar de novo*) instead of a plain *Close*.
 
 ## Synchronise
 
@@ -72,19 +81,30 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    that exist only here are listed in `only_here` and left alone in `pull`. Removal and restoring of
    images and tasks follow docs/TASKS.md (*CVAT mirror*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
-   add, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
+   add, images_new, labels_new, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
    tasks_new, tasks_delete, tasks_rename: [{task, remote_task, old, new, direction: "push"|"pull"}],
    tasks_rename_conflicts: [{task, remote_task, local, remote}], conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
    per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], not_converted: {kind: n},
    diff_pull: <diff as in ANNOTATION.md>, diff_push:
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
-   plans are kept).
+   plans are kept). `images_new` and `labels_new` count what is sent to CVAT for the first time (the
+   images of tasks created there and the added images, and their labels); the review lists them as *New
+   labels to send* (*Rótulos novos a enviar*), next to the images with annotation changes. A comparison that
+   finds nothing to bring, send, rename or decide says "Everything is already in sync" (*Tudo já está
+   sincronizado*) in the review, with nothing to apply, and raises no "comparison ready" notice; the job
+   result reads "Already in sync". Discarding a comparison in the review deletes the saved plan on the server
+   (`DELETE`, see *HTTP API*), so no other tab can apply it afterwards; applying a comparison that no
+   longer exists answers 404 `plan_not_found` and the interface asks to compare again.
 2. **Apply** (job `sync_apply`) with `{plan_id, resolutions: {"<image_id>": "local"|"remote"},
    default: "local"|"remote"|null, delete_tasks: bool}` (`delete_tasks`: also delete in the tool the
    tasks deleted here; false by default): re-reads only what it needs, refuses if the remote, the
    project's annotations or the link changed again since the plan ("Synchronise again"), then: backup + write pulled labels into the
    project ground truth; write pushed labels to the remote; upload added images; update the
-   link (`base` hashes, keys, `last_sync`). Result: counts (`tasks_renamed` among them).
+   link (`base` hashes, keys, `last_sync`). Result: counts (`pulled`, `pushed`, `added`, `images_new` and
+   `labels_new` sent for the first time, `removed_*`, `restored_*`, `tasks_created`, `tasks_imported`,
+   `tasks_deleted`, `tasks_renamed`, `conflicts_left`, `unchanged`, `new_classes`, `renamed_classes`,
+   `backup`, `skipped`, `warnings`); the result card shows *Images sent to CVAT* and *Labels sent to CVAT*
+   from `images_new` and `labels_new`.
    Task renames follow docs/TASKS.md (*CVAT mirror*): the local name is sent, or the remote one pulled,
    against the name recorded at the last synchronisation; both changed = both kept and a warning.
 
@@ -182,17 +202,36 @@ A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 class RemoteProject(Protocol):          # activelabel/sync/remote.py
     tool: str
     def check(self, settings) -> str                                  # login test, "Connected to ..."
+    def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
     def find(self, settings, name: str) -> RemoteInfo | None
     def get(self, settings, remote_id: str) -> RemoteInfo            # {id, name, url, images}
     def create(self, settings, project: Project) -> RemoteInfo
-    def items(self, settings, remote_id: str, task: Task) -> list[RemoteItem]
+    def items(self, settings, remote_id: str, task: Task,
+              task_ids: list[str] | None = None) -> list[RemoteItem]  # None: the whole project
+    def tasks(self, settings, remote_id: str) -> list[RemoteTask]     # tasks and jobs (state, stage, assignee)
+    def add_task(self, settings, remote_id: str, project: Project, name: str, job_size: int | None,
+                 images: list[tuple[ImageRecord, Path, list[Label]]],
+                 video: tuple[Path, dict] | None = None) -> tuple[RemoteTask, dict[str, str]]
     def add(self, settings, remote_id: str, project: Project,
             images: list[tuple[ImageRecord, Path, list[Label]]]) -> dict[str, str]   # image_id -> key
     def write(self, settings, remote_id: str, project: Project,
-              updates: dict[str, list[Label]]) -> None                # key -> labels (replace)
+              updates: dict[str, list[Label]]) -> None                # key -> labels the item must end with
+    def set_frames(self, settings, task_id: str, delete: list[int], restore: list[int]) -> None
+    def rename_task(self, settings, task_id: str, name: str) -> None
+    def delete_task(self, settings, task_id: str) -> None
+    def frames(self, settings, task_id: str) -> list[tuple[str, bool]]   # (file name, deleted) in order
+    def frame(self, settings, task_id: str, frame: int) -> bytes
+    def video_source(self, settings, task_id: str, dest_dir: Path) -> tuple[Path, dict] | None
     def classes(self, settings, remote_id: str) -> dict[str, str]      # {class id: name}
     def ensure_classes(self, settings, remote_id: str, classes: list[str]) -> None
-    def audit(self, settings) -> dict            # {projects: [...], loose: [...]}, read-only
 ```
 `RemoteItem = {key, file_name, width, height, labels: list[Label], not_converted: {kind: n}}` (labels
 relative 0..1).
+
+## Tests
+
+The CVAT adapter is tested in the normal CI against a strict in-memory fake of the CVAT REST API
+(`tests/helpers/cvat_fake.py`). A separate nightly workflow (`.github/workflows/cvat-live.yml`) runs
+`tests/activelabel/sync/test_cvat_live.py` against a real CVAT started in containers for the occasion, to
+catch what a fake cannot: the real serializer, the ids CVAT assigns, differences between CVAT versions and
+real interpolation. It never touches anyone's server.
