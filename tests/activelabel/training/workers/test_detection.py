@@ -261,6 +261,32 @@ def test_oks_and_keypoint_map(w):
     assert wrong.summary(["a"])["map50"] == 0.0
 
 
+def test_ignored_objects_follow_coco(w):
+    """#345: an ignored object is not counted, and a detection matching only it is neither TP nor FP."""
+    ious = np.array([[0.9, 0.0], [0.0, 0.8], [0.0, 0.0]])  # det 0 on the object, det 1 on the ignored one
+    acc = w.APAccumulator(1, thresholds=[0.5])
+    acc.add([0.6, 0.95, 0.9], [0, 0, 0], [0, 0], ious, ignore=[False, True])
+    # support 1; ranked: 0.95 dropped (matches only the ignored object), 0.9 false positive, 0.6 hit
+    # -> precision 1/2 at recall 1: AP 0.5 (with 0.95 counted as a false positive it would be 1/3)
+    out = acc.summary(["a"])["per_class"]["a"]
+    assert out["support"] == 1 and out["ap50"] == pytest.approx(0.5)
+    only = w.APAccumulator(1, thresholds=[0.5])
+    only.add([0.9], [0], [0], np.array([[0.7]]), ignore=[True])
+    assert only.summary(["a"]) == {"map50": 0.0, "map50_95": 0.0, "per_class": {}}
+
+
+def test_oks_of_an_object_without_points_uses_its_enlarged_box(w):
+    """COCO: with no labelled point, each predicted point is measured to the box enlarged 3x (0 inside)."""
+    gt = np.zeros((1, 2, 3))
+    box = np.array([[10.0, 10.0, 20.0, 20.0]])  # enlarged: 0..30 on both axes
+    inside = np.array([[[5.0, 5.0, 1], [25.0, 25.0, 1]]])
+    assert w.oks_matrix(inside, gt, [100.0], box)[0, 0] == pytest.approx(1.0)
+    outside = np.array([[[40.0, 15.0, 1], [15.0, 15.0, 1]]])  # 10 px right of the enlarged box
+    # sigma 1/2 -> variance 1, denominator 2 * 1 * 100: (exp(-100 / 200) + 1) / 2
+    assert w.oks_matrix(outside, gt, [100.0], box)[0, 0] == pytest.approx((np.exp(-0.5) + 1) / 2)
+    assert w.oks_matrix(inside, gt, [100.0])[0, 0] == 0.0  # without boxes: no fallback
+
+
 def test_spec_refuses_labels_without_the_shape_of_the_model(det_project):
     project_dir = det_project.store.dir(1)
     version = DatasetStore(project_dir).read(1)
