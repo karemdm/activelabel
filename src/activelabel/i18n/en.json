@@ -189,8 +189,6 @@
   "ann.classes_search": "Search class",
   "ann.show_all": "Show all ({n})",
   "ann.show_less": "Show less",
-  "ann.labels_n_one": "{n} label",
-  "ann.labels_n_other": "{n} labels",
   "format.coco": "COCO",
   "format.yolo": "YOLO",
   "format.voc": "Pascal VOC",
