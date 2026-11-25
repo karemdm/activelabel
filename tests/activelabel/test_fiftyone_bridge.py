@@ -377,3 +377,57 @@ def test_app_url_uses_the_forwarded_address_in_a_codespace(no_codespace, monkeyp
     )
     monkeypatch.setenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "")  # only one of the two: not a codespace
     assert bridge.app_origin(5161) == "http://localhost:5161"
+
+
+@pytest.mark.parametrize(
+    ("task", "labels"),
+    [
+        (Task.DETECTION, {"i0": [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}),
+        (Task.SEGMENTATION, {"i0": [Label("cat", polygons=[[[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]])]}),
+        (Task.CLASSIFICATION, {"i0": [Label("cat")]}),
+    ],
+)
+def test_ground_truth_can_be_edited_in_the_app_with_the_projects_classes(tmp_path, project, task, labels):
+    """#392: the App's Annotate mode only edits a field with an active label schema."""
+    project.task = task
+    manifest = build(tmp_path, 2)
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(task, ["cat", "dog"], labels, {}))
+    assert dataset.active_label_schemas == [bridge.GROUND_TRUTH]
+    assert dataset.label_schemas[bridge.GROUND_TRUTH]["classes"] == ["cat", "dog"]
+    project.classes = ["cat", "dog", "bird"]
+    again = bridge.sync_dataset(project, manifest, AnnotationSet(task, project.classes, labels, {}))
+    assert again.label_schemas[bridge.GROUND_TRUTH]["classes"] == ["cat", "dog", "bird"]
+
+
+def test_keypoints_are_shown_but_not_editable_in_the_app(tmp_path, project):
+    """The FiftyOne App (1.22) cannot edit keypoints: no label schema, the labels are only shown."""
+    project.task = Task.KEYPOINTS
+    manifest = build(tmp_path, 1)
+    kp = {"i0": [Label("cat", keypoints=[[0.1, 0.2, 2], [0.3, 0.4, 2]])]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.KEYPOINTS, ["cat"], kp, {}))
+    assert bridge.enable_editing(dataset, project) is False
+    assert bridge.GROUND_TRUTH not in dataset.active_label_schemas
+
+
+def test_an_edit_made_outside_a_session_is_kept(tmp_path, project):
+    """A task opened for a look can be edited in the App too: the next refresh must not overwrite it."""
+    manifest = build(tmp_path, 2)
+    cat = [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]
+    dataset = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], {"i0": cat}, {})
+    )
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample[bridge.GROUND_TRUTH].detections[0].label = "dog"  # edited in the App, no session open
+    sample.save()
+    dog = [Label("dog", bbox=[0.5, 0.5, 0.2, 0.2])]
+    again = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], {"i1": dog}, {})
+    )
+    shown = {s["image_id"]: s[bridge.GROUND_TRUTH] for s in again}
+    assert shown["i0"].detections[0].label == "dog" and shown["i0"].detections[0].bounding_box == [
+        0.1,
+        0.1,
+        0.2,
+        0.2,
+    ]
+    assert shown["i1"].detections[0].label == "dog"  # not edited: refreshed from the project
