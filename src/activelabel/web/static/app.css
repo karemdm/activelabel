@@ -712,7 +712,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .task-meta { margin: 0; font-size: var(--font-sm); }
 .task-progress { display: flex; align-items: center; gap: 0.6rem; }
 .task-progress .progress { flex: 1 1 auto; }
-.task-progress-text { flex: none; font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.task-progress-text { flex: none; font-family: var(--font); font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .progress.thin { height: 6px; border: 0; }
 .task-toggle .icon { transition: transform 0.15s; }
 .task-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }

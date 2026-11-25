@@ -248,9 +248,14 @@ def test_review_fixes(pre):
         project_dir, project, {empty[2]: [Label("b", score=0.8, model="m1")]}, "unlabeled"
     )
     overview = client.get("/api/projects/1").json()["counts"]
-    assert overview["preannotated"] == 1 and overview["annotated"] == 15  # 14 labelled + the empty review
+    # the empty review is counted apart from the 14 labelled images (#394)
+    assert (overview["preannotated"], overview["annotated"], overview["empty"]) == (1, 14, 1)
     summary = client.get("/api/projects/1/annotations").json()
-    assert summary["images_preannotated"] == 1 and summary["images_annotated"] == 15
+    assert (summary["images_preannotated"], summary["images_annotated"], summary["images_empty"]) == (
+        1,
+        14,
+        1,
+    )
     # one active run per task and scope
     store = preannotate.PreannotationStore(project_dir)
     store.create(model=1, task=task_id, scope="unlabeled", threshold=0.5, status="running")
