@@ -756,3 +756,136 @@ def test_rare_class_missing_from_a_part_is_warned(tmp_path):
     missing = {(w["part"], w["class"]) for w in p.warnings if w["code"] == "class_missing"}
     absent = {part for part in ("train", "val", "test") if "rare" not in p.stats[part]["objects"]}
     assert absent and missing == {(part, "rare") for part in absent}
+
+
+# ---------------------------------------------------------------------------
+# Adaptive video split (#349): whole videos when there are enough, spaced segments otherwise
+
+FPS = 5
+HOLDOUT = ("train", "val", "test")
+
+
+def timeline_videos(rng: random.Random, count: int) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Videos whose classes change over time: ``a``, then ``b``, then ``rare`` at the end (some ``c``).
+
+    Args:
+        rng: random generator.
+        count: number of videos.
+
+    Returns:
+        ``spec`` (image id -> classes) and ``videos`` (image id -> video id) for :func:`build`.
+    """
+    spec: dict[str, list[str]] = {}
+    videos: dict[str, str] = {}
+    for v in range(count):
+        frames = rng.randint(100, 250)
+        first = rng.randint(20, frames - 60)
+        second = rng.randint(first + 20, frames - 20)
+        for f in range(frames):
+            image_id = f"v{v}f{f:03d}"
+            spec[image_id] = [
+                "c" if rng.random() < 0.2 else ("a" if f < first else "b" if f < second else "rare")
+            ]
+            videos[image_id] = f"v{v}"
+    return spec, videos
+
+
+def seconds_of(image_id: str) -> float:
+    """Time of a frame named ``v<video>f<frame>`` (its number over ``FPS``).
+
+    Args:
+        image_id: the frame's id.
+
+    Returns:
+        The time in seconds.
+    """
+    return int(image_id.split("f")[1]) / FPS
+
+
+def gap_violations(p, videos: dict[str, str]) -> int:
+    """Pairs of frames of one cut video, in different parts, closer than that video's gap.
+
+    Args:
+        p: the plan.
+        videos: image id -> video id.
+
+    Returns:
+        How many such pairs there are (0 when the safety gap holds).
+    """
+    where = part_of(p)
+    gaps = {v["video"]: v["gap_seconds"] for v in p.videos if v["split"]}
+    frames: dict[str, list[str]] = {}
+    for i in where:
+        if videos.get(i) in gaps:
+            frames.setdefault(videos[i], []).append(i)
+    return sum(
+        1
+        for video, ids in frames.items()
+        for i in ids
+        for j in ids
+        if where[i] != where[j] and abs(seconds_of(i) - seconds_of(j)) <= gaps[video] + 1e-9
+    )
+
+
+@pytest.mark.parametrize("count", (1, 2))
+def test_few_videos_are_cut_into_spaced_class_balanced_segments(tmp_path, count):
+    missing = 0
+    for seed in range(6):
+        spec, videos = timeline_videos(random.Random(seed), count)
+        pdir, project = build(tmp_path / f"s{seed}", spec, videos=videos, fps=FPS)
+        p = plan(pdir, project, seed=seed)
+        assert p.parts == plan(pdir, project, seed=seed).parts  # deterministic
+        assert p.videos[0]["split"]
+        assert gap_violations(p, videos) == 0
+        for v in p.videos:
+            held = [s for s in v["segments"] if s["part"] in ("val", "test")]
+            if len(held) >= 2:
+                assert len({3 * s["first_frame"] // v["frames"] for s in held}) >= 2, v  # not one stretch
+        missing += sum(
+            1 for part in HOLDOUT for c in ("a", "b", "c", "rare") if c not in p.stats[part]["objects"]
+        )
+        assert any(w["code"] == "video_parts_shared" for w in p.warnings)
+        assert {"a", "b", "c", "rare"} <= set(p.stats["train"]["objects"])  # training keeps every class
+    assert missing <= 3  # of 6 x 3 x 4 (part, class) pairs
+
+
+def test_enough_videos_stay_whole(tmp_path):
+    spec: dict[str, list[str]] = {}
+    videos: dict[str, str] = {}
+    for v in range(30):
+        for f in range(10):
+            spec[f"v{v}f{f:03d}"] = [("a", "b", "c")[v % 3]]
+            videos[f"v{v}f{f:03d}"] = f"v{v}"
+    pdir, project = build(tmp_path, spec, videos=videos, fps=FPS)
+    p = plan(pdir, project)
+    assert not any(v["split"] for v in p.videos) and p.parts == plan(pdir, project, videos="whole").parts
+    assert not [w for w in p.warnings if w["code"] in ("video_parts_shared", "class_missing")]
+
+
+def test_only_the_videos_holding_a_lacking_class_are_cut(tmp_path):
+    spec: dict[str, list[str]] = {}
+    videos: dict[str, str] = {}
+    for v in range(30):
+        for f in range(60 if v == 0 else 10):  # video 0 is the only one with the rare class
+            spec[f"v{v}f{f:03d}"] = ["rare" if v == 0 and f % 2 else ("a", "b", "c")[v % 3]]
+            videos[f"v{v}f{f:03d}"] = f"v{v}"
+    pdir, project = build(tmp_path, spec, videos=videos, fps=FPS)
+    p = plan(pdir, project)
+    assert [v["video"] for v in p.videos if v["split"]] == ["v0"]
+    assert all("rare" in p.stats[part]["objects"] for part in HOLDOUT)
+    whole = plan(pdir, project, videos="whole")
+    assert sum("rare" in whole.stats[part]["objects"] for part in HOLDOUT) == 1
+    assert gap_violations(p, videos) == 0
+
+
+def test_gap_grows_to_the_frame_interval_and_the_near_duplicates(tmp_path):
+    spec = {f"v0f{f:03d}": ["a"] for f in range(100)} | {"x1": ["a"], "x2": ["b"]}
+    videos = {i: "v0" for i in spec if i.startswith("v0")}
+    pdir, project = build(tmp_path, spec, videos=videos, fps=1)  # one frame per second
+    (video,) = plan(pdir, project).videos
+    assert video["split"] and video["gap_seconds"] == 1.0  # at least the next frame
+    write_json(curation_path(pdir), {"duplicate_of": {"v0f010": "v0f014", "v0f050": "v0f053"}})
+    assert plan(pdir, project).videos[0]["gap_seconds"] == 4.0  # the longest near-duplicate span
+    write_json(curation_path(pdir), {"duplicate_of": {"v0f000": "v0f090"}})
+    assert plan(pdir, project).videos[0]["gap_seconds"] == pytest.approx(9.9)  # at most a tenth of 99 s
+    assert plan(pdir, project, gap_seconds=0).stats["gap"] == 0

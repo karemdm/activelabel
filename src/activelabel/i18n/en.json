@@ -797,6 +797,7 @@
   "ds.folds_word": "the folds",
   "ds.w_video_split": "Video {name} was cut into {n} segments: {parts} use segments spread over time; {gap} frames were left out as a safety gap.",
   "ds.w_video_split_nogap": "Video {name} was cut into {n} segments: {parts} use segments spread over time.",
+  "ds.w_video_parts_shared": "Scores may be optimistic: parts of the same video are in training and in validation/test. To measure new videos, keep videos whole.",
   "ds.b_video_split": "video in {n} segments",
   "step.training": "Training",
   "status.runs_none": "No runs",
