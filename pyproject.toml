@@ -104,7 +104,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ANN", "DOC", "PLC0415"]  # PLC0415 in tests: being cleaned up (#306), then enforced
+"tests/**" = ["D", "ANN", "DOC"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["activelabel"]
