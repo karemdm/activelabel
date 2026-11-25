@@ -55,3 +55,11 @@ test('taskBadge shows the icon and the name of the task', () => {
   assert.ok(badge.querySelector('.icon-detection'));
   assert.equal(badge.textContent, 'Detection');
 });
+
+test('annotationStatus says how many images are annotated, or empty, or none', () => {
+  setMessages({ 'status.annotated_one': '{n} annotated', 'status.annotated_other': '{n} annotated', 'status.empty_one': '{n} empty',
+    'status.empty_other': '{n} empty', 'status.annotations_none': 'No annotations' }, 'en');
+  assert.equal(names.annotationStatus({ annotated: 2, empty: 1 }), '2 annotated');
+  assert.equal(names.annotationStatus({ annotated: 0, empty: 3 }), '3 empty');
+  assert.equal(names.annotationStatus({}), 'No annotations');
+});

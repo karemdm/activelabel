@@ -211,7 +211,7 @@ npx playwright install chromium     # Linux CI also needs --with-deps
   and the folders `shell/` (texts, DOM, dialogs, API), `integrations/` (CVAT and FiftyOne), `cv/` (the project
   steps) and `pages/`. Each module has its mirror test, `tests/js/<same path>.test.mjs`, that imports it directly;
   `tests/rules/test_js_modules.py` checks that imports resolve, that every module is reachable from `main.js`,
-  that a layer imports only from itself or the layers below it (`shell` < `integrations` < `cv`, `pages`) and
+  that a layer imports only from itself or the layers below it (`shell` < `integrations` < `cv` < `pages`) and
   that the mirror tests exist. Texts are set once with `setMessages()` (`shell/i18n.js`); no module may call
   `t()` when it is first imported. The older tests load `main.js` in jsdom (`tests/js/helpers/load-app.mjs`) in
   Portuguese and in English; until every helper has a module of its own, `main.js` exports the ones they need.

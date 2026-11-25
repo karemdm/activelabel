@@ -2,7 +2,7 @@
 
 The rules: every relative import names a file that exists; every module is reachable from ``main.js`` (the
 only one the page loads); a module imports only from its own layer or the layers below it (``shell`` <
-``integrations`` < ``cv`` and ``pages``; ``main.js`` may import anything); and every module has a mirror test
+``integrations`` < ``cv`` < ``pages``; ``main.js`` may import anything); and every module has a mirror test
 ``tests/js/<same path>.test.mjs``.
 
 ``BASELINE`` lists the modules without a mirror test, as paths relative to ``static/js``. It may only shrink:
@@ -24,7 +24,7 @@ ALLOWED = {
     "shell": {"shell"},
     "integrations": {"shell", "integrations"},
     "cv": {"shell", "integrations", "cv"},
-    "pages": {"shell", "integrations", "pages"},
+    "pages": {"shell", "integrations", "cv", "pages"},
 }
 
 # static ``import ... from '...'``, ``export ... from '...'`` and bare ``import '...'``
