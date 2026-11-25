@@ -118,6 +118,23 @@ def load_plan(project_dir: Path, plan_id: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def discard_plan(project_dir: Path, plan_id: str) -> bool:
+    """Delete a saved plan, so that it can no longer be applied (from any tab).
+
+    Args:
+        project_dir: Folder of the project.
+        plan_id: Id of the plan.
+
+    Returns:
+        True when the plan existed and was deleted; False when it was missing or the id is invalid.
+    """
+    path = plan_file(project_dir, plan_id)
+    if path is None or not path.is_file():
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
 def _prune(project_dir: Path) -> None:
     """Delete the oldest saved plans, keeping the last ``KEEP_PLANS``.
 
