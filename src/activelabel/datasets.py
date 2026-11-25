@@ -703,26 +703,43 @@ def _slot_warnings(
     biggest: tuple[int, str],
     classes: list[str],
     labels: dict[str, list[Label]],
+    available: Counter[str],
+    wanted: int,
 ) -> list[dict[str, Any]]:
     """Warnings of one part: a part with a share above 0 is expected to have images and every class.
 
+    A ``class_missing`` warning says how many images of the whole split have the class (``available``)
+    and whether it could have been in every part (``avoidable``: at least one image per wanted part).
+
     Args:
-        key: how the part is named in the warnings (``{"part": ...}``, plus ``fold`` for a fold).
-        ids: image ids of the part.
-        fraction: the share of the images the part was asked for (0..1).
-        total: number of images split.
-        biggest: size of the largest group and what made it (``video`` or ``duplicates``).
-        classes: every class of the split.
-        labels: image id -> its usable labels.
+        key: Where the part is (``{part}`` or ``{part: "fold", fold}``), copied into each warning.
+        ids: The image ids of the part.
+        fraction: The share asked for this part (0 to 1).
+        total: Images in the whole split.
+        biggest: Size and cause of the largest group of images that must stay together.
+        classes: The classes found in the split.
+        labels: The usable labels per image id.
+        available: Images of the whole split that have each class.
+        wanted: Number of parts asked to have images.
 
     Returns:
-        Warnings as dicts with a ``code`` (empty when the share is 0 or there are no images).
+        The warnings of the part.
     """
     if fraction <= 0 or not total:
         return []
     out: list[dict[str, Any]] = []
     present = {lb.label for i in ids for lb in labels.get(i) or []}
-    out += [{"code": "class_missing", **key, "class": c} for c in classes if c not in present]
+    out += [
+        {
+            "code": "class_missing",
+            **key,
+            "class": c,
+            "available": available[c],
+            "avoidable": available[c] >= wanted,
+        }
+        for c in classes
+        if c not in present
+    ]
     if len(ids) < MIN_IMAGES:
         out.append({"code": "few_images", **key, "images": len(ids)})
     target = total * fraction
@@ -1324,8 +1341,12 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     found = sorted({c for s in classes_of.values() for c in s})
     ordered = [c for c in project.classes if c in found] + [c for c in found if c not in project.classes]
     warnings: list[dict[str, Any]] = list(problems["warnings"])
+    on_images = Counter(c for i in candidates for c in classes_of[i])
+    parts_wanted = sum(share > 0 for _, _, share in slots)
     for key, ids, share in slots:
-        warnings += _slot_warnings(key, ids, share, total - len(dropped), final.biggest, ordered, labels)
+        warnings += _slot_warnings(
+            key, ids, share, total - len(dropped), final.biggest, ordered, labels, on_images, parts_wanted
+        )
 
     where = {i: key for key, ids, _ in final.slots for i in ids}  # every image's part (before the gap)
     videos: list[dict[str, Any]] = []

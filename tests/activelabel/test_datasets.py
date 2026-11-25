@@ -203,10 +203,23 @@ def test_warnings(tmp_path):
     codes = {(w["code"], w.get("part")) for w in plan(pdir, project, videos="whole").warnings}
     assert ("few_images", "test") in codes
     assert ("class_missing", "val") in codes or ("class_missing", "test") in codes
+    missing = [w for w in plan(pdir, project, videos="whole").warnings if w["code"] == "class_missing"]
+    rare = [w for w in missing if w["class"] == "rare"]
+    assert rare and all(w["available"] == 1 and w["avoidable"] is False for w in rare)  # 1 image, 3 parts
+    assert all(w["avoidable"] for w in missing if w["class"] == "a")  # 12 images could fill 3 parts
     assert ("group_too_big", "val") in codes  # only where the big group moved the proportions
     assert any(c == "ratio_drift" for c, _ in codes)
     clean_dir, clean = build(tmp_path / "z", balanced())
     assert [w["code"] for w in plan(clean_dir, clean).warnings] == ["no_curation"]
+
+
+def test_a_missing_class_with_enough_images_is_marked_avoidable(tmp_path):
+    spec = {f"i{k:02d}": ["a"] for k in range(30)} | {f"r{k}": ["rare"] for k in range(3)}
+    pdir, project = build(tmp_path, spec)
+    p = plan(pdir, project, split={"train": 90, "val": 5, "test": 5}, seed=1)
+    for w in p.warnings:
+        if w["code"] == "class_missing":
+            assert w["available"] == 3 and w["avoidable"] is True
 
 
 def test_store_versions_immutable_numbering_and_incomplete(tmp_path):
