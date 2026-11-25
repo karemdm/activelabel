@@ -355,3 +355,9 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_bulk_actions_on_a_selection_run_once_per_click():
+    """A double click on Exclude/Restore/Delete must not send a second, empty request (#430)."""
+    for act, handler in (("exclude", "exclude"), ("restore", "restore"), ("delete", "remove")):
+        assert re.search(rf"'data-act': '{act}', onclick: once\({handler}\)", JS), act

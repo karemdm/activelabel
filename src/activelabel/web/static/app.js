@@ -3583,15 +3583,15 @@
           if (n) {
             buttons.push(
               el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
-              el('button', { type: 'button', class: 'btn primary', 'data-act': 'exclude', onclick: exclude }, t('cur.exclude')));
+              el('button', { type: 'button', class: 'btn primary', 'data-act': 'exclude', onclick: once(exclude) }, t('cur.exclude')));
           }
         } else {
           buttons.push(el('button', { type: 'button', class: 'btn', 'data-act': 'all', onclick: selectAll }, t('cur.select_all_excluded')));
           if (n) {
             buttons.push(
               el('button', { type: 'button', class: 'btn', 'data-act': 'clear', onclick: () => grid.setSelected([]) }, t('cur.clear')),
-              el('button', { type: 'button', class: 'btn primary', 'data-act': 'restore', onclick: restore }, t('cur.restore')),
-              el('button', { type: 'button', class: 'btn danger-outline', 'data-act': 'delete', onclick: remove }, t('cur.delete')));
+              el('button', { type: 'button', class: 'btn primary', 'data-act': 'restore', onclick: once(restore) }, t('cur.restore')),
+              el('button', { type: 'button', class: 'btn danger-outline', 'data-act': 'delete', onclick: once(remove) }, t('cur.delete')));
           }
         }
         const needsAnalysis = view === 'active' && !analyzed();  // "suggested" comes from the analysis
