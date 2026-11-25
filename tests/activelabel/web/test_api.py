@@ -6,6 +6,8 @@ from pymongo.errors import ServerSelectionTimeoutError
 from sample_images import make_corrupt, make_image
 
 from activelabel import fiftyone_bridge
+from activelabel.fiftyone_names import record_name
+from activelabel.web import api
 
 
 def wait_job(client, project_id, job_id, timeout=10):
@@ -104,9 +106,6 @@ def test_steps_need_images(tmp_path):
 
 
 def test_deleting_a_project_drops_its_fiftyone_dataset(tmp_path, monkeypatch):
-    from activelabel.fiftyone_names import record_name
-    from activelabel.web import api
-
     client, state = make_client(tmp_path)
     client.post("/api/projects", json={"name": "Cats", "task": "detection"})
     record_name(state.store.dir(1), "activelabel-1-abc12345")
@@ -117,9 +116,6 @@ def test_deleting_a_project_drops_its_fiftyone_dataset(tmp_path, monkeypatch):
 
 
 def test_deleting_a_project_touches_fiftyone_only_when_it_has_a_dataset(tmp_path, monkeypatch):
-    from activelabel.fiftyone_names import record_name
-    from activelabel.web import api
-
     dropped = []
     monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args[2]))
     client, state = make_client(tmp_path)

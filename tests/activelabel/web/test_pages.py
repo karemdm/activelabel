@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 from frontend import js_source
 
+from activelabel.annotations.models import PROBLEMS
 from activelabel.config import Settings
+from activelabel.curation.issues import Thresholds
 from activelabel.i18n import messages
 from activelabel.web import pages
 from activelabel.web.app import create_app
@@ -140,16 +143,10 @@ def test_dynamic_translation_keys_exist():
     wanted += [f"annotate.scope.{x}" for x in ("all", "unlabeled", "selected", "issue")]
     wanted += [f"annotate.status.{x}" for x in ("open", "pulled", "applied", "discarded", "closed")]
     try:
-        from activelabel.annotations.models import PROBLEMS
-
         wanted += [f"problem.{code}" for code in PROBLEMS]
     except ImportError:
         pass
     try:
-        from dataclasses import asdict
-
-        from activelabel.curation.issues import Thresholds
-
         wanted += [f"threshold.{name}" for name in asdict(Thresholds())]
     except ImportError:
         pass

@@ -1,12 +1,17 @@
+import json
+import random
+
 import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
+from activelabel.datasets import DatasetStore
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
 from activelabel.training import environment
 from activelabel.training.config import RunConfig
 from activelabel.training.runs import RunStore
+from activelabel.web.training_api import _tail
 
 PINS = environment.PINNED_VERSIONS  # torch and torchvision count as installed only at these versions
 
@@ -118,7 +123,6 @@ def test_cancel_queued_run_and_unknown(tmp_path):
 
 
 def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
-
     client, state = _setup(tmp_path)
     run = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).json()
     assert run["metric"] == "map50_95"  # filled with the default of the model's kind
@@ -180,10 +184,6 @@ def test_a_damaged_run_does_not_hide_the_others(tmp_path):
 
 
 def test_log_tail_reads_only_the_end(tmp_path):
-    import random
-
-    from activelabel.web.training_api import _tail
-
     rng = random.Random(7)
     for case in range(60):
         lines = ["x" * rng.randint(0, 40) + f" {k} ção" for k in range(rng.randint(0, 120))]
@@ -195,10 +195,6 @@ def test_log_tail_reads_only_the_end(tmp_path):
 
 
 def test_a_version_without_training_images_is_refused(tmp_path):
-    import json
-
-    from activelabel.datasets import DatasetStore
-
     client, state = _setup(tmp_path)
     path = DatasetStore(state.store.dir(1)).dir / "v1.json"
     data = json.loads(path.read_text(encoding="utf-8"))

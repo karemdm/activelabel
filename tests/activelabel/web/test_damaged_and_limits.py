@@ -1,7 +1,10 @@
+import threading
+
 from api_client import make_client, upload
 from sample_images import make_image
 
 from activelabel.projects import clean_classes
+from activelabel.tasks_store import TaskStore
 
 
 def make_projects(tmp_path, count=2):
@@ -82,10 +85,6 @@ def test_clean_classes_keeps_first_spelling_and_order():
 
 
 def test_reading_projects_and_tasks_does_not_wait_for_a_running_upload(tmp_path):
-    import threading
-
-    from activelabel.tasks_store import TaskStore
-
     client, state = make_projects(tmp_path, 1)
     path = tmp_path / "a.png"
     make_image(path)

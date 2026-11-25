@@ -5,9 +5,10 @@ from api_client import make_client, upload
 from sample_images import make_image
 
 from activelabel.curation.issues import Thresholds, curation_path, load_thresholds, save_thresholds
-from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
+from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
 from activelabel.storage import read_json, write_json
 from activelabel.tasks import Task
+from activelabel.web import api
 
 POLY = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.4]]
 
@@ -188,9 +189,6 @@ def test_project_update_waits_for_running_jobs_and_keeps_annotations(tmp_path):
 
 
 def test_project_update_holds_the_annotations_lock(tmp_path, monkeypatch):
-    from activelabel.labels import annotations_lock
-    from activelabel.web import api
-
     client, state, _ = setup(tmp_path)
     held = []
     real = api.make_backup
