@@ -10,6 +10,7 @@ Tests named ``test_defect_*`` fail on purpose: each pins down a real defect of t
 from __future__ import annotations
 
 import math
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1387,3 +1388,18 @@ def test_a_task_renamed_in_cvat_is_renamed_here(detection: Env) -> None:
     assert [r["direction"] for r in p["tasks_rename"]] == ["pull"] and result["tasks_renamed"] == 1
     assert TaskStore(env.dir).get(1).name == "Renamed in CVAT"
     assert plan(env)["tasks_rename"] == []
+
+
+# -- long and accented file names ------------------------------------------------------------------------
+def test_images_with_long_accented_names_are_sent_and_found_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Names go to CVAT as UTF-8 and come back as they were (composed and decomposed accents)."""
+    long_name = ("foto_ação_ñ_" + "ü_é_" * 20)[:100] + ".png"
+    names = [long_name, unicodedata.normalize("NFD", "cão_ñ.png"), "plain.png"]
+    labels = {0: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3])], 1: [], 2: []}
+    env = make_env(tmp_path, monkeypatch, count=3, names=names, labels=labels)
+    _, result = sync(env, create=True)
+    assert result["tasks_created"] == 1 and result["images_new"] == 3
+    assert set(links.get_link(env.dir, "cvat")["items"]) == set(env.ids)
+    assert plan(env)["unchanged"] == 3
