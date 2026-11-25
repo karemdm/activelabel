@@ -149,7 +149,7 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 /* ---- cards & forms ---- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4) 1.25rem; }
 .empty { text-align: center; padding: 3rem var(--space-4); }
-.empty p { color: var(--muted); max-width: 40rem; margin-left: auto; margin-right: auto; }
+.empty p { color: var(--muted); text-wrap: balance; max-width: 40rem; margin-left: auto; margin-right: auto; }
 .form { max-width: none; }
 .field { margin: 0 0 1.25rem; padding: 0; border: 0; min-width: 0; }
 .field label, .field legend { display: block; font-weight: 600; margin-bottom: 0.35rem; padding: 0; }
@@ -508,7 +508,6 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .session-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; color: var(--muted); margin: 0.3rem 0 0.6rem; }
 .session-links { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 0.6rem; }
 .session-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 0.9rem; }
-.session-actions .btn.danger-outline { margin-left: auto; }
 .sbadge { font-size: var(--font-xs); font-weight: 700; padding: 0.1rem 0.7rem; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); }
 .sbadge-open { color: var(--primary); border-color: var(--primary); background: var(--primary-soft); }
 .sbadge-pulled { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
@@ -579,7 +578,6 @@ dialog .jobs.scroll-box { max-height: 60vh; }
   .tool-cards { grid-template-columns: 1fr; }
   .send-row .btn.big { width: 100%; }
   .session-actions .btn { flex: 1 1 100%; }
-  .session-actions .btn.danger-outline { margin-left: 0; }
 }
 
 /* ---- import a project ---- */
@@ -699,7 +697,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .icon-btn.small { width: 32px; height: 32px; border-color: transparent; background: transparent; color: var(--muted); }
 .icon-btn.small:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn.small.danger:hover { background: var(--danger-soft); color: var(--danger); }
-.task-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); gap: var(--space-4); align-items: start; margin: 0; }
+.task-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: var(--space-4); align-items: start; margin: 0; }
 .task-item { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: 0.9rem var(--space-4); }
 .task-item.is-filtered { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 .task-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
