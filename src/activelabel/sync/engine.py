@@ -17,6 +17,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,28 @@ class RemoteChanged(SyncError):
 
 
 # -- helpers --------------------------------------------------------------------
+class FrameCounter:
+    """Counts the frames downloaded for new tasks and reports them as the job's progress."""
+
+    def __init__(self, progress: Progress, total: int) -> None:
+        """Start at zero of ``total`` frames.
+
+        Args:
+            progress: The job's progress handle (also checked for cancellation at every frame).
+            total: How many frames will be downloaded.
+        """
+        self.progress = progress
+        self.total = total
+        self.done = 0
+        progress.update(0, total, "Downloading images")
+
+    def __call__(self) -> None:
+        """One more frame was downloaded: report ``done / total`` and stop here when cancelled."""
+        self.done += 1
+        self.progress.update(self.done, self.total, "Downloading images")
+        self.progress.check()
+
+
 def remote_name(project: Project) -> str:
     """Name the annotation tools give the remote project of a project.
 
@@ -1196,6 +1219,12 @@ def apply_plan(
     remote_jobs: dict[str, dict[str, str]] = {}
     if plan.get("tasks_new"):
         remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
+    new_tasks = plan.get("tasks_new") or []
+    counter = (
+        FrameCounter(progress, sum(len(plan["new_items"].get(spec["remote_task"], [])) for spec in new_tasks))
+        if new_tasks
+        else None
+    )
     for spec in plan.get("tasks_new") or []:
         progress.check()
         imported += _import_remote_task(
@@ -1210,6 +1239,7 @@ def apply_plan(
             tmap,
             remote_jobs.get(str(spec["remote_task"]), {}),
             warnings,
+            counter,
         )
 
     final = _local_labels(project_dir)
@@ -1559,6 +1589,7 @@ def _import_remote_task(
     tmap: dict[str, Any],
     remote_jobs: dict[str, str] | None = None,
     warnings: list[str] | None = None,
+    on_frame: Callable[[], None] | None = None,
 ) -> int:
     """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0.
 
@@ -1578,6 +1609,7 @@ def _import_remote_task(
         tmap: the ``tasks`` of the link; receives the new local task.
         remote_jobs: ``{job number: remote job id}`` of the task.
         warnings: list that receives notes about problems that do not stop the import.
+        on_frame: called after each frame is downloaded (the job's progress).
 
     Returns:
         1 when a local task was created, 0 when there was nothing to import.
@@ -1588,10 +1620,13 @@ def _import_remote_task(
     ordered = sorted(new_items, key=lambda x: _key_frame(x["key"]))
     if not ordered:
         return 0
-    files = [
-        (str(x["name"]), io.BytesIO(remote.frame(settings, spec["remote_task"], _key_frame(x["key"]))))
-        for x in ordered
-    ]
+    files: list[tuple[str, io.BytesIO]] = []
+    for x in ordered:
+        files.append(
+            (str(x["name"]), io.BytesIO(remote.frame(settings, spec["remote_task"], _key_frame(x["key"]))))
+        )
+        if on_frame is not None:
+            on_frame()
     with tstore.locked():
         tstore.ensure()  # a project without tasks.json would put the new images in a "Task 1" of its own
         report = ingest_files(manifest, files)
