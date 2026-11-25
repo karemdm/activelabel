@@ -2,14 +2,18 @@
 
 Line shapes: ``cls cx cy w h`` (5 values) is a box; an odd count above 5 is a polygon; pose lines
 (``cls cx cy w h`` plus ``x y [v]`` per point) are recognised when ``kpt_shape`` is in data.yaml, or when
-the count is even and ``(n - 5)`` is a multiple of 3. Class names come from ``data.yaml`` (``names`` list
-or dict), else ``classes.txt`` / ``obj.names``; without names, ``class_<n>`` is used.
+``(n - 5)`` is a multiple of 3. A line with an odd count that fits both (2, 4, 6... points) is a pose when
+a visibility value is 2, a polygon when one is not 0, 1 or 2; otherwise it is settled by the other lines
+of the dataset and reported (``yolo_pose_ambiguous``): ``kpt_shape`` in data.yaml removes the doubt.
+Class names come from ``data.yaml`` (``names`` list or dict), else ``classes.txt`` / ``obj.names``;
+without names, ``class_<n>`` is used.
 """
 
 from __future__ import annotations
 
 import math
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -167,14 +171,9 @@ def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
     except ValueError:
         root = Path()
     missing: set[int] = set()
-    for path in labels:
-        try:
-            text = path.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            ctx.problem("invalid_file", f"{path.name}: {exc}")
-            continue
-        if is_label_text(text) is False:
-            continue  # train.txt, readme.txt, ...
+    texts = read_label_texts(ctx, labels)
+    pose_hint = majority_is_pose(texts.values())
+    for path, text in texts.items():
         try:
             rel = path.relative_to(root).as_posix() if root != Path() else path.name
         except ValueError:
@@ -185,11 +184,83 @@ def parse_yolo(ctx: ParseContext, files: list[Path]) -> None:
         ctx.files.append(rel)
         for number, line in enumerate(text.splitlines(), 1):
             if line.strip():
-                label = _line(ctx, line, names, kpt, missing, f"{rel}:{number}: {line[:40]}")
+                label = _line(ctx, line, names, kpt, missing, pose_hint, f"{rel}:{number}: {line[:40]}")
                 if label is not None:
                     ctx.add_label(rec, label)
     if missing:
         ctx.problem("missing_class_names", ", ".join(f"class_{i}" for i in sorted(missing)[:5]))
+
+
+def read_label_texts(ctx: ParseContext, labels: list[Path]) -> dict[Path, str]:
+    """Text of the label files; files that cannot be read are reported and files that are not labels skipped.
+
+    Args:
+        ctx: parse context that records ``invalid_file``.
+        labels: the candidate label ``.txt`` files.
+
+    Returns:
+        The text of each label file.
+    """
+    texts: dict[Path, str] = {}
+    for path in labels:
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            ctx.problem("invalid_file", f"{path.name}: {exc}")
+            continue
+        if is_label_text(text) is not False:  # train.txt, readme.txt, ... are not labels
+            texts[path] = text
+    return texts
+
+
+def majority_is_pose(texts: Iterable[str]) -> bool:
+    """Whether the lines that are clearly one kind or the other are mostly pose lines.
+
+    Only counts that fit one shape: an even count with ``(n - 5)`` a multiple of 3 is a pose, an odd count
+    with ``(n - 5)`` not a multiple of 3 is a polygon.
+
+    Args:
+        texts: the contents of the label files.
+
+    Returns:
+        True when there are more clear pose lines than clear polygon lines; False on a tie.
+    """
+    pose = polygon = 0
+    for text in texts:
+        for line in text.splitlines():
+            vals = _numbers(line)
+            n = len(vals) if vals else 0
+            if n > 5 and n % 2 == 0 and (n - 5) % 3 == 0:
+                pose += 1
+            elif n >= 7 and n % 2 == 1 and (n - 5) % 3 != 0:
+                polygon += 1
+    return pose > polygon
+
+
+def _is_pose(ctx: ParseContext, vals: list[float], pose_hint: bool, where: str) -> bool:
+    """Whether a line without ``kpt_shape`` is a pose line (``5 + 3k`` values) rather than a polygon.
+
+    Args:
+        ctx: parse context that records ``yolo_pose_ambiguous``.
+        vals: all numbers of the line, the class id first.
+        pose_hint: whether the clear lines of the dataset are mostly pose lines.
+        where: text shown as the example of the problem.
+
+    Returns:
+        True for a pose line.
+    """
+    n = len(vals)
+    if n <= 5 or (n - 5) % 3 != 0:
+        return False
+    if n % 2 == 0:
+        return True  # an even count cannot be a polygon
+    flags = vals[7::3]
+    if any(f == 2 for f in flags):
+        return True  # a coordinate is never 2
+    if any(f not in (0, 1) for f in flags):
+        return False  # not a visibility value
+    ctx.problem("yolo_pose_ambiguous", where)
+    return pose_hint
 
 
 def _line(
@@ -198,6 +269,7 @@ def _line(
     names: dict[int, str] | None,
     kpt: tuple[int, int] | None,
     missing: set[int],
+    pose_hint: bool,
     where: str,
 ) -> Label | None:
     """Label for one YOLO line, or None when it cannot be used.
@@ -208,6 +280,7 @@ def _line(
         names: class names by id, or None to use ``class_<id>``.
         kpt: ``(points, values per point)`` from ``kpt_shape``, or None.
         missing: set that receives the class ids used without a name.
+        pose_hint: whether the clear lines of the dataset are mostly pose lines (settles ambiguous lines).
         where: text shown as the example of any problem.
 
     Returns:
@@ -233,7 +306,7 @@ def _line(
     dim = 0
     if kpt is not None and n > 5 and (n - 5) % kpt[1] == 0:
         dim = kpt[1]
-    elif kpt is None and n > 5 and n % 2 == 0 and (n - 5) % 3 == 0:
+    elif kpt is None and _is_pose(ctx, vals, pose_hint, where):
         dim = 3
     if dim:
         return _pose(ctx, name, vals, dim, kpt[0] if kpt else None, where)

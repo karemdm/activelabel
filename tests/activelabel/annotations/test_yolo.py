@@ -83,3 +83,33 @@ def test_a_label_file_called_labels_txt_is_not_a_names_file(env):
     assert not is_names_file(folder / "labels.txt")
     write(folder, "names.txt", "cat\ndog\n")
     assert is_names_file(folder / "names.txt")
+
+
+def _pose_line(points: int, visibility: float = 2) -> str:
+    values = ["0", "0.5", "0.5", "0.4", "0.4"]
+    for i in range(points):
+        values += [str(0.3 + i / 100), str(0.3 + i / 100), str(visibility)]
+    return " ".join(values) + "\n"
+
+
+@pytest.mark.parametrize("points", [2, 4, 6])
+def test_yolo_pose_without_kpt_shape_with_an_even_point_count(env, points):
+    folder, images, recs = env
+    files = [write(folder, "data.yaml", "names: [p]\n"), write(folder, "a.txt", _pose_line(points))]
+    res = parse(files, "yolo", images)
+    (label,) = res.labels[recs["a.png"].id]
+    assert label.keypoints is not None and len(label.keypoints) == points and label.polygons is None
+    assert "yolo_pose_ambiguous" not in {p.code for p in res.problems}
+
+
+def test_yolo_ambiguous_line_follows_the_other_lines_and_is_reported(env):
+    folder, images, recs = env
+    ambiguous = _pose_line(2, 1)  # 11 values, every visibility 0 or 1: a pose or a 5-point polygon
+    pose = write(folder, "a.txt", ambiguous + _pose_line(1))  # the 8-value line is clearly a pose
+    res = parse([write(folder, "data.yaml", "names: [p]\n"), pose], "yolo", images)
+    assert all(lb.keypoints is not None for lb in res.labels[recs["a.png"].id])
+    problem = next(p for p in res.problems if p.code == "yolo_pose_ambiguous")
+    assert problem.count == 1
+    polygon = write(folder, "b.txt", ambiguous + "0 0.1 0.1 0.9 0.1 0.9 0.9 0.5 0.95 0.1 0.9 0.2 0.5\n")
+    res = parse([write(folder, "data.yaml", "names: [p]\n"), polygon], "yolo", images)
+    assert all(lb.polygons is not None for lb in res.labels[recs["b.png"].id])

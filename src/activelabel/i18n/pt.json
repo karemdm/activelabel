@@ -191,6 +191,7 @@
   "problem.images_rejected": "Alguns arquivos não são imagens legíveis e foram ignorados.",
   "problem.images_duplicate": "Imagens idênticas foram adicionadas uma só vez.",
   "problem.image_download_failed": "Algumas imagens não puderam ser baixadas.",
+  "problem.yolo_pose_ambiguous": "Algumas linhas YOLO podem ser polígono ou pose; adicione um data.yaml com kpt_shape para resolver.",
   "problem.unknown_class_id": "Algumas anotações usam uma classe não definida e foram ignoradas.",
   "problem.missing_class_names": "Os nomes das classes não foram encontrados; usamos nomes como class_0.",
   "problem.keypoint_count_mismatch": "Alguns objetos têm um número de pontos-chave diferente do esperado.",
