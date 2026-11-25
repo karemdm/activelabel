@@ -111,6 +111,14 @@ warnings. Nothing is saved until the person confirms.
 Known limitation: with K-fold on split videos, the safety gap only protects the test part. Frames of
 neighbouring segments can land in different folds, and no frames are left out between folds.
 
+## Reading the preview
+
+The class table of the preview lists the rarest classes first (a class missing from a part that has images
+goes before the others), so the classes at risk are never hidden behind "show all". Each cell gives the count
+and the share of that class in the part; a 0 in a part that has images is marked with an icon, not only a
+colour. A "class missing" warning also says whether the class could have been in every part (`avoidable`,
+from the API) or has too few images for that (`available` below the number of parts asked to have images).
+
 ## Storage
 
 `<project>/datasets/v<N>.json` (N = 1, 2, …, never reused), immutable once written:
