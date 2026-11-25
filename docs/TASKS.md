@@ -37,7 +37,10 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 ```
 
 - Every image of the project (active or excluded) is in exactly one task; `images` keeps the order
-  of the upload (the order of the files in the upload, as in CVAT).
+  of the upload (the order of the files in the upload, as in CVAT). An image is stored once, by its content:
+  a file the project already has is skipped as a duplicate and does not enter the new task. The name it was
+  uploaded with is kept as another name of the image (`aliases` in the manifest, at most 20 per image), so
+  annotation files that use either name still match it (docs/IMPORT.md).
 - Jobs are not stored: job *k* (1-based) of a task is `images[(k-1)*job_size : k*job_size]`.
 - `open` is true while a chunked upload may still append images (see below); `incomplete` is true when
   that upload was cut off (see below); `touched` (saved, not sent to the interface) is the time of the last
@@ -65,7 +68,7 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/api/projects/{id}/tasks` | | `{tasks: [task view]}` |
+| GET | `/api/projects/{id}/tasks` | query `refresh=true` (optional) | `{tasks: [task view]}`; closes the tasks whose upload was cut off (see below); `refresh` reads the CVAT job states again instead of reusing a read of the last minute |
 | POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <n>", see above), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
 | PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task and, when it holds no image, removes it: the answer has `removed: true`; reopening a closed task is refused: 409 `task_closed`) | task view |
@@ -74,7 +77,10 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 
 Task view: `{id, name, created, job_size, open, incomplete, source, images, active, annotated, jobs: [{n, first,
 last, images, active, annotated}], remote?: {...}, cvat}` (`first`/`last`: 1-based positions in the task;
-`remote` only when the project is linked to CVAT, see below). `cvat` is `ready` when `remote` is there,
+`remote` only when the project is linked to CVAT, see below). `annotated` counts the images with at least
+one reviewed label, the same number as on the step bar: an image whose labels are all pre-annotations is not
+counted until it is reviewed, and an image reviewed with no objects is counted apart in the step status
+(*sem objetos*, docs/ANNOTATION.md). `cvat` is `ready` when `remote` is there,
 otherwise the reason the task cannot be opened in CVAT: `not_configured` (no CVAT connection),
 `not_linked` (the project is not linked), `not_synchronised` (the task is not in CVAT yet) or
 `unreachable` (it is, but CVAT did not answer).
@@ -88,7 +94,12 @@ task is `open` (`"open": true` in tasks.json until the browser calls `PATCH …/
 the app closes the task itself and marks it `incomplete: true` so the interface can say that images may be
 missing (the images that arrived stay; further chunks are refused, 409 `task_closed`): when the next task
 is created, or when the task list is read and the last chunk is older than 30 minutes. Start-up does not
-touch the tasks. A task closed by the browser is `incomplete: false`.
+touch the tasks. A task closed by the browser is `incomplete: false`. The card of an incomplete task says
+"Upload cut off: images may be missing" (*tasks.incomplete*), and the missing images go in a new task. In the
+browser, while an upload runs the new-task dialog cannot be hidden with Esc (a toast says to use *Cancel*), and
+leaving the page (a link, the language switch, closing the tab) asks for confirmation. *Cancel* in the upload
+stops sending, closes the task with the images that arrived (`incomplete: false`: the person chose to stop) and
+says how many files had been sent.
 
 `GET /api/projects/{id}/images` gains `task` and `job` query parameters (filter). The existing
 `POST /api/projects/{id}/images` (upload) creates a new task with the next automatic name ("Task <n>"), for compatibility.
@@ -148,9 +159,14 @@ link, as in docs/SYNC.md):
   ActiveLabel asks for confirmation in the review.
 - Backup of the project annotations before applying, as in docs/SYNC.md.
 
-The task view's `remote` part shows, per job, the CVAT job id, link, state (`new`, `in progress`,
-`completed`, `rejected`), stage (`annotation`, `validation`, `acceptance`) and assignee, read from
-`GET /api/jobs?task_id=…` when the tasks are listed (cached for a minute).
+The task view's `remote` part is `{task, url, jobs: [{n, id, url, state, stage, assignee}]}`: per job, the
+CVAT job id, link, state (`new`, `in progress`, `completed`, `rejected`), stage (`annotation`, `validation`,
+`acceptance`) and assignee, read from CVAT when the tasks are listed. A read is reused for a minute
+(`REMOTE_TTL`), and the task list never waits for CVAT longer than 8 seconds (`REMOTE_TIMEOUT`): if CVAT is
+slow or unreachable the tasks show without `remote` (their `cvat` is then `unreachable`). The *Update*
+(*Atualizar*) button of the *Tasks and jobs* tab, shown only when at least one task is linked to CVAT, reads
+the states again at once (`?refresh=true`) and confirms with a notice, even when nothing changed. Each job row
+shows its state, its stage and who it is assigned to.
 
 ## Import from CVAT
 
@@ -168,8 +184,20 @@ project with that one task, linked to the task's project in CVAT when it has one
   Esc): *Edit in FiftyOne* (*Editar no FiftyOne*) starts an edit session (docs/ANNOTATION.md) on exactly the
   active images of the task or job; *Open in CVAT* (*Abrir no CVAT*) opens the linked CVAT task or job. An
   item that cannot be used stays in the menu, disabled, with the reason written under it (CVAT not set up,
-  project not linked, task not synchronised yet; keypoints cannot be edited in FiftyOne, so that project's
-  menu has *View in FiftyOne* instead, to look at the task).
+  project not linked, task not synchronised yet, CVAT did not answer; the texts are `tasks.cvat_*`).
+  Keypoints cannot be edited in FiftyOne: in a keypoints project *Edit in FiftyOne* is disabled ("FiftyOne
+  does not edit keypoints: use CVAT") and the menu adds *View in FiftyOne*, which opens the task for a look
+  only (`POST /projects/{id}/fiftyone`); the API refuses the edit session as well (docs/ANNOTATION.md).
+  *Edit in FiftyOne* needs nothing set up by the person: the label schema the App requires to edit
+  `ground_truth` is written each time the dataset is refreshed (docs/ANNOTATION.md, *How to edit in the App*).
+- A task card also has *Rename* and *Delete* (which asks for a confirmation). When one of these
+  answers 404 or 409 because the task changed in another tab, the interface reloads the project and the task
+  list so no dead card stays.
+- *New task* dialog: the footer button reads *Cancel* until something was created and *Close* afterwards; while
+  files are being sent it is hidden and the upload has its own *Cancel* (see *Chunked upload*). The name field
+  shows "Task <n>" as its placeholder (the name is optional), and the *Images per job* hint says it cannot change after
+  creation. A task that adds no image reports no success: the dialog goes back to the form and the report says
+  why each file was rejected.
 - **Annotations** step, tabs *CVAT* and *FiftyOne*: tool + scope (project / task / job). For CVAT the
   button is *Compare with CVAT* (*Comparar com o CVAT*): it makes the plan, you review it, and *Apply
   synchronisation* (*Aplicar a sincronização*) carries it out; for FiftyOne the session works as in

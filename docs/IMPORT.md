@@ -1,17 +1,24 @@
-# ActiveLabel — import a project from CVAT
+# ActiveLabel — import: a project from CVAT, and annotation files
 
-Besides creating a project, people can **import** one that already exists in CVAT. The import brings
-the images and their annotations and creates a normal ActiveLabel project: everything works the same
-afterwards (curation, annotation sessions, editing, task change, ...). The origin is only recorded for
-information.
+There are two kinds of import:
+
+- **A project (or task) from CVAT**, on the *Import a project* page (*Importar um projeto*, reached by the *Import project* button of the project
+  list and by *Import from CVAT* when the list is empty): it brings the images and their annotations and creates a normal ActiveLabel
+  project: everything works the same afterwards (curation, annotation sessions, editing, task change, ...).
+  The origin is only recorded for information. CVAT is the only source (`tool` must be `cvat`; any other name
+  answers 404 `tool_unknown`); Label Studio is no longer supported (see [CHANGELOG.md](../CHANGELOG.md)).
+- **Annotation files** (COCO, YOLO, Pascal VOC, CVAT XML, CVAT video, MOT, or class folders) loaded into a
+  project that already has its images: the *Import annotations* tab of the *Annotations* step, described
+  below. For the files of a video task see also docs/VIDEO.md.
 
 The CVAT login is the same as the one of the synchronisation (docs/SYNC.md); it is set on the import page
-or in the *CVAT* tab (the password only in the system keyring, docs/ANNOTATION.md).
+(one *Set up* / *Settings* button on the CVAT card, no second one in the error message) or in the *CVAT* tab
+(the password only in the system keyring, docs/ANNOTATION.md).
 
-## What is imported
+## What is imported from CVAT
 
-The source is a CVAT project, or a task that is not in a project. Images: project, or task of a project:
-frames downloaded through the sync engine (see below); task outside a project: FiftyOne
+The source is a CVAT project, or one CVAT task (of a project or outside any). Images: project, or task of a
+project: frames downloaded through the sync engine (see below); task outside a project: FiftyOne
 `import_annotations(..., download_media=True)`. Annotations: boxes, polygons, points/skeletons, tags.
 Classes: the project/task labels.
 
@@ -31,16 +38,35 @@ without annotations import as the task the person picks (default detection). Nam
 remote name (made unique with " (2)", ...), editable before importing; description says where
 it came from.
 
-Images keep their remote file names; identical files are added once (content hash); unreadable
-files are listed in the report. Nothing is changed on the remote server.
+Images keep their remote file names; identical files are added once (content hash, `images_duplicate`);
+unreadable files are listed in the report (`images_rejected`), and a project import says when fewer images
+were added than CVAT listed (`images_missing`). Nothing is changed on the remote server.
 
 ## Annotation files (the *Import annotations* tab)
 
 Annotation files (or a .zip) of an existing project follow a check-then-apply flow
 (`POST /projects/{id}/annotations`, then `POST .../{token}/apply`, docs/DESIGN.md): the files are kept
 aside in `staging/<token>/`, the format is detected, the files are matched with the images, and a report
-says what was found. Nothing changes until the person chooses an action.
+says what was found and what was left out and why. Nothing changes until the person chooses an action. While
+that report waits for a decision, leaving the page (a link, the language switch, closing the tab) asks for
+confirmation first.
 
+- **Formats** are detected by content (`detect_format`): COCO (`.json` with `images` and `annotations`), YOLO
+  (one `.txt` of label lines per image, with `data.yaml`, `classes.txt` or a `.names` file for the class names; also
+  pose), Pascal VOC (`.xml`), CVAT XML,
+  CVAT for video, MOT (`gt.txt`/`det.txt`) and class folders. Files of two different formats, or none usable,
+  are refused (`annotation_format_unknown`). Images are matched by relative name, then by the same name ignoring
+  case, then by file name alone; a name shared by several images is reported (`ambiguous_image_name`). The
+  other names an image was uploaded with also match (docs/TASKS.md).
+- **Class folders** (a .zip or folder of images with one sub-folder per class, and no annotation file): each image
+  gets the name of its parent folder as its classification label. It needs at least two class folders, with at
+  least 90 % of the images inside one; images at the top level get no class. The labels are read from the
+  names of the images of the project, so the project's images must have been uploaded with those folder names;
+  the uploaded copies in the check are only used to recognise the format. They are classification labels, so a
+  project of another type is offered *Change the type to classification and import*.
+- **Mode**: *replace* (the default) or *merge* (`mode` of the apply request). Merge only adds labels to images that
+  have none yet, keeps the existing ones (`images_kept`), adds only the classes of the labels it added, and is
+  refused when the existing labels are of another type; it makes no safety copy because nothing is removed.
 - A check that finds nothing usable (unknown format, unreadable file, no labels) is not kept aside: the
   files are removed at once and the answer is a 400 with a code (`annotation_format_unknown`,
   `annotation_not_json`, `annotation_not_xml` or `annotation_not_text` with the file name and the line and
@@ -70,12 +96,23 @@ says what was found. Nothing changes until the person chooses an action.
   (`yolo_pose_ambiguous`). Add `kpt_shape: [points, 3]` to `data.yaml` to remove the doubt.
 - A Pascal VOC file without `<filename>` (and without `<path>`) is matched by its own name: `c.xml` goes with
   `c.png`.
+- A CVAT for video file numbered by **video frames** (the numbers CVAT's own export writes, for example
+  `0, 15, 30...` with a frame step of 15) is mapped to the frames of the video task; when its `<meta>` gives
+  the task's first and last frame, every task frame in that range with no objects counts as annotated with no
+  objects (docs/VIDEO.md).
 - CVAT shapes without a label are reported and left out, not imported as an empty class.
 - **Rotated CVAT boxes** (`rotation` on a `box`, in images and in video tracks) are read as the axis-aligned
   box that encloses the turned rectangle, as the CVAT synchronisation does (docs/SYNC.md); the angle itself is not kept.
+- **Other things the report can list** (each with a count and examples): `unmatched_entries` (annotations of
+  images that are not in the project), `duplicate_image_entry`, `size_mismatch` (the file's image size differs
+  from the uploaded image), `box_degenerate` (a box without area, skipped), `polygon_too_few_points` (a ring of
+  fewer than 3 points, skipped), `unknown_class_id`, `missing_class_names`, `rle_bbox_only` (a COCO mask is
+  kept as its box), `unsupported_shape`, `invalid_annotation` and `dropped_other_kind`; the texts are in the `problem.*` entries of the language files.
 - **Shapes outside the image are reported**: a box is clipped to the image (`box_clipped`); a polygon vertex or
   a keypoint outside it is moved to its border and the report says so (`geometry_clipped`), since the shape
   changed.
+- In a classification project an image with labels of several classes keeps the first one; the apply answer
+  says how many images were reduced (`classes_reduced`).
 - *Change the type to {task} and import* always rewrites the stored type of the saved annotations as well
   as the project's; changing the type or the classes of a project (PATCH) waits for training, ONNX export
   and pre-annotation of the project to finish (409 `busy_training`), because they read both.
@@ -90,12 +127,12 @@ says what was found. Nothing changes until the person chooses an action.
 
 Job result (CVAT projects add `tasks`, the tasks imported, and `linked`): `{project_id, name, task, images_added, images_rejected, labels, classes,
 problems: [{level, code, message, count, examples}]}`. While running, `progress.update`
-messages: "Listing <tool> data", "Reading annotations", "Comparing with CVAT", "Downloading images",
-"Creating the project". Cancelling stops at a safe point and removes the half-created project.
+messages: "Listing CVAT data", "Reading annotations", "Comparing with CVAT", "Downloading images",
+"Creating the project" (shown in the interface language). Cancelling stops at a safe point and removes the half-created project.
 Errors: tool not configured → 400 "Configure <tool> first" (`tool_not_configured`); remote project not
 found → 404; `ToolError` → 400 with its message.
 
-The address of the tool must be `http://` or `https://` (`url_invalid`). Images that cannot be downloaded
-are listed in the report (`image_download_failed`) and the import goes on. Frames of a CVAT task are paired
-with the local images by position in the task, not by file name. A failure reported by CVAT is answered as
+The address of the tool must be `http://` or `https://` (`url_invalid`). A frame that CVAT does not deliver
+stops the import (`cvat_download_failed`, with the HTTP status) and the half-created project is removed.
+Frames of a CVAT task are paired with the local images by position in the task, not by file name. A failure reported by CVAT is answered as
 400 `tool_error` (`params.tool`, `params.reason`).
