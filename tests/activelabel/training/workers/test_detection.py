@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import sys
 from pathlib import Path
@@ -255,7 +256,17 @@ def test_warning_event(det_project, tmp_path):
                 store.path(n), tmp_path / "log.txt", lambda **f: store.update(n, **f)
             )
             runner._handle(line, target, None, log, "val_map50_95", state)
-    assert store.get(n)["warnings"] == ["boxes only"]
+    assert store.get(n)["warnings"] == [{"code": "", "params": {}, "message": "boxes only"}]
+    coded = {"event": "warning", "message": "halved", "code": "batch_halved", "params": {"from": 8, "to": 4}}
+    runner._handle(json.dumps(coded), target, None, io.StringIO(), "val_map50_95", state)
+    assert store.get(n)["warnings"][-1] == {
+        "code": "batch_halved",
+        "params": {"from": 8, "to": 4},
+        "message": "halved",
+    }
+    failed = {"event": "error", "message": "no memory", "code": "out_of_memory", "params": {"smallest": 1}}
+    runner._handle(json.dumps(failed), target, None, io.StringIO(), "val_map50_95", state)
+    assert (state["error_code"], state["error_params"]) == ("out_of_memory", {"smallest": 1})
     assert (tmp_path / "log.txt").read_text(encoding="utf-8").count("boxes only") == 2
 
 

@@ -55,12 +55,52 @@ PLATEAU_FACTOR = 0.1
 AMP_CHOICES = ("auto", "on", "off")
 
 
-class DeviceError(ValueError):
+class CodedFailure(Exception):
+    """A failure the interface can translate: a readable message plus a ``code`` and its ``params``.
+
+    The code is a key ``error.<code>`` of ActiveLabel's translations; the worker sends it in its ``error``
+    event (see :func:`coded`).
+    """
+
+    code = "training_failed"
+
+    def __init__(self, message: str, code: str = "", **params: Any) -> None:
+        """Keep the message, the code and its parameters.
+
+        Args:
+            message: the readable (English) message.
+            code: the translation code; the class default when empty.
+            **params: values the translated text names (for example ``device``).
+        """
+        super().__init__(message)
+        self.code = code or type(self).code
+        self.params = params
+
+
+class DeviceError(CodedFailure, ValueError):
     """The device asked for is not available to the training environment (the message is readable)."""
 
+    code = "device_unavailable"
 
-class OutOfMemory(RuntimeError):
+
+class OutOfMemory(CodedFailure, RuntimeError):
     """Not even the smallest batch fits in the GPU memory (the message is readable)."""
+
+    code = "out_of_memory"
+
+
+def coded(exc: BaseException) -> dict[str, Any]:
+    """The ``code`` and ``params`` fields of an ``error`` event for a failure.
+
+    Args:
+        exc: the error that stopped the process.
+
+    Returns:
+        ``{"code", "params"}`` for a :class:`CodedFailure`, else an empty dict (the message alone).
+    """
+    if isinstance(exc, CodedFailure):
+        return {"code": exc.code, "params": dict(exc.params)}
+    return {}
 
 
 def fit_layout(width: int, height: int, size: int, policy: str) -> tuple[int, int, int, int]:
@@ -482,19 +522,28 @@ def pick_device(torch: Any, choice: str = "auto") -> str:
         return "cpu"
     if choice == "mps":
         if not mps:
-            raise DeviceError("The Apple GPU (MPS) is not available on this computer: choose auto or CPU.")
+            raise DeviceError(
+                "The Apple GPU (MPS) is not available on this computer: choose auto or CPU.", device=choice
+            )
         return "mps"
     match = re.fullmatch(r"cuda(?::(\d+))?", choice)
     if match is None:
-        raise DeviceError(f"Unknown device '{choice}': use auto, cpu, cuda:N (a GPU) or mps.")
+        raise DeviceError(
+            f"Unknown device '{choice}': use auto, cpu, cuda:N (a GPU) or mps.",
+            "device_invalid",
+            device=choice,
+        )
     if not cuda:
         raise DeviceError(
             "No CUDA GPU is available to the training environment (no NVIDIA driver, or PyTorch without "
-            "CUDA): choose auto or CPU."
+            "CUDA): choose auto or CPU.",
+            device=choice,
         )
     index, count = int(match.group(1) or 0), int(torch.cuda.device_count())
     if index >= count:
-        raise DeviceError(f"GPU {index} does not exist: this computer has {count} (numbered from 0).")
+        raise DeviceError(
+            f"GPU {index} does not exist: this computer has {count} (numbered from 0).", device=choice
+        )
     return choice
 
 
@@ -542,7 +591,8 @@ def fit_batch(try_batch: Any, batch: int, emit: Any, smallest: int = 1, clear: A
     Args:
         try_batch: function ``(batch)`` that runs one training step with that batch (see :func:`probe`).
         batch: the batch size asked for.
-        emit: function ``(event, **fields)`` that tells the runner (a ``warning`` per halving).
+        emit: function ``(event, **fields)`` that tells the runner (a ``warning`` with the code
+            ``batch_halved`` and the params ``from`` and ``to`` per halving).
         smallest: the smallest batch the model accepts.
         clear: function that frees the GPU memory after a failure (``torch.cuda.empty_cache``).
 
@@ -564,7 +614,8 @@ def fit_batch(try_batch: Any, batch: int, emit: Any, smallest: int = 1, clear: A
             if batch <= smallest:
                 raise OutOfMemory(
                     f"Not even a batch of {smallest} image(s) fits in the GPU memory: lower the image size "
-                    "or train on the CPU."
+                    "or train on the CPU.",
+                    smallest=smallest,
                 ) from None
             smaller = max(smallest, batch // 2)
             emit(
@@ -572,7 +623,6 @@ def fit_batch(try_batch: Any, batch: int, emit: Any, smallest: int = 1, clear: A
                 message=f"The GPU ran out of memory with a batch of {batch} images: training goes on with "
                 f"{smaller}.",
                 code="batch_halved",
-                batch_from=batch,
-                batch_to=smaller,
+                params={"from": batch, "to": smaller},
             )
             batch = smaller

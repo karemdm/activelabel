@@ -10,7 +10,15 @@ from activelabel.training import runner as runner_module
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig, validate
-from activelabel.training.runner import RunnerError, _objects, build_spec, download_env, pose_box
+from activelabel.training.runner import (
+    RunnerError,
+    _objects,
+    build_spec,
+    download_env,
+    failure_fields,
+    pose_box,
+    warning_entry,
+)
 from activelabel.training.runs import RunStore
 
 
@@ -366,3 +374,19 @@ def test_the_children_of_a_grid_use_the_device_of_the_run(setup, monkeypatch):
     runner.enqueue(1, n)
     assert wait_for(finished(store, n))["status"] == "done"
     assert seen == ["cpu", "cpu"]
+
+
+def test_failures_and_warnings_keep_their_code_and_params():
+    coded = RunnerError("no memory", "out_of_memory", {"smallest": 1})
+    assert failure_fields(coded) == {
+        "error": "no memory",
+        "error_code": "out_of_memory",
+        "error_params": {"smallest": 1},
+    }
+    assert failure_fields(ValueError("x")) == {"error": "x", "error_code": "", "error_params": {}}
+    assert warning_entry({"message": "m", "code": "batch_halved", "params": {"from": 4, "to": 2}}) == {
+        "code": "batch_halved",
+        "params": {"from": 4, "to": 2},
+        "message": "m",
+    }
+    assert warning_entry({"message": "m", "params": "bad"}) == {"code": "", "params": {}, "message": "m"}

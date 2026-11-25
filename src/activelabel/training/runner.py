@@ -84,7 +84,50 @@ PROGRESS_EVERY = 1.0  # seconds between run.json writes for step progress
 
 
 class RunnerError(RuntimeError):
-    """A readable reason why a run cannot start or failed."""
+    """A readable reason why a run cannot start or failed, with a translation code when there is one."""
+
+    def __init__(self, message: str, code: str = "", params: dict[str, Any] | None = None) -> None:
+        """Keep the message and, when known, its code and parameters.
+
+        Args:
+            message: the readable (English) message.
+            code: a key ``error.<code>`` of the translations ("" when the failure has none).
+            params: the values the translated text names.
+        """
+        super().__init__(message)
+        self.code = code
+        self.params = dict(params or {})
+
+
+def failure_fields(exc: BaseException) -> dict[str, Any]:
+    """The fields ``run.json`` keeps about a failure: the message, plus its code and params when known.
+
+    Args:
+        exc: the error that stopped the run or child.
+
+    Returns:
+        ``{"error", "error_code", "error_params"}`` (the code is "" for a failure without one).
+    """
+    code = exc.code if isinstance(exc, RunnerError) else ""
+    params = exc.params if isinstance(exc, RunnerError) else {}
+    return {"error": str(exc) or type(exc).__name__, "error_code": code, "error_params": params}
+
+
+def warning_entry(event: dict[str, Any]) -> dict[str, Any]:
+    """A worker ``warning`` event as kept in ``run.json``: ``{"code", "params", "message"}``.
+
+    Args:
+        event: the JSON event (``message`` and maybe ``code`` and ``params``).
+
+    Returns:
+        The entry (``code`` "" and empty ``params`` for a warning without a code).
+    """
+    params = event.get("params")
+    return {
+        "code": str(event.get("code") or ""),
+        "params": dict(params) if isinstance(params, dict) else {},
+        "message": str(event.get("message", "warning")),
+    }
 
 
 def worker_script(task_kind: str) -> Path:
@@ -1214,9 +1257,7 @@ class TrainingRunner:
         except Cancelled:
             store.update(number, status=CANCELLED, finished=now(), phase="")
         except Exception as exc:  # noqa: BLE001 - shown to the person
-            store.update(
-                number, status=FAILED, error=str(exc) or type(exc).__name__, finished=now(), phase=""
-            )
+            store.update(number, status=FAILED, finished=now(), phase="", **failure_fields(exc))
         else:
             store.update(number, status=DONE, finished=now(), phase="")
         finally:
@@ -1389,8 +1430,9 @@ class TrainingRunner:
                     store.update_child(number, j, status=CANCELLED, finished=now())
                 raise
             except Exception as exc:  # noqa: BLE001 - the other children still train
-                message = str(exc) or type(exc).__name__
-                store.update_child(number, i, status=FAILED, error=message, finished=now())
+                failure = failure_fields(exc)
+                message = failure["error"]
+                store.update_child(number, i, status=FAILED, finished=now(), **failure)
                 with log_file.open("a", encoding="utf-8") as log:
                     log.write(f"{cid} failed: {message}\n")
             else:
@@ -1417,8 +1459,13 @@ class TrainingRunner:
         summary = rank_children(entries, results, metric, n_folds)
         best_id = summary["best_child"]
         if best_id is None:
-            errors = [e.get("error") for e in entries if e.get("error")]
-            raise RunnerError("Every training of this run failed" + (f": {errors[0]}" if errors else "."))
+            failed = [e for e in entries if e.get("error")]
+            first = failed[0] if failed else {}
+            raise RunnerError(
+                "Every training of this run failed" + (f": {first['error']}" if failed else "."),
+                str(first.get("error_code") or ""),
+                first.get("error_params"),
+            )
         best_dir = run_dir / best_id
         for name in ("metrics.jsonl", "best.pt", "last.pt"):
             if (best_dir / name).exists():
@@ -1506,7 +1553,11 @@ class TrainingRunner:
             finally:
                 reader.join(timeout=2)
         if code != 0 or state["error"]:
-            raise RunnerError(state["error"] or f"The training process stopped with code {code}.")
+            raise RunnerError(
+                state["error"] or f"The training process stopped with code {code}.",
+                state.get("error_code", ""),
+                state.get("error_params"),
+            )
         if state["results"] is not None:
             write_json(run_dir / "results.json", state["results"])
         if not (run_dir / "results.json").exists():
@@ -1529,7 +1580,8 @@ class TrainingRunner:
             progress: progress handle of the job.
             log: open log file.
             metric_key: key of the selection metric in ``epoch`` events.
-            state: mutable state of the process (``results``, ``error``, ``last`` write time, ``warnings``,
+            state: mutable state of the process (``results``, ``error`` with ``error_code`` and
+                ``error_params``, ``last`` write time, ``warnings`` as ``{code, params, message}``,
                 ``setup``: what the worker reported about how it trains, kept as ``setup`` in the status).
         """
         if not text.strip():
@@ -1547,12 +1599,12 @@ class TrainingRunner:
             log.write(str(event.get("message", "")) + "\n")
             log.flush()
         elif kind == "warning":
-            message = str(event.get("message", "warning"))
-            log.write("warning: " + message + "\n")
+            entry = warning_entry(event)
+            log.write("warning: " + entry["message"] + "\n")
             log.flush()
-            if message not in state["warnings"]:
-                state["warnings"].append(message)
-                target.update(warnings=list(state["warnings"]))
+            if entry not in state["warnings"]:
+                state["warnings"].append(entry)
+                target.update(warnings=[dict(w) for w in state["warnings"]])
         elif kind == "progress":
             done, total = event.get("step"), event.get("steps")
             progress.update(done=done, total=total, message=event.get("phase"))
@@ -1584,5 +1636,8 @@ class TrainingRunner:
             state["results"] = event.get("results")
         elif kind == "error":
             state["error"] = str(event.get("message", "error"))
+            params = event.get("params")
+            state["error_code"] = str(event.get("code") or "")
+            state["error_params"] = dict(params) if isinstance(params, dict) else {}
             log.write(state["error"] + "\n")
             log.flush()

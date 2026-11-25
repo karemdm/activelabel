@@ -988,6 +988,7 @@
   "tr.device_mps": "Apple GPU (MPS)",
   "tr.warn.batch_halved": "The GPU ran out of memory with a batch of {from} images: training goes on with {to}.",
   "tr.warn.amp_needs_cuda": "Mixed precision needs a CUDA GPU: this training runs in full precision.",
+  "tr.warn.box_only_objects": "{n} object(s) have a box but no polygon: they are drawn as filled rectangles.",
   "tr.duration": "Duration",
   "tr.started": "Started",
   "tr.packages": "Packages",

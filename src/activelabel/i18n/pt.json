@@ -988,6 +988,7 @@
   "tr.device_mps": "GPU da Apple (MPS)",
   "tr.warn.batch_halved": "A GPU ficou sem memória com um lote de {from} imagens: o treino continua com {to}.",
   "tr.warn.amp_needs_cuda": "A precisão mista precisa de uma GPU CUDA: este treino roda em precisão total.",
+  "tr.warn.box_only_objects": "{n} objeto(s) têm caixa mas não polígono: são desenhados como retângulos cheios.",
   "tr.duration": "Duração",
   "tr.started": "Início",
   "tr.packages": "Pacotes",

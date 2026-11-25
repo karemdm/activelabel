@@ -27,6 +27,8 @@ CONFIG_MESSAGES = {
     "config_missing": "The configuration file of this run is missing.",
     "config_damaged": "The configuration file of this run is damaged.",
 }
+#: Fields of a stored warning of a run.
+WARNING_KEYS = ("code", "params", "message")
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 
@@ -62,6 +64,31 @@ def _store(state: AppState, project_id: int) -> RunStore:
     return RunStore(state.store.dir(project_id))
 
 
+def _warnings(run: dict[str, Any]) -> list[dict[str, Any]]:
+    """The warnings of a run as ``{code, params, message}`` (runs made before the codes kept plain text).
+
+    Args:
+        run: The run record.
+
+    Returns:
+        The warnings; an old text warning has ``code`` "" and empty ``params``.
+    """
+    out = []
+    for warning in run.get("warnings") or []:
+        if isinstance(warning, dict):
+            out.append(
+                {
+                    "code": "",
+                    "params": {},
+                    "message": "",
+                    **{k: warning[k] for k in warning if k in WARNING_KEYS},
+                }
+            )
+        else:
+            out.append({"code": "", "params": {}, "message": str(warning)})
+    return out
+
+
 def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
     """A run with the main fields of its configuration.
 
@@ -73,8 +100,15 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
         run: The run record.
 
     Returns:
-        The run with the main fields of its configuration.
+        The run with the main fields of its configuration; ``warnings`` as ``{code, params, message}``
+        and ``error_code`` / ``error_params`` (empty when the failure has no code), for the translations.
     """
+    run = {
+        **run,
+        "warnings": _warnings(run),
+        "error_code": run.get("error_code") or "",
+        "error_params": run.get("error_params") or {},
+    }
     try:
         config = store.config(run["number"])
     except (OSError, ValueError) as exc:  # a missing or damaged config.yaml must not hide every run

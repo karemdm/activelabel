@@ -244,7 +244,12 @@ def test_batch_is_halved_until_it_fits_and_each_halving_warns(o):
     gpu, events = _Gpu(fits=3), _Events()
     assert o.fit_batch(gpu.step, 16, events, clear=gpu.clear) == 2
     assert gpu.tried == [16, 8, 4, 2] and gpu.cleared == 3
-    assert [f["batch_to"] for _, f in events.seen] == [8, 4, 2]
+    assert [f["params"] for _, f in events.seen] == [
+        {"from": 16, "to": 8},
+        {"from": 8, "to": 4},
+        {"from": 4, "to": 2},
+    ]
+    assert {f["code"] for _, f in events.seen} == {"batch_halved"}
     assert events.seen[0][0] == "warning" and "batch of 16 images" in events.seen[0][1]["message"]
     assert o.fit_batch(_Gpu(fits=99).step, 8, events) == 8
 
@@ -285,3 +290,20 @@ def test_probe_leaves_weights_statistics_and_gradients_as_they_were(o, torch):
     assert loader_of.sizes == [4]
     assert all(torch.equal(before[k], v) for k, v in model.state_dict().items())
     assert all(p.grad is None for p in model.parameters())
+
+
+# -- coded failures (#552) ------------------------------------------------------------
+
+
+def test_failures_carry_a_code_and_params(o):
+    with pytest.raises(o.OutOfMemory) as caught:
+        o.fit_batch(_Gpu(fits=0).step, 2, _Events())
+    assert o.coded(caught.value) == {"code": "out_of_memory", "params": {"smallest": 1}}
+    with pytest.raises(o.DeviceError) as missing:
+        o.pick_device(_Torch(gpus=1), "cuda:3")
+    assert o.coded(missing.value) == {"code": "device_unavailable", "params": {"device": "cuda:3"}}
+    with pytest.raises(o.DeviceError) as bad:
+        o.pick_device(_Torch(), "gpu")
+    assert o.coded(bad.value)["code"] == "device_invalid"
+    assert o.coded(ValueError("plain")) == {}
+    assert o.CodedFailure("x").code == "training_failed"

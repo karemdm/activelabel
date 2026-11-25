@@ -670,7 +670,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     emit("log", message=f"Device: {device}. {split_folds_note(spec)}")
     use_amp, amp_note = options.amp_enabled(str(p["amp"]), device)
     if amp_note:
-        emit("warning", message=amp_note)
+        emit("warning", message=amp_note, code="amp_needs_cuda", params={})
     precision = options.Precision(use_amp)
     emit("setup", device=device, amp=use_amp)
     boxes = count_box_only(spec["parts"])
@@ -678,7 +678,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         emit(
             "warning",
             message=f"{boxes} object(s) have a box but no polygon: they are drawn as filled rectangles.",
-            box_only_objects=boxes,
+            code="box_only_objects",
+            params={"n": boxes},
         )
     size, batch, policy = int(p["image_size"]), int(p["batch_size"]), str(p["resize"])
     generator = torch.Generator().manual_seed(int(p["seed"]))
@@ -812,7 +813,7 @@ def main(argv: list[str]) -> int:
         spec = load_spec(argv[1])
         results = train(spec)
     except Exception as exc:  # noqa: BLE001 - reported to the runner as an event
-        emit("error", message=str(exc) or type(exc).__name__)
+        emit("error", message=str(exc) or type(exc).__name__, **options.coded(exc))
         print(traceback.format_exc(), file=sys.stderr, flush=True)
         return 1
     emit("done", results=results)
