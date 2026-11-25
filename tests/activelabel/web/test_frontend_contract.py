@@ -381,3 +381,22 @@ def test_the_import_page_has_one_setup_button_per_tool():
     card = re.search(r"function drawMain\(\) \{.*?\n    \}\n", JS, re.S).group(0)
     assert "setup(state.tool)" not in card
     assert "onclick: () => setup(tool)" in JS
+
+
+def test_the_split_total_is_red_for_an_invalid_value_and_the_error_names_the_field():
+    """#431: a negative part is not "100%"; the video warning is only for a group made of video frames."""
+    assert "ds.err_sum'" not in JS, "one generic sum error hid which field was wrong"
+    assert "ds.err_pct_range" in JS and "ds.err_sum_is" in JS and "ds.err_train_min" in JS
+    assert re.search(r"const raw = ", JS) and "Math.max(0, Math.min(100" in JS
+    assert "w.cause === 'video'" in JS and "'_generic'" in JS
+    for lang in ("pt", "en"):
+        messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in (
+            "ds.err_pct_range",
+            "ds.err_sum_is",
+            "ds.err_train_min",
+            "ds.err_test_range",
+            "ds.w_group_drift_generic",
+        ):
+            assert key in messages, (lang, key)
+        assert "{part}" in messages["ds.err_pct_range"] and "{n}" in messages["ds.err_sum_is"]

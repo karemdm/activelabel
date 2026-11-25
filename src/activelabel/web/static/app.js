@@ -4108,7 +4108,7 @@
         if (/drift|group/.test(code)) {
           const total = totalOf(items);
           const real = items.map((x) => pctOf(x.n, total)).join('/');
-          const why = w.cause === 'duplicates' ? '_duplicates' : '';  // a group of near duplicates, not a video
+          const why = w.cause === 'video' ? '' : w.cause === 'duplicates' ? '_duplicates' : '_generic';  // only frames of a video talk about videos
           return short ? t('ds.b_group_drift', { real }) : t(`ds.w_group_drift${why}`, { real });
         }
         if (/dup|curation/.test(code)) return short ? t('ds.b_duplicates') : t('ds.w_duplicates');
@@ -4292,7 +4292,9 @@
         const ratioBar = el('div', { class: 'ds-bar', 'aria-hidden': 'true' });
         const sumText = el('p', { class: 'ds-sum', role: 'status' });
         const modeBox = el('div', { class: 'ds-ratios' });
-        const int = (inp) => { const n = parseInt(inp.value, 10); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : NaN; };
+        const raw = (inp) => parseInt(inp.value, 10);   // as typed: a negative or a too big value stays visible
+        const int = (inp) => { const n = raw(inp); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : NaN; };
+        const validPct = (inp) => Number.isFinite(raw(inp)) && raw(inp) >= 0 && raw(inp) <= 100;
         const field = (label, input) => el('div', { class: 'field ds-num' }, el('label', { for: input.id }, label), input);
 
         function drawRatios() {
@@ -4301,8 +4303,8 @@
             : [['fold-0', 100 - (int(ktestInput) || 0)], ['test', int(ktestInput) || 0]];
           fill(ratioBar, ...parts.map(([cl, n]) => el('span', { class: `ds-seg ds-${cl}`, style: `flex-grow:${Number.isFinite(n) ? n : 0}` })));
           if (st.mode === 'split') {
-            const sum = [train, val, test].reduce((a, i) => a + (int(i) || 0), 0);
-            sumText.className = `ds-sum ${sum === 100 ? 'ok' : 'bad'}`;
+            const sum = [train, val, test].reduce((a, i) => a + (raw(i) || 0), 0);
+            sumText.className = `ds-sum ${sum === 100 && [train, val, test].every(validPct) ? 'ok' : 'bad'}`;
             sumText.textContent = t('ds.sum', { n: sum });
           } else {
             sumText.className = 'ds-sum ok';
@@ -4350,8 +4352,11 @@
           if (!(gap >= 0 && gap <= 3600) || (gapBox.checked && gap === 0)) return { error: t('ds.err_gap') };
           const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd, videos: videosSel.value, gap_seconds: gap };
           if (st.mode === 'split') {
-            const s = { train: int(train), val: int(val), test: int(test) };
-            if (Object.values(s).some(Number.isNaN) || s.train < 1 || s.train + s.val + s.test !== 100) return { error: t('ds.err_sum') };
+            const s = { train: raw(train), val: raw(val), test: raw(test) };
+            const bad = ['train', 'val', 'test'].find((k) => !validPct({ train, val, test }[k]));
+            if (bad) return { error: t('ds.err_pct_range', { part: partName(bad) }) };
+            if (s.train < 1) return { error: t('ds.err_train_min') };
+            if (s.train + s.val + s.test !== 100) return { error: t('ds.err_sum_is', { n: s.train + s.val + s.test }) };
             body.split = s;
             body.kfold = null;
           } else {
@@ -4360,7 +4365,7 @@
             if (st.maxK != null && st.maxK < 2) return { error: t('ds.k_none') };
             if (st.maxK != null && k > st.maxK) return { error: t('ds.err_k_max', { max: num(st.maxK) }) };
             if (!(k >= 2 && k <= 10)) return { error: t('ds.err_k') };
-            if (Number.isNaN(tp) || tp > 90) return { error: t('ds.err_sum') };
+            if (!validPct(ktestInput) || tp > 90) return { error: t('ds.err_test_range') };
             body.split = { train: 100 - tp, val: 0, test: tp };
             body.kfold = k;
           }
