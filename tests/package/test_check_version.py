@@ -40,7 +40,8 @@ def _wheel(folder: Path, version: str | None) -> Path:
         ("0.0", None, True, True),
         ("0.0", "0.1.0", True, False),
         ("0.0.0+unknown", None, False, False),
-        ("0.0.0+unknown", None, True, False),
+        ("0.0.0+unknown", None, True, True),  # no tag yet: the only-version scheme falls back
+        ("0.0.0+unknown", "0.1.0", True, False),
     ],
 )
 def test_problem(found, expected, no_tag_yet, ok):
