@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -131,8 +132,27 @@ def detect_format(files: list[Path]) -> str | None:
     return next(iter(found)) if len(found) == 1 else None
 
 
-def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
-    """The first JSON or XML file that is not well-formed, as ``(file name, parser message)``, or None.
+@dataclass(frozen=True)
+class Unreadable:
+    """Where and how an annotation file is malformed (the place is 0 when the parser does not say).
+
+    Attributes:
+        file: file name.
+        kind: ``json``, ``xml`` or ``text`` (not valid UTF-8).
+        line: line of the first error.
+        column: column of the first error.
+        reason: the parser's own message (English; for the logs and the API ``detail``).
+    """
+
+    file: str
+    kind: str
+    line: int = 0
+    column: int = 0
+    reason: str = ""
+
+
+def unreadable_file(files: list[Path]) -> Unreadable | None:
+    """The first JSON or XML file that is not well-formed, or None.
 
     Used to say what is wrong when :func:`detect_format` finds no format: a cut-off file is not "an
     unknown format".
@@ -141,7 +161,7 @@ def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
         files: the staged files.
 
     Returns:
-        ``(file name, parser message)`` of the first malformed file, or None.
+        What is wrong with the first malformed file, or None.
     """
     for path in files:
         suffix = path.suffix.lower()
@@ -150,8 +170,13 @@ def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
                 json.loads(path.read_text(encoding="utf-8-sig"))
             elif suffix == ".xml":
                 ET.parse(path)
-        except (ValueError, ET.ParseError) as exc:  # UnicodeDecodeError is a ValueError
-            return path.name, str(exc)
+        except json.JSONDecodeError as exc:
+            return Unreadable(path.name, "json", exc.lineno, exc.colno, str(exc))
+        except ET.ParseError as exc:
+            line, column = exc.position
+            return Unreadable(path.name, "xml", line, column, str(exc))
+        except ValueError as exc:  # UnicodeDecodeError
+            return Unreadable(path.name, "text", reason=str(exc))
         except OSError:
             continue
     return None

@@ -6,7 +6,14 @@ from activelabel.annotations.convert import conversion_possible, convert_annotat
 from activelabel.annotations.folders import folder_classes
 from activelabel.annotations.importer import apply
 from activelabel.annotations.models import ParseResult, Problem, ValidationReport
-from activelabel.annotations.parsing import FORMATS, VIDEO_ONLY, detect_format, parse, unreadable_file
+from activelabel.annotations.parsing import (
+    FORMATS,
+    VIDEO_ONLY,
+    Unreadable,
+    detect_format,
+    parse,
+    unreadable_file,
+)
 from activelabel.annotations.staging import cleanup as cleanup_staging
 from activelabel.annotations.staging import discard_staged, load_staged, set_target, stage
 from activelabel.annotations.target import VideoTarget, build_target, video_tasks
@@ -16,6 +23,7 @@ __all__ = [
     "FORMATS",
     "ParseResult",
     "Problem",
+    "Unreadable",
     "VIDEO_ONLY",
     "ValidationReport",
     "VideoTarget",

@@ -33,12 +33,12 @@ def _safe_rel(name: str) -> PurePosixPath:
         The relative path without empty or ``.`` parts.
 
     Raises:
-        ValueError: absolute, drive or ``..`` paths.
+        CodedError: absolute, drive or ``..`` paths (``annotation_path_unsafe``).
     """
     n = name.replace("\\", "/")
     parts = [p for p in n.split("/") if p not in ("", ".")]
     if n.startswith("/") or (len(n) > 1 and n[1] == ":") or ".." in parts or not parts:
-        raise ValueError(f"Unsafe file path in upload: {name}")
+        raise CodedError("annotation_path_unsafe", f"Unsafe file path in upload: {name}", name=name[:100])
     return PurePosixPath(*parts)
 
 
@@ -51,14 +51,14 @@ def _copy(src: IO[bytes], dest: Path, budget: list[int]) -> None:
         budget: one-item list with the bytes still allowed; reduced by what is copied.
 
     Raises:
-        ValueError: the budget is used up.
+        CodedError: the budget is used up (``annotation_too_large``).
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("wb") as out:
         while chunk := src.read(1 << 20):
             budget[0] -= len(chunk)
             if budget[0] < 0:
-                raise ValueError("The annotation files are too large.")
+                raise CodedError("annotation_too_large", "The annotation files are too large.")
             out.write(chunk)
 
 
@@ -69,7 +69,7 @@ def _check_token(token: str) -> None:
         token: the token to check.
 
     Raises:
-        CodedError: ``staging_token_invalid``, the token is not 16 lowercase hex digits.
+        CodedError: the token is not 16 lowercase hex digits (``staging_token_invalid``).
     """
     if not _TOKEN.match(token):
         raise CodedError("staging_token_invalid", "Invalid staging token.")
@@ -110,7 +110,7 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list
         How many annotation files were saved.
 
     Raises:
-        ValueError: invalid zip, unsafe path or too large.
+        CodedError: invalid zip (``annotation_zip_invalid``), unsafe path or too large.
     """
     saved = 0
     with tempfile.TemporaryFile() as tmp:
@@ -118,7 +118,7 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list
         try:
             archive = zipfile.ZipFile(tmp)
         except zipfile.BadZipFile as exc:
-            raise ValueError("The zip file is not valid.") from exc
+            raise CodedError("annotation_zip_invalid", "The zip file is not valid.") from exc
         with archive:
             infos = [i for i in archive.infolist() if not i.is_dir()]
             rels = [_safe_rel(i.filename) for i in infos]  # refuse the whole zip on any unsafe path
@@ -151,8 +151,8 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
         The token of the staging folder.
 
     Raises:
-        ValueError: unsafe path (zip slip), invalid zip, too large, or no annotation file or image in
-            the upload.
+        CodedError: unsafe path (zip slip), invalid zip, too large, or no annotation file or image in
+            the upload (``annotation_files_missing``).
     """
     root = project_dir / STAGING
     cleanup(project_dir)
@@ -179,7 +179,7 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
                 placeholder.touch()
             saved = len(images)
         if not saved:
-            raise ValueError("No annotation files were found in the upload.")
+            raise CodedError("annotation_files_missing", "No annotation files were found in the upload.")
     except BaseException:
         shutil.rmtree(target, ignore_errors=True)
         raise
@@ -197,7 +197,7 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
         The files of the staging folder, sorted.
 
     Raises:
-        ValueError: invalid token.
+        CodedError: invalid token.
         FileNotFoundError: the staging does not exist (discarded or expired).
     """
     _check_token(token)

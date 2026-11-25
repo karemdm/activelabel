@@ -90,24 +90,40 @@ class ImageIds(BaseModel):
 
 
 # -- helpers ------------------------------------------------------------------
-def _unreadable(reason: str, file: str = "") -> ApiError:
-    """HTTP 400: an annotation file could not be read (``file`` and the parser's ``reason``).
+def _unreadable(reason: str) -> ApiError:
+    """HTTP 400: an annotation file does not follow its format.
 
     Args:
-        reason: The message of the parser.
-        file: Name of the file that could not be read.
+        reason: The parser's English text (kept in ``params`` for the log, not shown translated).
 
     Returns:
         The HTTP 400 error to raise (code ``annotation_unreadable``).
     """
-    where = f"{file}: " if file else ""
     return ApiError(
-        400,
-        "annotation_unreadable",
-        f"The annotation file could not be read: {where}{reason}",
-        file=file,
-        reason=reason,
+        400, "annotation_unreadable", f"The annotation file could not be read: {reason}", reason=reason
     )
+
+
+def _malformed(found: ann.Unreadable) -> ApiError:
+    """HTTP 400 for a file that is not well-formed JSON or XML or not UTF-8 text, with where it went wrong.
+
+    Args:
+        found: What the parser found wrong (file, kind, line and column).
+
+    Returns:
+        The HTTP 400 error to raise: ``annotation_not_json``, ``annotation_not_xml`` or
+        ``annotation_not_text``.
+    """
+    detail = f"The annotation file could not be read: {found.file}: {found.reason}"
+    if found.kind == "json":
+        return ApiError(
+            400, "annotation_not_json", detail, file=found.file, line=found.line, column=found.column
+        )
+    if found.kind == "xml":
+        return ApiError(
+            400, "annotation_not_xml", detail, file=found.file, line=found.line, column=found.column
+        )
+    return ApiError(400, "annotation_not_text", detail, file=found.file)
 
 
 def project_overview(state: AppState, project: Project) -> dict[str, Any]:
@@ -965,7 +981,7 @@ def check_annotations(
         broken = ann.unreadable_file(staged)
         ann.discard_staged(project_dir, token)
         if broken is not None:
-            raise _unreadable(broken[1], broken[0])
+            raise _malformed(broken)
         raise ApiError(
             400,
             "annotation_format_unknown",

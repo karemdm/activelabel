@@ -151,9 +151,19 @@ def test_a_cut_off_json_is_reported_as_unreadable_not_as_unknown_format(tmp_path
     cut = coco(["0.png", "1.png"])[:40].encode()
     response = client.post("/api/projects/1/annotations", files=[("files", ("instances.json", cut))])
     body = response.json()
-    assert response.status_code == 400 and body["code"] == "annotation_unreadable"
-    assert body["params"]["file"] == "instances.json" and body["params"]["reason"]
+    assert response.status_code == 400 and body["code"] == "annotation_not_json"
+    assert (
+        body["params"]["file"] == "instances.json"
+        and body["params"]["line"] == 1
+        and body["params"]["column"] > 0
+    )
     assert "instances.json" in body["detail"] and staged(state) == []
+    bad_xml = client.post("/api/projects/1/annotations", files=[("files", ("a.xml", b"not xml at all"))])
+    assert bad_xml.json()["code"] == "annotation_not_xml" and bad_xml.json()["params"]["file"] == "a.xml"
+    not_text = client.post("/api/projects/1/annotations", files=[("files", ("b.json", b"\xff\xfe\x00bad"))])
+    assert not_text.json()["code"] == "annotation_not_text" and not_text.json()["params"] == {
+        "file": "b.json"
+    }
     other = client.post("/api/projects/1/annotations", files=[("files", ("x.json", b'{"a": 1}'))])
     assert other.json()["code"] == "annotation_format_unknown"
     old = b'[{"id": 1, "data": {"image": "/data/upload/1/a-0.png"}, "annotations": [{"result": []}]}]'
@@ -296,3 +306,18 @@ def test_replace_keeps_the_labels_of_excluded_images_and_backs_up(tmp_path):
     assert saved is not None and sum(len(v) for v in saved.images.values()) == 4
     assert all(saved.images[i] for i in ids)  # the excluded images keep their labels
     assert list(state.store.dir(1).glob("annotations.*.bak.json"))  # and the old file was backed up
+
+
+def test_upload_errors_of_the_staging_have_codes(tmp_path):
+    client, state = setup_project(tmp_path)
+
+    def code(files):
+        response = client.post("/api/projects/1/annotations", files=files)
+        assert response.status_code == 400, response.text
+        return response.json()["code"]
+
+    assert code([("files", ("notes.docx", b"nothing useful"))]) == "annotation_files_missing"
+    assert code([("files", ("data.zip", b"this is not a zip"))]) == "annotation_zip_invalid"
+    assert code([("files", ("../up.json", b"{}"))]) == "annotation_path_unsafe"
+    assert client.delete("/api/projects/1/annotations/not-a-token").json()["code"] == "staging_token_invalid"
+    assert staged(state) == []

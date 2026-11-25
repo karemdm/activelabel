@@ -245,7 +245,7 @@ def settle(
 
 
 # -- diff -----------------------------------------------------------------------
-_MESSAGES = {
+PROBLEM_MESSAGES = {
     "unknown_class": "Labels with classes that are not in the project (added to the project on apply).",
     "no_geometry": "Labels without the shape this task needs (they are skipped on apply).",
     "multiple_classes": "Images with more than one class (classification keeps the first).",
@@ -269,7 +269,7 @@ class _Tally:
         """Count a problem and keep the name of the image as an example (a few per code).
 
         Args:
-            code: the problem code (a key of ``_MESSAGES``).
+            code: the problem code (a key of ``PROBLEM_MESSAGES``).
             image_id: id of the image where it happened.
             count: how many times to count it.
         """
@@ -358,7 +358,7 @@ def _compare_all(
         "per_class": tally.per_class,
         "unknown_classes": list(unknown),
         "problems": [
-            {"level": "warning", "code": code, "message": _MESSAGES[code], **entry}
+            {"level": "warning", "code": code, "message": PROBLEM_MESSAGES[code], **entry}
             for code, entry in tally.problems.items()
         ],
         "examples": examples,
