@@ -24,10 +24,14 @@ from mongoengine.errors import ValidationError
 from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
+from activelabel.annotate import sessions
+from activelabel.annotate.base import ToolSettings
+from activelabel.annotate.fiftyone_tool import FiftyOneTool
 from activelabel.images.manifest import EXCLUDED
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
+from activelabel.web import annotate_api
 
 pytestmark = pytest.mark.integration
 
@@ -160,12 +164,34 @@ def send(scene: Scene, **body: Any) -> dict[str, Any]:
     Returns:
         The result of the job (``session``, ``links``, maybe ``kept_fiftyone_edits``).
     """
+    if scene.task is Task.KEYPOINTS:  # the API refuses these (#458): open the session as the API would
+        return send_keypoints(scene)
     payload = {"tool": "fiftyone", "scope": "all", **body}
     reply = scene.client.post(f"/api/projects/{scene.pid}/annotate", json=payload)
     assert reply.status_code == 200, reply.text
     job = wait(scene, reply.json())
     assert job["status"] == "done", job
     return job["result"]
+
+
+def send_keypoints(scene: Scene) -> dict[str, Any]:
+    """Open a session on a keypoints project without the API (it refuses them: the App cannot edit them).
+
+    The dataset, the tool and the session are the ones the API uses, so ``pull`` and ``apply`` still go
+    through the API. This keeps the read path (what comes back from FiftyOne) tested.
+
+    Args:
+        scene: the project.
+
+    Returns:
+        ``{"session": ..., "links": ...}`` like the result of the send job.
+    """
+    project = scene.state.project(scene.pid)
+    dataset = annotate_api.prepare_dataset(project, scene.state)
+    session_id = sessions.new_id()
+    sent = FiftyOneTool().send(dataset, scene.ids, project, ToolSettings("fiftyone"), session_id)
+    session = sessions.create(scene.folder, "fiftyone", "all", scene.ids, sent.links, sent.ref, session_id)
+    return {"session": sessions.public(session), "links": sent.links}
 
 
 def pull(scene: Scene, session: str) -> dict[str, Any]:
