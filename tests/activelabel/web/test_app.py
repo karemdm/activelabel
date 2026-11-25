@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -32,3 +33,22 @@ def test_lifespan_recovers_cleans_and_shuts_down(tmp_path: Path) -> None:
         assert calls == ["recover"]
     assert calls == ["recover", "jobs", "runner"]
     assert not staging.exists() or not any(staging.iterdir())
+
+
+def test_scripts_are_served_as_javascript_on_every_system(tmp_path: Path) -> None:
+    """A module script served as ``text/plain`` (a Windows registry default) is refused by the browser."""
+    assert mimetypes.guess_type("main.js")[0] == "text/javascript"
+    with TestClient(create_app(Settings(workspace=tmp_path / "ws"))) as client:
+        response = client.get("/static/app.js")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/javascript")
+
+
+def test_static_files_are_revalidated_by_the_browser(tmp_path: Path) -> None:
+    """Imported files carry no version in their address: ``no-cache`` plus the ETag keeps them current."""
+    with TestClient(create_app(Settings(workspace=tmp_path / "ws"))) as client:
+        first = client.get("/static/app.css")
+        again = client.get("/static/app.css", headers={"If-None-Match": first.headers["etag"]})
+    assert first.headers["cache-control"] == "no-cache"
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "no-cache"
