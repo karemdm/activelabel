@@ -850,6 +850,9 @@ class FakeCvatServer:
                 if label is None or label["project_id"] != project["id"]:
                     raise BadRequest(f"label: id {spec['id']} is not a label of the project")
                 label["name"] = spec.get("name", label["name"])
+                for attr in spec.get("attributes", []):  # attributes without an id are added
+                    if "id" not in attr:
+                        label["attributes"].append({"id": self._new("attr"), **attr})
             else:
                 self._add_label(project["id"], spec)
         if "name" in body:

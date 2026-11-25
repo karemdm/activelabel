@@ -188,6 +188,45 @@ def carry_predictions(old: list[Label], new: list[Label], tol: float = TOLERANCE
     return out
 
 
+def carry_pose_boxes(old: list[Label], new: list[Label], tol: float = TOLERANCE) -> list[Label]:
+    """``new`` with the box of the pose objects of ``old`` whose points they still have.
+
+    A tool without a box for a pose (CVAT points) gives back the box of the points, while the project
+    may hold another one (from COCO, for example). A pose of ``new`` with the same class, track and
+    keypoints (within ``tol``, visibility included) as a pose of ``old`` is that same object: it takes
+    the old box, so the box alone never counts as a change made in the tool. A pose whose points moved
+    keeps the box of its points. Every old label is used at most once.
+
+    Args:
+        old: Labels this side already has (the project's labels, then those of the last sync).
+        new: Labels read from the tool.
+        tol: Largest relative difference accepted between two coordinates.
+
+    Returns:
+        The labels of ``new``, with the old box where the points match.
+    """
+    free = [lb for lb in old if lb.keypoints]
+    out: list[Label] = []
+    for label in new:
+        match = None
+        if label.keypoints:
+            match = next(
+                (
+                    i
+                    for i, o in enumerate(free)
+                    if o.label == label.label
+                    and o.track == label.track
+                    and _close(o.keypoints, label.keypoints, tol)
+                ),
+                None,
+            )
+        if match is None:
+            out.append(label)
+            continue
+        out.append(Label(**{**label.__dict__, "bbox": list(free.pop(match).bbox or label.bbox or [])}))
+    return out
+
+
 def base_entry(key: str, labels: list[Label], removed: bool = False) -> dict[str, Any]:
     """Link entry of one image: its remote key, its labels at this synchronisation (and their hash).
 

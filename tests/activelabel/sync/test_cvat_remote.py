@@ -990,3 +990,60 @@ def test_track_rotation_is_interpolated_the_short_way() -> None:
     b = {"type": "rectangle", "frame": 2, "points": [0, 0, 10, 10], "rotation": 10}
     shown = cvat_remote.track_frames({"shapes": [a, b]}, 3)
     assert shown[1][0]["rotation"] == pytest.approx(0)
+
+
+# -- pose visibility (#363) ---------------------------------------------------------------------------
+def test_visibility_of_a_points_shape() -> None:
+    shape = {"type": "points", "points": [1, 1, 2, 2, 3, 3], "attributes": [{"spec_id": 5, "value": "2,1,2"}]}
+    assert cvat_remote.visibility_of(shape, 3, 5) == [2, 1, 2]
+    assert cvat_remote.visibility_of(shape, 3, None) == [2, 2, 2]  # the label has no such attribute
+    assert cvat_remote.visibility_of(shape, 2, 5) == [2, 2]  # a value for another number of points
+    assert cvat_remote.visibility_of({**shape, "occluded": True}, 3, 5) == [1, 1, 1]
+
+
+def pose(*vis: float) -> Label:
+    """A cat pose with one point per visibility given."""
+    return Label("cat", bbox=[0, 0, 1, 1], keypoints=[[0.1 * (i + 1), 0.1, v] for i, v in enumerate(vis)])
+
+
+def test_pose_visibility_goes_to_occluded_or_to_the_attribute() -> None:
+    assert cvat_remote._visibility_attrs(pose(1, 0, 1), 5) == (True, [])
+    assert cvat_remote._visibility_attrs(pose(2, 0, 2), 5) == (False, [])
+    assert cvat_remote._visibility_attrs(pose(2, 1, 0), 5) == (False, [{"spec_id": 5, "value": "2,1,0"}])
+    (shape,), _ = cvat_remote.labels_to_cvat([pose(2, 1, 0)], {"cat": 3}, 0, 100, 100, {3: 5})
+    back = cvat_remote.shape_to_label(shape, "cat", 100, 100, 5)
+    assert back is not None and [k[2] for k in back.keypoints or []] == [2, 1, 0]
+
+
+def test_a_visibility_change_alone_is_an_edit() -> None:
+    old = {
+        "id": 9,
+        "type": "points",
+        "label_id": 3,
+        "points": [10, 10, 20, 20],
+        "occluded": False,
+        "attributes": [],
+    }
+    new = {**old, "attributes": [{"spec_id": 5, "value": "2,1"}]}
+    assert not cvat_remote._same_shape(old, new, 100, 100, 5)
+    edited = cvat_remote._edited({**old, "attributes": [{"spec_id": 1, "value": "x"}]}, new, 100, 100, 5)
+    assert edited["id"] == 9 and edited["attributes"] == [
+        {"spec_id": 1, "value": "x"},
+        {"spec_id": 5, "value": "2,1"},
+    ]
+
+
+def test_the_visibility_attribute_is_added_only_when_a_pose_needs_it(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    cvat.tasks[tid]["ann"]["tracks"] = []
+    uniform = Label("cat", bbox=[0, 0, 1, 1], keypoints=[[0.1, 0.1, 2.0], [0.2, 0.2, 2.0]])
+    CvatRemote().write(SETTINGS, str(pid), project(Task.KEYPOINTS), {f"{tid}:0": [uniform]})
+    assert not [c for c in cvat.calls if c[0] == "PATCH" and c[1].startswith("/api/projects")]
+    mixed = Label("cat", bbox=[0, 0, 1, 1], keypoints=[[0.1, 0.1, 2.0], [0.2, 0.2, 1.0]])
+    CvatRemote().write(SETTINGS, str(pid), project(Task.KEYPOINTS), {f"{tid}:0": [mixed]})
+    (patch,) = [c[2]["json"] for c in cvat.calls if c[0] == "PATCH" and c[1].startswith("/api/projects")]
+    assert patch == {
+        "labels": [
+            {"id": cvat.label_id(pid, "cat"), "name": "cat", "attributes": [cvat_remote._visibility_spec()]}
+        ]
+    }

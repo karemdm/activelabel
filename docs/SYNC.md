@@ -126,7 +126,7 @@ one track id per job.
 | rectangle | box (detection) |
 | rectangle with `rotation` | the axis-aligned box that **encloses** the turned rectangle (detection trains on axis-aligned boxes). The rectangle stays turned in CVAT: a push of its frame leaves it alone while its enclosing box is unchanged; moving the box moves the rectangle and keeps its turn; resizing it replaces the rectangle by the new box, without a turn. In tracks the turn is interpolated between keyframes, the short way round |
 | polygon | polygon and its box (segmentation) |
-| points | one pose object (keypoints) |
+| points | one pose object (keypoints). A point at the top-left corner is *not labeled* (0). CVAT has one `occluded` flag per shape: a pose whose labeled points are all *labeled but not visible* (1) is an occluded shape; a pose that mixes 1 and 2 keeps each point's visibility in the text attribute `visibility` of its CVAT label (`"2,1,0"`; added to that label the first time a pose needs it). CVAT has no box for a pose: a pose whose points did not change keeps the box the project has (from COCO, for example), so the box alone is never a change; when the points change the box becomes the box of the points |
 | tag | image class (classification) |
 
 ## What a push sends to CVAT

@@ -115,3 +115,14 @@ def test_carry_predictions_only_for_the_same_untouched_label():
     assert [(lb.score, lb.model) for lb in out] == [(0.9, "m1"), (None, None), (None, None)]
     assert out[0].track == 4 and new[0].score is None  # a copy: the input is not modified
     assert links.carry_predictions([scored], [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])] * 2)[1].score is None
+
+
+def test_carry_pose_boxes_keeps_the_box_of_a_pose_whose_points_did_not_move() -> None:
+    kps = [[0.1, 0.2, 2.0], [0.5, 0.25, 1.0]]
+    coco = Label("cat", bbox=[0.05, 0.1, 0.9, 0.8], keypoints=kps)
+    read = Label("cat", bbox=[0.1, 0.2, 0.4, 0.05], keypoints=[list(k) for k in kps])
+    moved = Label("cat", bbox=[0.1, 0.2, 0.5, 0.05], keypoints=[[0.1, 0.2, 2.0], [0.6, 0.25, 1.0]])
+    box = Label("dog", bbox=[0.1, 0.1, 0.2, 0.2])
+    out = links.carry_pose_boxes([coco], [read, moved, box])
+    assert out[0].bbox == coco.bbox and out[1].bbox == moved.bbox and out[2] is box
+    assert links.carry_pose_boxes([coco], [read, read])[1].bbox == read.bbox  # each old pose used once
