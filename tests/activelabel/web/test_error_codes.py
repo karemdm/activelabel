@@ -64,9 +64,11 @@ def test_training_and_model_errors_have_codes(tmp_path) -> None:
     assert _code(client.get("/api/training/catalog", params={"type": "x"}), 400) == "type_invalid"
     assert _code(client.get("/api/training/environment", params={"model": "x"}), 404) == "model_not_found"
     assert _code(client.post(runs, json={"dataset": 1}), 400) == "config_choose"
-    assert _code(client.post(runs, json={"dataset": 1, "model": "x", "device": "cpu"}), 400) == (
+    assert _code(client.post(runs, json={"dataset": 1, "model": "x", "path": "/tmp"}), 400) == (
         "config_unknown_options"
     )
+    bad_device = {"dataset": 1, "model": "x", "device": "gpu"}
+    assert _code(client.post(runs, json=bad_device), 400) == "device_invalid"
     assert _code(client.post(runs, json={"dataset": 7, "model": "x"}), 404) == "dataset_not_found"
     assert _code(client.get(f"{runs}/9"), 404) == "run_not_found"
     assert _code(client.request("DELETE", f"{runs}/9"), 400) == "confirm_required"

@@ -97,6 +97,28 @@ def test_gpu_with_without_and_failing(env, monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("out", "count"),
+    [("NVIDIA A\n", 1), ("NVIDIA A\nNVIDIA B\n", 2), ("NVIDIA A\n\n  \nNVIDIA B", 2), ("", 0), ("\n", 0)],
+)
+def test_gpu_count_counts_the_lines(env, monkeypatch, out, count):
+    seen = []
+
+    def fake(cmd, timeout=30):
+        seen.append(cmd)
+        return 0, out
+
+    monkeypatch.setattr(envmod, "capture", fake)
+    assert env.gpu_count() == count
+    assert seen == [["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]]
+
+
+@pytest.mark.parametrize("code", [-1, 9])
+def test_gpu_count_is_zero_when_nvidia_smi_fails(env, monkeypatch, code):
+    monkeypatch.setattr(envmod, "capture", lambda cmd, timeout=30: (code, "NVIDIA A\n"))
+    assert env.gpu_count() == 0
+
+
+@pytest.mark.parametrize(
     ("cuda", "tag"),
     [
         ("12.8", "cu126"),

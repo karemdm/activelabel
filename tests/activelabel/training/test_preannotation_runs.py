@@ -171,6 +171,7 @@ def test_preannotate_end_to_end(pre):
     spec = json.loads((state.store.dir(1) / "models" / "m1" / "predict_spec.json").read_text())
     assert spec["model"] == "m1" and spec["classes"] == ["a", "b"] and spec["worker"] == "fake_worker"
     assert sorted(i["id"] for i in spec["items"]) == sorted(empty) and spec["threshold"] == 0.4
+    assert spec["device"] == "auto"  # the device of the pre-annotation run reaches the process
     assert "torch" in runner.environment.ensured[-1]
     assert (state.store.dir(1) / "preannotations" / f"p{n}.log").exists()
     wait_for(lambda: tmp_dirs(runner) == [])  # removed right after the status is written

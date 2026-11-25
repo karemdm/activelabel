@@ -411,6 +411,15 @@ class TrainingEnvironment:
         code, plain = capture(["nvidia-smi"])
         return parse_nvidia_smi(out, plain if code == 0 else "")
 
+    def gpu_count(self) -> int:
+        """How many NVIDIA GPUs ``nvidia-smi`` lists (0 when it is absent or fails).
+
+        Returns:
+            The number of GPUs.
+        """
+        code, out = capture(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
+        return len([line for line in out.splitlines() if line.strip()]) if code == 0 else 0
+
     @staticmethod
     def mps_hint() -> bool:
         """Apple silicon: PyTorch can use the GPU (MPS) with the plain PyPI build, nothing special.

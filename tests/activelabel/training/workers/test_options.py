@@ -163,3 +163,52 @@ def test_full_precision_step_and_non_finite_loss(o, torch):
     mixed.enabled = True  # the message names mixed precision (no CUDA needed to check it)
     with pytest.raises(RuntimeError, match="mixed precision"):
         mixed.step(torch.tensor(float("inf")), optimizer)
+
+
+# -- device choice (#320) -----------------------------------------------------------
+
+
+class _Backend:
+    def __init__(self, available):
+        self.available = available
+
+    def is_available(self):
+        return self.available
+
+
+class _Cuda(_Backend):
+    def __init__(self, count):
+        super().__init__(count > 0)
+        self.count = count
+
+    def device_count(self):
+        return self.count
+
+
+class _Torch:
+    def __init__(self, gpus=0, mps=False):
+        self.cuda = _Cuda(gpus)
+        self.backends = type("Backends", (), {"mps": _Backend(mps)})()
+
+
+def test_pick_device_auto_and_explicit(o):
+    assert o.pick_device(_Torch(gpus=1)) == "cuda" and o.pick_device(_Torch(mps=True), "") == "mps"
+    assert o.pick_device(_Torch()) == "cpu" and o.pick_device(_Torch(gpus=2), "cpu") == "cpu"
+    assert (
+        o.pick_device(_Torch(gpus=2), "cuda:1") == "cuda:1"
+        and o.pick_device(_Torch(mps=True), "mps") == "mps"
+    )
+
+
+@pytest.mark.parametrize(
+    ("fake", "choice", "message"),
+    [
+        (_Torch(gpus=1), "cuda:1", "GPU 1 does not exist"),
+        (_Torch(), "cuda:0", "No CUDA GPU"),
+        (_Torch(), "mps", "Apple GPU"),
+        (_Torch(gpus=1), "gpu", "Unknown device"),
+    ],
+)
+def test_pick_device_refuses_what_is_not_there(o, fake, choice, message):
+    with pytest.raises(o.DeviceError, match=message):
+        o.pick_device(fake, choice)

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.projects import Project
-from activelabel.training import augmentations
+from activelabel.training import augmentations, devices
 from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
@@ -150,19 +150,36 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
     return checked
 
 
-def _create(state: AppState, project: Project, config: RunConfig) -> dict[str, Any]:
+def _device(state: AppState, choice: Any) -> str:
+    """The device a run asks for, checked against this computer.
+
+    Args:
+        state: The shared state of the application.
+        choice: The requested device (``None`` means ``auto``).
+
+    Returns:
+        The device choice to store.
+    """
+    try:
+        return devices.check_here(choice, state.settings.workspace)
+    except devices.DeviceError as error:
+        raise bad_request(error) from None
+
+
+def _create(state: AppState, project: Project, config: RunConfig, device: str = "auto") -> dict[str, Any]:
     """Store a validated configuration as a queued run and hand it to the runner.
 
     Args:
         state: The shared state of the application.
         project: The project.
         config: The validated configuration.
+        device: The checked device choice of the run.
 
     Returns:
         The new run, queued.
     """
     store = _store(state, project.id)
-    run = store.create(_checked(state, project, config))
+    run = store.create(_checked(state, project, config), device)
     start_run(state, project.id, run["number"])
     return _summary(store, store.get(run["number"]))
 
@@ -227,7 +244,8 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
         state: The shared state of the application.
 
     Returns:
-        ``{exists, packages, gpu}`` (plus ``missing`` and ``install_needed`` with ``model``).
+        ``{exists, packages, gpu, devices}`` (plus ``missing`` and ``install_needed`` with ``model``);
+        ``devices`` are the device choices of this computer (``auto``, ``cpu``, ``cuda:N``, ``mps``).
     """
     env = TrainingEnvironment(state.settings.workspace)
     gpu = env.gpu()
@@ -237,6 +255,7 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
         "exists": exists,
         "packages": installed,
         "gpu": None if gpu is None else gpu.as_dict(),
+        "devices": devices.available(env),
     }
     if model is not None:
         spec = get_model(model)
@@ -328,18 +347,20 @@ def create_run(project_id: int, body: dict[str, Any], state: AppState = STATE) -
 
     Args:
         project_id: Id of the project.
-        body: The run configuration.
+        body: The run configuration, plus ``device`` (``auto`` when absent: not part of the configuration).
         state: The shared state of the application.
 
     Returns:
         The new run, queued.
     """
     project = state.project(project_id)
+    options = dict(body)
+    choice = options.pop("device", None)
     try:
-        config = RunConfig.from_dict(body)
+        config = RunConfig.from_dict(options)
     except ConfigError as error:
         raise bad_request(error) from None
-    return _create(state, project, config)
+    return _create(state, project, config, _device(state, choice))
 
 
 @router.get("/projects/{project_id}/runs/{number}")
@@ -434,7 +455,7 @@ def delete_run(
 
 @router.post("/projects/{project_id}/runs/{number}/reproduce")
 def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict[str, Any]:
-    """A new run with the same configuration.
+    """A new run with the same configuration (and the same device choice).
 
     Args:
         project_id: Id of the project.
@@ -446,14 +467,16 @@ def reproduce_run(project_id: int, number: int, state: AppState = STATE) -> dict
     """
     project = state.project(project_id)
     try:
-        config = _store(state, project_id).config(number)
+        store = _store(state, project_id)
+        config = store.config(number)
+        choice = store.get(number).get("device_choice")
     except RunNotFound:
         raise ApiError(404, "run_not_found", "This run does not exist.") from None
     except (OSError, ValueError):
         raise ApiError(
             409, "run_config_damaged", "The configuration of this run is missing or damaged."
         ) from None
-    return _create(state, project, config)
+    return _create(state, project, config, _device(state, choice))
 
 
 @router.post("/projects/{project_id}/runs/{number}/cancel")
