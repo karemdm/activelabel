@@ -81,7 +81,9 @@ have labels (docs/DATASETS.md).
 
 Each kind of model trains on **one shape** of the labels: a box for detection, polygons (three or more
 points) for instance segmentation, polygons for semantic segmentation (a box stands in for a polygon only
-there), and points for keypoints, all with the same number of points. A label of another class or without
+there), and points for keypoints, all with the same number of points. The geometry is the truth: the box of
+an instance comes from its polygons (a stored box that disagrees is not used, so box and mask match), and a
+pose box is the stored box grown to hold every visible point. A label of another class or without
 that shape is left out of the spec; a version whose images have labels but none usable for the model is
 refused when the run starts, with a text that asks for a new version (a new version leaves such labels out
 and says so, docs/DATASETS.md). A run is also refused (400 `dataset_classes_removed`) when its version has

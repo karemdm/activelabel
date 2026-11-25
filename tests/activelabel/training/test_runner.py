@@ -5,10 +5,11 @@ import pytest
 from training_fakes import finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
+from activelabel.labels import Label
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig, validate
-from activelabel.training.runner import RunnerError, build_spec, download_env
+from activelabel.training.runner import RunnerError, _objects, build_spec, download_env, pose_box
 from activelabel.training.runs import RunStore
 
 
@@ -268,3 +269,21 @@ def test_jobs_carry_the_number_of_their_run(setup):
 
 def store_status(state, n):
     return RunStore(state.store.dir(1)).get(n)["status"]
+
+
+def test_pose_box_holds_the_stored_box_and_every_visible_point():
+    inside = Label("p", bbox=[0.1, 0.1, 0.5, 0.5], keypoints=[[0.2, 0.2, 2], [0.3, 0.3, 1]])
+    assert pose_box(inside) == [0.1, 0.1, 0.5, 0.5]
+    moved = Label("p", bbox=[0.1, 0.1, 0.2, 0.2], keypoints=[[0.8, 0.7, 2], [0.9, 0.9, 0]])  # hidden: ignored
+    assert pose_box(moved) == pytest.approx([0.1, 0.1, 0.7, 0.6])
+    assert pose_box(Label("p", keypoints=[[0.2, 0.4, 2], [0.6, 0.5, 2]])) == pytest.approx(
+        [0.2, 0.4, 0.4, 0.1]
+    )
+    assert pose_box(Label("p", keypoints=[[0.0, 0.0, 0]])) is None
+
+
+def test_instance_objects_carry_no_stored_box_and_detection_keeps_it():
+    ring = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]
+    own = [{"label": "cat", "bbox": [0.3, 0.3, 0.1, 0.1], "polygons": [ring]}]
+    assert _objects(own, ["cat"], "instance", None) == [{"label": 0, "polygons": [ring]}]
+    assert _objects(own, ["cat"], "detection", None) == [{"label": 0, "bbox": [0.3, 0.3, 0.1, 0.1]}]
