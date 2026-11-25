@@ -648,6 +648,7 @@
   "tasks.filter_empty": "Nenhuma imagem nesta task ou neste job.",
   "tasks.refresh": "Atualizar",
   "tasks.refresh_help": "Lê de novo o estado dos jobs no CVAT",
+  "tasks.refreshed": "Estado dos jobs no CVAT lido de novo.",
   "tasks.job_stage.annotation": "Etapa: anotação",
   "tasks.job_stage.validation": "Etapa: validação",
   "tasks.job_stage.acceptance": "Etapa: aceitação",

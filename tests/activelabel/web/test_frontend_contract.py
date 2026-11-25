@@ -398,3 +398,10 @@ def test_the_tasks_tab_can_refresh_the_cvat_states_and_shows_stage_and_assignee_
             "tasks.job_stage.acceptance",
         ):
             assert key in messages, (lang, key)
+
+
+def test_the_update_button_shows_only_for_cvat_tasks_and_answers_when_clicked():
+    """#461: no silent button, and no CVAT wording on a project without CVAT."""
+    assert "tasks.some((x) => x.remote)" in JS
+    refresh = JS[JS.index("async function refreshTasks") :][:400]
+    assert "toast(t('tasks.refreshed')" in refresh
