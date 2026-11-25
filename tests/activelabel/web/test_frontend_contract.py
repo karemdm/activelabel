@@ -685,3 +685,17 @@ def test_the_split_total_is_red_for_an_invalid_value_and_the_error_names_the_fie
         ):
             assert key in messages, (lang, key)
         assert "{part}" in messages["ds.err_pct_range"] and "{n}" in messages["ds.err_sum_is"]
+
+
+def test_the_texts_for_non_technical_people_say_what_happens_and_use_one_name_per_idea():
+    """#432: no bare package names or statistics jargon, and the safety gap has a single name."""
+    for lang in ("pt", "en"):
+        messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        names = ("intervalo", "segurança") if lang == "pt" else ("safety gap",)
+        for key in ("ds.gap", "ds.err_gap", "error.gap_not_number", "error.gap_range"):
+            assert all(name in messages[key].lower() for name in names), (lang, key)
+        assert "margem" not in " ".join(messages.values()).lower()
+        assert not re.search(r"median|mediana", messages["threshold.blur_relative"], re.I)
+        assert "64" not in messages["threshold.phash_distance"]
+        note = messages["tr.packages_note"]
+        assert "{list}" in note and "internet" in note
