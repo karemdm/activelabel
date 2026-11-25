@@ -618,3 +618,9 @@ def test_closing_the_new_task_dialog_mid_upload_does_not_hide_it_and_leaving_ask
 def test_progress_message_tool_names_are_matched_in_lower_case():
     """The server writes ``Listing CVAT data``; the tool lookup is lower case, so lower the name (#460)."""
     assert "toolName(found[1].toLowerCase())" in JS
+
+
+def test_sync_review_boxes_wrap_a_long_unbroken_name():
+    """A name without spaces breaks inside its box instead of crossing the border (#463)."""
+    assert re.search(r"\.sync-dir \{[^}]*min-width: 0; overflow-wrap: anywhere", CSS)
+    assert re.search(r"\.dir-sub \{[^}]*grid-template-columns: minmax\(0, 1fr\)", CSS)

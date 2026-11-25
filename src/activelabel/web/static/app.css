@@ -639,13 +639,13 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .sync-plan { scroll-margin-top: 4.5rem; }
 .sync-plan.flash { outline: 3px solid var(--primary); outline-offset: 2px; }
 .sync-scope { color: var(--text); }
-.sync-dirs { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.8rem; margin: 0.6rem 0; }
-.sync-dir { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; background: var(--surface-2); }
+.sync-dirs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 0.8rem; margin: 0.6rem 0; }
+.sync-dir { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; background: var(--surface-2); }
 .sync-dir h4 { margin: 0 0 0.4rem; font-size: var(--font-sm); }
 .dir-list { display: grid; gap: 0.35rem; }
 .dir-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem; }
 .dir-row strong { font-variant-numeric: tabular-nums; }
-.dir-sub { margin: 0.2rem 0 0 0.8rem; padding-left: 0.6rem; border-left: 2px solid var(--border); font-size: var(--font-sm); color: var(--muted); display: grid; gap: 0.1rem; }
+.dir-sub { grid-template-columns: minmax(0, 1fr); margin: 0.2rem 0 0 0.8rem; padding-left: 0.6rem; border-left: 2px solid var(--border); font-size: var(--font-sm); color: var(--muted); display: grid; gap: 0.1rem; }
 .dir-check { display: grid; grid-template-columns: auto 1fr; column-gap: var(--space-2); align-items: center; margin: 0.4rem 0 0 0.8rem; font-size: var(--font-sm); cursor: pointer; }
 .dir-check input { width: 18px; height: 18px; margin: 0; }
 .dir-check small { grid-column: 2; }
