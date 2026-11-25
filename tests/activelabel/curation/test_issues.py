@@ -1,5 +1,6 @@
 import random
 
+import pytest
 from curation_images import LIMITS, add, build
 from PIL import Image
 
@@ -13,6 +14,7 @@ from activelabel.curation.issues import (
 )
 from activelabel.curation.quality import hamming, measure_images
 from activelabel.curation.summary import suggest_exclusions, summary
+from activelabel.errors import CodedError
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 
 
@@ -107,3 +109,17 @@ def test_group_duplicates_matches_a_brute_force_search():
         want = sorted(sorted(g) for g in expected.values() if len(g) > 1)
         got = sorted(sorted(g) for g in _group_duplicates(ids, texts, limit))
         assert got == want
+
+
+def test_a_threshold_out_of_its_limits_is_a_coded_error():
+    """The Limits panel showed "dark must be between 0 and 255." in English inside the pt interface."""
+    with pytest.raises(CodedError) as caught:
+        Thresholds(dark=-5)
+    assert caught.value.code == "curation_threshold_range"
+    assert caught.value.params == {"threshold": "dark", "min": 0, "max": 255}
+    with pytest.raises(CodedError) as caught:
+        Thresholds(min_side=10.5)
+    assert caught.value.code == "curation_threshold_not_whole"
+    with pytest.raises(CodedError) as caught:
+        Thresholds(bright="x")  # type: ignore[arg-type]
+    assert caught.value.code == "curation_threshold_not_number"

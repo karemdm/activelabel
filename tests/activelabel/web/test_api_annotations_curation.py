@@ -88,6 +88,8 @@ def test_curation_analyze_thresholds_and_suggestions(tmp_path):
     changed = client.put("/api/projects/1/curation/thresholds", json={"min_side": 1000}).json()
     assert changed["issues"]["small"] == 2 and changed["thresholds"]["min_side"] == 1000
     assert client.put("/api/projects/1/curation/thresholds", json={"nope": 1}).status_code == 400
+    out_of_range = client.put("/api/projects/1/curation/thresholds", json={"dark": -5})
+    assert out_of_range.status_code == 400 and out_of_range.json()["code"] == "curation_threshold_range"
     assert isinstance(client.get("/api/projects/1/curation/suggested").json()["ids"], list)
     small = client.get("/api/projects/1/images", params={"issue": "small"}).json()
     assert small["total"] == 2
