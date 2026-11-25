@@ -22,6 +22,7 @@ from activelabel.projects import Project
 from activelabel.storage import read_json, write_json
 from activelabel.sync.links import label_hash
 from activelabel.sync.registry import get_remote
+from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.web.errors import ApiError, bad_request, tool_failure
 from activelabel.web.state import AppState, get_state
@@ -401,10 +402,20 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
 
     Returns:
         The queued job (id and state); its result is read from the job when it finishes.
+
+    Raises:
+        ApiError: ``fiftyone_keypoints_not_editable`` (400) for a keypoints project, which the FiftyOne
+            App cannot edit, plus the usual errors of the tool, scope and images.
     """
     project = state.project(project_id)
     _tool_name(body.tool)
     tool = _session_tool(body.tool)
+    if project.task is Task.KEYPOINTS:  # the FiftyOne App cannot edit keypoints
+        raise ApiError(
+            400,
+            "fiftyone_keypoints_not_editable",
+            "The FiftyOne App does not edit keypoints: edit them in CVAT.",
+        )
     if body.scope not in sessions.SCOPES:
         raise ApiError(
             400,

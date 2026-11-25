@@ -293,3 +293,15 @@ def test_apply_and_discard_tell_the_tool_and_a_failing_tool_does_not_undo_them(e
     assert env.client.post(f"{base}/apply").status_code == 200  # the apply already happened
     listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
     assert next(s for s in listed if s["id"] == second["id"])["status"] == "applied"
+
+
+def test_a_keypoints_project_cannot_open_a_fiftyone_session(env):
+    """#458: the App cannot edit keypoints, so the API refuses instead of only the interface."""
+    body = {"name": "k", "task": "keypoints", "classes": ["person"]}
+    pid = env.client.post("/api/projects", json=body).json()["id"]
+    for scope in ("all", "task"):
+        reply = env.client.post(f"/api/projects/{pid}/annotate", json={"tool": "fiftyone", "scope": scope})
+        assert reply.status_code == 400 and reply.json()["code"] == "fiftyone_keypoints_not_editable", (
+            reply.text
+        )
+    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
