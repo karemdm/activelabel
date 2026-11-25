@@ -1473,6 +1473,7 @@
   "error.already_applied": "Estas anotações já foram aplicadas.",
   "error.annotations_changed_one": "As anotações de {n} imagem mudaram desde que você as trouxe: traga-as de novo.",
   "error.annotations_changed_other": "As anotações de {n} imagens mudaram desde que você as trouxe: traga-as de novo.",
+  "error.already_discarded": "Estas anotações já foram descartadas.",
   "error.annotations_changed": "As anotações de {count} imagens mudaram desde que você as trouxe: traga-as de novo.",
   "error.direction_invalid": "A direção deve ser both, pull ou push.",
   "error.issue_required": "Escolha um problema.",
