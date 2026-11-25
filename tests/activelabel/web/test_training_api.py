@@ -7,6 +7,8 @@ from activelabel.tasks import Task
 from activelabel.training import environment
 from activelabel.training.runs import RunStore
 
+PINS = environment.PINNED_VERSIONS  # torch and torchvision count as installed only at these versions
+
 RUNS = "/api/projects/1/runs"
 
 
@@ -138,14 +140,19 @@ def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
     assert client.get("/api/training/environment", params={"model": "nope"}).status_code == 404
     monkeypatch.setattr(environment.TrainingEnvironment, "exists", lambda self: True)
     monkeypatch.setattr(
-        environment.TrainingEnvironment, "installed", lambda self: {"torch": "2", "pillow": "1"}
+        environment.TrainingEnvironment, "installed", lambda self: {"torch": PINS["torch"], "pillow": "1"}
     )
     some = client.get("/api/training/environment", params={"model": "resnet18"}).json()
     assert some["missing"] == ["torchvision", "numpy"] and some["install_needed"] is True
     monkeypatch.setattr(
         environment.TrainingEnvironment,
         "installed",
-        lambda self: dict.fromkeys(["torch", "torchvision", "pillow", "numpy"], "1"),
+        lambda self: {
+            "torch": PINS["torch"],
+            "torchvision": PINS["torchvision"],
+            "pillow": "1",
+            "numpy": "1",
+        },
     )
     assert (
         client.get("/api/training/environment", params={"model": "resnet18"}).json()["install_needed"]

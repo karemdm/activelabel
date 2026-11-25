@@ -31,9 +31,10 @@ Everything below goes into the first release, 0.1.0.
 - **Dataset versions.** Train/validation/test and K-fold splits that bring rare classes into every part,
   video-aware splits with a safety gap, and warnings for labels left out, empty parts and labels changed
   after a version (docs/DATASETS.md).
-- **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon);
-  classification (torchvision, timm), detection, instance, semantic and keypoint models; grid search and
-  K-fold runs; data augmentation choices; metrics such as mAP, OKS mAP, mask mAP and PCK (docs/TRAINING.md).
+- **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon)
+  with pinned, tested package versions; classification (torchvision, timm), detection, instance, semantic
+  and keypoint models; grid search and K-fold runs; data augmentation choices; metrics such as mAP,
+  OKS mAP, mask mAP and PCK (docs/TRAINING.md).
 - **Models and pre-annotation.** Saved models with PyTorch and ONNX weights, public pretrained models with
   a class mapping, and pre-annotation of new images for review, also with segmentation models
   (docs/PREANNOTATE.md).

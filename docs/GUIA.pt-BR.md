@@ -132,8 +132,8 @@ fora, com aviso, e uma versão cujo treino ou validação ficaria vazio é recus
 todas as dobras. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
 pontos-chave (torchvision); os modelos YOLO/Ultralytics ainda não estão disponíveis e ficam
-escondidos na interface. Os pacotes necessários são instalados sob demanda, num ambiente
-separado. *Reproduzir* repete um treino com a mesma configuração. Detalhes:
+escondidos na interface. Os pacotes necessários são instalados sob demanda, em versões fixas e
+testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração. Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, compare os modelos, escolha o

@@ -2,8 +2,10 @@
 
 Training packages (PyTorch, timm, ultralytics...) live in their own virtual environment, so
 ActiveLabel itself stays light. The environment is created and filled on demand: only the missing
-packages are installed, PyTorch with GPU support when an NVIDIA GPU is found. Nothing but the
-location of the environment is recorded (``<workspace>/training/env.json``).
+packages are installed, PyTorch with GPU support when an NVIDIA GPU is found. The training packages
+are installed at the tested versions of ``PINNED_VERSIONS`` (docs/TRAINING.md, "Pinned package versions"
+says how to update them). Nothing but the location of the environment is recorded
+(``<workspace>/training/env.json``).
 """
 
 from __future__ import annotations
@@ -28,9 +30,21 @@ import psutil
 
 IS_WINDOWS = sys.platform == "win32"
 MAX_PATH_LENGTH = 90  # longer environment paths break the 260-character limit on Windows
-CUDA_TAGS = ("cu126", "cu124", "cu121", "cu118")  # newest first
+#: PyTorch CUDA builds that have the pinned torch and torchvision, newest first. A driver older than the
+#: oldest of them gets the CPU build. Update together with ``PINNED_VERSIONS``.
+CUDA_TAGS = ("cu130", "cu126")
 TORCH_PACKAGES = ("torch", "torchvision")
 TORCH_INDEX = "https://download.pytorch.org/whl/"
+#: Tested versions of the training packages (issue #160): a new release of PyTorch or timm must not change
+#: results or break a first install. Keys are normalized distribution names. The CI job "training workers"
+#: installs these same versions. How to update them: docs/TRAINING.md, "Pinned package versions".
+PINNED_VERSIONS: dict[str, str] = {
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "timm": "1.0.31",
+    "onnx": "1.23.2",
+    "ultralytics": "8.4.218",
+}
 
 _DUMP_SCRIPT = (
     "import importlib.metadata as m, json;"
@@ -97,6 +111,34 @@ def requirement_name(requirement: str) -> str:
     """
     match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
     return match.group(1) if match else requirement.strip()
+
+
+def pinned_version(requirement: str) -> str | None:
+    """The pinned version a requirement must have: only a bare name (no specifier) of ``PINNED_VERSIONS``.
+
+    Args:
+        requirement: a pip requirement string.
+
+    Returns:
+        The version, or ``None`` when the requirement has its own specifier or its package is not pinned.
+    """
+    name = requirement_name(requirement)
+    if requirement.strip() != name:
+        return None
+    return PINNED_VERSIONS.get(normalize(name))
+
+
+def pin(requirement: str) -> str:
+    """The requirement to install: a bare pinned name gets its version (``torch`` -> ``torch==2.14.1``).
+
+    Args:
+        requirement: a pip requirement string.
+
+    Returns:
+        ``name==version`` for a pinned bare name, otherwise the requirement unchanged.
+    """
+    version = pinned_version(requirement)
+    return f"{requirement.strip()}=={version}" if version else requirement
 
 
 def _is_torch(requirement: str) -> bool:
@@ -447,16 +489,25 @@ class TrainingEnvironment:
         return {str(k): str(v) for k, v in data.items()}
 
     def missing(self, packages: Iterable[str]) -> list[str]:
-        """The requirements whose distribution is not installed.
+        """The requirements whose distribution is not installed, or not at its pinned version.
+
+        A pinned package (``PINNED_VERSIONS``) installed at another version counts as missing, so the next
+        install brings it to the tested version. The local part of a version (``2.14.1+cu126``) is ignored.
 
         Args:
             packages: requirements to check.
 
         Returns:
-            The requirements (as given) that are not installed.
+            The requirements (as given) that are not installed or not at their pinned version.
         """
-        have = {normalize(n) for n in self.installed()}
-        return [p for p in packages if normalize(requirement_name(p)) not in have]
+        have = {normalize(n): v for n, v in self.installed().items()}
+        todo = []
+        for requirement in packages:
+            found = have.get(normalize(requirement_name(requirement)))
+            wanted = pinned_version(requirement)
+            if found is None or (wanted is not None and found.split("+")[0] != wanted):
+                todo.append(requirement)
+        return todo
 
     # -- changes ---------------------------------------------------------
 
@@ -501,7 +552,7 @@ class TrainingEnvironment:
             raise self._fail("Could not create the training environment")
 
     def ensure(self, packages: Iterable[str], check: CheckFn, step: StepFn) -> None:
-        """Create the environment if needed and install the missing packages.
+        """Create the environment if needed and install the missing packages at their pinned versions.
 
         Args:
             packages: requirements the environment must have.
@@ -517,7 +568,7 @@ class TrainingEnvironment:
             return
         step("train_env_install:" + ",".join(todo))
         gpu = self.gpu() if any(_is_torch(p) for p in todo) else None
-        for cmd in pip_commands(self.python(), todo, gpu):
+        for cmd in pip_commands(self.python(), [pin(p) for p in todo], gpu):
             check()
             if run_logged(cmd, self.log, check) != 0:
                 raise self._fail(f"Could not install {', '.join(todo)}")
