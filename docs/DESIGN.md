@@ -158,7 +158,7 @@ Texts the interface does not know a code for are shown as the English `detail`.
 | Images per job | a whole number from 1 to 100,000 |
 | Names and text fields | no control characters (`control_characters`) |
 | Frames taken from a video for one task | at most 20,000; the disk must have about twice the estimated size of the frames free (400 otherwise) |
-| Image files | JPEG, PNG, BMP, TIFF or WebP, shortest side at least 8 px; the kind is decided by the content (a PNG sent as `photo.jpg` is stored as `.png`); a rejected file is listed with its reason (`corrupt`, `too large`, `unsupported`, `too small`) |
+| Image files | JPEG, PNG, BMP, TIFF or WebP, shortest side at least 8 px; the kind is decided by the content (a PNG sent as `photo.jpg` is stored as `.png`); a rejected file is listed with its reason (`empty`, `corrupt`, `too large`, `unsupported`, `too small`, `nested archive`) |
 | Files in an uploaded archive | at most 100,000 entries and 20 GiB when expanded; larger ones are rejected with a reason |
 | Annotation files kept aside before a decision | at most 1 GiB in all, removed after 24 hours and when the service starts |
 | Tool address (CVAT) | must be `http://` or `https://` (`url_invalid`) |

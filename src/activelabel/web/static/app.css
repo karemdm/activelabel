@@ -730,7 +730,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .dlg-head h2 { margin: 0; }
 .new-task-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 0 1.25rem; align-items: start; }
-.new-task-dialog input[aria-invalid="true"] { border-color: var(--danger); outline: 2px solid var(--danger-soft); }
+.dialog input[aria-invalid="true"], .new-task-dialog input[aria-invalid="true"] { border-color: var(--danger); outline: 2px solid var(--danger-soft); }
 .new-task-dialog .report { margin-top: 0; }
 .new-task-dialog .report-card { box-shadow: none; }
 .staged { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: 1.25rem var(--space-4); border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface-2); }

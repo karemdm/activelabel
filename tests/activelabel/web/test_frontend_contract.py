@@ -355,3 +355,11 @@ def test_the_new_task_dialog_says_cancel_until_something_was_done():
 def test_the_viewer_shows_the_class_of_a_classification_image():
     box = JS[JS.index("function openLightbox") :]
     assert "t('lightbox.classes')" in box[:3500] and "img.classes" in box[:3500]
+
+
+def test_forms_answer_in_the_apps_language_before_saving():
+    """Empty names get the app's own message; the delete dialog says why it is off (#433)."""
+    assert "error.task_name_empty" in JS and "noValidate = true" in JS
+    assert JS.count("maxlength: '100'") >= 3  # new task, rename and project name: the server's limit
+    assert "maxlength: '200'" not in JS
+    assert "delete.mismatch" in JS
