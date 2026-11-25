@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from activelabel import fiftyone_bridge
 from activelabel.annotate import credentials, sessions
 from activelabel.annotate import diff as diffing
-from activelabel.annotate.base import TOOLS, ToolError, ToolSettings
+from activelabel.annotate.base import TOOLS, Pulled, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
 from activelabel.errors import CodedError
 from activelabel.jobs import Progress
@@ -404,7 +404,8 @@ def _pull_job(
     pulled = tool.pull(open_dataset(project, state), image_ids, project, settings, session["ref"])
     annotations = load_annotations(project_dir)
     new_labels, conflicts = diffing.settle(pulled, annotations.images if annotations else {})
-    summary = diffing.diff(project_dir, image_ids, new_labels, project, conflicts)
+    problems = pulled.problems if isinstance(pulled, Pulled) else {}
+    summary = diffing.diff(project_dir, image_ids, new_labels, project, conflicts, problems)
     write_json(
         _pulled_file(state, project.id, session_id),
         {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},

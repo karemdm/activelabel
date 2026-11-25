@@ -16,7 +16,8 @@ from activelabel.labels import (
     Label,
     annotations_lock,
     annotations_path,
-    has_geometry,
+    common_keypoint_count,
+    geometry_problem,
     load_annotations,
     save_annotations,
 )
@@ -29,6 +30,13 @@ OTHER_CLASS_IOU = 0.7  # another class at the same place: the class was changed
 TOLERANCE = 0.005  # geometry moved less than this (relative units) counts as unchanged
 MAX_EXAMPLES = 20
 MAX_PROBLEM_EXAMPLES = 5
+SKIPPED_ON_APPLY = (  # problems of labels that apply leaves out (counted as ``skipped``)
+    "no_geometry",
+    "box_invalid",
+    "polygon_too_few_points",
+    "keypoints_count_mismatch",
+    "multiple_classes",
+)
 
 
 # -- geometry -------------------------------------------------------------------
@@ -192,22 +200,28 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
 
 
 # -- cleaning -------------------------------------------------------------------
-def clean_labels(project: Project, labels: list[Label]) -> tuple[list[Label], dict[str, int]]:
-    """Labels that fit the project: class names match the class list ignoring case, geometry present.
+def clean_labels(
+    project: Project, labels: list[Label], keypoints: int | None = None
+) -> tuple[list[Label], dict[str, int]]:
+    """Labels that fit the project: class names match the class list ignoring case, usable geometry.
 
     Args:
         project: the project (task and class list).
         labels: labels brought back from the tool.
+        keypoints: how many points a pose label must have (None: not checked).
 
     Returns:
-        The usable labels and counts of what was dropped: ``no_geometry``, ``multiple_classes``.
+        The usable labels and counts of what was dropped: ``multiple_classes`` and the codes of
+        :func:`activelabel.labels.geometry_problem` (``no_geometry``, ``box_invalid``,
+        ``polygon_too_few_points``, ``keypoints_count_mismatch``).
     """
     known = {c.lower(): c for c in project.classes}
     dropped = {"no_geometry": 0, "multiple_classes": 0}
     out: list[Label] = []
     for label in labels:
-        if not has_geometry(project.task, label):
-            dropped["no_geometry"] += 1
+        problem = geometry_problem(project.task, label, keypoints)
+        if problem is not None:
+            dropped[problem] = dropped.get(problem, 0) + 1
             continue
         out.append(Label(**{**label.__dict__, "label": known.get(label.label.lower(), label.label)}))
     if project.task is Task.CLASSIFICATION and len(out) > 1:
@@ -252,6 +266,13 @@ _MESSAGES = {
     "no_geometry": "Labels without the shape this task needs (they are skipped on apply).",
     "multiple_classes": "Images with more than one class (classification keeps the first).",
     "missing_images": "Images the tool did not return (they are left unchanged).",
+    "box_invalid": "Boxes without area or outside the image (they are skipped on apply).",
+    "polygon_too_few_points": "Polygons with fewer than 3 points (they are skipped on apply).",
+    "keypoints_count_mismatch": (
+        "Poses with another number of points than the project's (they are skipped on apply)."
+    ),
+    "open_polyline": "Open lines (not closed nor filled) are not polygons (they are skipped on apply).",
+    "mask_only": "Detections with a mask: only their box is kept.",
     "edited_on_both_sides": (
         "Images edited in the tool whose project labels also changed since they were sent: applying "
         "replaces the project's version with the tool's."
@@ -297,6 +318,7 @@ def _compare_all(
     new_labels: dict[str, list[Label]],
     project: Project,
     conflicts: list[str] | None = None,
+    tool_problems: dict[str, dict[str, int]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Label]]]:
     """Clean the new labels and compare them with the ground truth, image by image.
 
@@ -306,6 +328,8 @@ def _compare_all(
         new_labels: labels brought back from the tool, by image id.
         project: the project (task and class list).
         conflicts: images edited both in the tool and in the project (see :func:`settle`).
+        tool_problems: ``{image_id: {code: count}}`` for shapes the tool held that could not be read as
+            they are (``Pulled.problems``).
 
     Returns:
         The summary (see :func:`diff`) and the cleaned labels of each image present in ``new_labels``.
@@ -322,12 +346,20 @@ def _compare_all(
     changed = 0
     for image_id in conflicts or []:
         tally.problem("edited_on_both_sides", image_id)
+    for image_id, notes in (tool_problems or {}).items():
+        for code, count in notes.items():
+            tally.problem(code, image_id, count)
+    keypoints = (
+        common_keypoint_count(old_all) or common_keypoint_count(new_labels)
+        if project.task is Task.KEYPOINTS
+        else None
+    )
 
     for image_id in image_ids:
         if image_id not in new_labels:
             tally.problem("missing_images", image_id)
             continue
-        labels, dropped = clean_labels(project, new_labels[image_id])
+        labels, dropped = clean_labels(project, new_labels[image_id], keypoints)
         cleaned[image_id] = labels
         for code, count in dropped.items():
             if count:
@@ -374,6 +406,7 @@ def diff(
     new_labels: dict[str, list[Label]],
     project: Project,
     conflicts: list[str] | None = None,
+    tool_problems: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     """Summary of the changes between the project ground truth and ``new_labels`` for these images.
 
@@ -383,12 +416,13 @@ def diff(
         new_labels: labels brought back from the tool, by image id.
         project: the project (task and class list).
         conflicts: images edited both in the tool and in the project (``edited_on_both_sides``).
+        tool_problems: ``{image_id: {code: count}}`` for shapes the tool could not give as they are.
 
     Returns:
         ``{images_changed, added, removed, edited, per_class, unknown_classes, problems, examples}``
         (see docs/ANNOTATION.md).
     """
-    return _compare_all(project_dir, image_ids, new_labels, project, conflicts)[0]
+    return _compare_all(project_dir, image_ids, new_labels, project, conflicts, tool_problems)[0]
 
 
 # -- apply ----------------------------------------------------------------------
@@ -459,7 +493,7 @@ def _apply_locked(
         project = store.update(project_id, classes=[*project.classes, *new_classes])
     annotations.classes = list(project.classes)
     save_annotations(project_dir, annotations)
-    skipped = sum(p["count"] for p in summary["problems"] if p["code"] in ("no_geometry", "multiple_classes"))
+    skipped = sum(p["count"] for p in summary["problems"] if p["code"] in SKIPPED_ON_APPLY)
     return {
         "images_changed": summary["images_changed"],
         "added": summary["added"],

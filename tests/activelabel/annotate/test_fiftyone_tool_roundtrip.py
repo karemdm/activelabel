@@ -1174,7 +1174,6 @@ def open_polyline_is_not_img2(sample: Any) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="#366")
 def test_open_polyline_is_not_imported_as_a_polygon(seg_scene):
     """A line the person draws (not closed, not filled) is not a segmentation polygon."""
     session, _ = flow(seg_scene)
@@ -1195,7 +1194,6 @@ def polygon_reduced_to_two_img1(sample: Any) -> None:
     sample.ground_truth.polylines[0].points = [[(0.2, 0.2), (0.5, 0.5)]]
 
 
-@pytest.mark.xfail(strict=True, reason="#366")
 def test_polygon_reduced_to_two_points_is_reported_not_silently_removed(seg_scene):
     session, _ = flow(seg_scene)
 
@@ -1215,7 +1213,6 @@ def keypoints_with_a_point_img1(sample: Any) -> None:
     first.points = [*first.points, (0.8, 0.8)]  # a fourth point in a three-point skeleton
 
 
-@pytest.mark.xfail(strict=True, reason="#366")
 def test_keypoints_with_a_point_added_in_fiftyone_are_reported(kp_scene):
     session, _ = flow(kp_scene)
 
