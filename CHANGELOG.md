@@ -1,8 +1,49 @@
 # Changelog
 
-Notable changes, newest first. The project has no tagged release yet.
+Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and the versions follow [Semantic Versioning](https://semver.org/). The project has no tagged release yet.
+
+The version of the package is read from the last git tag (`vMAJOR.MINOR.PATCH`), so there is no version
+number to edit in the code; a build between two releases carries the number of the last tag. How a release
+is made is in [RELEASING.md](RELEASING.md): move the "Unreleased" entries under the new version heading,
+tag, and publish the draft release that the `release` workflow creates. The detailed list of changes is in
+the release notes, generated from the merged pull requests and grouped by label (`.github/release.yml`).
 
 ## Unreleased
+
+Everything below goes into the first release, 0.1.0.
+
+### Added
+
+- **Projects, images and tasks.** Projects of type classification, detection, segmentation or keypoints;
+  images uploaded as files, a folder, a .zip or a video; tasks and jobs inside a project as in CVAT, with
+  long videos cut into time-distant segments when needed (docs/TASKS.md, docs/VIDEO.md).
+- **Import.** Annotation files in COCO, YOLO (also pose), Pascal VOC, CVAT and MOT, class folders as
+  classification labels, and whole CVAT projects with their tasks and jobs, with a report of what was
+  left out and why (docs/IMPORT.md).
+- **Annotation and review.** Edit sessions in the FiftyOne App, reviewed before they are applied;
+  synchronisation with CVAT by project, task or job in the chosen direction, sending only differences,
+  following renamed classes and tasks both ways, reading skeletons as poses, plus a read-only audit of
+  the server's tasks and a guard that refuses a CVAT task outside a project (docs/ANNOTATION.md,
+  docs/SYNC.md).
+- **Curation.** Brightness, contrast, sharpness, size and near-duplicate checks with adjustable limits,
+  reversible exclusion and the same filters in FiftyOne.
+- **Dataset versions.** Train/validation/test and K-fold splits that bring rare classes into every part,
+  video-aware splits with a safety gap, and warnings for labels left out, empty parts and labels changed
+  after a version (docs/DATASETS.md).
+- **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon);
+  classification (torchvision, timm), detection, instance, semantic and keypoint models; grid search and
+  K-fold runs; data augmentation choices; metrics such as mAP, OKS mAP, mask mAP and PCK (docs/TRAINING.md).
+- **Models and pre-annotation.** Saved models with PyTorch and ONNX weights, public pretrained models with
+  a class mapping, and pre-annotation of new images for review, also with segmentation models
+  (docs/PREANNOTATE.md).
+- **Interface.** A step bar grouped in Dados and Modelo, Portuguese and English texts, API errors with
+  stable codes that the interface translates, light and dark colours, a phone layout with 44 px touch
+  targets, and an activity pill for running jobs (docs/DESIGN.md).
+- **Quality and releases.** Tests that mirror the source tree with coverage of 80% or more; CI on Linux,
+  Windows and macOS from a path with accents and spaces; JavaScript and Playwright tests; a nightly run
+  against a real CVAT; a wheel check in a clean environment; one version source (the git tag) and a
+  release workflow that creates a draft release (RELEASING.md).
 
 ### Removed
 
@@ -14,13 +55,3 @@ Notable changes, newest first. The project has no tagged release yet.
 - **CVAT edit sessions.** Review in CVAT goes only through the synchronisation of the linked project
   (docs/SYNC.md); the *FiftyOne* tab keeps the edit sessions (docs/ANNOTATION.md). Old CVAT sessions can
   only be closed.
-
-### Added
-
-- Read-only audit of the tasks on the CVAT server and a guard that refuses to create a CVAT task outside a
-  project (docs/SYNC.md).
-- Stable error codes next to the English `detail` on API errors, limits on names, classes, job size,
-  archives and video frames, and one FiftyOne dataset name per project (docs/DESIGN.md).
-- Pre-annotation with instance and semantic segmentation models; data-split rules for left-out labels,
-  empty parts and versions in use; saved models take the weights of their run (docs/PREANNOTATE.md,
-  docs/DATASETS.md, docs/TRAINING.md).
