@@ -155,3 +155,38 @@ def test_class_folders_zip_labels_a_classification_project(tmp_path):
         "Não é gato/3.png": "Não é gato",
         "Ônibus/4.png": "Ônibus",
     }
+
+
+def test_replace_leaves_excluded_images_alone_and_copies_the_old_file(proj):
+    store, project, manifest = proj
+    apply(store, project.id, manifest, stage(store.dir(project.id), [coco_file("det")]), "import")
+    first = load_annotations(store.dir(project.id))
+    assert first is not None
+    by_name = {r.name: r.id for r in manifest.all()}
+    manifest.set_status([by_name["a.png"]], "excluded", "bad")
+    token = stage(store.dir(project.id), [coco_file("det")])
+    summary = apply(store, project.id, manifest, token, "import")
+    assert summary["images_imported"] == 1  # only b.png: a.png is excluded
+    assert "excluded_image_entries" in {p["code"] for p in summary["problems"]}
+    saved = load_annotations(store.dir(project.id))
+    assert saved is not None and saved.images[by_name["a.png"]] == first.images[by_name["a.png"]]
+    assert summary["backup"].endswith("Z.replace.bak.json")
+    assert (store.dir(project.id) / summary["backup"]).exists()
+
+
+def test_replace_with_another_task_does_not_keep_labels_of_the_old_task(proj):
+    store, project, manifest = proj
+    apply(store, project.id, manifest, stage(store.dir(project.id), [coco_file("det")]), "import")
+    manifest.set_status([manifest.all()[0].id], "excluded", "bad")
+    polygon = [[0, 0, 50, 0, 50, 25, 0, 25]]
+    data = {
+        "images": [{"id": 1, "file_name": "b.png", "width": 100, "height": 50}],
+        "categories": [{"id": 1, "name": "Cat"}],
+        "annotations": [{"image_id": 1, "category_id": 1, "bbox": [0, 0, 50, 25], "segmentation": polygon}],
+    }
+    token = stage(store.dir(project.id), [("labels.json", io.BytesIO(json.dumps(data).encode()))])
+    summary = apply(store, project.id, manifest, token, "change_task_and_import")
+    saved = load_annotations(store.dir(project.id))
+    assert saved is not None and saved.task is Task.SEGMENTATION
+    assert all(lb.polygons for items in saved.images.values() for lb in items)  # no old boxes mixed in
+    assert summary["backup"]  # they are in the copy

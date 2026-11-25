@@ -158,7 +158,11 @@ def unreadable_file(files: list[Path]) -> tuple[str, str] | None:
 
 
 def parse(
-    files: list[Path], fmt: str, images: list[ImageRecord], target: VideoTarget | None = None
+    files: list[Path],
+    fmt: str,
+    images: list[ImageRecord],
+    target: VideoTarget | None = None,
+    excluded: list[ImageRecord] | None = None,
 ) -> ParseResult:
     """Read annotation files and match them to images.
 
@@ -174,6 +178,8 @@ def parse(
         images: images of the project (of the video task, when ``target`` is given).
         target: a video task. COCO and YOLO files are then matched by frame number instead of by file
             name (see :mod:`activelabel.annotations.videoformats`); cvatvideo and mot need it.
+        excluded: excluded images of the project; entries for them are reported (``excluded_image_entries``)
+            and skipped, not counted as unmatched.
 
     Returns:
         The labels per image id and what was found; nothing is written to disk.
@@ -185,7 +191,7 @@ def parse(
         raise ValueError(f"Unknown annotation format: {fmt}")
     if fmt in VIDEO_ONLY and target is None:
         raise ValueError("This file is made for a video: choose the video task it belongs to.")
-    ctx = ParseContext(fmt, images, target)
+    ctx = ParseContext(fmt, images, target, excluded)
     if fmt == "folders":
         parse_folders(ctx, images)
     else:

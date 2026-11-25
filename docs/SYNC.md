@@ -94,7 +94,7 @@ like the project's classes: a CVAT label `Cat` is the class `cat` (no second lab
 shape of `Cat` stays on that label when its frame is pushed). A class **renamed in CVAT** keeps its
 label id there: the link remembers the ids (`classes`), so the plan lists it in `renamed_classes` and
 the apply renames the class here too, in the class list and in every label of the ground truth (after a
-backup `annotations.<time>.rename.bak.json`); it is not created again in CVAT. A rename to a name that
+backup `annotations.<UTC time>Z.rename.bak.json`); it is not created again in CVAT. A rename to a name that
 is already another class here (two classes merged) is not done automatically.
 
 ## Direction

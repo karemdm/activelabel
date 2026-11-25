@@ -108,13 +108,21 @@ def _index(index: dict[str, list[ImageRecord]], key: str, rec: ImageRecord) -> N
 class ParseContext:
     """Collects labels, classes and problems while a format parser runs."""
 
-    def __init__(self, fmt: str, images: list[ImageRecord], target: VideoTarget | None = None) -> None:
+    def __init__(
+        self,
+        fmt: str,
+        images: list[ImageRecord],
+        target: VideoTarget | None = None,
+        excluded: list[ImageRecord] | None = None,
+    ) -> None:
         """Index the images by name and start empty results.
 
         Args:
             fmt: annotation format name, copied to the result.
             images: image records the annotations are matched to.
             target: the video task, for the formats that match by frame number; None for images.
+            excluded: excluded images: an entry that matches only one of these is reported as
+                ``excluded_image_entries`` instead of being counted as unmatched.
         """
         self.fmt = fmt
         self.images = images
@@ -132,6 +140,7 @@ class ParseContext:
         self._lower: dict[str, list[ImageRecord]] = {}
         self._base: dict[str, list[ImageRecord]] = {}
         self._stem_suffix: dict[str, list[ImageRecord]] = {}
+        self._excluded = ParseContext(fmt, excluded) if excluded else None
         for rec in images:
             for name in (rec.name, *rec.aliases):  # a repeated upload is also known by its other names
                 n = norm_name(name)
@@ -207,19 +216,20 @@ class ParseContext:
         shown = example or (names[0] if names else "")
         if ambiguous:
             self.problem("ambiguous_image_name", shown)
+        elif self._excluded is not None and any(self._excluded._find(n)[0] for n in names):
+            self.problem("excluded_image_entries", shown)
         else:
             self.unmatch(shown)
         return None
 
-    def match_stem(self, parts: list[str], example: str) -> ImageRecord | None:
-        """Image for a label file path without extension (YOLO): ``labels/`` -> ``images/`` and suffixes.
+    def _find_stem(self, parts: list[str]) -> tuple[ImageRecord | None, bool]:
+        """Look a label file path up in the stem index.
 
         Args:
             parts: path parts of the label file without extension (see ``stem_parts``).
-            example: label file name, shown in the problem when nothing matches.
 
         Returns:
-            The matching image record, or None.
+            ``(record, ambiguous)``, as :meth:`_find`.
         """
         swapped = list(parts)
         for i in range(len(swapped) - 2, -1, -1):
@@ -232,11 +242,28 @@ class ParseContext:
                 found = self._stem_suffix.get("/".join(variant[k:]).lower())
                 if found:
                     if len(found) == 1:
-                        return found[0]
+                        return found[0], False
                     ambiguous = True
                     break
+        return None, ambiguous
+
+    def match_stem(self, parts: list[str], example: str) -> ImageRecord | None:
+        """Image for a label file path without extension (YOLO): ``labels/`` -> ``images/`` and suffixes.
+
+        Args:
+            parts: path parts of the label file without extension (see ``stem_parts``).
+            example: label file name, shown in the problem when nothing matches.
+
+        Returns:
+            The matching image record, or None.
+        """
+        rec, ambiguous = self._find_stem(parts)
+        if rec is not None:
+            return rec
         if ambiguous:
             self.problem("ambiguous_image_name", example)
+        elif self._excluded is not None and self._excluded._find_stem(parts)[0] is not None:
+            self.problem("excluded_image_entries", example)
         else:
             self.unmatch(example)
         return None

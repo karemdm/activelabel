@@ -5,7 +5,7 @@ import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
-from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.tasks import Task
 
 
@@ -169,7 +169,6 @@ def coco_with(names, annotations):
 
 
 def test_import_reports_and_drops_labels_without_the_shape_of_the_task(tmp_path):
-    from activelabel.labels import load_annotations
 
     client, state = setup_project(tmp_path, task="segmentation")
     polygon = [[0, 0, 50, 0, 50, 25, 0, 25]]
@@ -195,7 +194,6 @@ def test_import_reports_and_drops_labels_without_the_shape_of_the_task(tmp_path)
 
 
 def test_import_drops_poses_with_another_number_of_points(tmp_path):
-    from activelabel.labels import load_annotations
 
     client, state = setup_project(tmp_path, task="keypoints")
     three = [10, 10, 2, 20, 20, 2, 30, 30, 2]
@@ -260,3 +258,41 @@ def test_annotations_named_after_a_repeated_upload_reach_the_image(tmp_path):
     assert summary.status_code == 200, summary.text
     assert client.get("/api/projects/1/annotations").json()["labels_per_class"] == {"cat": 1}
     assert state.manifest(1).all()[0].aliases == ["same-as-0.png"]
+
+
+def coco_all(names):
+    images = [{"id": i + 1, "file_name": n, "width": 64, "height": 48} for i, n in enumerate(names)]
+    annotations = [
+        {"id": i + 1, "image_id": i + 1, "category_id": 1, "bbox": [4, 4, 20, 10], "iscrowd": 0, "area": 200}
+        for i in range(len(names))
+    ]
+    categories = [{"id": 1, "name": "cat"}]
+    return json.dumps({"images": images, "annotations": annotations, "categories": categories})
+
+
+def test_replace_keeps_the_labels_of_excluded_images_and_backs_up(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection"})
+    paths = [make_image(tmp_path / f"in/{i}.png", seed=i) for i in range(4)]
+    assert upload(client, 1, paths).json()["added"] == 4
+    names = [f"{i}.png" for i in range(4)]
+    files = [("files", ("instances.json", coco_all(names).encode()))]
+
+    def import_replace():
+        report = client.post("/api/projects/1/annotations", files=files).json()
+        done = client.post(f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "import"})
+        assert done.status_code == 200, done.text
+        return report
+
+    import_replace()
+    ids = [r["id"] for r in client.get("/api/projects/1/images").json()["items"]][:2]
+    assert client.post("/api/projects/1/images/exclude", json={"ids": ids}).json() == {"changed": 2}
+    report = client.post("/api/projects/1/annotations", files=files).json()
+    codes = {p["code"] for p in report["problems"]}
+    assert "excluded_image_entries" in codes and "unmatched_entries" not in codes
+    done = client.post(f"/api/projects/1/annotations/{report['token']}/apply", json={"action": "import"})
+    assert done.status_code == 200, done.text
+    saved = load_annotations(state.store.dir(1))
+    assert saved is not None and sum(len(v) for v in saved.images.values()) == 4
+    assert all(saved.images[i] for i in ids)  # the excluded images keep their labels
+    assert list(state.store.dir(1).glob("annotations.*.bak.json"))  # and the old file was backed up

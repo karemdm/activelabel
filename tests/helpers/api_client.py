@@ -9,6 +9,7 @@ from activelabel.config import Settings
 from activelabel.web import (
     annotate_api,
     api,
+    backups_api,
     datasets_api,
     import_api,
     models_api,
@@ -33,6 +34,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     install_error_handlers(app)
     app.include_router(api.router)
     app.include_router(annotate_api.router)
+    app.include_router(backups_api.router)
     app.include_router(datasets_api.router)
     app.include_router(import_api.router)
     app.include_router(sync_api.router)

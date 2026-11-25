@@ -544,6 +544,10 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .annot-section:first-of-type, .annotate > .annot-section:first-child { margin-top: 0; }
 .annot-section > h3 { margin: 0 0 0.8rem; }
 .gt-box { border-top: 0; padding-top: 0; }
+.backups summary { cursor: pointer; font-weight: 600; }
+.backup-list { display: grid; gap: 0.4rem; }
+.backup-row { display: grid; grid-template-columns: minmax(8rem, auto) minmax(8rem, 1fr) minmax(10rem, 1.5fr) auto; gap: var(--space-3); align-items: center; }
+@media (max-width: 640px) { .backup-row { grid-template-columns: 1fr auto; } }
 .cvat-card, .cvat-cta { display: grid; gap: 0.2rem; }
 .cvat-cta { grid-template-columns: auto 1fr auto; align-items: center; gap: 0.9rem; }
 .cvat-cta p { margin: 0; }

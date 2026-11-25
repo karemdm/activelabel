@@ -203,6 +203,10 @@ class Manifest:
         """
         return [r for r in self.load().values() if r.status == ACTIVE]
 
+    def excluded(self) -> list[ImageRecord]:
+        """Images that are excluded."""
+        return [r for r in self.load().values() if r.status == EXCLUDED]
+
     def get(self, image_id: str) -> ImageRecord:
         """One image.
 

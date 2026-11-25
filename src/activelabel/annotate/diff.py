@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import math
-import shutil
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from activelabel.annotate.base import Pulled
+from activelabel.backups import make_backup
 from activelabel.images.manifest import Manifest
 from activelabel.labels import (
     AnnotationSet,
     Label,
     annotations_lock,
-    annotations_path,
     has_geometry,
     load_annotations,
     save_annotations,
@@ -398,6 +396,7 @@ def apply(
     manifest: Manifest,
     image_ids: list[str],
     new_labels: dict[str, list[Label]],
+    reason: str = "apply",
 ) -> dict[str, Any]:
     """Make ``new_labels`` the ground truth of these images (after a backup of ``annotations.json``).
 
@@ -410,6 +409,8 @@ def apply(
         manifest: the images of the project; ids that are not in it are ignored.
         image_ids: the images of the session.
         new_labels: labels brought back from the tool, by image id.
+        reason: why the backup is made (see :data:`activelabel.backups.REASONS`): ``apply`` for a FiftyOne
+            session, ``sync`` for a CVAT synchronisation.
 
     Returns:
         Counts: the diff counts plus ``images_updated``, ``new_classes``, ``skipped`` and ``backup``.
@@ -419,7 +420,7 @@ def apply(
     existing = {r.id for r in manifest.all()}
     ids = [i for i in image_ids if i in existing]
     with annotations_lock(project_dir):
-        return _apply_locked(store, project_id, project, project_dir, ids, new_labels)
+        return _apply_locked(store, project_id, project, project_dir, ids, new_labels, reason)
 
 
 def _apply_locked(
@@ -429,6 +430,7 @@ def _apply_locked(
     project_dir: Path,
     ids: list[str],
     new_labels: dict[str, list[Label]],
+    reason: str,
 ) -> dict[str, Any]:
     """Do the work of :func:`apply` while the annotations file is locked.
 
@@ -439,6 +441,7 @@ def _apply_locked(
         project_dir: the project folder.
         ids: the images to update (already restricted to those of the manifest).
         new_labels: labels brought back from the tool, by image id.
+        reason: why the backup is made, as in :func:`apply`.
 
     Returns:
         The same counts as :func:`apply`.
@@ -448,9 +451,8 @@ def _apply_locked(
     backup = ""
     if annotations is None:
         annotations = AnnotationSet(project.task, list(project.classes), {}, {"format": "activelabel"})
-    elif annotations_path(project_dir).exists():
-        backup = f"annotations.{time.strftime('%Y%m%dT%H%M%S')}.bak.json"
-        shutil.copyfile(annotations_path(project_dir), project_dir / backup)
+    else:
+        backup = make_backup(project_dir, reason)
     for image_id, labels in cleaned.items():
         if labels or image_id in annotations.images:
             annotations.images[image_id] = labels
