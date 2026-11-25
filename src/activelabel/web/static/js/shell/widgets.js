@@ -43,6 +43,14 @@ export function chipsInput(id, initial) {
     }
   });
   input.addEventListener('blur', () => { if (input.value.trim()) { add(input.value); input.value = ''; } });
+  /* a pasted list (one per line, or separated by commas, semicolons or tabs) becomes one chip per name (#586) */
+  input.addEventListener('paste', (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+    if (!/[,;\t\r\n]/.test(text)) return;
+    e.preventDefault();
+    add(`${input.value},${text.replace(/[;\t\r\n]+/g, ',')}`);
+    input.value = '';
+  });
   wrap.addEventListener('click', () => input.focus());
   draw();
   const node = el('div', null, wrap, el('p', { id: `${id}-help`, class: 'sr-only' }, t('classes.help')));

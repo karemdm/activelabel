@@ -814,3 +814,11 @@ def test_the_agpl_licence_is_accepted_in_a_dialog_before_ultralytics_can_be_chos
         for key in keys:
             assert texts[key], key
         assert "tr.family_license" not in texts
+
+
+def test_the_classes_field_says_how_to_add_a_class_and_takes_a_pasted_list():
+    """#586: Enter or a comma adds a class (Enter does not submit); a pasted list is split into classes."""
+    assert "input.addEventListener('paste'" in JS and r".replace(/[;\t\r\n]+/g, ',')" in JS
+    for lang, enter in (("pt", "Enter ou vírgula"), ("en", "Enter or a comma")):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert enter in texts["new.classes_hint"] and enter in texts["classes.help"]
