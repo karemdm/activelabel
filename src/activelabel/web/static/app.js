@@ -1860,6 +1860,7 @@
         let sent = 0;
         let cancelled = false;
         let created = null; // the task made by the first chunk
+        let failure = null; // why the upload stopped (a rejected name, a server error)
         const draw = () => {
           progressBox.hidden = false;
           fill(progressBox,
@@ -1885,7 +1886,7 @@
               mergeReport(merged, await api('POST', `/projects/${projectId}/tasks/${created.id}/images`, { body: form, signal: controller.signal }));
             }
           } catch (err) {
-            if (err.name === 'AbortError') cancelled = true; else toastError(err);
+            if (err.name === 'AbortError') cancelled = true; else failure = err;  // the reason is shown in the result card
             break;
           }
           sent += chunk.length;
@@ -1893,17 +1894,25 @@
         }
         if (created) {
           // close the task (its images become fixed), also after a cancel or an error: best effort
-          try { await api('PATCH', `/projects/${projectId}/tasks/${created.id}`, { json: { open: false } }); } catch (e) { /* the next task closes it */ }
-          nameInput.value = '';
-          jobSizeInput.value = '';
-          toast(t('tasks.created', { name: created.name }), 'success', 4000);
+          let removed = false;
+          try {
+            const closed = await api('PATCH', `/projects/${projectId}/tasks/${created.id}`, { json: { open: false } });
+            removed = !!(closed && closed.removed); // an upload that added nothing leaves no task
+          } catch (e) { /* the next task closes it */ }
+          if (removed) {
+            created = null;
+          } else {
+            nameInput.value = '';
+            jobSizeInput.value = '';
+            toast(t('tasks.created', { name: created.name }), 'success', 4000);
+          }
         }
         uploading = false;
         staged = null;
         drawStaged();
         setStage(created ? 'done' : 'form'); // nothing was created: back to the form, the report says why
         if (cancelled) toast(t('images.cancelled', { done: num(sent) }), 'info');
-        renderReport(merged, sent < files.length);
+        renderReport(merged, sent < files.length, failure);
         await refreshProject();
         await loadTasks();
         grid.reload();
@@ -1922,9 +1931,11 @@
         return el('details', { class: 'expand' }, el('summary', null, title), el('ul', { class: 'plain scroll-box' }, ...rows));
       }
 
-      function renderReport(r, incomplete) {
+      function renderReport(r, incomplete, failure = null) {
         const rows = [];
-        rows.push(el('p', { class: 'report-line ok' }, icon('check'), tn('images.added', r.added)));
+        if (r.added) rows.push(el('p', { class: 'report-line ok' }, icon('check'), tn('images.added', r.added)));
+        else rows.push(el('p', { class: 'report-line bad' }, icon('warning'), t('images.none_added')));  // no green mark, no task
+        if (failure) rows.push(el('p', { class: 'report-line bad', role: 'alert' }, icon('warning'), String(failure.message || failure)));
         if (r.duplicates_count) {
           rows.push(el('div', { class: 'report-line' }, icon('info'),
             el('div', null, tn('images.duplicates', r.duplicates_count), ' ', el('span', { class: 'muted' }, t('images.duplicates_note')),
