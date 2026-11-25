@@ -11,8 +11,9 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   configuration.
 - **Install only what is needed, when it is needed.** Before a run, ActiveLabel checks that the
   packages of the chosen model are present in the training environment and installs the missing
-  ones (a visible step of the run, with progress). PyTorch is installed with GPU support when an
-  NVIDIA GPU is found (`nvidia-smi`), otherwise the CPU build. Ultralytics (licence AGPL-3.0) is meant to be
+  ones (a visible step of the run, with progress), at tested versions (see *Pinned package versions*).
+  PyTorch is installed with GPU support when an NVIDIA GPU is found (`nvidia-smi`) whose driver has a
+  PyTorch CUDA build of the pinned version, otherwise the CPU build. Ultralytics (licence AGPL-3.0) is meant to be
   installed only when a YOLO model is chosen; YOLO is not available yet (see *Status*).
 - **Separate environment.** Training packages live in their own Python environment managed by
   ActiveLabel (`<workspace>/training/env`, or a short folder under `%LOCALAPPDATA%` on Windows when
@@ -211,6 +212,31 @@ segmentation), which is then queued right after saving.
   classes + background per pixel). Detection, instance and
   keypoint models (torchvision) are not exported yet: their traced graphs break in ONNX Runtime on
   images without candidate boxes; their PyTorch weights can be downloaded.
+
+## Pinned package versions
+
+A new release of PyTorch or timm must not change results or break a first install (#160), so the training
+packages are installed at fixed, tested versions: `PINNED_VERSIONS` in
+`src/activelabel/training/environment.py` (torch, torchvision, timm, onnx and ultralytics). A package that
+is already in the training environment at another version is installed again at the pinned one, as the
+same visible step of the run. A requirement written with its own specifier (`timm>=1.0`) is left as it is.
+The versions actually used are recorded in each run's `run.json`.
+
+`CUDA_TAGS` in the same module lists the PyTorch CUDA builds (`cu130`, `cu126`, ...) that have the pinned
+torch and torchvision; a driver older than the oldest one gets the CPU build (update the NVIDIA driver to
+train on the GPU).
+
+To update the versions:
+
+1. Pick a torch release and its matching torchvision (the pairs are listed in the torchvision README), and
+   check that the pair exists for every supported Python on the CPU index, on each CUDA index you keep and
+   on PyPI for macOS, for example
+   `pip index versions torch --index-url https://download.pytorch.org/whl/cu126 --python-version 3.10`.
+2. Edit `PINNED_VERSIONS` and, when the CUDA builds of that release changed, `CUDA_TAGS` (newest first).
+   Pick timm, onnx and ultralytics versions released after that torch.
+3. Open a pull request. The CI job *training workers* installs exactly the pinned versions (read from the
+   module) and fails if a training test is skipped; also run one short training on a GPU machine.
+4. Note the change in CHANGELOG.md: results of new runs may differ from older ones.
 
 ## HTTP API (summary)
 

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from activelabel.training.environment import (
     TrainingEnvironment,
     cuda_tag,
     parse_nvidia_smi,
+    pin,
+    pinned_version,
     pip_commands,
 )
 
@@ -121,14 +124,12 @@ def test_gpu_count_is_zero_when_nvidia_smi_fails(env, monkeypatch, code):
 @pytest.mark.parametrize(
     ("cuda", "tag"),
     [
+        ("13.2", "cu130"),
+        ("13.0", "cu130"),
         ("12.8", "cu126"),
         ("12.6", "cu126"),
-        ("12.5", "cu124"),
-        ("12.4", "cu124"),
-        ("12.2", "cu121"),
-        ("11.8", "cu118"),
-        ("11.7", None),
-        ("13.0", "cu126"),
+        ("12.5", None),  # no build of the pinned torch for this driver: CPU
+        ("11.8", None),
         (None, None),
         ("abc", None),
     ],
@@ -141,10 +142,10 @@ PY = Path("py")
 
 
 def test_pip_commands_gpu_cpu_mac_other():
-    gpu = GpuInfo("RTX", "551", "12.4")
+    gpu = GpuInfo("RTX", "561", "12.6")
     cmds = pip_commands(PY, ["torch", "torchvision", "timm"], gpu, "win32")
-    assert cmds[0][-4:] == ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"]
-    assert "--index-url" in cmds[0] and cmds[0][-1].endswith("/cu124")
+    assert cmds[0][-4:] == ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu126"]
+    assert "--index-url" in cmds[0] and cmds[0][-1].endswith("/cu126")
     assert cmds[1][-1] == "timm" and "--index-url" not in cmds[1]
     assert cmds[0][1:4] == ["-m", "pip", "install"]
 
@@ -176,9 +177,31 @@ def make_installed(env, monkeypatch, dists):
 def test_installed_and_missing(env, monkeypatch):
     assert env.installed() == {}
     assert env.missing(["timm"]) == ["timm"]
-    make_installed(env, monkeypatch, {"PyYAML": "6.0", "torch": "2.5.0", "typing_extensions": "4"})
-    assert env.installed()["torch"] == "2.5.0"
+    torch = envmod.PINNED_VERSIONS["torch"]
+    make_installed(env, monkeypatch, {"PyYAML": "6.0", "torch": f"{torch}+cu126", "typing_extensions": "4"})
+    assert env.installed()["torch"] == f"{torch}+cu126"
     assert env.missing(["torch", "timm>=1.0", "pyyaml", "typing-extensions", "onnx"]) == ["timm>=1.0", "onnx"]
+
+
+def test_a_pinned_package_at_another_version_is_missing(env, monkeypatch):
+    make_installed(env, monkeypatch, {"torch": "1.0.0", "timm": "0.1"})
+    # a bare name must be at its pinned version; a requirement with its own specifier only needs the package
+    assert env.missing(["torch", "timm>=0.1", "Torch"]) == ["torch", "Torch"]
+
+
+def test_pin_adds_the_tested_version_to_a_bare_pinned_name():
+    assert pin("torch") == f"torch=={envmod.PINNED_VERSIONS['torch']}"
+    assert pin("Timm") == f"Timm=={envmod.PINNED_VERSIONS['timm']}"
+    assert pin("timm>=1.0") == "timm>=1.0"
+    assert pin("pillow") == "pillow"
+    assert pinned_version("torch[extra]") is None
+
+
+def test_every_cuda_tag_is_a_build_and_the_torch_packages_are_pinned():
+    assert all(re.fullmatch(r"cu\d{3}", tag) for tag in envmod.CUDA_TAGS)
+    assert list(envmod.CUDA_TAGS) == sorted(envmod.CUDA_TAGS, reverse=True)
+    for name in (*envmod.TORCH_PACKAGES, "timm"):
+        assert re.fullmatch(r"\d+(\.\d+)+", envmod.PINNED_VERSIONS[name])
 
 
 def test_device_info(env, monkeypatch):
@@ -297,7 +320,7 @@ def test_remove_tree_gives_up_quietly(tmp_path, monkeypatch):
 def test_ensure_installs_only_missing(env, monkeypatch):
     rec = Recorder(env)
     monkeypatch.setattr(envmod, "run_logged", rec)
-    monkeypatch.setattr(envmod.TrainingEnvironment, "gpu", lambda self: GpuInfo("RTX", "551", "12.4"))
+    monkeypatch.setattr(envmod.TrainingEnvironment, "gpu", lambda self: GpuInfo("RTX", "561", "12.6"))
     # the CUDA build is chosen on Linux and Windows, never on macOS
     monkeypatch.setattr(envmod.sys, "platform", "linux")
     state = {"dists": {}}
@@ -310,9 +333,12 @@ def test_ensure_installs_only_missing(env, monkeypatch):
     env.ensure(["torch", "torchvision", "timm"], nothing, steps.append)
     assert steps == ["train_env_create", "train_env_install:torch,torchvision,timm"]
     pips = [c for c in rec.cmds if "pip" in c]
-    assert len(pips) == 2 and pips[0][-1].endswith("cu124") and pips[1][-1] == "timm"
+    pins = envmod.PINNED_VERSIONS
+    assert len(pips) == 2 and pips[0][-1].endswith("cu126")
+    assert f"torch=={pins['torch']}" in pips[0] and f"torchvision=={pins['torchvision']}" in pips[0]
+    assert pips[1][-1] == f"timm=={pins['timm']}"
 
-    state["dists"] = {"torch": "2", "torchvision": "1", "timm": "1"}
+    state["dists"] = {name: pins[name] for name in ("torch", "torchvision", "timm")}
     rec.cmds.clear()
     steps.clear()
     env.ensure(["torch", "timm"], nothing, steps.append)

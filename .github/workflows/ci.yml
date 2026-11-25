@@ -121,8 +121,8 @@ jobs:
   training-workers:
     # The workers and the metrics run in the separate training environment, so the jobs above (no PyTorch)
     # skip their tests. Here PyTorch is installed (CPU) and a skipped torch test fails the job.
-    # The managed training environment (training/environment.py) does not pin versions: it installs the
-    # latest torch/torchvision from the PyTorch index and timm from PyPI; this job does the same.
+    # The managed training environment installs the versions pinned in training/environment.py
+    # (PINNED_VERSIONS, #160); this job installs the same ones, read from that module.
     name: training workers (torch CPU)
     runs-on: ubuntu-24.04
     steps:
@@ -134,12 +134,13 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Install the app, CPU-only PyTorch and timm, and scikit-learn (reference for the metric tests only)
+      - name: Install the app, the pinned CPU-only PyTorch and timm, and scikit-learn (reference for the metric tests only)
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install timm scikit-learn
+          pinned() { python -c "import sys; from activelabel.training.environment import pin; print(' '.join(pin(p) for p in sys.argv[1:]))" "$@"; }
+          python -m pip install $(pinned torch torchvision) --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install $(pinned timm) scikit-learn
           python -c "import torch, torchvision, timm, sklearn; print(torch.__version__, torchvision.__version__, timm.__version__, sklearn.__version__)"
       - name: Worker and metric tests (none may be skipped for a missing package)
         run: |
