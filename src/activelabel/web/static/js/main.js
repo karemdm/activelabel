@@ -1,10 +1,10 @@
 /* activelabel web interface: an ES module, vanilla JS, no dependencies. Talks to the JSON API under /api. */
+import {
+  I18N, LOCALE, nf, nf1, setMessages, fmt, t, tr, tn, num, fmtDate, fmtDateTime, fmtBytes, lower,
+} from './shell/i18n.js';
 
   const VL = window.VL || {};
-  const I18N = window.I18N || {};
-  const LOCALE = VL.locale || 'en';
-  const nf = new Intl.NumberFormat(LOCALE);
-  const nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+  setMessages(window.I18N || {}, VL.locale || 'en');
 
   const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
   const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate'];
@@ -12,31 +12,6 @@
   const SKIP_FILES = new Set(['.ds_store', 'thumbs.db']);
 
   // ---------------------------------------------------------------- helpers
-  const fmt = (text, vars) =>
-    String(text).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? vars[k] : m));
-  const t = (key, vars) => fmt(key in I18N ? I18N[key] : key, vars);
-  /** Translation with a fallback text when the key is unknown (server-provided names). */
-  const tr = (key, fallback, vars) => (key in I18N ? fmt(I18N[key], vars) : fallback);
-  /** Plural: key_one for exactly 1 and key_other for anything else, 0 included ("0 imagens", also in Portuguese,
-   *  whose own plural rule would call 0 singular); {n} is the formatted number. */
-  const tn = (key, n, vars) => {
-    const suffix = n === 1 ? '_one' : '_other';
-    return fmt(I18N[key + suffix] || key + suffix, { n: nf.format(n), ...vars });
-  };
-  const num = (n) => nf.format(Number(n) || 0);
-  const fmtDate = (iso) => {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(LOCALE, { dateStyle: 'medium' });
-  };
-  const fmtDateTime = (iso) => {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
-  };
-  const fmtBytes = (n) => {
-    if (n < 1024) return `${num(n)} B`;
-    if (n < 1024 * 1024) return `${nf1.format(n / 1024)} KB`;
-    return `${nf1.format(n / 1024 / 1024)} MB`;
-  };
   const esc = (s) =>
     String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -238,7 +213,6 @@
 
   // ---------------------------------------------------------------- API
   /* how the interface names the values an error carries (the server sends raw ids, names and numbers) */
-  const lower = (text) => String(text).toLocaleLowerCase(LOCALE);
   const ERROR_PARAMS = {
     parts: (p) => lower(partName(p)),
     runs: (n) => `r${n}`,

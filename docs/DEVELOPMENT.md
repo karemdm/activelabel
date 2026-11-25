@@ -206,11 +206,16 @@ npm install
 npx playwright install chromium     # Linux CI also needs --with-deps
 ```
 
-- **Unit tests** (`npm run test:js`): the built-in `node:test` runner, files `tests/js/*.test.mjs`. They import
-  the real `static/js/main.js` in jsdom (`tests/js/helpers/load-app.mjs`), in Portuguese and in English, and check
-  its helpers (texts, plurals, number formats, error translation). The interface is made of native ES modules
-  (`<script type="module">`, no bundler); until the helpers have modules of their own, `main.js` exports the ones
-  the tests need, so a helper a test needs must be added to that `export` line. That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
+- **Unit tests** (`npm run test:js`): the built-in `node:test` runner, files `tests/js/**/*.test.mjs`. The
+  interface is made of native ES modules under `static/js/` (`<script type="module">`, no bundler): `main.js`
+  and the folders `shell/` (texts, DOM, dialogs, API), `integrations/` (CVAT and FiftyOne), `cv/` (the project
+  steps) and `pages/`. Each module has its mirror test, `tests/js/<same path>.test.mjs`, that imports it directly;
+  `tests/rules/test_js_modules.py` checks that imports resolve, that every module is reachable from `main.js`,
+  that a layer imports only from itself or the layers below it (`shell` < `integrations` < `cv`, `pages`) and
+  that the mirror tests exist. Texts are set once with `setMessages()` (`shell/i18n.js`); no module may call
+  `t()` when it is first imported. The older tests load `main.js` in jsdom (`tests/js/helpers/load-app.mjs`) in
+  Portuguese and in English; until every helper has a module of its own, `main.js` exports the ones they need.
+  That every text key exists in both languages is checked in Python (`tests/activelabel/i18n`).
 - **Smoke tests** (`npm run test:e2e`): Playwright with Chromium, files `tests/e2e/*.spec.js`. The configuration
   (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a
   temporary workspace, so it never touches the default port or your own data. Set `ACTIVELABEL_E2E_PYTHON` to use
