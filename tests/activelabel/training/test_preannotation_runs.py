@@ -4,15 +4,17 @@ import textwrap
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 from training_fakes import tmp_dirs, wait_for
 
-from activelabel import preannotate
+from activelabel import jobs, preannotate
 from activelabel.annotate.sessions import select_images
 from activelabel.datasets import DatasetOptions, plan_split
 from activelabel.labels import Label, load_annotations, save_annotations
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
+from activelabel.training import runs
 from activelabel.training.config import RunConfig
 from activelabel.training.runs import RunStore
 
@@ -292,8 +294,6 @@ def test_no_readable_image_fails_readably(pre):
 
 
 def test_masks_become_polygon_labels():
-    import numpy as np
-
     w = worker_module()
     mask = np.zeros((40, 80), dtype=bool)
     mask[10:30, 10:30] = True  # region 1
@@ -412,9 +412,6 @@ def test_preannotation_errors_have_codes_and_accept_of_an_unknown_task_is_404(pr
 
 
 def test_status_constants_are_shared():
-    from activelabel import jobs
-    from activelabel.training import runs
-
     assert preannotate.QUEUED is jobs.QUEUED
     assert runs.RUNNING is jobs.RUNNING and runs.STATUSES == (
         jobs.QUEUED,

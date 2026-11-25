@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from api_client import make_client, upload
+from PIL import Image
 from sample_images import make_image
 
 from activelabel.datasets import DatasetStore
@@ -358,8 +359,6 @@ def test_spec_drops_poses_with_another_number_of_points(det_project):
 
 
 def test_dataset_fits_the_photo_and_its_boxes(w, tmp_path):
-    from PIL import Image
-
     Image.new("RGB", (200, 100)).save(tmp_path / "wide.png")
     item = {"path": str(tmp_path / "wide.png"), "objects": [{"label": 0, "bbox": [0.25, 0.25, 0.5, 0.5]}]}
     tensor, target = w.DetectionDataset([item], "detection", 0, None, 50, "letterbox")[0]
