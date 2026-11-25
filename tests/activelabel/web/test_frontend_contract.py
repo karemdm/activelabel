@@ -634,3 +634,12 @@ def test_an_old_sync_result_is_not_shown_again_and_the_ready_toast_skips_its_own
         re.S,
     )
     assert "if (job.kind === 'sync_plan' && ctx.tab === 'annotations') continue;" in JS
+
+
+def test_see_all_classes_shows_only_when_a_class_is_hidden_and_stays_next_to_them():
+    """#420: the button follows what overflows (not a count of classes); the fade is only for an overflow."""
+    assert "classes.length > 3 ?" not in JS
+    assert re.search(r"new ResizeObserver\(measure\)", JS) and "btn.hidden = !over" in JS
+    assert re.search(r"\.class-line-chips\.overflowing\s*\{[^}]*mask-image", CSS)
+    assert not re.search(r"\.class-line-chips\s*\{[^}]*mask-image", CSS)
+    assert re.search(r"\.class-line-chips\s*\{[^}]*flex: 0 1 auto", CSS)
