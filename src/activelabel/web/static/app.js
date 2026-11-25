@@ -4714,14 +4714,16 @@
       async function openNew(trigger, version = null) {
         let cat;
         let versions;
+        let augCat;
         try {
           cat = await ensureCatalog();
+          augCat = await api('GET', `/training/augmentations?type=${encodeURIComponent(ctx.project.task)}`);
           versions = ((await api('GET', `/projects/${projectId}/datasets`)).versions || []).filter((v) => !v.incomplete).sort((a, b) => b.version - a.version);
         } catch (err) { toastError(err); return; }
         const models = (cat.models || []).filter((m) => m.family !== 'ultralytics');   // YOLO: not trainable yet
         if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
 
-        const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {} };
+        const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
         const versionOf = () => versions.find((v) => v.version === st.dataset);
         const modelNow = () => models.find((m) => m.id === st.model);
         let active = [];       // parameter specs shown now
@@ -4865,6 +4867,107 @@
           return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), input, hint, err);
         }
 
+        /* Augmentation techniques of the model's kind of task. A preset level fills the list; ticking a technique
+           or changing a setting makes the level "custom", whose list goes in the request. */
+        const augBox = el('fieldset', { class: 'field tr-aug', id: 'tr-aug' });
+        const augKind = () => (augCat.kinds || {})[modelNow().task_kind] || { techniques: [], presets: {} };
+        const augLevels = () => st.sel.augmentation || [];
+        function loadPreset(level) {
+          st.aug = {};
+          st.augBad.clear();
+          for (const entry of augKind().presets[level] || []) st.aug[entry.name] = { ...entry.params };
+        }
+        function augEntries() {
+          return augKind().techniques.filter((tq) => st.aug[tq.name]).map((tq) => ({ name: tq.name, params: { ...st.aug[tq.name] } }));
+        }
+        function dropStaleErrors() {
+          for (const key of [...st.augBad]) if (!st.aug[key.split('.')[0]]) st.augBad.delete(key);
+        }
+        function toCustom() {
+          st.sel.augmentation = ['custom'];
+          st.augLevel = 'custom';
+          const select = document.getElementById('tr-p-augmentation');
+          if (select && select.tagName === 'SELECT') select.value = 'custom';
+        }
+        function toggleAug(tq, on) {
+          if (on) {
+            st.aug[tq.name] = Object.fromEntries(tq.params.map((p) => [p.name, p.default]));
+            if (tq.needs_flip_pairs) st.aug[tq.name].flip_pairs = [];
+            for (const other of tq.conflicts) delete st.aug[other];
+          } else {
+            delete st.aug[tq.name];
+          }
+          dropStaleErrors();
+          toCustom();
+          drawAug();
+          changed();
+          const box = document.getElementById(`tr-aug-${tq.name}`);
+          if (box) box.focus();   // the list was drawn again: keep the keyboard where it was
+        }
+        /* a number setting of a chosen technique; an invalid value blocks "Start" until fixed */
+        function augParam(tq, spec) {
+          const id = `tr-aug-${tq.name}-${spec.name}`;
+          const key = `${tq.name}.${spec.name}`;
+          const input = el('input', { id, type: 'number', inputmode: 'decimal', autocomplete: 'off', class: 'tr-aug-num', value: String(st.aug[tq.name][spec.name]),
+            min: String(spec.min), max: String(spec.max), step: spec.kind === 'int' ? '1' : 'any', title: tr(`tr.augph.${spec.name}`, spec.help), 'aria-invalid': st.augBad.has(key) ? 'true' : null });
+          input.addEventListener('input', () => {
+            const n = Number(input.value);
+            const ok = input.value.trim() !== '' && Number.isFinite(n) && n >= spec.min && n <= spec.max && (spec.kind !== 'int' || Number.isInteger(n));
+            if (ok) { st.aug[tq.name][spec.name] = n; st.augBad.delete(key); input.removeAttribute('aria-invalid'); } else { st.augBad.add(key); input.setAttribute('aria-invalid', 'true'); }
+            toCustom();
+            changed();
+          });
+          return el('label', { for: id, class: 'tr-aug-set-item' }, el('span', null, tr(`tr.augp.${spec.name}`, spec.name)), input);
+        }
+        /* keypoints: the left/right pairs a horizontal flip swaps, written "0-1, 2-3" (points numbered from 0) */
+        function augPairs(tq) {
+          const id = `tr-aug-${tq.name}-pairs`;
+          const key = `${tq.name}.flip_pairs`;
+          const input = el('input', { id, type: 'text', autocomplete: 'off', class: 'tr-aug-pairs', placeholder: '0-1, 2-3', 'aria-describedby': `${id}-hint`,
+            value: (st.aug[tq.name].flip_pairs || []).map((pair) => pair.join('-')).join(', '), 'aria-invalid': st.augBad.has(key) ? 'true' : null });
+          input.addEventListener('input', () => {
+            const pairs = input.value.split(',').map((s) => s.trim()).filter(Boolean).map((s) => s.split('-').map((x) => x.trim()));
+            const flat = pairs.flat();
+            const ok = pairs.every((pair) => pair.length === 2 && pair.every((x) => /^\d+$/.test(x)) && pair[0] !== pair[1]) && new Set(flat).size === flat.length;
+            if (ok) { st.aug[tq.name].flip_pairs = pairs.map((pair) => pair.map(Number)); st.augBad.delete(key); input.removeAttribute('aria-invalid'); } else { st.augBad.add(key); input.setAttribute('aria-invalid', 'true'); }
+            toCustom();
+            changed();
+          });
+          return el('div', { class: 'tr-aug-set-item wide' }, el('label', { for: id }, t('tr.aug_pairs')), input, el('p', { class: 'hint', id: `${id}-hint` }, t('tr.aug_pairs_help')));
+        }
+        function augItem(tq) {
+          const on = !!st.aug[tq.name];
+          const id = `tr-aug-${tq.name}`;
+          const settings = on ? tq.params.map((spec) => augParam(tq, spec)) : [];
+          if (on && tq.needs_flip_pairs) settings.push(augPairs(tq));
+          return el('div', { class: `tr-aug-item${on ? ' on' : ''}` },
+            el('label', { for: id, class: 'ds-check' },
+              el('input', { type: 'checkbox', id, checked: on, 'aria-describedby': `${id}-hint`, onchange: (e) => toggleAug(tq, e.target.checked) }),
+              el('span', null, tr(`tr.aug.${tq.name}`, tq.name))),
+            el('p', { class: 'hint', id: `${id}-hint` }, tr(`tr.augh.${tq.name}`, tq.help)),
+            settings.length ? el('div', { class: 'tr-aug-set' }, ...settings) : null);
+        }
+        function drawAug() {
+          const kind = augKind();
+          augBox.hidden = !kind.techniques.length || augLevels().length !== 1;
+          if (augBox.hidden) { fill(augBox); return; }
+          fill(augBox, el('legend', null, t('tr.aug_title')),
+            el('p', { class: 'hint' }, augEntries().length ? t('tr.aug_help') : t('tr.aug_none')),
+            el('div', { class: 'tr-aug-list' }, ...kind.techniques.map(augItem)));
+        }
+        /* a preset level (re)fills the list for the model now shown; a custom list keeps what this model offers */
+        function syncAug() {
+          const level = augLevels().length === 1 ? augLevels()[0] : null;
+          if (level && level !== 'custom') loadPreset(level);
+          if (level === 'custom') {
+            const offered = new Set(augKind().techniques.map((tq) => tq.name));
+            for (const name of Object.keys(st.aug)) if (!offered.has(name)) delete st.aug[name];
+            dropStaleErrors();
+          }
+          st.augLevel = level;
+          drawAug();
+        }
+
         function setDefault(spec) {
           if (spec.kind === 'choice') st.sel[spec.name] = [spec.default];
           else st.vals[spec.name] = spec.kind === 'bool' ? !!spec.default : String(spec.default);
@@ -4915,9 +5018,10 @@
           for (const k of Object.keys(errEls)) delete errEls[k];
           const common = active.filter((p) => p.group !== 'model');
           const own = active.filter((p) => p.group === 'model');
-          fill(paramsBox, ...common.map(paramField));
+          fill(paramsBox, ...common.flatMap((p) => (p.name === 'augmentation' ? [paramField(p), augBox] : [paramField(p)])));
           fill(moreInner, ...own.map(paramField));
           moreBox.hidden = !own.length;
+          syncAug();
           changed();
         }
         function setMode(mode) {
@@ -4968,6 +5072,13 @@
             reads[spec.name] = r.list;
             combos *= r.list.length;
           }
+          const levels = reads.augmentation || [];
+          if (levels.length > 1 && levels.includes('custom')) {   // a custom list cannot be one value of a grid
+            if (errEls.augmentation) errEls.augmentation.textContent = t('tr.aug_custom_alone');
+            bad += 1;
+          }
+          if ((levels.length === 1 ? levels[0] : null) !== st.augLevel) syncAug();
+          if (levels.length === 1 && levels[0] === 'custom') bad += st.augBad.size;
           const grid = st.mode === 'grid';
           const folds = st.fold === 'all' ? foldCount(versionOf()) : 1;
           const total = combos * folds;
@@ -5009,7 +5120,9 @@
             if (st.mode === 'grid' && list.length > 1) grid[spec.name] = list; else params[spec.name] = list[0];
           }
           const folds = foldCount(versionOf());
-          return { dataset: st.dataset, fold: folds ? (st.fold === 'all' ? 'all' : Number(st.fold)) : null, model: st.model, start: st.start, mode: st.mode, metric: st.metric, params, grid };
+          const body = { dataset: st.dataset, fold: folds ? (st.fold === 'all' ? 'all' : Number(st.fold)) : null, model: st.model, start: st.start, mode: st.mode, metric: st.metric, params, grid };
+          if (params.augmentation === 'custom') body.augmentations = augEntries();
+          return body;
         }
 
         const form = el('form', { class: 'dialog-body form tr-form', method: 'dialog', novalidate: true },
