@@ -149,3 +149,28 @@ def test_settle_lists_images_edited_on_both_sides(proj):
     assert labels == {ids[0]: [box("cat", 0.7)]} and conflicts == [ids[0]]
     problems = d.diff(folder, [ids[0]], labels, project, conflicts)["problems"]
     assert [(p["code"], p["count"]) for p in problems] == [("edited_on_both_sides", 1)]
+
+
+def test_clean_labels_reports_each_geometry_problem(proj):
+    _, project, _, _, _ = proj
+    labels = [box("cat"), box("cat", w=0), Label("dog")]
+    kept, dropped = d.clean_labels(project, labels)
+    assert kept == [box("cat")] and dropped == {"no_geometry": 1, "multiple_classes": 0, "box_invalid": 1}
+
+
+def test_pose_with_another_number_of_points_is_reported(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png"], classes=["p"], task="keypoints")
+    image = manifest.all()[0].id
+    folder = store.dir(project.id)
+    three = Label("p", keypoints=[[0.1, 0.1, 2], [0.2, 0.2, 2], [0.3, 0.3, 2]])
+    save_annotations(folder, AnnotationSet(Task.KEYPOINTS, ["p"], {image: [three]}, {}))
+    four = Label("p", keypoints=[*three.keypoints, [0.4, 0.4, 2]])
+    r = d.diff(folder, [image], {image: [four]}, project)
+    assert [p["code"] for p in r["problems"]] == ["keypoints_count_mismatch"]
+    assert r["removed"] == 1  # the four-point pose is skipped: the person sees why
+
+
+def test_problems_found_by_the_tool_are_listed(proj):
+    _, project, _, ids, folder = proj
+    r = d.diff(folder, [ids[1]], {ids[1]: []}, project, tool_problems={ids[1]: {"open_polyline": 2}})
+    assert [(p["code"], p["count"]) for p in r["problems"]] == [("open_polyline", 2)]

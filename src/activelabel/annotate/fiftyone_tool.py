@@ -8,7 +8,7 @@ from fiftyone import ViewField as F
 
 from activelabel import fiftyone_bridge
 from activelabel.annotate.base import GROUND_TRUTH, Pulled, Sent, ToolError, ToolSettings, need_dataset
-from activelabel.annotate.fo_labels import labels_from_fo
+from activelabel.annotate.fo_labels import labels_and_notes
 from activelabel.labels import Label
 from activelabel.projects import Project
 
@@ -94,7 +94,7 @@ class FiftyOneTool:
         Returns:
             The labels of each image, keyed by image id (an empty list when it has none), with the images
             edited in FiftyOne since ActiveLabel wrote them, the hash of the project labels written into
-            each sample.
+            each sample, and the shapes that could not be read as they are (``problems``).
 
         Raises:
             ToolError: no dataset.
@@ -103,13 +103,16 @@ class FiftyOneTool:
         dataset.reload()
         wanted = set(image_ids)
         out: dict[str, list[Label]] = {i: [] for i in image_ids}
+        problems: dict[str, dict[str, int]] = {}
         view = dataset.match(F("image_id").is_in(list(wanted)))
         ids, values = view.values("image_id"), view.values(GROUND_TRUTH)
         for image_id, value in zip(ids, values, strict=True):
             if image_id in wanted:
-                out[image_id] = labels_from_fo(value, project.task)
+                out[image_id], notes = labels_and_notes(value, project.task)
+                if notes:
+                    problems[image_id] = notes
         edited = fiftyone_bridge.edited_images(dataset, image_ids, project.task)
-        return Pulled(out, edited, fiftyone_bridge.written_labels(dataset, image_ids))
+        return Pulled(out, edited, fiftyone_bridge.written_labels(dataset, image_ids), problems)
 
     def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
         """Delete the saved view.
