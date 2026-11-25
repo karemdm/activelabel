@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadApp, messages } from './helpers/load-app.mjs';
+import { loadApp, messages } from '../helpers/load-app.mjs';
+import { api, jobFailure, nameErrorParams, errorParams } from '../../../src/activelabel/web/static/js/shell/api.js';
+import { setMessages } from '../../../src/activelabel/web/static/js/shell/i18n.js';
 
 const en = await loadApp('en');
 const pt = await loadApp('pt');
@@ -62,4 +64,63 @@ test('errorParams names known ids in the interface language', () => {
   assert.equal(en.errorParams({ task: 'classification' }).task, 'classification');
   assert.equal(pt.errorParams({ task: 'classification' }).task, 'classificação');
   assert.equal(en.errorParams({ runs: 3 }).runs, 'r3');
+});
+
+/** Replaces fetch for one call of fn; returns what fn returned (or threw). */
+async function withFetch(answer, fn) {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push([url, init]);
+    if (answer instanceof Error) throw answer;
+    return { ok: answer.status < 400, status: answer.status, text: async () => answer.body };
+  };
+  try {
+    return { result: await fn(), calls };
+  } catch (err) {
+    return { error: err, calls };
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test('api sends JSON under /api and returns the parsed answer', async () => {
+  const { result, calls } = await withFetch({ status: 200, body: '{"id": 3}' }, () => api('POST', '/projects', { json: { name: 'x' } }));
+  assert.deepEqual(result, { id: 3 });
+  assert.equal(calls[0][0], '/api/projects');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.equal(calls[0][1].headers['Content-Type'], 'application/json');
+  assert.equal(calls[0][1].body, '{"name":"x"}');
+});
+
+test('api turns an error answer into an Error with status, code, params and the translated text', async () => {
+  setMessages({ 'error.project_not_found': 'No project {id}' }, 'en');
+  const body = JSON.stringify({ code: 'project_not_found', detail: 'Project 7 not found', params: { id: 7 } });
+  const { error } = await withFetch({ status: 404, body }, () => api('GET', '/projects/7'));
+  assert.equal(error.message, 'No project 7');
+  assert.equal(error.status, 404);
+  assert.equal(error.code, 'project_not_found');
+  assert.deepEqual(error.params, { id: 7 });
+});
+
+test('api says "network error" when the server cannot be reached, and lets an abort through', async () => {
+  setMessages({ 'common.network_error': 'No connection' }, 'en');
+  const { error } = await withFetch(new TypeError('Failed to fetch'), () => api('GET', '/x'));
+  assert.equal(error.message, 'No connection');
+  const abort = new Error('aborted');
+  abort.name = 'AbortError';
+  const { error: aborted } = await withFetch(abort, () => api('GET', '/x'));
+  assert.equal(aborted, abort);
+});
+
+test('jobFailure uses the error code when its text exists, else the server text', () => {
+  setMessages({ 'error.disk_full': 'Disk full ({free})' }, 'en');
+  assert.equal(jobFailure({ error_code: 'disk_full', error_params: { free: 2 }, error: 'raw' }), 'Disk full (2)');
+  assert.equal(jobFailure({ error_code: 'other', error: 'raw' }), 'raw');
+  assert.equal(jobFailure({ error: 'raw' }), 'raw');
+});
+
+test('nameErrorParams adds a way to name a param', () => {
+  nameErrorParams({ shade: (s) => `<${s}>` });
+  assert.deepEqual(errorParams({ shade: 'dark' }), { shade: '<dark>' });
 });
