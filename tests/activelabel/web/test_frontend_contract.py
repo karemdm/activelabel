@@ -699,3 +699,14 @@ def test_the_texts_for_non_technical_people_say_what_happens_and_use_one_name_pe
         assert "64" not in messages["threshold.phash_distance"]
         note = messages["tr.packages_note"]
         assert "{list}" in note and "internet" in note
+
+
+def test_a_failed_activity_pill_has_a_dismiss_button():
+    """A failure stays on the pill until opened; a × closes it without opening the card (lead decision)."""
+    body = JS[JS.index("function renderJobs()") :]
+    body = body[: body.index("\n    }\n")]
+    assert "state === 'failed' && !fades" in body and "'data-jobs': 'dismiss'" in body
+    assert "onclick: close }, icon('close', 14))" in body
+    assert ".jobs-dismiss" in CSS
+    for lang in ("pt", "en"):
+        assert json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))["jobs.dismiss"]

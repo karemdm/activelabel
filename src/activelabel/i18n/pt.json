@@ -1200,6 +1200,7 @@
   "md.onnx_later": "ONNX para modelos de detecção virá depois",
   "jobs.minimize": "Minimizar",
   "jobs.close": "Fechar (as concluídas continuam no histórico)",
+  "jobs.dismiss": "Dispensar a atividade que falhou (ela continua no histórico)",
   "jobs.show": "Mostrar as atividades",
   "jobs.running_n_one": "{n} em andamento",
   "jobs.running_n_other": "{n} em andamento",
