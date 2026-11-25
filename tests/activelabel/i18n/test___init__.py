@@ -166,3 +166,12 @@ def test_session_scopes_have_a_label():
     scopes = set(re.findall(r"scope == \"(\w+)\"", sessions))
     assert {"all", "unlabeled", "selected", "preannotated", "issue"} <= scopes
     assert [s for s in sorted(scopes) if f"annotate.scope.{s}" not in load("en")] == []
+
+
+def test_every_problem_of_a_pulled_session_has_a_text():
+    """The problems of a diff (``annotate/diff.py``) are shown by ``problem.<code>``, not by their message."""
+    from activelabel.annotate import diff
+
+    for lang in ("en", "pt"):
+        messages = load(lang)
+        assert [c for c in sorted(diff.PROBLEM_MESSAGES) if f"problem.{c}" not in messages] == [], lang

@@ -43,7 +43,9 @@ says what was found. Nothing changes until the person chooses an action.
 
 - A check that finds nothing usable (unknown format, unreadable file, no labels) is not kept aside: the
   files are removed at once and the answer is a 400 with a code (`annotation_format_unknown`,
-  `annotation_unreadable`). Files that were kept and never decided are removed after 24 hours and when the
+  `annotation_not_json`, `annotation_not_xml` or `annotation_not_text` with the file name and the line and
+  column of the first error, `annotation_files_missing`, `annotation_zip_invalid`, `annotation_unreadable`; the
+  interface shows each by its code, in its own language, never the parser's English text). Files that were kept and never decided are removed after 24 hours and when the
   service starts.
 - **Excluded images are never changed by an import.** Replace swaps the labels of the *active* images only;
   the labels an excluded image already has are kept (also when the file has entries for it, which are
