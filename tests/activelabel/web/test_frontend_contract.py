@@ -457,3 +457,11 @@ def test_forms_answer_in_the_apps_language_before_saving():
 def test_a_long_file_name_wraps_inside_the_activity_card():
     rule = re.search(r"^\.job \{([^}]*)\}", CSS, re.M)
     assert rule is not None and "overflow-wrap: anywhere" in rule.group(1)
+
+
+def test_a_session_button_refused_with_404_or_409_reloads_the_sessions():
+    """Another tab may have applied, discarded or closed the session: the card must show the real state."""
+    assert "await reloadIfChanged(err)" in JS
+    start = JS.index("async function reloadIfChanged(err)")
+    helper = JS[start : JS.index("function drawSessions()", start)]
+    assert "404" in helper and "409" in helper and "loadSessions()" in helper
