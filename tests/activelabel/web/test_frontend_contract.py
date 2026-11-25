@@ -740,3 +740,21 @@ def test_the_import_result_says_what_the_cvat_link_allows():
         texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
         assert '"import.linked"' in texts and '"import.not_linked"' in texts, lang
     assert re.search(r"\.report-line\.warn \.icon\s*\{", CSS)
+
+
+def test_the_training_dialog_asks_for_the_family_before_the_model():
+    """#537: family first; one with no model for the type, and Ultralytics (AGPL), are disabled with why."""
+    assert "sel('tr-family'" in JS and "for: 'tr-family'" in JS
+    assert JS.index("for: 'tr-family'") < JS.index("for: 'tr-model'")
+    assert "disabled: !!reason" in JS and "t('tr.family_license')" in JS and "t('tr.family_none'" in JS
+    assert "models.filter((m) => m.family === st.family)" in JS
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in (
+            "tr.family",
+            "tr.family_help",
+            "tr.family_none",
+            "tr.family_license",
+            "tr.family_unavailable",
+        ):
+            assert texts[key], key

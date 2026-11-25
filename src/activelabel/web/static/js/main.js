@@ -571,7 +571,7 @@ import { createStepper } from './cv/stepper.js';
         const models = (cat.models || []).filter((m) => m.family !== 'ultralytics');   // YOLO: not trainable yet
         if (!versions.length || !models.length) { toast(t('tr.no_options'), 'error'); return; }
 
-        const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
+        const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: models[0].family, model: models[0].id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
         const versionOf = () => versions.find((v) => v.version === st.dataset);
         const modelNow = () => models.find((m) => m.id === st.model);
         let active = [];       // parameter specs shown now
@@ -605,20 +605,39 @@ import { createStepper } from './cv/stepper.js';
         datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); drawStale(); changed(); });
         foldSel.addEventListener('change', () => { st.fold = foldSel.value; changed(); });
 
-        // model
+        // family, then model (#537): a family without a model for this project type stays in the list, disabled, with the reason
+        const FAMILIES = ['torchvision', 'timm', 'ultralytics'];
+        const familyReason = (f) => {
+          if (f === 'ultralytics') return t('tr.family_license');   // AGPL: trainable once the licence can be accepted (#213)
+          return models.some((m) => m.family === f) ? null : t('tr.family_none', { type: lower(taskName(ctx.project.task)) });
+        };
+        const familySel = sel('tr-family', ...FAMILIES.map((f) => {
+          const reason = familyReason(f);
+          return el('option', { value: f, disabled: !!reason }, reason ? `${tr(`tr.family.${f}`, f)} (${reason})` : tr(`tr.family.${f}`, f));
+        }));
+        familySel.value = st.family;
+        const unavailable = FAMILIES.filter(familyReason).map((f) => `${tr(`tr.family.${f}`, f)} (${familyReason(f)})`);
+        /* the reasons stay in view, not only inside the closed list */
+        const familyNote = el('p', { class: 'hint', id: 'tr-family-note' },
+          [t('tr.family_help'), unavailable.length ? t('tr.family_unavailable', { list: unavailable.join(' · ') }) : null].filter(Boolean).join(' '));
+        familySel.setAttribute('aria-describedby', 'tr-family-note');
         const modelSel = sel('tr-model');
         const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
         /* what a change of model did to the hyperparameters, in one line; read out by screen readers */
         const modelChanges = el('p', { class: 'hint tr-model-changes', id: 'tr-model-changes', role: 'status' });
         let shownModel = null;   // the model the form holds values of
-        const groups = new Map();
-        const kinds = new Set(models.map((m) => m.task_kind));
-        for (const m of models) {
-          const key = `${m.task_kind}|${m.family}`;
-          if (!groups.has(key)) groups.set(key, { label: [kinds.size > 1 ? tr(`tr.kind.${m.task_kind}`, m.task_kind) : null, tr(`tr.family.${m.family}`, m.family)].filter(Boolean).join(' · '), items: [] });
-          groups.get(key).items.push(m);
+        /* the models of the chosen family; grouped by kind when the family has more than one (e.g. boxes and masks) */
+        function drawModelList() {
+          const mine = models.filter((m) => m.family === st.family);
+          const kinds = new Set(mine.map((m) => m.task_kind));
+          const options = (list) => list.map((m) => el('option', { value: m.id }, m.label));
+          fill(modelSel, ...(kinds.size > 1
+            ? [...kinds].map((k) => el('optgroup', { label: tr(`tr.kind.${k}`, k) }, ...options(mine.filter((m) => m.task_kind === k))))
+            : options(mine)));
+          if (!mine.some((m) => m.id === st.model)) st.model = mine[0].id;
+          modelSel.value = st.model;
         }
-        for (const g of groups.values()) add(modelSel, el('optgroup', { label: g.label }, ...g.items.map((m) => el('option', { value: m.id }, m.label))));
+        drawModelList();
         modelSel.setAttribute('aria-describedby', 'tr-model-note tr-model-changes');
 
         // start
@@ -917,6 +936,8 @@ import { createStepper } from './cv/stepper.js';
           setMode(st.mode);
         }
         modelSel.addEventListener('change', () => { st.model = modelSel.value; drawModel(); });
+        /* another family: its first model, with the values that still apply carried over (#312) */
+        familySel.addEventListener('change', () => { st.family = familySel.value; drawModelList(); drawModel(); });
         metricSel.addEventListener('change', () => { st.metric = metricSel.value; });
 
         function changed() {
@@ -992,6 +1013,7 @@ import { createStepper } from './cv/stepper.js';
             el('div', { class: 'tr-col' },
               el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel, staleNote),
               foldField,
+              el('div', { class: 'field' }, el('label', { for: 'tr-family' }, t('tr.family')), familySel, familyNote),
               el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote, modelChanges),
               el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
             el('div', { class: 'tr-col' },
