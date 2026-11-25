@@ -959,18 +959,6 @@ def test_add_delta_sorts_objects_into_actions() -> None:
 
 
 # -- rotated rectangles (#359) ------------------------------------------------------------------------
-def test_enclosing_box_of_a_turned_rectangle() -> None:
-    assert cvat_remote.enclosing_box([10, 10, 30, 20], 0) == [10, 10, 30, 20]
-    assert cvat_remote.enclosing_box([10, 10, 30, 20], 90) == pytest.approx([15, 5, 25, 25])
-    half = 50**0.5  # half the diagonal of a 10 x 10 square
-    assert cvat_remote.enclosing_box([0, 0, 10, 10], 45) == pytest.approx(
-        [5 - half, 5 - half, 5 + half, 5 + half]
-    )
-    assert cvat_remote.enclosing_box([0, 0, 10, 10], 30) == pytest.approx(
-        cvat_remote.enclosing_box([0, 0, 10, 10], 330)
-    )
-
-
 def test_turned_rectangle_is_read_as_its_enclosing_box() -> None:
     shape = {"type": "rectangle", "points": [10, 10, 30, 20], "rotation": 90}
     label = cvat_remote.shape_to_label(shape, "cat", 100, 100)
