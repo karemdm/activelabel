@@ -1,0 +1,87 @@
+name: release
+
+# A v* tag (vMAJOR.MINOR.PATCH, see RELEASING.md) builds the wheel and the sdist, smoke-tests the wheel on
+# Linux, Windows and macOS and creates a DRAFT GitHub release with the notes grouped by label
+# (.github/release.yml). Nothing is public until a person reviews the draft and publishes it. The "release"
+# environment (Settings > Environments) can have required reviewers, so the draft also waits for an approval.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the version comes from the git tags (setuptools-scm)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the wheel and the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: The wheel version must be the tag (strict check, no exception before the first tag)
+        run: python tests/package/check_version.py dist/*.whl "${GITHUB_REF_NAME#v}"
+      - name: The sdist carries the same version
+        run: test -f "dist/activelabel-${GITHUB_REF_NAME#v}.tar.gz"
+      - name: The wheel has every file of the package
+        run: python tests/package/check_wheel.py dist/*.whl src/activelabel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  smoke:
+    needs: build
+    name: smoke test (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Install the wheel in a new environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          if [ -x "$RUNNER_TEMP/clean/bin/python" ]; then PY="$RUNNER_TEMP/clean/bin/python"; else PY="$RUNNER_TEMP/clean/Scripts/python.exe"; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" -m pip install dist/*.whl
+      - name: Start the installed server and fetch the pages
+        # from another folder, so the source tree cannot be imported by mistake
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$PY" -c "import activelabel; print(activelabel.__version__)"
+          "$PY" "$GITHUB_WORKSPACE/tests/package/smoke_server.py" 8765
+
+  draft-release:
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment: release  # add required reviewers to this environment for a manual approval
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Create the draft release with the wheel and the sdist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

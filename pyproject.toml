@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "activelabel"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Image datasets from curation to trained models: projects, images, annotations, curation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -65,6 +65,17 @@ Issues = "https://github.com/karemdm/activelabel/issues"
 
 [project.scripts]
 activelabel = "activelabel.cli:main"
+
+# The single source of the version is the git tag (vMAJOR.MINOR.PATCH), read by setuptools-scm. The version is
+# always the plain number of the last tag (no ".devN", no "+gHASH"), also between two releases. Builds from a
+# checkout need the tags (actions/checkout with fetch-depth: 0). Before the first tag a checkout builds 0.0;
+# without any git data (a source archive) the build uses the fallback below. tests/package/check_version.py
+# refuses both in a release; CI accepts 0.0 only while the repository has no v* tag yet (RELEASING.md).
+[tool.setuptools_scm]
+version_scheme = "only-version"
+local_scheme = "no-local-version"
+fallback_version = "0.0.0+unknown"
+tag_regex = '^v(?P<version>\d+(?:\.\d+)*.*)$'
 
 [tool.setuptools.packages.find]
 where = ["src"]

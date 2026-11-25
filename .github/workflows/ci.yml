@@ -90,6 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the version comes from the git tags (setuptools-scm)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -97,6 +99,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip wheel . --no-deps -w dist
+      - name: Check that the wheel has a real version (0.0 is accepted only while there is no v* tag yet)
+        run: |
+          if git describe --tags --match 'v*' --abbrev=0 >/dev/null 2>&1; then
+            python tests/package/check_version.py dist/*.whl
+          else
+            echo "no v* tag yet: the wheel may carry version 0.0 (RELEASING.md)"
+            python tests/package/check_version.py dist/*.whl --no-tag-yet
+          fi
       - name: Check that the wheel has every file of the package
         run: python tests/package/check_wheel.py dist/*.whl src/activelabel
       - name: Install the wheel (not editable) in a new environment

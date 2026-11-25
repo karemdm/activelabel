@@ -1,0 +1,20 @@
+# Release notes that GitHub generates from the merged pull requests, grouped by label (used by the draft
+# release of .github/workflows/release.yml). A pull request goes in the first group whose label it has.
+changelog:
+  exclude:
+    labels: [duplicate, invalid, wontfix, question]
+  categories:
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Interface and accessibility
+      labels: [frontend, ux, accessibility]
+    - title: Back end, sync and computer vision
+      labels: [backend, visao-computacional, ia-llm]
+    - title: Documentation
+      labels: [documentation]
+    - title: Build, CI, tests and architecture
+      labels: [mlops, qa, arquitetura, decisao]
+    - title: Other changes
+      labels: ["*"]
