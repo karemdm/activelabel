@@ -6,9 +6,14 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 
 ## Principles
 
-- **Works on any machine, nothing to configure.** The device is chosen when a run starts (`auto`:
-  a CUDA GPU when there is one, else Apple MPS, else the CPU). No path, device or machine setting is stored in a
-  configuration.
+- **Works on any machine, nothing to configure.** The device is chosen when a run starts, in the *Device*
+  field of the *New run* dialog: *Automatic* (`auto`: a CUDA GPU when there is one, else Apple MPS, else the
+  CPU), *CPU*, *GPU n* (`cuda:N`, one entry per NVIDIA GPU that `nvidia-smi` lists) or *Apple GPU (MPS)* (on a Mac
+  with an Apple processor). The dialog only offers the devices of this computer, and the API refuses a device
+  it does not have (400 `device_unavailable`, or `device_invalid` for a name that is not a device); the worker
+  checks it once more with PyTorch before it trains. The choice is kept in `run.json` (`device_choice`), not in
+  the configuration: no path, device or machine setting is stored there, so a configuration repeats on any
+  computer. *Repeat* asks for the same device again.
 - **Install only what is needed, when it is needed.** Before a run, ActiveLabel checks that the
   packages of the chosen model are present in the training environment and installs the missing
   ones (a visible step of the run, with progress), at tested versions (see *Pinned package versions*).
@@ -44,6 +49,13 @@ The catalogue is data (`training/catalog.py`): each model lists its family, pack
 and its hyperparameters with type, default, limits, choices and a one-line help. The screen builds
 its form from it, so adding a model does not change the interface.
 
+A model can have **its own defaults and limits** for the common hyperparameters, and the form and the API
+check a value against them: ViT-B/16 only takes an image size of 224 (its position embeddings are fixed) and
+SSDlite320 only 320; the transformers (ConvNeXt-T, ViT-B/16, Swin-T) start at a learning rate of 0.0001; the
+torchvision detectors, instance segmentation and keypoint models start with SGD, learning rate 0.005, batch size
+4, weight decay 0.0005, a one-epoch warmup and the `letterbox` resize (SSDlite320 uses `stretch`); the
+semantic segmentation models start with learning rate 0.0001 and batch size 4.
+
 Regression (a number per image) needs a numeric annotation type, which ActiveLabel does not have
 yet; it is left for later.
 
@@ -56,23 +68,66 @@ Options chosen on the screen and saved in `config.yaml`:
 | Data | dataset version; for K-fold versions, all folds or one fold |
 | Model | model; start: **transfer learning** (pretrained, backbone frozen, only the head trains) / **fine-tuning** (pretrained, everything trains; backbone learning rate × factor) / **from scratch** |
 | Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50) |
-| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer, weight decay, scheduler, image size, augmentation level (see below), early stopping patience, seed, and model-specific ones |
+| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer (SGD, Adam, AdamW), weight decay, scheduler and warmup epochs, image size, resize policy, augmentation level (see below), early stopping patience, mixed precision, seed, the backbone rate factor (fine-tuning only), and model-specific ones (label smoothing, trainable backbone layers, score threshold) |
+| Device | *Automatic*, *CPU*, *GPU n* or *Apple GPU (MPS)*: where this run trains (see *Principles*); not part of the saved configuration |
 | Selection | metric that chooses the best epoch / best run, per type: classification accuracy (default) or macro F1; detection, instance segmentation and keypoints mAP50-95 (default) or mAP50; semantic segmentation mIoU (default) or pixel accuracy |
 
-**Data augmentation.** The `augmentation` level is a preset (`none`, `light`, `standard`, `strong`) or
-`custom`. Each preset is a list of techniques for the model's kind of task (the same techniques the workers
-applied before they could be chosen); `custom` takes the list from the `augmentations` option of the
+**Resize policy.** A photo becomes the square input of the network (`image_size`) by one of three rules, the
+`resize` hyperparameter: **stretch** (both sides scaled to the square, the proportions change), **letterbox** (the
+longer side fits, bands of a neutral grey fill the rest, nothing is cut) or **centre crop** (`center_crop`: the
+shorter side fits, the edges are cut). Every model has the same rule in training, in evaluation on the validation
+and test parts, in pre-annotation (docs/PREANNOTATE.md) and in the ONNX file, which keeps it in its metadata
+(`resize`, `image_size`, `mean`, `std`) because the photo is resized outside the graph. Boxes, masks and
+keypoints go through the same transformation into the network and back to the photo, so predictions come back
+in the photo's own coordinates. The policy is saved with the weights (and on the model card); a model saved
+before the policy existed is read as it was trained (stretched for classification and segmentation, the photo as
+it is for detection). In semantic segmentation the letterbox bands are background in the mask, so they count
+as background pixels in the metrics; objects that a centre crop cuts away entirely are dropped from the target.
+The default is `stretch`, and `letterbox` for the torchvision detectors, instance segmentation and keypoint
+models.
+
+**Learning rate schedule and warmup.** The `scheduler` is one of: `none` (constant), `cosine` (half a cosine
+down to 0), `step` (divided by 10 at every third of the epochs), `onecycle` (rises over the first 30 % of the
+steps, then falls; it has its own ramp, so `warmup_epochs` is not used with it) or `plateau` (divided by 10 when
+the selection metric on validation has not improved for 2 epochs). `warmup_epochs` (0 to 50, default 0; 1 for
+the torchvision detectors) raises the rate linearly from almost 0 to the full value over that many epochs, which
+steadies fine-tuning and detectors started from COCO weights. All workers (classification, detection,
+instance segmentation, keypoints, semantic segmentation) apply the same schedule, set step by step; the rate at
+the end of each epoch is kept as `lr` in `metrics.jsonl`.
+
+**Mixed precision and batch size.** `amp` (`auto`, `on`, `off`; default `auto`) trains in float16 with a gradient
+scaler on a CUDA GPU, which is faster and lighter; `auto` and `on` use it on CUDA only, and the CPU and Apple
+GPUs always train in full precision (asking for `on` there adds a warning, not an error). Evaluation passes stay
+in full precision. A loss that is not finite stops the run with a text that suggests turning `amp` off or lowering
+the learning rate. What was really used is recorded in `run.json` (`setup`: `device`, `amp`, `batch_size`). On a
+CUDA GPU the worker first tries one training step with the batch size asked for: when the GPU runs out of memory
+the batch is **halved**, again and again, down to the smallest batch the model accepts (1 image, or 2 for semantic
+segmentation), and each halving is a warning saying which batch size the training went on with (`warnings` in
+`run.json`, and a `warning:` line in the log). If not even the smallest batch fits, the run fails with a text that
+suggests a smaller image size or the CPU. The CPU and MPS are not probed.
+
+**Data augmentation.** The `augmentation` level (default `light`) is a preset (`none`, `light`, `standard`,
+`strong`) or `custom`. Each preset is a list of techniques for the model's kind of task (the same techniques the
+workers applied before they could be chosen); `custom` takes the list from the `augmentations` option of the
 configuration, `[{"name", "params"}]`, checked against the catalogue (`training/augmentations.py`,
-`GET /api/training/augmentations?type=`). Techniques: classification — random resized crop, horizontal and
-vertical flip, rotation, RandAugment or TrivialAugment, colour jitter, blur, greyscale, random erasing, mixup
-and cutmix; detection, instance segmentation, keypoints and semantic segmentation — flips, rotation, zoom
-(scale jitter), shift, colour jitter, blur, greyscale (and random resized crop for semantic segmentation).
+`GET /api/training/augmentations?type=`: levels, and per kind of task the techniques with their settings and the
+list of each preset). A technique may be given once, and RandAugment and TrivialAugment cannot be used together.
+Techniques: classification — random resized crop, horizontal and vertical flip, rotation, RandAugment or
+TrivialAugment, colour jitter, blur, greyscale, random erasing, mixup and cutmix; detection and instance
+segmentation — flips, rotation, zoom (scale jitter), shift, colour jitter, blur, greyscale; keypoints — the
+same without the vertical flip; semantic segmentation — the same as detection plus random resized crop.
 Geometric techniques move boxes, masks and keypoints with the image; a horizontal flip of keypoints needs the
-left/right `flip_pairs` (an empty list when no point has a mirror twin). The runner resolves the level into
-`spec.json` (`augmentations`) and records it in `run.json`; the worker applies exactly that list, in catalogue
-order, to the training images only, and writes it to the log. Configurations made before techniques could be
-chosen have no list and keep their preset. In the *New run* dialog, the level fills a list of techniques with
-their settings; ticking a technique or changing a setting makes the level *Custom*.
+left/right `flip_pairs` (an empty list when no point has a mirror twin), which is why the keypoint presets do
+not include it. The runner resolves the level into `spec.json` (`augmentations`) and records it in `run.json`;
+the worker applies exactly that list, in catalogue order, to the training images only, and writes it to the log.
+Configurations made before techniques could be chosen have no list and keep their preset.
+
+In the *New run* dialog the level is a choice and, under it, **Augmentation techniques** lists the techniques of
+the chosen level with their settings (chance, angle, zoom range and so on, each with a hint) and a one-line
+description; ticking or unticking a technique or changing a setting makes the level *Custom*, and choosing a
+preset again reloads its list (for keypoints, a *Left-right pairs* field takes the points that swap places in a
+mirror image, such as `0-1, 2-3`). In a grid search, *Custom* cannot be compared with other levels: choose it
+alone, or compare only presets.
 
 There is no label conversion step. The runner writes a `spec.json` in the run's temporary folder (absolute
 image paths, class indexes and the labels of each part, plus the model and hyperparameters); the worker
@@ -93,6 +148,14 @@ classes the project no longer has.
 The *New run* dialog keeps the hyperparameters closed behind one line that says whether they are the
 *default values* or how many differ (*+{n}*), and tells which packages the first run installs when the
 training environment lacks them.
+
+**Switching the model in the dialog.** The values the person has changed are kept when the new model has the
+same hyperparameter and accepts the value (within its limits); a value it does not accept, or one the person did
+not touch, takes the new model's default. A line under the model says what changed: *Switching to {model}:* then,
+for example, *learning rate now 0.0001 (default)*, *image size back to 224 (640 does not suit this model)*,
+*{p}: new parameter*, *{p}: does not apply*, *kept: epochs, seed*, and *same hyperparameters and defaults* when
+nothing differs (at most four changes are listed, then *+N*). The selection metric and the start (transfer,
+fine-tuning, from scratch) are reset in the same way when the new model does not have the chosen one.
 
 During the run: phases (`environment`, `preparing`, `training`, `evaluating`), epoch progress,
 loss and validation metric per epoch (live curves), cancel. At the end the test part (if the
@@ -136,8 +199,13 @@ cases, and against hand-computed examples (`tests/activelabel/training/test_metr
 | PCK@0.1 | labelled points within 0.1 × the longer side of the object's box / labelled points | predictions with score ≥ 0.5 are paired with objects of the same class at box IoU ≥ 0.5 (greedy by score); the points of an unpaired object count as wrong |
 | K-fold mean ± std | mean of the per-fold validation values and their **population** standard deviation (ddof = 0) | not a pooled metric over all folds; folds have about the same size |
 
-Segmentation metrics are measured on the images resized to the run's `image_size` (both sides), not at
-their original resolution, so every image weighs the same number of pixels. No metric is rounded in the
+Segmentation metrics are measured on the images resized to the run's `image_size` by the run's resize policy
+(both sides for `stretch`), not at their original resolution, so every image weighs the same number of pixels;
+with `letterbox` the added bands are background. Box and mask IoU between an image's detections and its objects
+is a matrix of size (detections × objects): an image with no objects or no detections gives an empty matrix, so
+its detections are false positives and its objects misses, and a mask pair whose union is empty has IoU 0. For
+instance segmentation the box of an object is the extent of its polygons, and for a pose the stored box grown to
+hold every visible point, so box, mask and keypoints agree. No metric is rounded in the
 results; the interface rounds only for display. A part without images gives 0 for every metric.
 
 ## Storage
@@ -146,8 +214,8 @@ results; the interface rounds only for display. A part without images gives 0 fo
 
 | File | What |
 | --- | --- |
-| `config.yaml` | everything needed to repeat the run (dataset version and its fingerprint, model, start, mode, hyperparameters, seed) — no device or path |
-| `run.json` | status, times, device used, package versions, ActiveLabel version, child runs (grid / folds) |
+| `config.yaml` | everything needed to repeat the run (dataset version and its fingerprint, model, start, mode, hyperparameters including the resize policy, scheduler and mixed-precision choice, the list of augmentation techniques of a `custom` level, seed) — no device or path |
+| `run.json` | status, times, the device asked for (`device_choice`) and the one found (`device`: PyTorch, CUDA and MPS availability, GPU name), `setup` (`device`, `amp`, `batch_size` the training really used), `warnings` (for example a halved batch), `resize`, the augmentation techniques applied, package versions, ActiveLabel version, child runs (grid / folds) |
 | `metrics.jsonl` | one line per epoch: losses and validation metrics |
 | `results.json` | best epoch, validation and test metrics (confusion matrix and per-class metrics when the type has them) |
 | `best.pt`, `last.pt` | weights (of the best child for grid / all folds). When the run is saved as a model both leave the run: `best.pt` **moves** to the model and `last.pt` is removed |
@@ -172,7 +240,8 @@ that was running when ActiveLabel stopped ends as failed (`interrupted`); queued
 
 ## Models (step 6)
 
-A finished run is **saved as a model** (button *Save as model* (*Salvar como modelo*) on the run): `<project>/models/m<N>/`
+A finished run is **saved as a model** (button *Save as model* (*Salvar como modelo*) on the run; it is
+disabled, with a note, when the run has no weights any more — see below): `<project>/models/m<N>/`
 holds its best weights (`best.pt`, **moved** from the run, so the weights exist once and a saved run
 has no `best.pt` any more; the run keeps its curves, results and log), `config.yaml`, `results.json` and a card, `model.json` (run and
 best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
@@ -185,7 +254,9 @@ segmentation), which is then queued right after saving.
 - **Public models**: *Add a public model* (*Adicionar modelo público*) adds a pretrained torchvision
   model (COCO) without local training, with a mapping from its categories to the project's classes;
   only to pre-annotate. It has no weights stored here, so it has no download and no ONNX export (the
-  API answers 404 and 400). See docs/PREANNOTATE.md (Public models).
+  API answers 404 and 400). Only detection and keypoint projects have public models today; for any other
+  project type the *Add a public model* button is hidden and an empty step says to save a finished training run
+  (there are no public models for this project type yet). See docs/PREANNOTATE.md (Public models).
 - **Current model**: one model of the project is marked current (`models/current.json`, button *Make
   current*); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
@@ -201,14 +272,20 @@ segmentation), which is then queued right after saving.
 - A saved model whose architecture this version no longer offers is listed as *unavailable*
   (*indisponível*) and cannot pre-annotate (it can still be deleted).
 - **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
-  pre-annotation that uses it is queued or running.
+  pre-annotation that uses it is queued or running. The weights live in the model (they were moved from the
+  run), so the run it came from stays in Training with its curves and results but **cannot be saved as a model
+  again**: the runs list says `has_weights: false` for it, and its *Save as model* button is disabled with the
+  note *The weights of this run went with the deleted model... To have a model, train again* (also right after
+  the deletion, before the list is reloaded). Saving such a run through the API answers `run_no_weights`. A
+  saved run answers `run_already_saved`; an unfinished or cancelled one `run_not_finished`.
 - **Downloads**: the PyTorch weights (`.pt`, a dict with `state_dict`, `classes`, `model`, `family`,
-  `image_size` and, for classification and segmentation, `mean`/`std`).
+  `image_size`, `resize` and, for classification and segmentation, `mean`/`std`).
 - **ONNX export** (classification and semantic segmentation): queued with the training runs (one heavy
   process at a time); the `onnx` package is installed in the training environment on the first
   export; the network is rebuilt without downloading anything, the weights are loaded and the graph
   is checked (`onnx.checker`). Opset 17, dynamic batch size and the fixed image size of the training.
-  Input `images` (N×3×S×S, normalised with the ImageNet mean and std), output `logits` (classes, or
+  Input `images` (N×3×S×S, normalised with the ImageNet mean and std; the photo is resized to S×S outside the
+  graph by the training's resize policy, recorded in the file's metadata), output `logits` (classes, or
   classes + background per pixel). Detection, instance and
   keypoint models (torchvision) are not exported yet: their traced graphs break in ONNX Runtime on
   images without candidate boxes; their PyTorch weights can be downloaded.
@@ -243,8 +320,9 @@ To update the versions:
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
-| GET | `/api/training/environment` | installed packages, device found; with `?model=<id>` also `missing` (packages that model needs) and `install_needed`, which the *New run* dialog uses to say that the first run installs packages |
-| GET/POST | `/api/projects/{id}/runs` | list / create (queued job) |
+| GET | `/api/training/augmentations?type=` | augmentation levels and, per kind of task, the techniques with their settings and the list of each preset |
+| GET | `/api/training/environment` | installed packages, the GPU found and `devices` (the device choices of this computer: `auto`, `cpu`, `cuda:N`, `mps`); with `?model=<id>` also `missing` (packages that model needs) and `install_needed`, which the *New run* dialog uses to say that the first run installs packages |
+| GET/POST | `/api/projects/{id}/runs` | list (each run has `model` and `has_weights`) / create (queued job): the configuration plus an optional `device` (default `auto`) |
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
 | GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
 | GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
