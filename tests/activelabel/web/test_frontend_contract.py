@@ -367,3 +367,20 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
         texts = json.loads((Path(i18n.__file__).parent / f"{lang}.json").read_text(encoding="utf-8"))
         assert not [k for k in keys if f"sync.res_{k}" not in texts], lang
     assert not [k for k in keys if f'"{k}":' not in engine_source]
+
+
+def _messages(lang: str) -> dict[str, str]:
+    return json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+
+
+def test_a_count_in_an_error_or_a_summary_is_singular_for_one():
+    """#416: "1 imagens mudaram" and "1 projetos": counts in errors and in the audit use the plural forms."""
+    for lang in ("pt", "en"):
+        messages = _messages(lang)
+        for key in ("error.annotations_changed", "audit.summary_projects", "audit.summary_inprojects"):
+            assert f"{key}_one" in messages and f"{key}_other" in messages, (lang, key)
+        assert "{n}" in messages["error.annotations_changed_one"]
+    assert re.search(r"tn\(`error\.\$\{code\}`", JS), (
+        "errorMessage must pick the plural form of a counted error"
+    )
+    assert "t('audit.summary'" not in JS and "tn('audit.summary_projects'" in JS

@@ -220,6 +220,8 @@
     if (Array.isArray(detail)) return detail.map(validationText).join('; ');
     const info = detail && typeof detail === 'object' ? detail : data;  // older answers keep a dict as detail
     const code = info && typeof info.code === 'string' ? info.code : null;
+    const counted = info && info.params && typeof info.params.count === 'number';
+    if (code && counted && `error.${code}_other` in I18N) return tn(`error.${code}`, info.params.count, errorParams(info.params));
     if (code && `error.${code}` in I18N) return t(`error.${code}`, errorParams(info.params || info));
     if (detail && typeof detail === 'object') return String(detail.message || JSON.stringify(detail));
     return detail ? String(detail) : `HTTP ${status}`;
@@ -839,7 +841,11 @@
       const inProjects = data.projects.reduce((a, p) => a + p.tasks.length, 0);
       const loose = data.loose.reduce((a, g) => a + g.tasks.length, 0);
       fill(body,
-        el('p', { class: 'audit-summary' }, t('audit.summary', { projects: num(data.projects.length), inprojects: num(inProjects), loose: num(loose) })),
+        el('p', { class: 'audit-summary' }, [
+          tn('audit.summary_projects', data.projects.length),
+          tn('audit.summary_inprojects', inProjects),
+          tn('audit.summary_loose', loose),
+        ].join(' · ')),
         el('h3', null, t('audit.projects')),
         data.projects.length
           ? el('div', { class: 'audit-groups' }, ...data.projects.map((p) => group([
