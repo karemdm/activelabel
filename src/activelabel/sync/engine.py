@@ -32,7 +32,7 @@ from activelabel.labels import Label, annotations_lock, annotations_path, load_a
 from activelabel.projects import Project, ProjectStore
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
-from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject
+from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject, RemoteTask
 from activelabel.tasks_store import ImageTask, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
 
@@ -735,6 +735,9 @@ def make_plan(
             for rt in rtasks
             if rt.id not in mapped_remote and (read is None or rt.id in read)
         ]
+    tasks_rename, tasks_names, tasks_rename_conflicts = _plan_renames(
+        scoped_tasks, mapping, tmap, rtasks, read, direction
+    )
     new_remote = {t["remote_task"] for t in tasks_new}
     leftovers = [it for it in items if it.key not in {d["key"] for d in decisions.values()}]
     unmatched = [it for it in leftovers if _key_task(it.key) not in new_remote]
@@ -759,6 +762,9 @@ def make_plan(
         "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
+        "tasks_rename": tasks_rename,
+        "tasks_names": tasks_names,
+        "tasks_rename_conflicts": tasks_rename_conflicts,
         "link": _link_token(link),
         "new_items": {rt: _new_task_items(remote, settings, project, rt, items) for rt in new_remote},
         "renamed_classes": renames,
@@ -789,6 +795,8 @@ def make_plan(
         "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
+        "tasks_rename": tasks_rename,
+        "tasks_rename_conflicts": tasks_rename_conflicts,
         "conflicts": conflicts,
         "remote_only": remote_only,
         "unchanged": count[SAME] + count[GONE],
@@ -973,8 +981,9 @@ def apply_plan(
     Returns:
         Counts: ``pulled``, ``pushed``, ``added``, ``removed_remote``, ``removed_local``,
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
-        ``tasks_deleted``, ``conflicts_left``, ``unchanged``, ``new_classes``, ``renamed_classes`` (classes
-        renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``, ``skipped``, ``warnings``.
+        ``tasks_deleted``, ``tasks_renamed``, ``conflicts_left``, ``unchanged``, ``new_classes``,
+        ``renamed_classes`` (classes renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``,
+        ``skipped``, ``warnings``.
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -1123,6 +1132,8 @@ def apply_plan(
             deleted_tasks += 1
             tmap.pop(str(spec["task"]), None)
 
+    renamed_tasks = _apply_renames(tstore, remote, settings, plan, tmap, warnings)
+
     # Writing tracked objects makes the tool re-interpolate their neighbouring frames (and a tool may
     # give a track a new id): read the touched tasks again and take their tracked frames as they are now
     refreshed = _refresh_tracked(
@@ -1211,6 +1222,7 @@ def apply_plan(
         "tasks_created": created,
         "tasks_imported": imported,
         "tasks_deleted": deleted_tasks,
+        "tasks_renamed": renamed_tasks,
         "conflicts_left": conflicts_left,
         "unchanged": len(_ids_of(final_action, SAME, GONE)),
         "new_classes": counts["new_classes"],
@@ -1219,6 +1231,105 @@ def apply_plan(
         "skipped": counts["skipped"],
         "warnings": warnings,
     }
+
+
+def _plan_renames(
+    scoped_tasks: list[ImageTask],
+    mapping: dict[str, str],
+    tmap: dict[str, Any],
+    rtasks: list[RemoteTask],
+    read: set[str] | None,
+    direction: str,
+) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
+    """Compare the name of each linked task with its remote task (docs/TASKS.md).
+
+    Like the rest of the synchronisation it is three-way, against the name recorded in the link at the
+    last synchronisation: only here changed -> sent; only there changed -> pulled; both changed to
+    different names -> kept as they are and reported. ``push`` always sends the local name, ``pull`` always
+    takes the remote one.
+
+    Args:
+        scoped_tasks: The local tasks in scope.
+        mapping: Local task id -> remote task id.
+        tmap: The ``tasks`` of the link (the recorded ``name``).
+        rtasks: The remote tasks.
+        read: The remote tasks that are read (None: all).
+        direction: ``both``, ``pull`` or ``push``.
+
+    Returns:
+        ``(renames, names, conflicts)``: ``renames`` is ``[{task, remote_task, old, new, direction}]``
+        (``direction`` is ``push`` or ``pull``); ``names`` is ``{local task id: name to record in the
+        link}`` for the tasks whose names agree after the apply; ``conflicts`` is ``[{task, remote_task,
+        local, remote}]`` for the tasks renamed on both sides.
+    """
+    by_id = {rt.id: rt for rt in rtasks}
+    renames: list[dict[str, Any]] = []
+    names: dict[str, str] = {}
+    conflicts: list[dict[str, Any]] = []
+    for t in scoped_tasks:
+        rid = mapping.get(str(t.id))
+        rt = by_id.get(rid) if rid else None
+        if rt is None or (read is not None and rt.id not in read):
+            continue
+        if rt.name == t.name:
+            names[str(t.id)] = t.name
+            continue
+        base = (tmap.get(str(t.id)) or {}).get("name")
+        here, there = t.name != base and base is not None, rt.name != base and base is not None
+        if direction == PULL_ONLY or (direction == BOTH and there and not here):
+            way, old, new = PULL_ONLY, t.name, rt.name
+        elif direction == PUSH_ONLY or not there:
+            way, old, new = PUSH_ONLY, rt.name, t.name
+        else:
+            conflicts.append({"task": t.id, "remote_task": rt.id, "local": t.name, "remote": rt.name})
+            continue
+        renames.append({"task": t.id, "remote_task": rt.id, "old": old, "new": new, "direction": way})
+        names[str(t.id)] = new
+    return renames, names, conflicts
+
+
+def _apply_renames(
+    tstore: TaskStore,
+    remote: RemoteProject,
+    settings: ToolSettings,
+    plan: dict[str, Any],
+    tmap: dict[str, Any],
+    warnings: list[str],
+) -> int:
+    """Carry out the planned task renames; one that fails is a warning and keeps its old recorded name.
+
+    Args:
+        tstore: The tasks of the project.
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        plan: The saved plan (``tasks_rename``, ``tasks_names``, ``tasks_rename_conflicts``).
+        tmap: The ``tasks`` of the new link; receives the recorded names.
+        warnings: Receives the readable warnings.
+
+    Returns:
+        The number of tasks renamed (here or in the tool).
+    """
+    failed: set[str] = set()
+    done = 0
+    for spec in plan.get("tasks_rename") or []:
+        try:
+            if spec["direction"] == PUSH_ONLY:
+                remote.rename_task(settings, str(spec["remote_task"]), str(spec["new"]))
+            else:
+                tstore.rename(int(spec["task"]), str(spec["new"]))
+            done += 1
+        except (ToolError, ValueError, KeyError) as err:  # CodedError and TaskNotFound are among these
+            failed.add(str(spec["task"]))
+            warnings.append(f"The task '{spec['old']}' could not be renamed to '{spec['new']}': {err}")
+    for conflict in plan.get("tasks_rename_conflicts") or []:
+        warnings.append(
+            f"The task '{conflict['local']}' was renamed here and in the tool ('{conflict['remote']}'): "
+            "both names are kept."
+        )
+    for tid, name in (plan.get("tasks_names") or {}).items():
+        if tid in tmap and tid not in failed:
+            tmap[tid] = {**tmap[tid], "name": name}
+    return done
 
 
 def _safe_drops(

@@ -212,6 +212,13 @@ class FakeRemote:
                 for key in [k for k in items if k.partition(":")[0] == str(task_id)]:
                     del items[key]
 
+    def rename_task(self, settings, task_id, name):
+        self._check()
+        self.calls.append(("rename_task", str(task_id), name))
+        for metas in self.task_meta.values():
+            if str(task_id) in metas:
+                metas[str(task_id)]["name"] = name
+
     def mark_video(self, task_id, start=0, step=1, frames=None, fps=30.0):
         """Test helper: the remote task counts as a video task (``video_source`` gives a small video)."""
         self.videos[str(task_id)] = {"start": start, "step": step, "frames": frames, "fps": fps}

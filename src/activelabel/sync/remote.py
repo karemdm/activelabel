@@ -165,6 +165,16 @@ class RemoteProject(Protocol):
         """
         ...
 
+    def rename_task(self, settings: ToolSettings, task_id: str, name: str) -> None:
+        """Change the name of a remote task.
+
+        Args:
+            settings: Connection settings of the tool (server address and credentials).
+            task_id: Id of the remote task.
+            name: The new name.
+        """
+        ...
+
     def frames(self, settings: ToolSettings, task_id: str) -> list[tuple[str, bool]]:
         """``(file name, deleted)`` of every frame of a remote task, in order.
 

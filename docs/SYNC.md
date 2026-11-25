@@ -73,7 +73,8 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    images and tasks follow docs/TASKS.md (*CVAT mirror*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
    add, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
-   tasks_new, tasks_delete, conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
+   tasks_new, tasks_delete, tasks_rename: [{task, remote_task, old, new, direction: "push"|"pull"}],
+   tasks_rename_conflicts: [{task, remote_task, local, remote}], conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
    per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], not_converted: {kind: n},
    diff_pull: <diff as in ANNOTATION.md>, diff_push:
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
@@ -83,7 +84,9 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    tasks deleted here; false by default): re-reads only what it needs, refuses if the remote, the
    project's annotations or the link changed again since the plan ("Synchronise again"), then: backup + write pulled labels into the
    project ground truth; write pushed labels to the remote; upload added images; update the
-   link (`base` hashes, keys, `last_sync`). Result: counts.
+   link (`base` hashes, keys, `last_sync`). Result: counts (`tasks_renamed` among them).
+   Task renames follow docs/TASKS.md (*CVAT mirror*): the local name is sent, or the remote one pulled,
+   against the name recorded at the last synchronisation; both changed = both kept and a warning.
 
 Classes: classes found remotely but missing locally are added to the project; local classes
 missing in the remote project are added to it (CVAT labels). Class names are compared ignoring case,
