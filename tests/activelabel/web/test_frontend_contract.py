@@ -578,3 +578,10 @@ def test_the_cvat_settings_start_empty_with_an_example_and_the_tab_names_the_con
             "{server}" in messages["annotate.connected_as"] and "{user}" in messages["annotate.connected_as"]
         )
         assert "token" in messages["annotate.field_password"].lower()  # the same words as the error
+
+
+def test_empty_strips_are_gone_from_task_cards_sessions_and_home():
+    """Task cards fill the row, session buttons stay together, empty text wraps balanced (#421)."""
+    assert re.search(r"\.task-list \{[^}]*repeat\(auto-fit,", CSS)
+    assert "danger-outline { margin-left: auto" not in CSS
+    assert re.search(r"\.empty p \{[^}]*text-wrap: balance", CSS)
