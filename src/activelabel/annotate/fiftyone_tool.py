@@ -114,6 +114,34 @@ class FiftyOneTool:
         edited = fiftyone_bridge.edited_images(dataset, image_ids, project.task)
         return Pulled(out, edited, fiftyone_bridge.written_labels(dataset, image_ids), problems)
 
+    def applied(
+        self, dataset: Any, image_ids: list[str], project: Project, labels: dict[str, list[Label]]
+    ) -> None:
+        """Mark the session images as equal to the project, so they no longer count as edited.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            image_ids: ids of the images of the applied session.
+            project: the project (its task tells how labels are read).
+            labels: the project labels after the apply, by image id.
+        """
+        if dataset is not None:
+            fiftyone_bridge.mark_applied(dataset, image_ids, project.task, labels)
+
+    def discarded(
+        self, dataset: Any, image_ids: list[str], project: Project, labels: dict[str, list[Label]]
+    ) -> None:
+        """Put the session images back to the project's labels in FiftyOne, undoing the edits made there.
+
+        Args:
+            dataset: the project's FiftyOne dataset, or None.
+            image_ids: ids of the images of the discarded session.
+            project: the project (its task tells how labels are written).
+            labels: the project labels, by image id.
+        """
+        if dataset is not None:
+            fiftyone_bridge.restore_project_labels(dataset, image_ids, project.task, labels)
+
     def close(self, dataset: Any, settings: ToolSettings, ref: dict[str, Any]) -> None:
         """Delete the saved view.
 

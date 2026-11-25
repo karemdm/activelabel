@@ -400,6 +400,58 @@ def written_labels(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, str]:
     return {image_id: value for image_id, value in pairs if value}
 
 
+def mark_applied(
+    dataset: fo.Dataset, image_ids: list[str], task: Task, labels: dict[str, list[Label]]
+) -> int:
+    """Record that FiftyOne and the project agree on these images after a session was applied.
+
+    The samples keep their ``ground_truth``; their fingerprint becomes that of it, and the label hash
+    that of the project labels now, so they no longer count as edited and a later change of the
+    project reaches them.
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images of the applied session.
+        task: task of the project.
+        labels: the project labels after the apply, by image id (a missing image has none).
+
+    Returns:
+        How many samples were updated.
+    """
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    count = 0
+    for sample in view.iter_samples(autosave=True):
+        sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+        sample[WRITTEN_LABELS] = label_hash(labels.get(sample["image_id"], []))
+        count += 1
+    return count
+
+
+def restore_project_labels(
+    dataset: fo.Dataset, image_ids: list[str], task: Task, labels: dict[str, list[Label]]
+) -> int:
+    """Put the ``ground_truth`` of these images back to the project's labels (a session was discarded).
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images of the discarded session.
+        task: task of the project.
+        labels: the project labels, by image id (a missing image has none).
+
+    Returns:
+        How many samples were rewritten.
+    """
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    count = 0
+    for sample in view.iter_samples(autosave=True):
+        project_labels = labels.get(sample["image_id"], [])
+        sample[GROUND_TRUTH] = _ground_truth(task, project_labels)
+        sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+        sample[WRITTEN_LABELS] = label_hash(project_labels)
+        count += 1
+    return count
+
+
 def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
     """Task, job, position and video name of every image that is in a task.
 

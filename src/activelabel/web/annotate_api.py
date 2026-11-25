@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from activelabel.web.state import AppState, get_state
 router = APIRouter(prefix="/api")
 SESSION_TOOLS = ("fiftyone",)  # the tools that open edit sessions (CVAT is reviewed through the sync)
 STATE = Depends(get_state)
+log = logging.getLogger(__name__)
 
 
 # -- bodies -------------------------------------------------------------------
@@ -197,6 +199,32 @@ def _local_hashes(project_dir: Path, image_ids: list[str]) -> dict[str, str]:
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}
     return {i: label_hash(images.get(i, [])) for i in image_ids}
+
+
+def _tell_tool(state: AppState, project_id: int, session: dict[str, Any], applied: bool) -> None:
+    """Let the tool bring its copy of the session images in line with the project (apply or discard).
+
+    Best effort: the project is already settled when this runs, so a failure is logged, not raised (the
+    images then keep what the tool shows, as before).
+
+    Args:
+        state: the application state.
+        project_id: id of the project.
+        session: the session that was applied or discarded.
+        applied: True after an apply (the images now equal the project), False after a discard (they go
+            back to the project's labels).
+    """
+    if session["tool"] not in SESSION_TOOLS:
+        return
+    project = state.project(project_id)
+    annotations = load_annotations(state.store.dir(project_id))
+    labels = annotations.images if annotations else {}
+    try:
+        tool = _tool(session["tool"])
+        hook = tool.applied if applied else tool.discarded
+        hook(open_dataset(project, state), session["image_ids"], project, labels)
+    except Exception:  # noqa: BLE001 - never fail an apply or a discard that already happened
+        log.warning("Could not update the tool after the session %s", session["id"], exc_info=True)
 
 
 def _pulled_file(state: AppState, project_id: int, session_id: str) -> Path:
@@ -520,12 +548,13 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
             state.store, project_id, state.manifest(project_id), session["image_ids"], new_labels
         )
         sessions.update(project_dir, session_id, status=sessions.APPLIED, applied=counts)
+        _tell_tool(state, project_id, session, applied=True)
     return {"applied": counts}
 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/discard")
 def discard_session(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, bool]:
-    """Throw away the pulled annotations (the project does not change).
+    """Throw away the pulled annotations (the project does not change) and undo the edits in the tool.
 
     The check and the change of status happen under the lock of the annotations, like in apply, so of
     an apply and a discard of the same session exactly one wins and the other is refused (409).
@@ -547,6 +576,7 @@ def discard_session(project_id: int, session_id: str, state: AppState = STATE) -
                 409, "already_applied", "These annotations were already applied: there is nothing to discard."
             )
         sessions.update(project_dir, session_id, status=sessions.DISCARDED)
+        _tell_tool(state, project_id, session, applied=False)
     return {"discarded": True}
 
 
