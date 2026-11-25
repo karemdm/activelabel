@@ -1320,13 +1320,37 @@ class CvatRemote:
         Args:
             settings: Address and login of the CVAT server.
 
+        A list the server does not offer (CVAT answers 404, as an old version or an address that is not the
+        root of CVAT does) is left out and named in ``missing``; when neither list can be read the error
+        says so.
+
         Returns:
-            ``{"projects": [{id, name, url, tasks: [...]}], "loose": [{pattern, tasks: [...]}]}``; a task is
-            ``{id, name, size, url}``. ``loose`` holds the tasks that are in no project, grouped by
-            :func:`task_pattern` of their name (the biggest group first).
+            ``{"projects": [{id, name, url, tasks: [...]}], "loose": [{pattern, tasks: [...]}],
+            "missing": [...]}``; a task is ``{id, name, size, url}``. ``loose`` holds the tasks that are in
+            no project, grouped by :func:`task_pattern` of their name (the biggest group first);
+            ``missing`` names the lists CVAT did not offer (``projects``, ``tasks``).
+
+        Raises:
+            ToolError: code ``cvat_audit_unavailable`` when CVAT answered 404 for both lists; any other
+                failure of CVAT (login, network) as it comes.
         """
         api = self._api(settings)
-
+        missing: list[str] = []
+        try:
+            listed = api.paged("/api/projects", {"sort": "id"}, ALL)
+        except RemoteNotFound:
+            listed, missing = [], ["projects"]
+        try:
+            tasks = api.paged("/api/tasks", {"sort": "id"}, ALL)
+        except RemoteNotFound:
+            tasks, missing = [], [*missing, "tasks"]
+        if len(missing) == 2:
+            raise ToolError(
+                f"{api.url} did not offer the project and task lists of the CVAT API (an old CVAT, or an "
+                "address that is not the root of CVAT).",
+                "cvat_audit_unavailable",
+                url=api.url,
+            )
         projects: dict[str, dict[str, Any]] = {
             str(p["id"]): {
                 "id": str(p["id"]),
@@ -1334,10 +1358,10 @@ class CvatRemote:
                 "url": f"{api.url}/projects/{p['id']}",
                 "tasks": [],
             }
-            for p in api.paged("/api/projects", {"sort": "id"}, ALL)
+            for p in listed
         }
         groups: dict[str, list[dict[str, Any]]] = {}
-        for t in api.paged("/api/tasks", {"sort": "id"}, ALL):
+        for t in tasks:
             if t.get("project_id"):
                 # a project the account cannot list still owns the task: show it by its number
                 pid = str(t["project_id"])
@@ -1349,7 +1373,7 @@ class CvatRemote:
                 groups.setdefault(task_pattern(str(t.get("name", ""))), []).append(_audit_task(t, api.url))
         loose = [{"pattern": pattern, "tasks": found} for pattern, found in groups.items()]
         loose.sort(key=lambda g: (-len(g["tasks"]), g["pattern"]))
-        return {"projects": list(projects.values()), "loose": loose}
+        return {"projects": list(projects.values()), "loose": loose, "missing": missing}
 
     def delete_task(self, settings: ToolSettings, task_id: str) -> None:
         """Delete a CVAT task with its frames and annotations (nothing when it is already gone).
