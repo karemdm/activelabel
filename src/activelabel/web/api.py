@@ -1105,7 +1105,9 @@ def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, A
         "images_preannotated": waiting,
         "labels_total": sum(per_class.values()),
         "labels_per_class": dict(sorted(per_class.items(), key=lambda kv: -kv[1])),
-        "source": {k: v for k, v in ground_truth.source.items() if k in ("format", "saved", "files")},
+        "source": {
+            k: v for k, v in ground_truth.source.items() if k in ("format", "saved", "files", "last_session")
+        },
     }
 
 
