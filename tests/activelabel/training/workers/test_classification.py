@@ -23,7 +23,7 @@ def test_worker_metrics(worker):
     assert worker.accuracy([[0, 0], [0, 0]]) == 0.0
 
 
-def test_worker_spec_and_plans(worker, tmp_path):
+def test_worker_spec_and_head_path(worker, tmp_path):
     spec = {
         "task": "classification",
         "model": "resnet18",
@@ -47,10 +47,6 @@ def test_worker_spec_and_plans(worker, tmp_path):
         file.write_text(json.dumps({**spec, **change}))
         with pytest.raises(worker.SpecError, match=message):
             worker.load_spec(file)
-    assert worker.augmentation_plan("none", 64) == [("Resize", {"size": (64, 64)})]
-    assert len(worker.augmentation_plan("strong", 64)) > len(worker.augmentation_plan("light", 64))
-    with pytest.raises(worker.SpecError):
-        worker.augmentation_plan("x", 64)
     assert worker.head_path("resnet18") == "fc" and worker.head_path("mobilenet_v3_large") == "classifier.3"
 
 

@@ -34,8 +34,12 @@ from torch.utils.data import DataLoader
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.keypoint_rcnn import KeypointRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-from torchvision.transforms import ColorJitter
 from torchvision.transforms.functional import pil_to_tensor
+
+try:
+    from activelabel.training.workers import augment
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+    import augment  # type: ignore[no-redef]
 
 METRICS = ("map50_95", "map50")
 TASKS = ("detection", "instance", "keypoints")
@@ -96,27 +100,6 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     if spec["task"] == "keypoints" and int(spec.get("num_keypoints") or 0) < 1:
         raise SpecError("The labels have no keypoints.")
     return dict(spec)
-
-
-def augmentation_plan(preset: str, task: str) -> dict[str, float | bool]:
-    """Training augmentation of a preset: horizontal flip and colour jitter strength.
-
-    The flip is off for keypoints: which points swap places (left/right) is unknown.
-
-    Args:
-        preset: Augmentation preset (``none``, ``light``, ``standard`` or ``strong``).
-        task: ``detection``, ``instance`` or ``keypoints``.
-
-    Returns:
-        ``{"flip": bool, "jitter": float}``: whether to flip horizontally and the colour jitter amount.
-
-    Raises:
-        SpecError: unknown preset.
-    """
-    if preset not in ("none", "light", "standard", "strong"):
-        raise SpecError(f"Unknown augmentation preset '{preset}'.")
-    jitter = {"none": 0.0, "light": 0.0, "standard": 0.2, "strong": 0.4}[preset]
-    return {"flip": preset != "none" and task != "keypoints", "jitter": jitter}
 
 
 def warmup_factor(step: int, steps: int) -> float:
@@ -259,25 +242,6 @@ def build_target(
             np.stack(points) if points else np.zeros((0, num_keypoints, 3), dtype=np.float32)
         )
     return target
-
-
-def flip_target(target: dict[str, Array], width: int) -> dict[str, Array]:
-    """Horizontal flip of boxes and masks (keypoints are never flipped).
-
-    Args:
-        target: Target from ``build_target``.
-        width: Image width in pixels.
-
-    Returns:
-        A new target with the flipped ``boxes`` and, when present, ``masks``.
-    """
-    out = dict(target)
-    boxes = target["boxes"].copy()
-    boxes[:, [0, 2]] = width - target["boxes"][:, [2, 0]]
-    out["boxes"] = boxes
-    if "masks" in target:
-        out["masks"] = target["masks"][:, :, ::-1].copy()
-    return out
 
 
 def box_iou(a: Array, b: Array) -> Array:
@@ -562,19 +526,22 @@ class DetectionDataset:
     """Map-style dataset of spec items: ``(image tensor 0..1, target dict of tensors)``."""
 
     def __init__(
-        self, items: list[dict[str, Any]], task: str, num_keypoints: int, flip: bool, jitter: float
+        self,
+        items: list[dict[str, Any]],
+        task: str,
+        num_keypoints: int,
+        augmentations: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Keep the items and the augmentation settings.
+        """Keep the items and the augmentation techniques.
 
         Args:
             items: The images of one part (``path`` and ``objects`` each).
             task: ``detection``, ``instance`` or ``keypoints``.
             num_keypoints: Points per object (0 when the task has none).
-            flip: Flip horizontally half of the time.
-            jitter: Brightness and contrast jitter amount (0 for none).
+            augmentations: The techniques applied to each image (training); ``None`` or empty reads as is.
         """
         self.items, self.task, self.num_keypoints = items, task, num_keypoints
-        self.flip, self.jitter = flip, jitter
+        self.augmentations = augmentations or []
 
     def __len__(self) -> int:
         """Number of images.
@@ -591,20 +558,17 @@ class DetectionDataset:
             index: Position in the part.
 
         Returns:
-            ``(image tensor 0..1, target dict of tensors)``, after the optional jitter and flip.
+            ``(image tensor 0..1, target dict of tensors)``, after the augmentation (boxes, masks and
+            keypoints move with the image).
         """
         with Image.open(self.items[index]["path"]) as opened:
             # labels are drawn on the photo as shown (EXIF rotation applied)
             image = (ImageOps.exif_transpose(opened) or opened).convert("RGB")
         width, height = image.size
         target = build_target(self.items[index], width, height, self.task, self.num_keypoints)
+        if self.augmentations:
+            image, target = augment.augment_objects(image, target, self.augmentations)
         tensor = pil_to_tensor(image).float() / 255.0
-        if self.jitter:
-            amount = self.jitter
-            tensor = ColorJitter(brightness=amount, contrast=amount)(tensor)
-        if self.flip and random.random() < 0.5:
-            tensor = tensor.flip(-1)
-            target = flip_target(target, width)
         return tensor, {k: torch.from_numpy(np.ascontiguousarray(v)) for k, v in target.items()}
 
 
@@ -949,7 +913,7 @@ def make_loader(
     train_mode: bool,
     task: str,
     keypoints: int,
-    plan: dict[str, Any],
+    augmentations: list[dict[str, Any]],
     batch_size: int,
     workers: int,
     generator: Any,
@@ -961,7 +925,7 @@ def make_loader(
         train_mode: shuffle and augment (the training part) instead of only reading.
         task: ``detection``, ``instance`` or ``keypoints``.
         keypoints: points per object (0 when the task has none).
-        plan: the augmentation plan (``flip`` and ``jitter`` are used in train mode).
+        augmentations: the techniques applied in train mode.
         batch_size: images per batch.
         workers: loader processes (0 loads in the main process).
         generator: the seeded random generator used when shuffling.
@@ -969,9 +933,8 @@ def make_loader(
     Returns:
         A ``DataLoader`` yielding ``(images, targets)`` batches.
     """
-    flip, jitter = (bool(plan["flip"]), float(plan["jitter"])) if train_mode else (False, 0.0)
     return DataLoader(
-        DetectionDataset(items, task, keypoints, flip, jitter),
+        DetectionDataset(items, task, keypoints, augmentations if train_mode else None),
         batch_size=batch_size,
         shuffle=train_mode,
         num_workers=workers,
@@ -1018,7 +981,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         ``test`` (``None`` without a test part).
 
     Raises:
-        SpecError: A model or preset the worker cannot use.
+        SpecError: A model the worker cannot use.
+        augment.AugmentError: A technique the worker cannot apply.
         RuntimeError: The loss is not finite.
     """
     p, classes, metric, task = spec["params"], spec["classes"], spec["metric"], spec["task"]
@@ -1028,7 +992,9 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     device = pick_device(torch)
     emit("log", message=f"Device: {device}. {split_note(spec)}")
     batch, keypoints = int(p["batch_size"]), int(spec.get("num_keypoints") or 0)
-    plan = augmentation_plan(p["augmentation"], task)
+    techniques = spec["augmentations"]
+    augment.check_objects(techniques)
+    emit("log", message=f"Augmentation: {augment.describe(techniques)}.")
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device == "cuda" else 0
     parts = spec["parts"]
@@ -1037,7 +1003,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         make_loader,
         task=task,
         keypoints=keypoints,
-        plan=plan,
+        augmentations=techniques,
         batch_size=batch,
         workers=workers,
         generator=generator,

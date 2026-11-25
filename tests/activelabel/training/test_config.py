@@ -95,3 +95,67 @@ def test_grid_expansion_order_and_cap():
     ]
     assert all(k.mode == "single" and not k.grid and not k.is_composite() for k in kids)
     assert not _cfg().is_composite() and _cfg().children(0) == [_cfg()]
+
+
+AUGS = [{"name": "hflip", "params": {"p": 0.3}}, {"name": "blur"}]
+
+
+def _checked_augs():
+    return [
+        {"name": "hflip", "params": {"p": 0.3}},
+        {"name": "blur", "params": {"p": 0.2, "sigma_max": 1.5}},
+    ]
+
+
+def test_augmentations_round_trip():
+    cfg = validate(_cfg(augmentations=AUGS), "classification")
+    assert cfg.augmentations == _checked_augs()
+    assert RunConfig.from_dict(cfg.to_dict()) == cfg
+    assert RunConfig.from_yaml(cfg.to_yaml()) == cfg
+    assert yaml.safe_load(cfg.to_yaml())["augmentations"] == _checked_augs()
+
+
+def test_old_configs_have_no_augmentations_key():
+    assert "augmentations" not in _cfg().to_dict()
+    old = {"dataset": 1, "model": "resnet18", "params": {"epochs": 3}}
+    loaded = RunConfig.from_dict(old)
+    assert loaded.augmentations is None
+    ok = validate(loaded, "classification")
+    assert ok.augmentations is None and "augmentation" not in ok.params
+    assert "augmentations" not in ok.to_dict()
+
+
+def test_list_sets_the_custom_level_and_sorts():
+    ok = validate(_cfg(augmentations=[{"name": "blur"}, {"name": "hflip"}]), "classification")
+    assert ok.params["augmentation"] == "custom"
+    assert [e["name"] for e in ok.augmentations] == ["hflip", "blur"]
+    explicit = validate(_cfg(params={"augmentation": "custom"}, augmentations=[]), "classification")
+    assert explicit.augmentations == []
+
+
+@pytest.mark.parametrize(
+    "kw, code",
+    [
+        ({"params": {"augmentation": "light"}, "augmentations": AUGS}, "augmentation_list_needs_custom"),
+        (
+            {"mode": "grid", "grid": {"augmentation": ["custom", "none"]}, "augmentations": AUGS},
+            "augmentation_list_needs_custom",
+        ),
+        ({"params": {"augmentation": "custom"}}, "augmentation_custom_needs_list"),
+        ({"mode": "grid", "grid": {"augmentation": ["light", "custom"]}}, "augmentation_custom_needs_list"),
+        ({"augmentations": [{"name": "nope"}]}, "augmentation_unknown"),
+        ({"augmentations": "hflip"}, "augmentations_not_list"),
+    ],
+)
+def test_augmentation_errors(kw, code):
+    with pytest.raises(ConfigError) as info:
+        validate(_cfg(**kw), "classification")
+    assert info.value.code == code
+
+
+def test_grid_children_keep_the_augmentations():
+    grid = {"lr": [0.1, 0.01]}
+    cfg = validate(_cfg(mode="grid", grid=grid, augmentations=AUGS, fold="all"), "classification", folds=2)
+    assert len(cfg.expand()) == 2 and len(cfg.children(2)) == 4
+    for child in [*cfg.expand(), *cfg.children(2)]:
+        assert child.augmentations == _checked_augs() and child.params["augmentation"] == "custom"

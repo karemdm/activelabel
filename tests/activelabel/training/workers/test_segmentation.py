@@ -1,10 +1,12 @@
 import importlib.util
 import json
-import random
 import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
+
+from activelabel.training import augmentations
 
 WORKER = Path(__file__).parents[4] / "src" / "activelabel" / "training" / "workers" / "segmentation.py"
 
@@ -50,21 +52,22 @@ def test_rasterize_background_box_only_and_degenerate(worker):
         worker.class_id(5, CLASSES)
 
 
-def test_augment_pair_is_consistent(worker):
-    from PIL import Image
-
-    image = Image.new("RGB", (40, 30), (120, 120, 120))
-    mask = worker.rasterize_mask([{"label": 0, "polygons": [SQUARE]}], 40, 30, CLASSES)
-    for preset in ("none", "light", "standard", "strong"):
-        img, msk = worker.augment_pair(image, mask, preset, 16, random.Random(1))
-        assert img.size == msk.size == (16, 16)
-        assert {v for _, v in msk.getcolors()} <= {0, 1}  # nearest: no invented class values
-    img, msk = worker.augment_pair(image, mask, "none", 16)
-    assert msk.getpixel((2, 2)) == 1 and msk.getpixel((14, 14)) == 0
-    with pytest.raises(worker.SpecError):
-        worker.augmentation_plan("wild")
-    left, top, right, bottom = worker.random_crop_box(100, 50, 0.4, random.Random(3))
-    assert 0 <= left < right <= 100 and 0 <= top < bottom <= 50
+def test_dataset_applies_the_techniques_to_image_and_mask(worker, tmp_path):
+    torch = pytest.importorskip("torch")
+    Image.new("RGB", (40, 30), (120, 120, 120)).save(tmp_path / "a.png")
+    items = [{"path": str(tmp_path / "a.png"), "objects": [{"label": 0, "polygons": [SQUARE]}]}]
+    plain = worker.SegmentationDataset(items, CLASSES, 16, [])[0][1]
+    assert plain[2, 2] == 1 and plain[14, 14] == 0
+    for level in ("none", "light", "standard", "strong"):
+        techniques = augmentations.preset(level, "semantic")
+        image, mask = worker.SegmentationDataset(items, CLASSES, 16, techniques)[0]
+        assert image.shape == (3, 16, 16) and mask.shape == (16, 16)
+        assert set(mask.unique().tolist()) <= {0, 1}  # nearest: no invented class values
+    flip = [{"name": "hflip", "params": {"p": 1.0}}]
+    flipped = worker.SegmentationDataset(items, CLASSES, 16, flip)[0][1]
+    assert torch.equal(flipped, plain.flip(-1))
+    with pytest.raises(worker.augment.AugmentError):
+        worker.SegmentationDataset(items, CLASSES, 16, [{"name": "mixup", "params": {"alpha": 0.2}}])[0]
 
 
 # classes: background, cat, dog. matrix[true][predicted]

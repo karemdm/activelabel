@@ -38,6 +38,7 @@ from activelabel.labels import Label, geometry_problem
 from activelabel.projects import ProjectStore
 from activelabel.storage import now, write_json
 from activelabel.tasks import Task
+from activelabel.training import augmentations
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
@@ -72,6 +73,9 @@ EXPORT_PACKAGES = {"onnx": ("onnx",)}  # installed only when a model is exported
 #: Kinds of task that can be exported to ONNX (the graph is checked with onnx.checker). Detection models
 #: (torchvision) trace into graphs that break on images without candidate boxes: they come later.
 ONNX_KINDS = ("classification", "semantic")
+#: Hyperparameters the runner reads itself and hands to the worker in another form: the ``augmentation``
+#: level becomes the list of techniques ``spec["augmentations"]``.
+RESOLVED_PARAMS = ("augmentation",)
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
 COMES_LATER = "comes later"
 #: Status fields of a child that are also shown on the run itself (progress of the current child).
@@ -188,7 +192,8 @@ def build_spec(
 
     Items are ``{"path", "label"}`` for classification and ``{"path", "objects"}`` for the other
     kinds (``objects``: ``label`` class index plus the label's ``bbox``, ``polygons`` and ``keypoints``);
-    an image without objects is kept as a background image.
+    an image without objects is kept as a background image. ``augmentations`` is the resolved list of
+    techniques the worker applies to the training images (a preset level gives its list).
 
     Args:
         project_dir: folder of the project.
@@ -202,7 +207,8 @@ def build_spec(
 
     Raises:
         RunnerError: a grid or all-folds config, images no longer in the project, labels without the
-            shape the model trains on, an empty train or validation part, or no keypoints.
+            shape the model trains on, an empty train or validation part, no keypoints, or keypoint flip
+            pairs that name a point the labels do not have.
     """
     if config.fold == "all" or config.mode != "single":
         raise RunnerError("A grid or all-folds run is trained one child at a time.")
@@ -265,8 +271,16 @@ def build_spec(
             if not extra["num_keypoints"]:
                 raise RunnerError("The labels have no keypoints.")
     params = config.effective_params(model)
+    techniques = augmentations.resolve(params["augmentation"], config.augmentations, model.task_kind)
+    highest, points = augmentations.max_flip_index(techniques), extra.get("num_keypoints", 0)
+    if highest >= points:
+        raise RunnerError(
+            f"The keypoint flip pairs name point {highest}, but the labels have {points} points "
+            "(numbered from 0)."
+        )
     return {
         **extra,
+        "augmentations": techniques,
         "task": model.task_kind,
         "model": model.id,
         "family": model.family,
@@ -1231,7 +1245,7 @@ class TrainingRunner:
         spec = build_spec(project_dir, config, model, run_dir, version)
         spec_file = tmp / "spec.json"
         spec_file.write_text(json.dumps(spec), encoding="utf-8")
-        store.update(number, epochs=spec["params"]["epochs"])
+        store.update(number, epochs=spec["params"]["epochs"], augmentations=spec["augmentations"])
         progress.check()
         store.update(number, phase="training")
         target = _Target(run_dir, run_dir / "log.txt", lambda **f: store.update(number, **f))
@@ -1321,6 +1335,7 @@ class TrainingRunner:
                     status=RUNNING,
                     started=now(),
                     epochs=epochs,
+                    augmentations=spec["augmentations"],
                 )
                 target = _Target(child_dir, log_file, partial(_update_child, store, number, i))
                 self._train(key, target, progress, [*cmd, str(spec_file)], spec_dir, spec)

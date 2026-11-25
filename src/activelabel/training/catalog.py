@@ -222,8 +222,9 @@ COMMON_PARAMS: tuple[ParamSpec, ...] = (
         "augmentation",
         "choice",
         "light",
-        choices=("none", "light", "standard", "strong"),
-        help="How much the training images are varied (flips, colour, scale).",
+        choices=("none", "light", "standard", "strong", "custom"),
+        help="How much the training images are varied: a preset list of techniques, or custom (the list "
+        "of the run's 'augmentations' option).",
     ),
     ParamSpec(
         "patience", "int", 0, 0, 100, help="Stop after this many epochs without improvement (0 = off)."
