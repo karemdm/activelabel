@@ -7,24 +7,12 @@ import { toast, toastError } from './shell/toast.js';
 import { choiceDialog, closeOpenDialogs, confirmDialog, menuButton, once, openModal } from './shell/dialogs.js';
 import { initTheme } from './shell/theme.js';
 import { chipsInput, classLine, classList, emptyState, progressBar } from './shell/widgets.js';
+import {
+  CHUNK, ISSUES, SKIP_FILES, issueName, issueTag, partName, taskBadge, taskName, taskPicker,
+} from './cv/names.js';
 
   const VL = window.VL || {};
   setMessages(window.I18N || {}, VL.locale || 'en');
-
-  const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
-  const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate'];
-  const CHUNK = 25;
-  const SKIP_FILES = new Set(['.ds_store', 'thumbs.db']);
-
-  // ---------------------------------------------------------------- helpers
-
-  const taskName = (task) => tr(`task.${task}`, task || '?');
-  const issueName = (issue) => tr(`issue.${issue}`, issue);
-  /* one image's tag (singular: "Blurry" / "Borrada") */
-  const issueTag = (issue) => tr(`tag.${issue}`, issueName(issue));
-  const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
-
-  // ---------------------------------------------------------------- dialogs and toasts
 
   // ---------------------------------------------------------------- API
   /* how the interface names the values an error carries (the server sends raw ids, names and numbers) */
@@ -123,35 +111,6 @@ import { chipsInput, classLine, classList, emptyState, progressBar } from './she
   // ---------------------------------------------------------------- theme
 
   // ---------------------------------------------------------------- shared widgets
-  /** Four large selectable cards for the task. Returns {node, get, set}. */
-  function taskPicker(name, value) {
-    let current = value || 'detection';
-    const node = el('div', { class: 'task-cards', role: 'radiogroup' });
-    const draw = () => {
-      fill(node,
-        ...TASKS.map((task) => {
-          const id = `${name}-${task}`;
-          const input = el('input', { type: 'radio', name, id, value: task, class: 'sr-only' });
-          input.checked = task === current;
-          input.addEventListener('change', () => {
-            current = task;
-            draw();
-            node.querySelector(`input[value="${task}"]`).focus();
-          });
-          return el(
-            'label',
-            { class: `task-card${task === current ? ' selected' : ''}`, for: id },
-            input,
-            icon(task, 28),
-            el('span', { class: 'task-card-title' }, taskName(task)),
-            el('span', { class: 'task-card-help' }, t(`task.${task}.help`)),
-          );
-        }),
-      );
-    };
-    draw();
-    return { node, get: () => current, set: (v) => { current = v; draw(); } };
-  }
 
   /* "Imported from CVAT"; the remote name is the tooltip. */
   const originBadge = (origin) => {
@@ -169,8 +128,6 @@ import { chipsInput, classLine, classList, emptyState, progressBar } from './she
     return el('span', { class: 'badge origin-badge link-badge', title: link.remote_name ? String(link.remote_name) : label, tabindex: '0', 'aria-label': link.remote_name ? `${label}: ${link.remote_name}` : label },
       icon(known ? link.tool : 'info', 14), label);
   };
-
-  const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
 
   /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
      in view while the body scrolls). The X is added here so no dialog forgets it. */
