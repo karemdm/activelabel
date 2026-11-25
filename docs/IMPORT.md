@@ -125,10 +125,11 @@ confirmation first.
 | POST | `/api/import` | `{tool, remote_id, kind, name, description?, task?}` | job (`kind: "import_project"`, `project_id: 0`) |
 | GET | `/api/jobs/{job_id}` | | the job (any project, including 0) |
 
-Job result (CVAT projects add `tasks`, the tasks imported, and `linked`): `{project_id, name, task, images_added, images_rejected, labels, classes,
+Job result (CVAT projects add `tasks`, the tasks imported; `linked` says whether the new project is linked to CVAT, shown on the result screen, see [SYNC.md](SYNC.md#link)): `{project_id, name, task, images_added, images_rejected, labels, classes,
 problems: [{level, code, message, count, examples}]}`. While running, `progress.update`
 messages: "Listing CVAT data", "Reading annotations", "Comparing with CVAT", "Downloading images",
-"Creating the project" (shown in the interface language). Cancelling stops at a safe point and removes the half-created project.
+"Creating the project" (shown in the interface language); while the frames of a CVAT project are downloaded the job counts them
+(`done` / `total`, message "Downloading images"), so the bar advances image by image. Cancelling stops at a safe point and removes the half-created project.
 Errors: tool not configured → 400 "Configure <tool> first" (`tool_not_configured`); remote project not
 found → 404; `ToolError` → 400 with its message.
 
