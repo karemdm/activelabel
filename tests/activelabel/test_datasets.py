@@ -21,6 +21,7 @@ from activelabel.labels import AnnotationSet, Label, load_annotations, save_anno
 from activelabel.projects import ProjectStore
 from activelabel.storage import write_json
 from activelabel.tasks import Task
+from activelabel.tasks import Task as _Task
 from activelabel.tasks_store import TaskStore
 
 
@@ -474,7 +475,6 @@ def test_group_warning_names_its_real_cause(tmp_path):
 
 def build_with(tmp_path, task, labels_by_image):
     """A project of ``task`` whose images carry exactly these ``Label`` lists."""
-    from activelabel.tasks import Task as _Task
 
     pdir, project = build(tmp_path, {i: ["a"] for i in labels_by_image}, task=task)
     images = {i: v for i, v in labels_by_image.items() if v}

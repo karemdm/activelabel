@@ -8,6 +8,7 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate import sessions
+from activelabel.fiftyone_bridge import resolve_view
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.labels import AnnotationSet, Label
@@ -230,10 +231,6 @@ def test_port_answers_sees_a_listening_socket():
 
 @pytest.mark.integration
 def test_resolve_view_accepts_issue_names(tmp_path):
-    import fiftyone as fo
-
-    from activelabel.fiftyone_bridge import resolve_view
-
     name = f"vl-test-views-{tmp_path.name}"
     dataset = fo.Dataset(name)
     try:
@@ -323,8 +320,6 @@ def test_refresh_after_task_deleted(tmp_path, project):
 
 
 def test_open_fiftyone_session_keeps_its_ground_truth(tmp_path, project):
-    from activelabel.annotate import sessions
-
     manifest = build(tmp_path)
     cat = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])
     dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {}, {}))
