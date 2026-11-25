@@ -650,3 +650,19 @@ def test_on_a_phone_the_review_table_fits_and_the_scrolling_tabs_show_their_edge
     small = re.search(r"@media \(max-width: 480px\) \{(.*?)\n\}", CSS, re.S)
     assert small and re.search(r"\.diff-table th, \.diff-table td \{[^}]*padding", small.group(1))
     assert re.search(r"\.step-tabs \{[^}]*background:[^}]*local", CSS), "scroll shadows on the tab bar"
+
+
+def test_the_fiftyone_scope_defaults_to_all_or_the_last_choice_and_every_class_shows_its_count():
+    """#425: no silent "only the unannotated" default; the report counts a class with no annotations."""
+    assert "return 'unlabeled'" not in re.search(
+        r"function defaultScope\(\) \{.*?\n      \}", JS, re.S
+    ).group(0)
+    assert "al-scope-" in JS
+    assert "perClass[c] != null ?" not in JS
+    for lang in ("pt", "en"):
+        text = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))[
+            "problem.no_images_matched"
+        ].lower()
+        assert "folder" in text or "pasta" in text, (
+            "the text says the file name must match, also for class folders"
+        )
