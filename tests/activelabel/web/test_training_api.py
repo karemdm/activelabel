@@ -5,6 +5,7 @@ from sample_images import make_image
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
 from activelabel.training import environment
+from activelabel.training.config import RunConfig
 from activelabel.training.runs import RunStore
 
 PINS = environment.PINNED_VERSIONS  # torch and torchvision count as installed only at these versions
@@ -322,3 +323,23 @@ def test_the_environment_lists_the_devices(tmp_path, monkeypatch):
     assert client.get("/api/training/environment").json()["devices"] == ["auto", "cpu", "mps"]
     _gpus(monkeypatch)
     assert client.get("/api/training/environment").json()["devices"] == ["auto", "cpu"]
+
+
+def test_warnings_and_errors_come_with_their_codes(tmp_path):
+    client, state = _setup(tmp_path)
+    store = RunStore(state.store.dir(1))
+    n = store.create(RunConfig(dataset=1, model="fasterrcnn_resnet50_fpn"))["number"]
+    coded = {"code": "batch_halved", "params": {"from": 8, "to": 4}, "message": "halved"}
+    store.update(
+        n,
+        status="failed",
+        warnings=["an old plain warning", coded],
+        error="no memory",
+        error_code="out_of_memory",
+        error_params={},
+    )
+    run = client.get(f"{RUNS}/{n}").json()
+    assert run["warnings"] == [{"code": "", "params": {}, "message": "an old plain warning"}, coded]
+    assert run["error_code"] == "out_of_memory" and run["error_params"] == {}
+    listed = client.get(RUNS).json()["runs"][0]
+    assert listed["warnings"][1]["code"] == "batch_halved" and listed["error_code"] == "out_of_memory"
