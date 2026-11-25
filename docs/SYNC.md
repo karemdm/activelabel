@@ -110,14 +110,31 @@ Writing: a label with a `track` of the task changes that track (a keyframe on th
 or inserted; CVAT interpolates the frames around it again); a track missing from a frame's labels gets
 an `outside` keyframe there, plus keyframes on the neighbouring frames so they keep their shape;
 labels whose track is gone (or whose class/shape type no longer fits the track) are written as plain
-shapes. Pushing what was read changes nothing. CVAT may assign new track ids when it stores the
-annotations (the PUT carries no ids).
+shapes. Pushing what was read changes nothing. A changed track is sent as an update of that track
+(same id).
 
-After a push, CVAT renumbers the tracks it stores and re-interpolates the frames next to a new
-keyframe. The tasks the push touched are therefore read again, and their tracked frames that had no
-pending change here take the labels CVAT has now (new track ids, re-interpolated boxes), so the next
-comparison has nothing to do. Note that CVAT splits a track at the end of each job: one object that
-crosses jobs has one track id per job.
+After a push, CVAT re-interpolates the frames next to a new keyframe. The tasks the push touched are
+therefore read again, and their tracked frames that had no pending change here take the labels CVAT
+has now (re-interpolated boxes, and a new track id if the server gave one), so the next comparison has
+nothing to do. Note that CVAT splits a track at the end of each job: one object that crosses jobs has
+one track id per job.
+
+## What a push sends to CVAT
+
+A push never replaces the annotations of a task. For each task it reads the annotations, works out
+the differences on the frames being pushed and sends them as `PATCH /api/tasks/{id}/annotations` with
+`action=delete`, then `update`, then `create` (only the non-empty ones):
+
+- a shape that matches a label (same class, type and geometry within the tolerance) is not sent: it
+  keeps its id, attributes, `occluded`, `z_order`, `group`, rotation and source;
+- an edited label takes the old shape of the same class and type it overlaps most (IoU of their boxes
+  above 0.5): that shape is **updated** with the new points and keeps its id and everything else;
+- a shape left without a label is deleted, and a label left without a shape is created with CVAT's
+  defaults (no attributes);
+- only objects read just before can be deleted: what someone draws in CVAT meanwhile, on any frame,
+  stays; shapes of types ActiveLabel does not convert, and frames that are not pushed, are never sent.
+
+A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 
 ## HTTP API
 

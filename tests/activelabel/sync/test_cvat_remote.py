@@ -17,7 +17,7 @@ from activelabel.importing import cvat_import
 from activelabel.labels import Label
 from activelabel.projects import Project
 from activelabel.sync import cvat_remote, links
-from activelabel.sync.cvat_remote import CvatRemote, _meta_frames, _without_ids
+from activelabel.sync.cvat_remote import CvatRemote, _meta_frames
 from activelabel.tasks import Task
 
 SETTINGS = ToolSettings("cvat", "https://cvat.test/", "ana", "s3cret-pw")
@@ -121,7 +121,11 @@ class FakeCvat:
             return r
 
         def ann(kw: dict[str, Any], t: str) -> Resp:
-            return Resp(200, copy.deepcopy(self.tasks[int(t)]["ann"]))
+            stored = self.tasks[int(t)]["ann"]
+            for kind in ("tags", "shapes", "tracks"):  # CVAT gives every stored object an id
+                for item in stored.get(kind) or []:
+                    item.setdefault("id", self.new_id())
+            return Resp(200, copy.deepcopy(stored))
 
         return [
             (("GET", r"/api/projects"), self.list_projects),
@@ -137,6 +141,7 @@ class FakeCvat:
             (("GET", r"/api/tasks/(\d+)/data/meta"), meta),
             (("GET", r"/api/tasks/(\d+)/annotations"), ann),
             (("PUT", r"/api/tasks/(\d+)/annotations"), self.put_ann),
+            (("PATCH", r"/api/tasks/(\d+)/annotations"), self.patch_ann),
             (("POST", r"/api/tasks/(\d+)/data"), self.post_data),
             (("POST", r"/api/tasks/(\d+)/backup/export"), backup_export),
             (("GET", r"/api/requests/(bk\w+)"), backup_request),
@@ -189,6 +194,25 @@ class FakeCvat:
 
     def put_ann(self, kw: dict[str, Any], t: str) -> Resp:
         self.tasks[int(t)]["ann"] = copy.deepcopy(kw["json"])
+        return Resp(200, kw["json"])
+
+    def patch_ann(self, kw: dict[str, Any], t: str) -> Resp:
+        """``PATCH ?action=create|update|delete``: objects by id, new ones get an id."""
+        stored = self.tasks[int(t)]["ann"]
+        action = kw["params"]["action"]
+        for kind in ("tags", "shapes", "tracks"):
+            items = copy.deepcopy(kw["json"].get(kind) or [])
+            by_id = {x.get("id"): n for n, x in enumerate(stored[kind])}
+            if action == "create":
+                stored[kind] += [{**x, "id": self.new_id()} for x in items]
+                continue
+            assert all(x.get("id") in by_id for x in items), "unknown id"
+            if action == "delete":
+                gone = {x["id"] for x in items}
+                stored[kind] = [x for x in stored[kind] if x.get("id") not in gone]
+            else:
+                for x in items:
+                    stored[kind][by_id[x["id"]]] = x
         return Resp(200, kw["json"])
 
     def post_data(self, kw: dict[str, Any], t: str) -> Resp:
@@ -388,7 +412,8 @@ def test_write_polygon_keypoints_tag_and_new_class(cvat: FakeCvat) -> None:
     assert shapes["polygon"]["label_id"] == bird
     assert shapes["points"]["points"] == [200.0, 100.0, 0.0, 0.0]
     dog = cvat.label_id(pid, "dog")
-    assert ann["tags"] == [{"frame": 1, "label_id": dog, "group": 0, "source": "manual", "attributes": []}]
+    tags = [{k: v for k, v in t.items() if k != "id"} for t in ann["tags"]]
+    assert tags == [{"frame": 1, "label_id": dog, "group": 0, "source": "manual", "attributes": []}]
 
 
 def test_write_bad_key_and_frame(cvat: FakeCvat) -> None:
@@ -503,13 +528,6 @@ def test_missing_credentials() -> None:
         CvatRemote().get(ToolSettings("cvat", "https://cvat.test", "", ""), "1")
 
 
-def test_put_body_has_no_ids():
-    track = {"id": 7, "label_id": 1, "shapes": [{"id": 9, "frame": 0}], "elements": [{"id": 3, "shapes": []}]}
-    clean = _without_ids(track)
-    assert "id" not in clean and "id" not in clean["shapes"][0] and "id" not in clean["elements"][0]
-    assert track["id"] == 7  # the original is not modified
-
-
 # -- tracks -----------------------------------------------------------------------------------------
 def kf(frame: int, pts: list[float], kind: str = "rectangle", outside: bool = False) -> dict[str, Any]:
     return {
@@ -543,11 +561,6 @@ def tracked(
 
 def read(pid: int, task: Task = Task.DETECTION) -> list[list[Label]]:
     return [i.labels for i in CvatRemote().items(SETTINGS, str(pid), task)]
-
-
-def reid(cvat: FakeCvat, tid: int) -> None:
-    """CVAT hands out ids when it stores a PUT: give the track its id back."""
-    cvat.tasks[tid]["ann"]["tracks"][0]["id"] = 42
 
 
 def test_track_rectangle_is_interpolated_between_keyframes_and_continues(cvat: FakeCvat) -> None:
@@ -595,11 +608,10 @@ def test_write_tracked_edit_on_interpolated_frame_inserts_keyframe(cvat: FakeCva
     edited = [Label("cat", bbox=[0.2, 0.5, 0.1, 0.1], track=42)]
     CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:2": edited})
     (tr,) = cvat.tasks[tid]["ann"]["tracks"]
-    assert "id" not in tr and [s["frame"] for s in tr["shapes"]] == [0, 2, 4]
+    assert tr["id"] == 42 and [s["frame"] for s in tr["shapes"]] == [0, 2, 4]  # updated, same id
     assert tr["shapes"][1]["points"] == pytest.approx([20.0, 50.0, 30.0, 60.0])
     assert tr["shapes"][0]["points"] == [0, 0, 10, 10] and tr["shapes"][2]["points"] == [40, 0, 50, 10]
     assert cvat.tasks[tid]["ann"]["shapes"] == []  # no plain shape was written
-    reid(cvat, tid)
     labels = read(pid)
     assert labels[2][0].bbox == pytest.approx([0.2, 0.5, 0.1, 0.1])
     assert labels[1][0].bbox[1] == pytest.approx(0.25)  # CVAT interpolates towards the new keyframe
@@ -618,7 +630,6 @@ def test_write_removing_tracked_object_adds_outside_and_restore_keyframes(cvat: 
         (4, False),
     ]
     assert tr["shapes"][3]["points"] == pytest.approx([30, 0, 40, 10])
-    reid(cvat, tid)
     after = read(pid)
     assert after[2] == []
     for f in (0, 1, 3, 4, 5):
@@ -655,7 +666,6 @@ def test_read_then_write_every_frame_is_idempotent(cvat: FakeCvat) -> None:
     items = CvatRemote().items(SETTINGS, str(pid), Task.DETECTION)
     CvatRemote().write(SETTINGS, str(pid), project(), {i.key: i.labels for i in items})
     assert [s["frame"] for s in cvat.tasks[tid]["ann"]["tracks"][0]["shapes"]] == [0, 2, 4]
-    reid(cvat, tid)
     after = read(pid)
     assert all(links.same_labels(a, b) for a, b in zip(before, after, strict=True))
     assert cvat.tasks[tid]["ann"]["shapes"] == []
@@ -897,3 +907,52 @@ def test_push_still_removes_a_deleted_box():
     old = {"type": "rectangle", "label_id": 7, "frame": 0, "points": [10, 10, 30, 30]}
     shapes, _ = cvat_remote._merge_frame([old], [], [], {"cat": 7}, 0, (100, 100), Task.DETECTION)
     assert shapes == []
+
+
+# -- differences (PATCH) ------------------------------------------------------------------------------
+def test_write_sends_differences_and_never_a_put(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    frame_ann(cvat, pid, tid)
+    before = {s["id"]: s for s in CvatRemote()._api(SETTINGS).get(f"/api/tasks/{tid}/annotations")["shapes"]}
+    moved = [Label("cat", bbox=[0.11, 0.1, 0.5, 0.5]), Label("dog", bbox=[0.6, 0.6, 0.2, 0.2])]
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": moved})
+    assert not [c for c in cvat.calls if c[0] == "PUT"]
+    actions = [c[2]["params"]["action"] for c in cvat.calls if c[0] == "PATCH" and "annotations" in c[1]]
+    assert actions == ["update", "create"]  # nothing to delete; the cat moved, the dog is new
+    after = {s["id"]: s for s in cvat.tasks[tid]["ann"]["shapes"]}
+    assert set(before) <= set(after)  # every shape keeps its id
+    cat = next(
+        s for s in after.values() if s["type"] == "rectangle" and s["label_id"] == cvat.label_id(pid, "cat")
+    )
+    assert cat["points"] == pytest.approx([22.0, 10.0, 122.0, 60.0]) and cat["attributes"] == [
+        {"spec_id": 1, "value": "red"}
+    ]
+
+
+def test_write_deletes_only_what_it_read(cvat: FakeCvat) -> None:
+    pid, tid = seeded(cvat)
+    CvatRemote().write(SETTINGS, str(pid), project(), {f"{tid}:0": []})
+    (delete,) = [c[2]["json"] for c in cvat.calls if c[0] == "PATCH" and "annotations" in c[1]]
+    assert [s["frame"] for s in delete["shapes"]] == [0] and delete["tracks"] == [] and delete["tags"] == []
+    assert [s["frame"] for s in cvat.tasks[tid]["ann"]["shapes"]] == [1]
+
+
+def test_overlap_needs_the_same_class_and_type() -> None:
+    a = {"type": "rectangle", "label_id": 1, "points": [0, 0, 10, 10]}
+    assert cvat_remote._overlap(a, {**a, "points": [1, 0, 11, 10]}) > 0.8
+    assert cvat_remote._overlap(a, {**a, "label_id": 2}) == 0
+    assert cvat_remote._overlap(a, {**a, "type": "polygon"}) == 0
+    assert cvat_remote._overlap(a, {**a, "points": [50, 50, 60, 60]}) == 0
+    point = {"type": "points", "label_id": 1, "points": [5, 5]}
+    assert cvat_remote._overlap(point, point) == 1  # one point still has an area (one pixel around it)
+
+
+def test_add_delta_sorts_objects_into_actions() -> None:
+    kept, moved, gone = ({"id": n, "points": [n]} for n in (1, 2, 3))
+    patch = cvat_remote._empty_patch()
+    cvat_remote._add_delta(
+        patch, "shapes", [kept, moved, gone], [kept, {**moved, "points": [9]}, {"points": [7]}]
+    )
+    assert patch["update"]["shapes"] == [{"id": 2, "points": [9]}]
+    assert patch["create"]["shapes"] == [{"points": [7]}]
+    assert patch["delete"]["shapes"] == [gone]

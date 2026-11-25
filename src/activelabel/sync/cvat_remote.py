@@ -16,17 +16,22 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
   read nor touched when writing (tracks of those types are kept as they are).
 * Attributes are never invented (CVAT rejects attribute specs of another label): a new shape has none.
 
-What :meth:`CvatRemote.write` touches, exactly. Only the frames it is given; on each of them:
+What :meth:`CvatRemote.write` touches, exactly. Only the frames it is given, and only through
+differences (``PATCH .../annotations?action=delete|update|create``, never a ``PUT`` of the task): every
+object it does not change keeps its id, and only objects it has just read can be deleted. On each frame:
 
 * shapes of the converted types (rectangle, polygon, points) of a known class are compared with the new
   labels by type, class and geometry (:data:`SAME_SHAPE` of the image side). One that matches is kept
-  as CVAT has it, with its attributes, occluded, rotation, group, z_order and source; one that has no
-  match is removed; a new label without a match is added as a fresh shape. In a classification
-  project no shape is converted, so none is touched;
+  as CVAT has it, with its attributes, occluded, rotation, group, z_order and source. A label without
+  such a match takes the old shape of the same class and type it overlaps most (IoU above
+  :data:`MATCH_IOU`): that shape is updated with the new points and keeps its id and everything else.
+  An old shape left without a label is deleted; a label left without a shape is created as a fresh
+  shape. In a classification project no shape is converted, so none is touched;
 * shapes of any other type (or of a class the project does not know) are kept as they are;
 * tags: in a classification project the tags of a known class are matched by class in the same way;
   in the other projects every tag is kept (a label without geometry only adds a tag that is missing);
-* tracks are handled by :func:`_write_tracks`; frames that are not given are not touched.
+* tracks are handled by :func:`_write_tracks` (a changed track is updated, keeping its id); frames
+  that are not given are not touched.
 """
 
 from __future__ import annotations
@@ -541,6 +546,9 @@ def _apply_edits(
 
 
 SAME_SHAPE = links.TOLERANCE  # relative to the image side: shapes closer than this are the same shape
+MATCH_IOU = 0.5  # an edited shape is the old one of the same class and type that overlaps it more than this
+ACTIONS = ("delete", "update", "create")  # order of the PATCH requests of a write
+KINDS = ("tags", "shapes", "tracks")
 
 
 def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> bool:
@@ -562,6 +570,58 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
         return False
     sides = (max(w, 1), max(h, 1))
     return all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True)))
+
+
+def _extent(points: list[float]) -> tuple[float, float, float, float]:
+    """The box ``(x0, y0, x1, y1)`` around flat pixel points, one pixel larger on every side.
+
+    The margin gives a single point or a flat line an area, so it can still overlap its edited self.
+
+    Args:
+        points: Flat ``[x0, y0, x1, y1, ...]`` in pixels (at least one point).
+
+    Returns:
+        The left, top, right and bottom of the box, in pixels.
+    """
+    xs, ys = points[0::2], points[1::2]
+    return min(xs) - 1, min(ys) - 1, max(xs) + 1, max(ys) + 1
+
+
+def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
+    """Intersection over union of the boxes around two shapes of the same type and class (0 otherwise).
+
+    Args:
+        old: A shape CVAT has (points in pixels).
+        new: A shape built from a label (points in pixels).
+
+    Returns:
+        The IoU, from 0 to 1.
+    """
+    if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
+        return 0.0
+    a, b = [float(v) for v in old.get("points") or []], [float(v) for v in new.get("points") or []]
+    if len(a) < 2 or len(b) < 2:
+        return 0.0
+    ax0, ay0, ax1, ay1 = _extent(a)
+    bx0, by0, bx1, by1 = _extent(b)
+    iw, ih = min(ax1, bx1) - max(ax0, bx0), min(ay1, by1) - max(ay0, by0)
+    if iw <= 0 or ih <= 0:
+        return 0.0
+    inter = iw * ih
+    return inter / ((ax1 - ax0) * (ay1 - ay0) + (bx1 - bx0) * (by1 - by0) - inter)
+
+
+def _edited(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """The old shape with the geometry of the new one: id, attributes, occluded, z_order... are kept.
+
+    Args:
+        old: A shape CVAT has.
+        new: The shape built from the edited label.
+
+    Returns:
+        A copy of ``old`` with the points of ``new``.
+    """
+    return {**old, "points": new["points"]}
 
 
 def _visible(task: Task, label: Label) -> bool:
@@ -594,9 +654,12 @@ def _merge_frame(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Shapes and tags of one frame after writing ``labels``: what CVAT has, changed only where needed.
 
-    See the module docstring for what is converted. Unchanged shapes and tags are the old objects. Only
-    shapes the project can see (``task``: boxes for detection, polygons for segmentation, points for
-    keypoints) are matched or removed; the others stay in CVAT as they are.
+    See the module docstring for what is converted. Unchanged shapes and tags are the old objects (the
+    same Python objects). A label is matched first with a shape of the same geometry, else with the
+    old shape of the same class and type it overlaps most (IoU above :data:`MATCH_IOU`): that shape is
+    returned as an edited copy that keeps its id and everything else CVAT has for it. Only shapes the
+    project can see (``task``: boxes for detection, polygons for segmentation, points for keypoints)
+    are matched or removed; the others stay in CVAT as they are.
 
     Args:
         old_shapes: The shapes CVAT has on the frame.
@@ -621,10 +684,21 @@ def _merge_frame(
         converted = shape_to_label(s, "x", w, h) if mine else None
         mine = converted is not None and _visible(task, converted)
         (convertible if mine else kept_shapes).append(s)
+    unmatched: list[dict[str, Any]] = []
     for shape in new_shapes:
         match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h)), None)
-        kept_shapes.append(convertible.pop(match) if match is not None else shape)
-    # what is left in ``convertible`` is gone from the labels: it is not written back
+        if match is None:
+            unmatched.append(shape)
+        else:
+            kept_shapes.append(convertible.pop(match))
+    for shape in unmatched:
+        scores = [_overlap(o, shape) for o in convertible]
+        best = max(range(len(scores)), key=scores.__getitem__, default=None)
+        if best is not None and scores[best] > MATCH_IOU:
+            kept_shapes.append(_edited(convertible.pop(best), shape))
+        else:
+            kept_shapes.append(shape)
+    # what is left in ``convertible`` is gone from the labels: it is deleted
     old_known = [t for t in old_tags if classification and t.get("label_id") in known]
     kept_tags = [t for t in old_tags if not any(t is o for o in old_known)]
     for tag in new_tags:
@@ -634,6 +708,49 @@ def _merge_frame(
         elif not any(o.get("label_id") == tag["label_id"] for o in kept_tags):
             kept_tags.append(tag)
     return kept_shapes, kept_tags
+
+
+def _empty_patch() -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """An empty set of changes: ``{action: {kind: []}}`` for every action and kind.
+
+    Returns:
+        The lists of objects to delete, update and create, per kind (tags, shapes, tracks).
+    """
+    return {action: {kind: [] for kind in KINDS} for action in ACTIONS}
+
+
+def _add_delta(
+    patch: dict[str, dict[str, list[dict[str, Any]]]],
+    kind: str,
+    old: list[dict[str, Any]],
+    new: list[dict[str, Any]],
+) -> None:
+    """Add to ``patch`` what turns ``old`` into ``new`` (objects of one kind on one frame).
+
+    An object of ``new`` that is one of ``old`` (the same Python object) is unchanged; one with the id
+    of an old object is an update; any other is created. Old objects that are neither kept nor updated
+    are deleted: only objects that were read (``old``) can be deleted.
+
+    Args:
+        patch: The changes, see :func:`_empty_patch`; changed in place.
+        kind: ``tags``, ``shapes`` or ``tracks``.
+        old: The objects CVAT has (as read).
+        new: The objects after the write.
+    """
+    kept = {id(x) for x in new}
+    old_ids = {o.get("id") for o in old if o.get("id") is not None}
+    updated: set[Any] = set()
+    for item in new:
+        if any(item is o for o in old):
+            continue
+        if item.get("id") is not None and item["id"] in old_ids:
+            patch["update"][kind].append(item)
+            updated.add(item["id"])
+        else:
+            patch["create"][kind].append(item)
+    for o in old:
+        if id(o) not in kept and (o.get("id") is None or o["id"] not in updated):
+            patch["delete"][kind].append(o)
 
 
 def _audit_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -1153,9 +1270,12 @@ class CvatRemote:
     ) -> None:
         """Write the labels of the updated frames; other frames stay as they are.
 
-        Only what changed is replaced: shapes that match a label keep everything CVAT has for them, and
-        shapes or tags ActiveLabel does not convert are kept (module docstring). Labels with the id of
-        a track of the task go into that track (see :func:`_write_tracks`); the other tracks are kept.
+        Only what changed is sent, as differences (``PATCH .../annotations?action=delete|update|create``):
+        a shape matched with a label keeps its id and everything CVAT has for it (an edited one gets
+        only the new points), shapes or tags ActiveLabel does not convert are kept, and only objects
+        read just before can be deleted, so what someone draws in CVAT meanwhile stays (module
+        docstring). Labels with the id of a track of the task go into that track (see
+        :func:`_write_tracks`), which is updated in place; the other tracks are not sent.
 
         Args:
             settings: Address and login of the CVAT server.
@@ -1179,32 +1299,46 @@ class CvatRemote:
                 if not 0 <= frame < len(frames):
                     raise ToolError(f"CVAT task {tid} has no frame {frame}: synchronise again.")
             ann = api.get(f"/api/tasks/{tid}/annotations") or {}
-            shapes = [s for s in ann.get("shapes") or [] if s.get("frame") not in per]
-            tags = [t for t in ann.get("tags") or [] if t.get("frame") not in per]
-            tracks = copy.deepcopy(ann.get("tracks") or [])
-            classification = project.task is Task.CLASSIFICATION
-            if not classification:
+            patch = _empty_patch()
+            old_tracks = ann.get("tracks") or []
+            tracks = copy.deepcopy(old_tracks)
+            if project.task is not Task.CLASSIFICATION:
                 per = _write_tracks(tracks, per, ids, frames)
+            patch["update"]["tracks"] = [
+                new for new, old in zip(tracks, old_tracks, strict=True) if new != old
+            ]
             for frame, labels in per.items():
                 size = (int(frames[frame]["width"]), int(frames[frame]["height"]))
+                old_shapes = [s for s in ann.get("shapes") or [] if s.get("frame") == frame]
+                old_tags = [t for t in ann.get("tags") or [] if t.get("frame") == frame]
                 new_shapes, new_tags = _merge_frame(
-                    [s for s in ann.get("shapes") or [] if s.get("frame") == frame],
-                    [t for t in ann.get("tags") or [] if t.get("frame") == frame],
-                    labels,
-                    ids,
-                    frame,
-                    size,
-                    project.task,
+                    old_shapes, old_tags, labels, ids, frame, size, project.task
                 )
-                shapes += new_shapes
-                tags += new_tags
-            body = {
-                "version": ann.get("version", 0),
-                "tags": [_without_ids(t) for t in tags],
-                "shapes": [_without_ids(sh) for sh in shapes],
-                "tracks": [_without_ids(tr) for tr in tracks],
-            }
-            api.request("PUT", f"/api/tasks/{tid}/annotations", json=body)
+                _add_delta(patch, "shapes", old_shapes, new_shapes)
+                _add_delta(patch, "tags", old_tags, new_tags)
+            self._send_patch(api, tid, patch, int(ann.get("version") or 0))
+
+    @staticmethod
+    def _send_patch(
+        api: _Api, tid: int, patch: dict[str, dict[str, list[dict[str, Any]]]], version: int
+    ) -> None:
+        """Send the changes of a task: one ``PATCH`` per action that has something (delete, update, create).
+
+        Args:
+            api: The REST client.
+            tid: The CVAT task id.
+            patch: The objects to delete, update and create, see :func:`_empty_patch`.
+            version: The ``version`` of the annotations as read.
+        """
+        for action in ACTIONS:
+            body = patch[action]
+            if any(body[kind] for kind in KINDS):
+                api.request(
+                    "PATCH",
+                    f"/api/tasks/{tid}/annotations",
+                    params={"action": action},
+                    json={"version": version, **body},
+                )
 
     # -- add --
     def add(
@@ -1502,20 +1636,3 @@ class CvatRemote:
                 return
             _sleep(POLL_INTERVAL)
         raise ToolError("CVAT took too long to process the uploaded images: try again later.")
-
-
-def _without_ids(item: dict[str, Any]) -> dict[str, Any]:
-    """Copy of a CVAT annotation without ids (a PUT replaces everything and rejects existing ids).
-
-    Args:
-        item: A CVAT shape, tag or track (tracks bring their shapes and elements along).
-
-    Returns:
-        The copy without ``id``, also in the shapes and elements of a track.
-    """
-    out = {k: v for k, v in item.items() if k != "id"}
-    if isinstance(out.get("shapes"), list):  # the shapes of a track
-        out["shapes"] = [{k: v for k, v in sh.items() if k != "id"} for sh in out["shapes"]]
-    if isinstance(out.get("elements"), list):  # skeleton parts
-        out["elements"] = [_without_ids(el) for el in out["elements"]]
-    return out

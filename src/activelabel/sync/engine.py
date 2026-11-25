@@ -1000,8 +1000,8 @@ def apply_plan(
             deleted_tasks += 1
             tmap.pop(str(spec["task"]), None)
 
-    # Writing tracked objects makes the tool re-interpolate their neighbouring frames and renumber
-    # the tracks: read the touched tasks again and take their tracked frames as they are now
+    # Writing tracked objects makes the tool re-interpolate their neighbouring frames (and a tool may
+    # give a track a new id): read the touched tasks again and take their tracked frames as they are now
     refreshed = _refresh_tracked(
         remote, settings, rid, project, decisions, push_ids, items, local, pull_ids, final_action
     )
