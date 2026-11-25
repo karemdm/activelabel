@@ -38,7 +38,7 @@ Never point a development server at a workspace that holds data you care about.
 | Format | `python -m ruff format .` (CI runs `--check`) |
 | Types | `python -m mypy` (reads `src`; function signatures must be typed) |
 | Fast tests | `python -m pytest -q -m "not integration"` |
-| FiftyOne tests | `python -m pytest -q -m integration` (starts FiftyOne's database; slow) |
+| FiftyOne tests | `python -m pytest -q -m integration` (starts a database of the tests' own; slow) |
 | One file | `python -m pytest tests/activelabel/test_datasets.py -q` |
 
 `pre-commit` runs ruff, mypy and the fast tests on every commit; CI (`.github/workflows/ci.yml`) runs the
@@ -160,6 +160,13 @@ flowchart TB
   workspace; use them for endpoint tests rather than starting a server. `tests/helpers/` also has fakes
   for CVAT (`sync_fakes.py`, `import_fakes.py`), the training runner (`training_fakes.py`)
   and builders for images, videos and annotation files.
-- Tests that need FiftyOne are marked `integration` and are left out of the fast run.
+- Tests that need FiftyOne are marked `integration` and are left out of the fast run. They never use your own
+  FiftyOne data: `tests/conftest.py` starts a `mongod` of the tests' own (FiftyOne's binary, a temporary folder,
+  a free port) and sets `FIFTYONE_DATABASE_URI`, because without a URI FiftyOne attaches to any FiftyOne
+  database service already running (for example the one of your ActiveLabel), whatever
+  `FIFTYONE_DATABASE_DIR` says. The run stops before any test when the settings could reach another database
+  (on CI the job's own MongoDB service is used).
+- For manual or browser tests, start a server with `python tests/helpers/isolated_server.py --port <port>
+  --workspace <folder>`: it gets its own database and workspace and refuses the ports of your own servers.
 - For interface changes, run your own server on a free port and a scratch workspace, and click through
   the screens in both languages and both themes at desktop and phone widths before calling it done.
