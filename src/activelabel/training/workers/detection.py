@@ -10,7 +10,8 @@ relative coordinates (ActiveLabel labels, ``labels.py``); ``label`` is the 0-bas
 gets class + 1,
 0 being the background). An image without objects is a background image (an empty target).
 
-Output: one JSON object per line on stdout (``log``, ``progress``, ``epoch``, ``done``, ``error``).
+Output: one JSON object per line on stdout (``log``, ``warning``, ``setup``, ``progress``, ``epoch``,
+``done``, ``error``).
 Files written to ``output_dir``: ``best.pt``, ``last.pt``, ``results.json``.
 """
 
@@ -63,7 +64,7 @@ def emit(event: str, **fields: Any) -> None:
     """Print one event line.
 
     Args:
-        event: Event name (``log``, ``progress``, ``epoch``, ``done`` or ``error``).
+        event: Event name (``log``, ``warning``, ``setup``, ``progress``, ``epoch``, ``done`` or ``error``).
         **fields: Extra fields of the JSON object.
     """
     print(json.dumps({"event": event, **fields}), flush=True)
@@ -810,6 +811,7 @@ def train_epoch(
     torch: Any,
     schedule: Any = None,
     on_step: Any = None,
+    precision: Any = None,
 ) -> float:
     """One training pass; returns the mean of the summed model losses per image batch.
 
@@ -821,6 +823,7 @@ def train_epoch(
         torch: The torch module.
         schedule: The learning rate schedule (``options.LrSchedule``), advanced before each step.
         on_step: Called with ``(step, steps)`` after each batch (optional).
+        precision: Mixed precision of the steps (``options.Precision``); float32 by default.
 
     Returns:
         The mean loss per batch.
@@ -830,17 +833,15 @@ def train_epoch(
     """
     total, count = 0.0, 0
     steps = len(loader)
+    amp = precision or options.Precision(False)
     for step, (images, targets) in enumerate(loader, start=1):
         if schedule is not None:
             schedule.advance()
         images = [i.to(device) for i in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        loss = sum(model(images, targets).values())
-        if not torch.isfinite(loss):
-            raise RuntimeError("The loss is not finite: try a lower learning rate.")
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        with amp.autocast():
+            loss = sum(model(images, targets).values())
+        amp.step(loss, optimizer)
         total += float(loss)
         count += 1
         if on_step:
@@ -1039,6 +1040,11 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     seed_everything(int(spec.get("seed", p["seed"])), torch)
     device = pick_device(torch)
     emit("log", message=f"Device: {device}. {split_note(spec)}")
+    use_amp, amp_note = options.amp_enabled(str(p["amp"]), device)
+    if amp_note:
+        emit("warning", message=amp_note)
+    precision = options.Precision(use_amp)
+    emit("setup", device=device, amp=use_amp)
     batch, keypoints = int(p["batch_size"]), int(spec.get("num_keypoints") or 0)
     techniques = spec["augmentations"]
     augment.check_objects(techniques)
@@ -1085,7 +1091,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
         model.train()
         on_step = partial(report_step, epoch, epochs)
-        train_loss = train_epoch(model, train_loader, optimizer, device, torch, schedule, on_step)
+        train_loss = train_epoch(model, train_loader, optimizer, device, torch, schedule, on_step, precision)
         scores = evaluate(model, val_loader, spec, device, torch)
         schedule.end_epoch(scores[metric])
         ran = epoch

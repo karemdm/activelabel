@@ -1517,7 +1517,8 @@ class TrainingRunner:
             progress: progress handle of the job.
             log: open log file.
             metric_key: key of the selection metric in ``epoch`` events.
-            state: mutable state of the process (``results``, ``error``, ``last`` write time, ``warnings``).
+            state: mutable state of the process (``results``, ``error``, ``last`` write time, ``warnings``,
+                ``setup``: what the worker reported about how it trains, kept as ``setup`` in the status).
         """
         if not text.strip():
             return
@@ -1561,6 +1562,11 @@ class TrainingRunner:
             target.update(**fields)
             progress.update(done=row.get("epoch", 0))
             log.write(text + "\n")
+            log.flush()
+        elif kind == "setup":
+            state["setup"] = {**state.get("setup", {}), **{k: v for k, v in event.items() if k != "event"}}
+            target.update(setup=dict(state["setup"]))
+            log.write("setup: " + json.dumps(state["setup"]) + "\n")
             log.flush()
         elif kind == "done":
             state["results"] = event.get("results")
