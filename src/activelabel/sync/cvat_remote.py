@@ -33,8 +33,9 @@ What :meth:`CvatRemote.write` touches, exactly. Only the frames it is given, and
 differences (``PATCH .../annotations?action=delete|update|create``, never a ``PUT`` of the task): every
 object it does not change keeps its id, and only objects it has just read can be deleted. On each frame:
 
-* shapes of the converted types (rectangle, polygon, points) of a known class are compared with the new
-  labels by type, class and geometry (:data:`SAME_SHAPE` of the image side). One that matches is kept
+* shapes of the converted types (rectangle, polygon, points; skeletons in keypoints projects) of a known
+  class are compared with the new labels by type, class and geometry (:data:`SAME_SHAPE` of the image
+  side; points and skeletons also by visibility). One that matches is kept
   as CVAT has it, with its attributes, occluded, rotation, group, z_order and source. A label without
   such a match takes the old shape of the same class and type it overlaps most (IoU above
   :data:`MATCH_IOU`): that shape is updated with the new points and keeps its id and everything else.
