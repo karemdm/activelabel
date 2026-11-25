@@ -156,6 +156,26 @@ def _clean(project: Project, labels: list[Label]) -> list[Label]:
     return diffing.clean_labels(project, labels)[0]
 
 
+def _theirs(
+    project: Project, labels: list[Label], mine: list[Label], base: list[Label] | None
+) -> list[Label]:
+    """The labels read from the tool, cleaned, as this project compares them.
+
+    Pose objects whose points did not change take the box this side has for them (the tool may have no
+    box for a pose, see :func:`links.carry_pose_boxes`): the project's box first, then the last sync's.
+
+    Args:
+        project: The project whose classes and task apply.
+        labels: The labels of the item in the tool.
+        mine: The labels of the image in the project.
+        base: The labels at the last synchronisation, or None when unknown.
+
+    Returns:
+        The cleaned labels, with the boxes of unchanged poses carried over.
+    """
+    return links.carry_pose_boxes([*mine, *(base or [])], _clean(project, labels))
+
+
 def _local_labels(project_dir: Path) -> dict[str, list[Label]]:
     """Labels of the project by image id.
 
@@ -529,8 +549,8 @@ def make_plan(
         there = item is not None
         base_removed = bool((entry or {}).get("removed"))
         mine = local.get(image_id, []) if rec is not None else []
-        theirs = _clean(project, item.labels) if item is not None else []
         base = links.base_labels(entry) if entry else None
+        theirs = _theirs(project, item.labels, mine, base) if item is not None else []
         kind = ""
         if here and there:
             action = _decide(None if base_removed else entry, mine, theirs)
@@ -786,6 +806,7 @@ def _check_unchanged(
     local: dict[str, list[Label]],
     records: dict[str, ImageRecord],
     ids: list[str],
+    link_items: dict[str, dict[str, Any]],
 ) -> None:
     """Check that the images to carry out still match the plan (nothing changed on either side).
 
@@ -796,6 +817,7 @@ def _check_unchanged(
         local: The labels of the project now, by image id.
         records: Every image of the project by id.
         ids: Ids of the images to check.
+        link_items: The ``items`` of the link (labels at the last sync), as when the plan was made.
 
     Raises:
         RemoteChanged: the item or the image changed or appeared / disappeared since the plan.
@@ -805,9 +827,16 @@ def _check_unchanged(
         item = current.get(d["key"])
         if (item is not None) != d.get("there", item is not None):
             raise RemoteChanged(CHANGED_REMOTE)
-        if item is not None and links.label_hash(_clean(project, item.labels)) != d["remote_hash"]:
-            raise RemoteChanged(CHANGED_REMOTE)
         rec = records.get(image_id)
+        mine = local.get(image_id, []) if rec is not None else []
+        entry = link_items.get(image_id)
+        theirs = (
+            _theirs(project, item.labels, mine, links.base_labels(entry) if entry else None)
+            if item is not None
+            else []
+        )
+        if item is not None and links.label_hash(theirs) != d["remote_hash"]:
+            raise RemoteChanged(CHANGED_REMOTE)
         here = rec is not None and rec.status == ACTIVE
         if here != d.get("here", here):
             raise RemoteChanged(CHANGED_LOCAL)
@@ -916,7 +945,8 @@ def apply_plan(
         if wanted:
             current = {it.key: it for it in remote.items(settings, rid, project.task, wanted)}
     checked = [i for i, a in final_action.items() if a not in (SAME, GONE, ADD)]
-    _check_unchanged(decisions, current, project, local, records, checked)
+    link_now = links.get_link(project_dir, tool) or {}
+    _check_unchanged(decisions, current, project, local, records, checked, link_now.get("items", {}))
     dropping = _safe_drops(remote, settings, plan, decisions, final_action, delete_tasks, warnings)
     for image_id in _ids_of(final_action, ADD):
         if (
@@ -1204,8 +1234,8 @@ def _refresh_tracked(
         item = fresh.get(key)
         if item is None:
             continue
-        theirs = _clean(project, item.labels)
         mine = local.get(image_id, [])
+        theirs = _theirs(project, item.labels, mine, links.base_labels(entry))
         if not any(lb.track is not None for lb in [*mine, *theirs]):
             continue
         unchanged_here = image_id in pushed or links.same_labels(mine, links.base_labels(entry) or [])

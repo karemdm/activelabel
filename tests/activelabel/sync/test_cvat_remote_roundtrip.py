@@ -817,7 +817,6 @@ def test_push_local_edits_keypoints(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert plan(env)["pull"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="#363")
 def test_defect_keypoint_visibility_one_is_lost_in_the_round_trip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -830,7 +829,6 @@ def test_defect_keypoint_visibility_one_is_lost_in_the_round_trip(
     assert [k[2] for k in local(env, 0)[0].keypoints] == [2.0, 1.0, 2.0]
 
 
-@pytest.mark.xfail(strict=True, reason="#363")
 def test_defect_keypoint_bbox_of_the_project_is_replaced_by_the_points_box(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

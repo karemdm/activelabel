@@ -10,6 +10,10 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
   :func:`enclosing_box`); polygon -> polygon ring + bbox; points -> one keypoints object (all the points
   of the shape; a point at the top-left corner is "not labeled", as in ``cvat_tool``) + bbox; tag ->
   image class (classification projects only).
+* Visibility of keypoints: CVAT has one ``occluded`` flag per points shape. A pose whose labeled points
+  are all "labeled but not visible" (1) is an occluded shape; a pose that mixes 1 and 2 keeps the
+  visibility of every point in the text attribute :data:`VISIBILITY` of its label (``"2,1,0"``), added
+  to that CVAT label the first time it is needed (see :func:`visibility_of`).
 * *Tracks* (interpolation mode) become one label per visible frame with ``Label.track`` = the CVAT
   track id (see :func:`track_frames` for how the frames between keyframes are filled, and
   :func:`_write_tracks` for how edits go back into the tracks).
@@ -277,14 +281,104 @@ def _seen_points(shape: dict[str, Any]) -> list[float]:
     return pts
 
 
-def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | None:
+VISIBILITY = "visibility"  # text attribute of a CVAT label: the visibility of each point of a pose
+
+
+def _visibility_spec() -> dict[str, Any]:
+    """The attribute spec :data:`VISIBILITY` added to a CVAT label that needs it (a mutable text).
+
+    Returns:
+        The attribute as CVAT takes it in the ``attributes`` of a label.
+    """
+    return {"name": VISIBILITY, "mutable": True, "input_type": "text", "default_value": "", "values": [""]}
+
+
+def visibility_specs(rows: list[dict[str, Any]]) -> dict[int, int]:
+    """The id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
+
+    Args:
+        rows: Labels as ``GET /api/labels`` lists them (with their ``attributes``).
+
+    Returns:
+        ``{label id: attribute spec id}``.
+    """
+    out: dict[int, int] = {}
+    for row in rows:
+        for attr in row.get("attributes") or []:
+            if attr.get("name") == VISIBILITY and attr.get("id") is not None:
+                out[int(row["id"])] = int(attr["id"])
+    return out
+
+
+def _mixed(label: Label) -> bool:
+    """Whether a pose has labeled points of both visibilities (1 and 2): only an attribute keeps that.
+
+    Args:
+        label: A label.
+
+    Returns:
+        True when its labeled points are not all of the same visibility.
+    """
+    seen = {kp[2] if len(kp) > 2 else 2.0 for kp in label.keypoints or [] if len(kp) <= 2 or kp[2] > 0}
+    return len(seen) > 1
+
+
+def visibility_of(shape: dict[str, Any], count: int, spec: int | None) -> list[float]:
+    """Visibility of each point of a CVAT points shape (before "not labeled" corners are applied).
+
+    ``occluded`` makes every point 1. Otherwise the :data:`VISIBILITY` attribute gives one value per
+    point (any other text, or a value for another number of points, is ignored); without it every
+    point is 2.
+
+    Args:
+        shape: A CVAT points shape (or track keyframe).
+        count: Number of points of the shape.
+        spec: Id of the :data:`VISIBILITY` attribute of the shape's label, or None when it has none.
+
+    Returns:
+        ``count`` values, each 1 or 2.
+    """
+    if shape.get("occluded"):
+        return [1.0] * count
+    text = next(
+        (str(a.get("value", "")) for a in shape.get("attributes") or [] if a.get("spec_id") == spec), ""
+    )
+    parts = [x.strip() for x in text.split(",")] if spec is not None and text else []
+    if len(parts) == count and all(x in ("0", "1", "2") for x in parts):
+        return [1.0 if x == "1" else 2.0 for x in parts]
+    return [2.0] * count
+
+
+def _visibility_attrs(label: Label, spec: int | None) -> tuple[bool, list[dict[str, Any]]]:
+    """``(occluded, attributes)`` of the CVAT points shape of a pose label.
+
+    Args:
+        label: A pose label.
+        spec: Id of the :data:`VISIBILITY` attribute of its CVAT label, or None when it has none.
+
+    Returns:
+        Occluded when every labeled point is 1; the :data:`VISIBILITY` value when they are mixed (and the
+        label has the attribute); else not occluded and no attribute.
+    """
+    kps = label.keypoints or []
+    labeled = [kp[2] for kp in kps if len(kp) > 2 and kp[2] > 0]
+    if labeled and all(v == 1 for v in labeled):
+        return True, []
+    if _mixed(label) and spec is not None:
+        value = ",".join(str(int(kp[2])) if len(kp) > 2 else "2" for kp in kps)
+        return False, [{"spec_id": spec, "value": value}]
+    return False, []
+
+
+def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int, spec: int | None = None) -> Label | None:
     """One CVAT shape -> internal label (None for unsupported types).
 
     Args:
-        shape: A CVAT shape (``type``, ``points`` in pixels, ``occluded``).
+        shape: A CVAT shape (``type``, ``points`` in pixels, ``occluded``, ``attributes``).
         name: The class name to give the label.
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
+        spec: Id of the :data:`VISIBILITY` attribute of the shape's label (points), or None.
 
     Returns:
         The label with relative 0..1 geometry, or None for a type that is not converted or too few points.
@@ -300,10 +394,10 @@ def shape_to_label(shape: dict[str, Any], name: str, w: int, h: int) -> Label | 
     if kind == "polygon" and len(pts) >= 6:
         return Label(name, bbox=_box(xs, ys), polygons=[[[x, y] for x, y in zip(xs, ys, strict=True)]])
     if kind == "points" and len(pts) >= 2:
-        vis = 1.0 if shape.get("occluded") else 2.0
+        vis = visibility_of(shape, len(xs), spec)
         kps = [
-            [0.0, 0.0, 0.0] if (px, py) == MISSING_CORNER else [x, y, vis]
-            for px, py, x, y in zip(pts[0::2], pts[1::2], xs, ys, strict=True)
+            [0.0, 0.0, 0.0] if (px, py) == MISSING_CORNER else [x, y, v]
+            for px, py, x, y, v in zip(pts[0::2], pts[1::2], xs, ys, vis, strict=True)
         ]
         seen = [k for k in kps if k[2]]
         box = _box([k[0] for k in seen], [k[1] for k in seen]) if seen else [0.0, 0.0, 0.0, 0.0]
@@ -339,7 +433,12 @@ def _shape_payload(kind: str, frame: int, label_id: int, points: list[float]) ->
 
 
 def labels_to_cvat(
-    labels: list[Label], ids: dict[str, int], frame: int, w: int, h: int
+    labels: list[Label],
+    ids: dict[str, int],
+    frame: int,
+    w: int,
+    h: int,
+    specs: dict[int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped).
 
@@ -349,6 +448,8 @@ def labels_to_cvat(
         frame: Index of the frame in the task.
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
+        specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one (poses that mix
+            visibilities 1 and 2 need it, see :func:`_visibility_attrs`).
 
     Returns:
         The CVAT shapes and the CVAT tags (labels without geometry) of the frame.
@@ -371,7 +472,10 @@ def labels_to_cvat(
             for kp in lb.keypoints:
                 missing = len(kp) > 2 and kp[2] <= 0
                 flat += list(MISSING_CORNER) if missing else [kp[0] * w, kp[1] * h]
-            shapes.append(_shape_payload("points", frame, lid, flat))
+            occluded, attributes = _visibility_attrs(lb, (specs or {}).get(lid))
+            shapes.append(
+                {**_shape_payload("points", frame, lid, flat), "occluded": occluded, "attributes": attributes}
+            )
         elif lb.bbox:
             x, y, bw, bh = lb.bbox
             shapes.append(_shape_payload("rectangle", frame, lid, [x * w, y * h, (x + bw) * w, (y + bh) * h]))
@@ -519,6 +623,7 @@ def _write_tracks(
     per: dict[int, list[Label]],
     ids: dict[str, int],
     frames: list[dict[str, Any]],
+    specs: dict[int, int] | None = None,
 ) -> dict[int, list[Label]]:
     """Write the tracked labels of the updated frames into ``tracks`` (in place).
 
@@ -527,6 +632,7 @@ def _write_tracks(
         per: The new labels of each updated frame, by frame index.
         ids: CVAT label id of each class name.
         frames: The frames of the task (``width`` and ``height`` in pixels), see :func:`_meta_frames`.
+        specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
 
     Returns:
         The labels of every updated frame that are left to write as plain shapes (no track, a track
@@ -555,7 +661,7 @@ def _write_tracks(
         rest: list[Label] = []
         for lb in labels:
             found = info.get(lb.track) if lb.track is not None and lb.track not in attached else None
-            shapes = labels_to_cvat([lb], ids, frame, w, h)[0] if found else []
+            shapes = labels_to_cvat([lb], ids, frame, w, h, specs)[0] if found else []
             if found is None or not shapes:
                 rest.append(lb)
                 continue
@@ -565,7 +671,8 @@ def _write_tracks(
                 continue
             attached.add(lb.track)
             current = shown.get(frame)
-            old = shape_to_label(current[0], lb.label, w, h) if current else None
+            spec = (specs or {}).get(tr["label_id"])
+            old = shape_to_label(current[0], lb.label, w, h, spec) if current else None
             if old is None or not _same_geometry(old, lb):
                 edits[lb.track][frame] = {k: v for k, v in shapes[0].items() if k not in _NOT_TRACK_FIELDS}
         plain[frame] = rest
@@ -614,7 +721,7 @@ ACTIONS = ("delete", "update", "create")  # order of the PATCH requests of a wri
 KINDS = ("tags", "shapes", "tracks")
 
 
-def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> bool:
+def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int, spec: int | None = None) -> bool:
     """Whether a shape CVAT has and a shape built from a label are the same (type, class, geometry).
 
     Args:
@@ -622,10 +729,12 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
         new: A shape built from a label (points in pixels).
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
+        spec: Id of the :data:`VISIBILITY` attribute of the label, or None.
 
     Returns:
         True when type and class match and every coordinate differs by at most ``SAME_SHAPE`` of the side
-        (a turned rectangle is compared by its enclosing box, which is what the project has of it).
+        (a turned rectangle is compared by its enclosing box, which is what the project has of it); points
+        must also have the same visibility (:func:`visibility_of`).
     """
     if old.get("type") != new.get("type") or old.get("label_id") != new.get("label_id"):
         return False
@@ -633,7 +742,10 @@ def _same_shape(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> boo
     if len(a) != len(b):
         return False
     sides = (max(w, 1), max(h, 1))
-    return all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True)))
+    if not all(abs(p - q) / sides[i % 2] <= SAME_SHAPE for i, (p, q) in enumerate(zip(a, b, strict=True))):
+        return False
+    count = len(a) // 2
+    return old.get("type") != "points" or visibility_of(old, count, spec) == visibility_of(new, count, spec)
 
 
 def _extent(points: list[float]) -> tuple[float, float, float, float]:
@@ -677,22 +789,36 @@ def _overlap(old: dict[str, Any], new: dict[str, Any]) -> float:
     return inter / ((ax1 - ax0) * (ay1 - ay0) + (bx1 - bx0) * (by1 - by0) - inter)
 
 
-def _edited(old: dict[str, Any], new: dict[str, Any], w: int, h: int) -> dict[str, Any]:
+def _edited(
+    old: dict[str, Any], new: dict[str, Any], w: int, h: int, spec: int | None = None
+) -> dict[str, Any]:
     """The old shape with the geometry of the new one: id, attributes, occluded, z_order... are kept.
 
-    A turned rectangle whose enclosing box was only moved (same size within :data:`SAME_SHAPE`) is moved
-    and keeps its turn. When the box was resized there is no honest way to turn it back: the rectangle
-    becomes the new axis-aligned box (``rotation`` 0), which is what the person drew.
+    Points also take the visibility of the new shape (``occluded`` and the :data:`VISIBILITY` attribute;
+    the other attributes are kept). A turned rectangle whose enclosing box was only moved (same size
+    within :data:`SAME_SHAPE`) is moved and keeps its turn. When the box was resized there is no honest
+    way to turn it back: the rectangle becomes the new axis-aligned box (``rotation`` 0), which is what
+    the person drew.
 
     Args:
         old: A shape CVAT has.
         new: The shape built from the edited label.
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
+        spec: Id of the :data:`VISIBILITY` attribute of the label, or None.
 
     Returns:
         A copy of ``old`` with the geometry of ``new``.
     """
+    if old.get("type") == "points":
+        others = [a for a in old.get("attributes") or [] if spec is None or a.get("spec_id") != spec]
+        mine = [a for a in new.get("attributes") or [] if spec is not None and a.get("spec_id") == spec]
+        return {
+            **old,
+            "points": new["points"],
+            "occluded": bool(new.get("occluded")),
+            "attributes": others + mine,
+        }
     if old.get("type") != "rectangle" or not old.get("rotation"):
         return {**old, "points": new["points"]}
     seen, box = _seen_points(old), [float(v) for v in new["points"]]
@@ -732,6 +858,7 @@ def _merge_frame(
     frame: int,
     size: tuple[int, int],
     task: Task,
+    specs: dict[int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Shapes and tags of one frame after writing ``labels``: what CVAT has, changed only where needed.
 
@@ -750,13 +877,15 @@ def _merge_frame(
         frame: Index of the frame in the task.
         size: ``(width, height)`` of the frame in pixels.
         task: The task type of the project.
+        specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
 
     Returns:
         The shapes and the tags the frame has after the write.
     """
     classification = task is Task.CLASSIFICATION
     w, h = size
-    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h)
+    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs)
+    vis = specs or {}
     known = set(ids.values())
     kept_shapes: list[dict[str, Any]] = []
     convertible: list[dict[str, Any]] = []
@@ -767,7 +896,8 @@ def _merge_frame(
         (convertible if mine else kept_shapes).append(s)
     unmatched: list[dict[str, Any]] = []
     for shape in new_shapes:
-        match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h)), None)
+        spec = vis.get(shape["label_id"])
+        match = next((i for i, o in enumerate(convertible) if _same_shape(o, shape, w, h, spec)), None)
         if match is None:
             unmatched.append(shape)
         else:
@@ -776,7 +906,7 @@ def _merge_frame(
         scores = [_overlap(o, shape) for o in convertible]
         best = max(range(len(scores)), key=scores.__getitem__, default=None)
         if best is not None and scores[best] > MATCH_IOU:
-            kept_shapes.append(_edited(convertible.pop(best), shape, w, h))
+            kept_shapes.append(_edited(convertible.pop(best), shape, w, h, vis.get(shape["label_id"])))
         else:
             kept_shapes.append(shape)
     # what is left in ``convertible`` is gone from the labels: it is deleted
@@ -1114,7 +1244,49 @@ class CvatRemote:
         )
 
     @staticmethod
-    def _labels(api: _Api, rid: str) -> dict[str, int]:
+    def _label_rows(api: _Api, rid: str) -> list[dict[str, Any]]:
+        """Every label of a project as CVAT lists it (sublabels of skeletons included).
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+
+        Returns:
+            The labels (``id``, ``name``, ``type``, ``attributes``, ``parent_id`` ...).
+        """
+        return list(api.paged("/api/labels", {"project_id": rid}, ALL))
+
+    def _pose_specs(self, api: _Api, rid: str, ids: dict[str, int], labels: list[Label]) -> dict[int, int]:
+        """The :data:`VISIBILITY` attribute of each label, added first to the labels that need it.
+
+        A label needs it when one of ``labels`` of its class mixes visibilities 1 and 2 (the attribute is
+        added to that CVAT label with ``PATCH /api/projects/{id}``; the others are not touched).
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+            ids: CVAT label id of each class name.
+            labels: The labels about to be written.
+
+        Returns:
+            ``{label id: attribute spec id}``; empty when no label is a pose.
+        """
+        if not any(lb.keypoints for lb in labels):
+            return {}
+        rows = self._label_rows(api, rid)
+        specs = visibility_specs(rows)
+        names = {int(r["id"]): str(r.get("name", "")) for r in rows}
+        need = sorted({ids[lb.label] for lb in labels if _mixed(lb) and lb.label in ids} - set(specs))
+        if need:
+            body = [
+                {"id": lid, "name": names.get(lid, ""), "attributes": [_visibility_spec()]} for lid in need
+            ]
+            api.request("PATCH", f"/api/projects/{rid}", json={"labels": body})
+            specs = visibility_specs(self._label_rows(api, rid))
+        return specs
+
+    @classmethod
+    def _labels(cls, api: _Api, rid: str) -> dict[str, int]:
         """The top-level labels of a project.
 
         Args:
@@ -1124,7 +1296,7 @@ class CvatRemote:
         Returns:
             The CVAT label id of each class name.
         """
-        found = api.paged("/api/labels", {"project_id": rid}, ALL)
+        found = cls._label_rows(api, rid)
         out: dict[str, int] = {}
         for x in found:
             if x.get("name") and not x.get("parent_id"):
@@ -1284,7 +1456,9 @@ class CvatRemote:
             One item per frame that is not deleted, keyed ``"<task_id>:<frame>"``, relative 0..1 labels.
         """
         api = self._api(settings)
-        names = {i: n for n, i in self._labels(api, remote_id).items()}
+        rows = self._label_rows(api, remote_id)
+        names = {int(r["id"]): str(r["name"]) for r in rows if r.get("name") and not r.get("parent_id")}
+        specs = visibility_specs(rows)
         out: list[RemoteItem] = []
         for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
             tid = t["id"]
@@ -1298,7 +1472,8 @@ class CvatRemote:
                 f, name = int(s.get("frame", -1)), names.get(s.get("label_id"))
                 if task is Task.CLASSIFICATION or name is None or not 0 <= f < len(frames):
                     continue
-                label = shape_to_label(s, name, int(frames[f]["width"]), int(frames[f]["height"]))
+                size = int(frames[f]["width"]), int(frames[f]["height"])
+                label = shape_to_label(s, name, *size, specs.get(s.get("label_id")))
                 if label:
                     per_frame.setdefault(f, []).append(label)
             ids = {n: i for i, n in names.items()}
@@ -1307,7 +1482,8 @@ class CvatRemote:
                 if task is Task.CLASSIFICATION or name is None or _trackable(tr, ids) is None:
                     continue
                 for f, (s, _) in sorted(track_frames(tr, len(frames)).items()):
-                    label = shape_to_label(s, name, int(frames[f]["width"]), int(frames[f]["height"]))
+                    size = int(frames[f]["width"]), int(frames[f]["height"])
+                    label = shape_to_label(s, name, *size, specs.get(tr.get("label_id")))
                     if label:
                         label.track = int(tr["id"])
                         per_frame.setdefault(f, []).append(label)
@@ -1374,6 +1550,8 @@ class CvatRemote:
             by_task.setdefault(tid, {})[frame] = labels
         wanted = [lb.label for per in by_task.values() for labels in per.values() for lb in labels]
         ids = self._ensure(api, remote_id, wanted)
+        every = [lb for per in by_task.values() for labels in per.values() for lb in labels]
+        specs = self._pose_specs(api, remote_id, ids, every) if project.task is Task.KEYPOINTS else {}
         for tid, per in by_task.items():
             frames = self._frames(api, tid)
             for frame in per:
@@ -1384,7 +1562,7 @@ class CvatRemote:
             old_tracks = ann.get("tracks") or []
             tracks = copy.deepcopy(old_tracks)
             if project.task is not Task.CLASSIFICATION:
-                per = _write_tracks(tracks, per, ids, frames)
+                per = _write_tracks(tracks, per, ids, frames, specs)
             patch["update"]["tracks"] = [
                 new for new, old in zip(tracks, old_tracks, strict=True) if new != old
             ]
@@ -1393,7 +1571,7 @@ class CvatRemote:
                 old_shapes = [s for s in ann.get("shapes") or [] if s.get("frame") == frame]
                 old_tags = [t for t in ann.get("tags") or [] if t.get("frame") == frame]
                 new_shapes, new_tags = _merge_frame(
-                    old_shapes, old_tags, labels, ids, frame, size, project.task
+                    old_shapes, old_tags, labels, ids, frame, size, project.task, specs
                 )
                 _add_delta(patch, "shapes", old_shapes, new_shapes)
                 _add_delta(patch, "tags", old_tags, new_tags)
@@ -1509,10 +1687,11 @@ class CvatRemote:
         if job_size:
             body["segment_size"] = int(job_size)
             body["overlap"] = 0  # CVAT repeats frames between jobs of a video by default
+        specs = self._pose_specs(api, rid, ids, [lb for _, _, labels in batch for lb in labels])
         task = api.request("POST", "/api/tasks", json=body)
         tid = task["id"]
         try:
-            return self._populate_task(api, tid, job_size, batch, ids, video)
+            return self._populate_task(api, tid, job_size, batch, ids, video, specs)
         except Exception:
             self._discard_task(api, tid)  # a retry must not leave empty tasks (they count in the plan)
             raise
@@ -1538,6 +1717,7 @@ class CvatRemote:
         batch: list[tuple[ImageRecord, Path, list[Label]]],
         ids: dict[str, int],
         video: tuple[Path, dict[str, Any]] | None,
+        specs: dict[int, int] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Upload the images (or the video) to an empty task and write the labels.
 
@@ -1548,6 +1728,7 @@ class CvatRemote:
             batch: For each image its record, the file to upload and its labels (relative 0..1).
             ids: CVAT label id of each class name.
             video: The video file and its selection, or None to upload the images.
+            specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
 
         Returns:
             The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
@@ -1556,7 +1737,7 @@ class CvatRemote:
             ToolError: CVAT did not register an image or changed the order of the images.
         """
         if video is not None:
-            return self._fill_from_video(api, tid, video, job_size, batch, ids)
+            return self._fill_from_video(api, tid, video, job_size, batch, ids, specs)
         names: dict[str, str] = {}  # image id -> file name in CVAT (unique inside the task)
         for rec, _, _ in batch:
             name = rec.name if rec.name not in names.values() else f"{rec.id}_{Path(rec.name).name}"
@@ -1595,7 +1776,7 @@ class CvatRemote:
                 )
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
-                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"])
+                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"]), specs
             )
             shapes += s
             tags += t
@@ -1615,6 +1796,7 @@ class CvatRemote:
         job_size: int | None,
         batch: list[tuple[ImageRecord, Path, list[Label]]],
         ids: dict[str, int],
+        specs: dict[int, int] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Send the original video with the task's selection; map frame *i* to image *i*.
 
@@ -1625,6 +1807,7 @@ class CvatRemote:
             job_size: Frames per job (``segment_size``); None for a single job.
             batch: For each image its record, the file (not used here) and its labels (relative 0..1).
             ids: CVAT label id of each class name.
+            specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
 
         Returns:
             The task id as text and the key ``"<task_id>:<frame>"`` of each image id.
@@ -1663,7 +1846,7 @@ class CvatRemote:
         for frame, (rec, _, labels) in enumerate(batch):
             keys[rec.id] = f"{tid}:{frame}"
             s, t = labels_to_cvat(
-                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"])
+                labels, ids, frame, int(frames[frame]["width"]), int(frames[frame]["height"]), specs
             )
             shapes += s
             tags += t
