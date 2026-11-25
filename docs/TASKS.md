@@ -39,10 +39,13 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 - Every image of the project (active or excluded) is in exactly one task; `images` keeps the order
   of the upload (the order of the files in the upload, as in CVAT).
 - Jobs are not stored: job *k* (1-based) of a task is `images[(k-1)*job_size : k*job_size]`.
-- `open` is true while a chunked upload may still append images (see below); `source` is set for a
-  task made from a video (docs/VIDEO.md) and `null` otherwise.
+- `open` is true while a chunked upload may still append images (see below); `incomplete` is true when
+  that upload was cut off (see below); `touched` (saved, not sent to the interface) is the time of the last
+  chunk of an open task. `source` is set for a task made from a video (docs/VIDEO.md) and `null` otherwise.
 - Task names are unique within the project and at most 100 characters (400 `task_name_taken`,
-  `task_name_too_long`); the default name "Task <id>" is always free. The job size is a whole number
+  `task_name_too_long`); the default name is "Task <n>", one more than the highest number among the tasks named that way
+  (so an upload that added nothing, or a deleted task, does not use up a number; the id still advances, and
+  a name that is taken gets a number added: `Name (2)`). The job size is a whole number
   from 1 to 100,000 (`job_size_invalid`).
 - A task is never empty. An upload that adds nothing (no readable image, only duplicates) leaves no task:
   - a task created **closed** (`open=false`, the way for a one-shot upload through the API) with no image
@@ -63,13 +66,13 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | GET | `/api/projects/{id}/tasks` | | `{tasks: [task view]}` |
-| POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <id>"), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
+| POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <n>", see above), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
 | PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task and, when it holds no image, removes it: the answer has `removed: true`; reopening a closed task is refused: 409 `task_closed`) | task view |
 | POST | `/api/projects/{id}/tasks/from-video` | see docs/VIDEO.md | job (the task is created closed) |
 | DELETE | `/api/projects/{id}/tasks/{tid}` | `{confirm: true}` | `{deleted: n images}` |
 
-Task view: `{id, name, created, job_size, open, source, images, active, annotated, jobs: [{n, first,
+Task view: `{id, name, created, job_size, open, incomplete, source, images, active, annotated, jobs: [{n, first,
 last, images, active, annotated}], remote?: {...}}` (`first`/`last`: 1-based positions in the task;
 `remote` only when the project is linked to CVAT, see below).
 
@@ -78,8 +81,14 @@ Chunked upload: the browser sends big uploads in chunks. The first chunk creates
 task is `open` (`"open": true` in tasks.json until the browser calls `PATCH …/tasks/{tid}`
 `{open: false}`, or the next task is created). Once closed, the images of a task are fixed.
 
+**An upload cut off midway** (the page was closed, the connection lost) never calls the closing `PATCH`, so
+the app closes the task itself and marks it `incomplete: true` so the interface can say that images may be
+missing (the images that arrived stay; further chunks are refused, 409 `task_closed`): when the next task
+is created, or when the task list is read and the last chunk is older than 30 minutes. Start-up does not
+touch the tasks. A task closed by the browser is `incomplete: false`.
+
 `GET /api/projects/{id}/images` gains `task` and `job` query parameters (filter). The existing
-`POST /api/projects/{id}/images` (upload) creates a new task named "Task <id>", for compatibility.
+`POST /api/projects/{id}/images` (upload) creates a new task with the next automatic name ("Task <n>"), for compatibility.
 
 ## CVAT mirror
 

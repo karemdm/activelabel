@@ -176,7 +176,7 @@ running.
 | GET | `/projects/{id}` | | project + counts + step status |
 | PATCH | `/projects/{id}` | any of `name, description, task, classes`; `annotations` (`convert`/`discard`) and `classes_action` (`remove_annotations`) answer a 409 (`task_change_annotations`, `classes_in_use`) | project (+ `annotations_result`, `classes_result`) |
 | DELETE | `/projects/{id}` | `{confirm_name}` | `{deleted: id}` |
-| POST | `/projects/{id}/images` | multipart `files` (images and/or .zip); creates a new task named "Task <id>" | ingest report (+ `task`) |
+| POST | `/projects/{id}/images` | multipart `files` (images and/or .zip); creates a new task with the next automatic name ("Task <n>", docs/TASKS.md) | ingest report (+ `task`) |
 | POST | `/projects/{id}/images/folder` | `{path}`; needs `ACTIVELABEL_IMPORT_ROOT` (400 otherwise), the path must be inside it; API only, the interface has no button for it | job (folder import) |
 | GET | `/projects/{id}/images` | `status` (`active` default, `excluded`, `all`), `issue` (a flag, or `any` for every flagged image), `ids` (comma separated), `task`, `job` (needs `task`), `dataset`, `part` and `fold` (need `dataset`), `offset`, `limit` (60 by default, at most 500) | `{total, items}` (classification projects: each item has `classes`) |
 | GET | `/projects/{id}/images/{image_id}/thumb` | | JPEG |

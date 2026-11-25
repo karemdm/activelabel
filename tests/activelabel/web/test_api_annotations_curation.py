@@ -1,12 +1,16 @@
 import json
+import os
 import time
 
 import pytest
 from api_client import make_client, upload
+from fastapi.testclient import TestClient
 from sample_images import make_image
 
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.tasks import Task
+from activelabel.tasks_store import TaskStore
+from activelabel.web.app import create_app
 
 
 def wait_job(client, project_id, job_id, timeout=30):
@@ -321,3 +325,21 @@ def test_upload_errors_of_the_staging_have_codes(tmp_path):
     assert code([("files", ("../up.json", b"{}"))]) == "annotation_path_unsafe"
     assert client.delete("/api/projects/1/annotations/not-a-token").json()["code"] == "staging_token_invalid"
     assert staged(state) == []
+
+
+def test_starting_the_service_removes_old_staging_and_leaves_the_tasks_alone(tmp_path):
+    client, state = setup_project(tmp_path)
+    task = client.post(
+        "/api/projects/1/tasks", files=[("files", ("c.png", (tmp_path / "in/0.png").read_bytes()))]
+    )
+    assert task.json()["task"]["open"] is True
+    good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    old = client.post("/api/projects/1/annotations", files=good).json()["token"]
+    recent = client.post("/api/projects/1/annotations", files=good).json()["token"]
+    long_ago = time.time() - 25 * 3600
+    os.utime(state.store.dir(1) / "staging" / old, (long_ago, long_ago))
+    with TestClient(create_app(state=state)):  # the lifespan runs the start-up work
+        pass
+    assert staged(state) == [recent]
+    listed = TaskStore(state.store.dir(1)).get(task.json()["task"]["id"])
+    assert (listed.open, listed.incomplete) == (True, False)  # closed when the task list is read, not here

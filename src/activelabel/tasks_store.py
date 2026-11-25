@@ -7,10 +7,12 @@ order and its ``job_size``. Named ``tasks_store`` to avoid confusion with :mod:`
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,8 @@ from activelabel.textcheck import has_control_characters
 
 MAX_NAME = 100
 MAX_JOB_SIZE = 100_000
+STALE_UPLOAD_SECONDS = 1800  # an open task with no new chunk for this long was cut off
+_DEFAULT_NAME = re.compile(r"task (\d+)", re.IGNORECASE)
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -75,6 +79,9 @@ class ImageTask:
         job_size: images per job, or None for a single job with every image.
         images: image ids in upload order.
         open: True while a chunked upload may still append images.
+        incomplete: True when the upload was cut off (the page was closed, the connection lost): the task
+            was closed by the app, not by the browser, so it may lack images.
+        touched: ISO time (UTC) of the last chunk of an open task; empty once it is closed.
         source: for a task made from a video, ``{"video", "start", "stop", "step", "fps"}``.
     """
 
@@ -85,6 +92,8 @@ class ImageTask:
     images: list[str] = field(default_factory=list)
     open: bool = False
     source: dict[str, Any] | None = None
+    incomplete: bool = False
+    touched: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form.
@@ -93,6 +102,11 @@ class ImageTask:
             The task as the dict stored in ``tasks.json``.
         """
         return asdict(self)
+
+
+def _last_touch(task: ImageTask) -> datetime:
+    """When the last chunk of a task came (its creation for a task saved without the mark)."""
+    return datetime.fromisoformat(task.touched or task.created)
 
 
 def check_job_size(job_size: Any) -> int | None:
@@ -135,6 +149,22 @@ def jobs(task: ImageTask) -> list[TaskJob]:
         TaskJob(k + 1, start + 1, min(start + size, total), task.images[start : start + size])
         for k, start in enumerate(range(0, total, size))
     ]
+
+
+def default_name(tasks: Iterable[ImageTask]) -> str:
+    """The automatic name of a new task: ``Task <n>``, one more than the highest number the tasks have.
+
+    The number comes from the tasks that exist, not from the ids: an upload that added nothing (its task
+    is removed again) or a deleted task does not use up a number.
+
+    Args:
+        tasks: the tasks the project has.
+
+    Returns:
+        ``Task 1`` when no task is named like that, else the next number.
+    """
+    numbers = [int(m[1]) for t in tasks if (m := _DEFAULT_NAME.fullmatch(t.name))]
+    return f"Task {max(numbers, default=0) + 1}"
 
 
 def clean_name(name: str) -> str:
@@ -205,7 +235,7 @@ class TaskStore:
         placed = {i for t in tasks for i in t.images} | set(registering)
         orphans = [i for i in Manifest(self.project_dir).load() if i not in placed]
         if orphans:  # images added by code that does not know about tasks
-            tasks.append(ImageTask(next_id, f"Task {next_id}", now(), None, orphans))
+            tasks.append(ImageTask(next_id, default_name(tasks), now(), None, orphans))
             next_id += 1
             self._write(next_id, tasks)
         return next_id, tasks
@@ -347,10 +377,12 @@ class TaskStore:
         job_size = check_job_size(job_size)
         with self._lock:
             next_id, tasks = self._read(images or ())
-            for other in tasks:
+            for other in tasks:  # an upload still open when another task starts was cut off
+                other.incomplete = other.incomplete or other.open
                 other.open = False
-            name = self._unique(name, tasks) if name else f"Task {next_id}"
-            task = ImageTask(next_id, name, now(), job_size, list(images or []), open, source)
+                other.touched = ""
+            name = self._unique(name, tasks) if name else default_name(tasks)
+            task = ImageTask(next_id, name, now(), job_size, list(images or []), open, source, touched=now())
             tasks.append(task)
             self._write(next_id + 1, tasks)
             return task
@@ -396,6 +428,7 @@ class TaskStore:
                 raise TaskClosed(task_id)
             known = set(task.images)
             task.images.extend(i for i in dict.fromkeys(image_ids) if i not in known)
+            task.touched = now()
             self._write(next_id, tasks)
             return task
 
@@ -433,8 +466,37 @@ class TaskStore:
         with self._lock:
             next_id, tasks, task = self._change(task_id)
             task.open = False
+            task.touched = ""
             self._write(next_id, tasks)
             return task
+
+    def close_stale(self, max_age: float) -> list[ImageTask]:
+        """Close the open tasks whose last chunk is older than ``max_age`` seconds and mark them incomplete.
+
+        A chunked upload that stopped (the page was closed, the connection lost, the service restarted)
+        would leave its task open for good; the task list closes them when it is read. Never waits: while
+        another thread holds the lock (an upload is being stored) nothing is changed.
+
+        Args:
+            max_age: seconds without a new chunk after which an open task counts as cut off; 0 closes every
+                open task.
+
+        Returns:
+            The tasks that were closed.
+        """
+        if not self._lock.acquire(blocking=False):
+            return []
+        try:
+            next_id, tasks = self._read()
+            limit = datetime.now(timezone.utc) - timedelta(seconds=max_age)
+            stale = [t for t in tasks if t.open and _last_touch(t) <= limit]
+            for task in stale:
+                task.open, task.incomplete, task.touched = False, True, ""
+            if stale:
+                self._write(next_id, tasks)
+            return stale
+        finally:
+            self._lock.release()
 
     def rename(self, task_id: int, name: str) -> ImageTask:
         """Change the name of a task.
