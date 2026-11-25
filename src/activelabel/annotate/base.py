@@ -19,7 +19,21 @@ GROUND_TRUTH = "ground_truth"
 
 
 class ToolError(RuntimeError):
-    """A readable problem with a tool (bad login, server not reachable, task deleted...)."""
+    """A readable problem with a tool (bad login, server not reachable, task deleted...).
+
+    The message is English (API and logs). An error the interface should show in its own language also
+    carries a stable ``code`` and the ``params`` its translated text needs (``error.<code>`` in the
+    i18n files); one without a code is shown with its message.
+
+    Attributes:
+        code: stable identifier such as ``cvat_unreachable``, or an empty text.
+        params: values for the translated text, e.g. ``{"status": 500}``.
+    """
+
+    def __init__(self, message: str, code: str = "", **params: Any) -> None:
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 def need_dataset(dataset: Any) -> None:

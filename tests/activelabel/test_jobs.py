@@ -1,6 +1,7 @@
 import threading
 import time
 
+from activelabel.annotate.base import ToolError
 from activelabel.jobs import CANCELLED, DONE, FAILED, JobManager, readable_error
 from activelabel.textcheck import message_of
 
@@ -86,11 +87,24 @@ def test_fiftyone_database_errors_are_readable():
     assert readable_error(ValueError("x")) == "x"
 
 
-def test_error_message_has_no_class_name_but_traceback_keeps_it():
+def test_error_message_has_no_class_name_and_the_result_has_no_traceback(caplog):
     jobs = JobManager()
-    job = wait(jobs.submit(1, "demo", lambda progress: int("x")))
+    with caplog.at_level("ERROR", logger="activelabel.jobs"):
+        job = wait(jobs.submit(1, "demo", lambda progress: int("x")))
     assert job.status == FAILED and "ValueError" not in job.error and "invalid literal" in job.error
-    assert "ValueError" in job.result["traceback"]
+    assert job.result == {}  # nothing technical reaches the interface
+    assert "ValueError" in caplog.text  # the traceback goes to the log
+
+
+def test_a_coded_error_keeps_its_code_and_params_in_the_job():
+    def fail(progress):
+        raise ToolError("CVAT error 500.", "cvat_error", status=500)
+
+    job = wait(JobManager().submit(1, "demo", fail))
+    assert (job.error, job.error_code, job.error_params) == ("CVAT error 500.", "cvat_error", {"status": 500})
+    assert job.as_dict()["error_code"] == "cvat_error"
+    plain = wait(JobManager().submit(1, "demo", lambda progress: 1 / 0))
+    assert (plain.error_code, plain.error_params) == ("", {})
 
 
 def test_error_text_has_no_quotes_from_a_key_error():

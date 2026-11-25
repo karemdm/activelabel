@@ -1399,7 +1399,9 @@
         'tasks_created', 'tasks_imported', 'tasks_deleted', 'conflicts_left'];
       const resultJob = () => {
         const last = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
-        return last && last.status === 'done' && !ctx.syncDismissed.has(last.id) ? last : null;
+        if (!last || last.status !== 'done' || ctx.syncDismissed.has(last.id)) return null;
+        /* a comparison that failed afterwards (the project is gone, CVAT is down...) makes this result old news */
+        return ctx.jobs.some((j) => j.kind === 'sync_plan' && j.status === 'failed' && String(j.created) >= String(last.created)) ? null : last;
       };
 
       function resultCard(job) {
@@ -1603,15 +1605,43 @@
         return card;
       }
 
+      /* a failed comparison or apply: say why in the interface language and what to do next */
+      function failedCard(job) {
+        const tool = syncJobTool(job) || (ctx.links[0] && ctx.links[0].tool) || 'cvat';
+        const close = () => { ctx.syncDismissed.add(job.id); draw(true); };
+        let actions;
+        if (isStale(job)) {
+          actions = [el('button', { type: 'button', class: 'btn primary', onclick: async () => {
+            ctx.syncDismissed.add(job.id);
+            try { await startSync(tool); } catch (err) { toastError(err); }
+            draw(true);
+          } }, t('sync.again'))];
+        } else if (isRemoteGone(job)) {
+          actions = [el('button', { type: 'button', class: 'btn danger-outline', onclick: async () => {
+            try {
+              await api('DELETE', `/projects/${projectId}/links/${tool}`);
+              ctx.syncDismissed.add(job.id);
+              toast(t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
+              await refreshProject();
+              draw(true);
+            } catch (err) { toastError(err); }
+          } }, t('sync.unlink')), el('button', { type: 'button', class: 'btn', onclick: close }, t('common.close'))];
+        } else {
+          actions = [el('button', { type: 'button', class: 'btn', onclick: close }, t('common.close'))];
+        }
+        return el('div', { class: 'sync-error card', role: 'alert' },
+          el('p', { class: 'report-line' }, icon('warning'), jobError(job)), ...actions);
+      }
+
       function draw(force) {
         const job = planJob();
         const plan = job ? job.result : null;
         const st = plan && states.get(plan.plan_id);
         const applying = ctx.jobs.some((j) => j.kind === 'sync_apply' && isActive(j));
-        const stale = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
-        const staleJob = stale && stale.status === 'failed' && isStale(stale) && !ctx.syncDismissed.has(stale.id) && !plan ? stale : null;
+        const latest = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => /^sync_/.test(j.kind));
+        const failedJob = latest && latest.status === 'failed' && !ctx.syncDismissed.has(latest.id) && !plan ? latest : null;
         const done = !plan && !applying ? resultJob() : null;
-        const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, staleJob && staleJob.id, done && done.id, (ctx.tasksList || []).length]);
+        const sig = JSON.stringify([ctx.links, plan && plan.plan_id, planningTools(), applying, failedJob && failedJob.id, done && done.id, (ctx.tasksList || []).length]);
         if (!force && sig === lastSig && !(st && st.error)) return;
         lastSig = sig;
         fill(box, ...[
@@ -1621,14 +1651,7 @@
             : null,
           planningTools().length ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.comparing')) : null,
           applying ? el('p', { class: 'muted', 'aria-live': 'polite' }, t('sync.apply_started')) : null,
-          staleJob ? el('div', { class: 'sync-error card', role: 'alert' },
-            el('p', { class: 'report-line' }, icon('warning'), t('sync.stale')),
-            el('button', { type: 'button', class: 'btn primary', onclick: async () => {
-              ctx.syncDismissed.add(staleJob.id);
-              const tool = syncJobTool(staleJob) || (ctx.links[0] && ctx.links[0].tool);
-              try { await startSync(tool); } catch (err) { toastError(err); }
-              draw(true);
-            } }, t('sync.again'))) : null,
+          failedJob ? failedCard(failedJob) : null,
           done ? resultCard(done) : null,
           job ? planCard(job) : null].filter(Boolean));
       }
@@ -3676,10 +3699,13 @@
     }
 
     // ================================================================ jobs bar
-    const isStale = (job) => job.kind === 'sync_apply' && /Synchronise again/i.test(String(job.error || ''));
+    /* the comparison no longer matches the project or the tool: compare again */
+    const STALE_CODES = new Set(['plan_not_found', 'sync_remote_changed', 'sync_local_changed', 'sync_link_changed', 'sync_task_has_new_images']);
+    const isStale = (job) => job.kind === 'sync_apply' && STALE_CODES.has(job.error_code);
     /* the linked project was deleted in the tool: say so plainly and how to go on */
-    const isRemoteGone = (job) => /^sync_/.test(job.kind) && /RemoteNotFound/.test(String(job.error || '')) && /\/api\/projects\//.test(String(job.error || ''));
-    const jobError = (job) => (isStale(job) ? t('sync.stale') : isRemoteGone(job) ? t('sync.remote_gone') : job.error);
+    const isRemoteGone = (job) => /^sync_/.test(job.kind) && job.error_code === 'remote_gone';
+    /* a failed job's text: by its code in the interface language, else the server's own words */
+    const jobError = (job) => (isStale(job) ? t('sync.stale') : job.error_code && `error.${job.error_code}` in I18N ? t(`error.${job.error_code}`, errorParams(job.error_params)) : job.error);
     const syncJobTool = (job) => {
       const r = job.result || {};
       const x = ctx.syncTool[job.id] || job.tool || r.tool || (job.params && job.params.tool) || (job.meta && job.meta.tool);

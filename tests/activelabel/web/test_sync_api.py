@@ -246,3 +246,13 @@ def test_an_old_link_of_a_tool_that_cannot_be_synchronised_is_listed_and_can_be_
     assert env.client.delete(f"/api/projects/{env.pid}/links/labelstudio").json() == {"unlinked": True}
     assert set(links.load_links(project_dir)) == {"cvat"}
     assert env.client.get(f"/api/projects/{env.pid}").status_code == 200  # the project opens as usual
+
+
+def test_a_project_deleted_in_the_tool_fails_the_comparison_with_a_code(env):
+    first = plan(env, remote_id=env.rid)
+    apply(env, first["result"]["plan_id"])
+    del env.remote.projects[env.rid]
+    failed = plan(env)
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "remote_gone"
+    assert "traceback" not in failed["result"]
