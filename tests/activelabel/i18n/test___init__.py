@@ -176,3 +176,17 @@ def test_every_problem_of_a_pulled_session_has_a_text():
     for lang in ("en", "pt"):
         messages = load(lang)
         assert [c for c in sorted(diff.PROBLEM_MESSAGES) if f"problem.{c}" not in messages] == [], lang
+
+
+DOCS_DIR = Path(__file__).resolve().parents[3] / "docs"
+
+
+def test_fold_is_not_translated_in_portuguese():
+    """#536: the owner keeps the term "fold" in Portuguese; "dobra(s)" must not come back."""
+    texts = [f"pt.json {key}: {value}" for key, value in load("pt").items()]
+    texts += [
+        f"{path.name}: {line}"
+        for path in DOCS_DIR.glob("*.pt-BR.md")
+        for line in path.read_text("utf-8").splitlines()
+    ]
+    assert not [text for text in texts if re.search(r"\bdobras?\b", text, re.IGNORECASE)]
