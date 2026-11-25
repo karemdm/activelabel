@@ -165,5 +165,5 @@ def test_preview_tells_the_largest_kfold(tmp_path):
     assert body["groups"] == 30 and body["max_kfold"] == 10 and body["empty_parts"] == []
     few, _, _ = _setup(tmp_path / "few", n=4)[0], None, None
     small = few.post(BASE + "/preview", json={"seed": 1}).json()
-    assert small["max_kfold"] == 4  # the 10% test part gets no group of 4
+    assert small["max_kfold"] == 2  # two classes of 2 images: the test part takes one of each (#347)
     assert few.post(BASE + "/preview", json={"kfold": 5}).status_code == 400
