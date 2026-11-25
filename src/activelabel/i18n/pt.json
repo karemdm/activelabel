@@ -797,6 +797,7 @@
   "ds.folds_word": "os folds",
   "ds.w_video_split": "O vídeo {name} foi dividido em {n} trechos: {parts} usam trechos espalhados no tempo; {gap} frames ficaram fora como intervalo de segurança.",
   "ds.w_video_split_nogap": "O vídeo {name} foi dividido em {n} trechos: {parts} usam trechos espalhados no tempo.",
+  "ds.w_video_parts_shared": "Métricas podem ser otimistas: trechos do mesmo vídeo estão no treino e na validação/teste. Para medir vídeos novos, use vídeos inteiros.",
   "ds.b_video_split": "vídeo em {n} trechos",
   "step.training": "Treinamento",
   "status.runs_none": "Nenhum treino",

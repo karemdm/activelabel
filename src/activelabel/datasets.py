@@ -46,7 +46,8 @@ DRIFT = 5.0  # percentage points between requested and real share that trigger a
 MAX_NOTE = 1000
 VIDEO_MODES = ("auto", "whole")
 MAX_GAP = 3600.0  # seconds
-SEGMENTS_PER_VIDEO = 10  # a split video gives about this many segments...
+SEGMENTS_PER_VIDEO = 10  # a split video gives at least about this many segments...
+MAX_SEGMENTS_PER_VIDEO = 20  # ...more when its classes need them (see _pieces), up to this...
 SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
 SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
 MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
@@ -84,8 +85,10 @@ class DatasetOptions:
         seed: seed of the random generator.
         videos: "auto" (a video that is too big to reach the requested proportions is cut into
             segments spread over the parts) or "whole" (a video always stays in one part).
-        gap_seconds: frames of a train part closer than this to a val/test segment of the same
-            video are left out of the version (0 = keep them).
+        gap_seconds: least safety gap of a cut video: frames of a train part closer than this to a
+            val/test segment of the same video (and val frames that close to a test segment) are left
+            out of the version; the gap grows to one frame interval and to the time span of the video's
+            near duplicates, up to a tenth of the video (0 = keep every frame).
     """
 
     tasks: list[int] = field(default_factory=list)
@@ -367,6 +370,10 @@ class _Placement:
     def place_video(self, segs: list[Group]) -> None:
         """Share the segments of one video (in time order) among the parts.
 
+        With a ``rest`` part, every other part gets its share of the segments (at most what it still
+        needs, at least one when it has nothing yet), placed by :meth:`place_spread`; without one
+        (K-fold), every segment goes to a part in time order, neighbours to different parts.
+
         Args:
             segs: the segments of the video, sorted by ``index``.
         """
@@ -388,14 +395,18 @@ class _Placement:
             chosen = list(range(m))
         else:
             length = sum(len(g.images) for g in segs) / m
-            quota = {p: int(need[p] / length + 0.5) for p in movable}
+            # what the part still needs, but no more than its share of this video: every cut video
+            # gives train its share too (a class living in one video reaches every part)
+            quota = {
+                p: min(int(need[p] / length + 0.5), max(1, round(self.fractions[p] * m))) for p in movable
+            }
             for p in movable:  # a requested part is never left empty when it can have a segment
                 if quota[p] == 0 and need[p] > 0 and got_images[p] == 0:
                     quota[p] = 1
             while sum(quota.values()) > m - 1:  # the rest keeps at least one segment
                 quota[max(movable, key=lambda p: (quota[p], movable.index(p)))] -= 1
-            total = sum(quota.values())
-            chosen = sorted({int((k + 0.5) * m / total) for k in range(total)})
+            self.place_spread(segs, quota, rest)
+            return
         remaining = dict(quota)
         last: tuple[int, str] | None = None
         taken: set[int] = set()
@@ -412,7 +423,108 @@ class _Placement:
             last = (segs[pos].index, p)
         for pos, g in enumerate(segs):
             if pos not in taken:
-                self.put(g, rest if rest is not None else movable[0])
+                self.put(g, movable[0])
+
+    def lacking(self, g: Group, candidates: list[str]) -> int:
+        """How many classes of ``g`` some candidate part does not have yet.
+
+        Args:
+            g: a segment.
+            candidates: the parts that still take segments of the video.
+
+        Returns:
+            The number of the group's classes missing from at least one candidate part.
+        """
+        return sum(1 for c in g.classes if any(self.got[p][c] == 0 for p in candidates))
+
+    def last_for(self, segs: list[Group], pos: int, taken: dict[int, str], rest: str) -> int:
+        """How many classes ``rest`` would never get from this video if segment ``pos`` were taken.
+
+        Args:
+            segs: the segments of the video.
+            pos: the segment considered.
+            taken: positions already given to other parts.
+            rest: the part that keeps the segments not taken (train).
+
+        Returns:
+            The classes of the segment that ``rest`` lacks and no other free segment of the video holds.
+        """
+        others = [g for q, g in enumerate(segs) if q != pos and q not in taken]
+        return sum(
+            1 for c in segs[pos].classes if self.got[rest][c] == 0 and not any(c in g.classes for g in others)
+        )
+
+    def place_spread(self, segs: list[Group], quota: dict[str, int], rest: str) -> None:
+        """Give ``quota[p]`` segments of a cut video to each part ``p``, spread in time; the rest to ``rest``.
+
+        Slot ``k`` of the ``n`` wanted aims at position ``(k + 0.5) * m / n`` (beginning, middle and end,
+        never one contiguous end). A segment that holds the last frames of a class ``rest`` lacks is
+        avoided (training keeps every class); then a segment holding a class that a part still lacks is
+        preferred over the aimed position (classes that live only in one stretch of the video still
+        reach every part); then a segment not next to one already taken; then the closest to the aim.
+        The part of each chosen segment follows the class stratification (:meth:`pick`), avoiding the
+        parts of its neighbours.
+
+        Args:
+            segs: the segments of the video, sorted by ``index``.
+            quota: part -> number of segments it gets (parts other than ``rest``).
+            rest: the part that takes the segments nobody else needs.
+        """
+        m, total = len(segs), sum(quota.values())
+        remaining = dict(quota)
+        taken: dict[int, str] = {}
+        for k in range(total):
+            candidates = [p for p in quota if remaining[p] > 0]
+            aim = (k + 0.5) * m / total
+            free = [pos for pos in range(m) if pos not in taken]
+            pos = max(
+                free,
+                key=lambda q: (
+                    -self.last_for(segs, q, taken, rest),
+                    self.lacking(segs[q], candidates),
+                    q - 1 not in taken and q + 1 not in taken,
+                    -abs(q + 0.5 - aim),
+                    -q,
+                ),
+            )
+            near = {taken[q] for q in (pos - 1, pos + 1) if q in taken}
+            p = self.pick(segs[pos], [p for p in candidates if p not in near] or candidates)
+            remaining[p] -= 1
+            self.put(segs[pos], p)
+            taken[pos] = p
+        self.top_up(segs, taken, list(quota), rest)
+        for pos, g in enumerate(segs):
+            if pos not in taken:
+                self.put(g, rest)
+
+    def top_up(self, segs: list[Group], taken: dict[int, str], movable: list[str], rest: str) -> None:
+        """Give a part one more segment for each class of the video it still lacks (beyond its quota).
+
+        Only classes held by at least as many segments as there are parts, and never a segment with the
+        last frames of a class ``rest`` lacks; ``rest`` keeps at least one segment. The part's share
+        of the video grows a little in exchange for holding every class (as for rare classes, #347).
+
+        Args:
+            segs: the segments of the video, sorted by ``index``.
+            taken: position -> part of the segments given so far (updated).
+            movable: the parts other than ``rest``.
+            rest: the part that keeps the segments not taken.
+        """
+        held = Counter(c for g in segs for c in g.classes)
+        for p in movable:
+            for c in sorted(held, key=lambda name: (held[name], name)):
+                if held[c] < len(self.parts) or self.got[p][c]:
+                    continue
+                free = [
+                    q
+                    for q in range(len(segs))
+                    if q not in taken and c in segs[q].classes and not self.last_for(segs, q, taken, rest)
+                ]
+                if not free or len(segs) - len(taken) <= 1:
+                    continue
+                pos = max(free, key=lambda q: (q - 1 not in taken and q + 1 not in taken, -q))
+                self.put(segs[pos], p)
+                taken[pos] = p
 
 
 def assign(
@@ -425,9 +537,10 @@ def assign(
     with ``rng``. Groups without classes (background) come last and are spread by image count.
 
     Segments of split videos (groups with ``video``) are placed first, video by video: each part
-    other than ``rest`` gets as many segments as it still needs (proportional to its missing images),
-    taken evenly spread over the video's timeline and never adjacent when avoidable; the other
-    segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
+    other than ``rest`` gets its share of the video's segments (no more than it still needs, plus one
+    per class it would otherwise lack), spread over the video's timeline and never adjacent when
+    avoidable, never taking the last frames of a class ``rest`` lacks (see ``_Placement.place_spread``);
+    the other segments go to ``rest``. With ``rest=None`` (K-fold) every segment is shared among the parts the
     same way, neighbours going to different parts. Which part gets which chosen segment follows the
     class stratification.
 
@@ -638,19 +751,38 @@ def _flatten(groups: list[Group], position: dict[str, int]) -> list[str]:
     return sorted((i for g in groups for i in g.images), key=position.__getitem__)
 
 
-def _chunks(frames: int) -> list[tuple[int, int]]:
+def _pieces(classes: int, smallest: float) -> int:
+    """How many segments a cut video aims at: enough for the smallest part to get one per class.
+
+    A part with share ``s`` gets about ``s`` of the segments; to hold ``classes`` classes that live in
+    different stretches of the video it needs ``classes`` segments, so ``classes / s`` in all (at least
+    ``SEGMENTS_PER_VIDEO``, at most ``MAX_SEGMENTS_PER_VIDEO``).
+
+    Args:
+        classes: number of classes in the frames of the video.
+        smallest: the smallest requested share of a part (0..1).
+
+    Returns:
+        The number of segments to aim at.
+    """
+    wanted = math.ceil(classes / smallest) if smallest > 0 else SEGMENTS_PER_VIDEO
+    return min(MAX_SEGMENTS_PER_VIDEO, max(SEGMENTS_PER_VIDEO, wanted))
+
+
+def _chunks(frames: int, pieces: int = SEGMENTS_PER_VIDEO) -> list[tuple[int, int]]:
     """Bounds ``(start, stop)`` of the contiguous segments of a video with ``frames`` frames.
 
-    Length = ``frames / 10`` rounded up, at least 2 and at most 30 frames (so a video gives about
-    10 segments, more when it is long); a last piece of 1 frame joins the previous segment.
+    Length = ``frames / pieces`` rounded up, at least 2 and at most 30 frames (so a video gives about
+    ``pieces`` segments, more when it is long); a last piece of 1 frame joins the previous segment.
 
     Args:
         frames: number of frames of the video.
+        pieces: how many segments to aim at (see :func:`_pieces`).
 
     Returns:
         The ``(start, stop)`` frame positions of each segment (``stop`` excluded), in order.
     """
-    length = min(SEGMENT_MAX_FRAMES, max(SEGMENT_MIN_FRAMES, -(-frames // SEGMENTS_PER_VIDEO)))
+    length = min(SEGMENT_MAX_FRAMES, max(SEGMENT_MIN_FRAMES, -(-frames // pieces)))
     out = [(a, min(frames, a + length)) for a in range(0, frames, length)]
     if len(out) > 1 and out[-1][1] - out[-1][0] < SEGMENT_MIN_FRAMES:
         out[-2:] = [(out[-2][0], frames)]
@@ -689,24 +821,24 @@ def _gap_ids(
     times: dict[str, float | None],
     protected: set[str],
     droppable: set[str],
-    seconds: float,
+    seconds: dict[str, float],
 ) -> dict[str, set[str]]:
-    """Per video, the droppable frames within ``seconds`` of a protected frame (needs every frame's time).
+    """Per video, the droppable frames within its gap of a protected frame (needs every frame's time).
 
     Args:
         frames_of: video id -> its candidate frames.
         times: image id -> time in its video in seconds (None = unknown).
         protected: frames that keep their neighbourhood (val/test).
         droppable: frames that may be left out (train or the folds).
-        seconds: the safety gap (0 or less = no frame is dropped).
+        seconds: video id -> its safety gap in seconds (absent, 0 or less = no frame is dropped).
 
     Returns:
         Video id -> the frames to leave out; videos with none, or with a frame of unknown time, are absent.
     """
     out: dict[str, set[str]] = {}
-    if seconds <= 0:
-        return out
     for video, ids in frames_of.items():
+        if seconds.get(video, 0.0) <= 0:
+            continue
         at: dict[str, float] = {}
         for i in ids:
             t = times.get(i)
@@ -722,11 +854,72 @@ def _gap_ids(
                 continue
             k = bisect_left(near, at[i])
             closest = min(abs(at[i] - near[j]) for j in (k - 1, k) if 0 <= j < len(near))
-            if closest <= seconds + 1e-9:
+            if closest <= seconds[video] + 1e-9:
                 drop.add(i)
         if drop:
             out[video] = drop
     return out
+
+
+def _video_gaps(
+    frames_of: dict[str, list[str]],
+    times: dict[str, float | None],
+    duplicate_of: dict[str, str],
+    seconds: float,
+) -> dict[str, float]:
+    """The safety gap of each cut video, in seconds: never less than the requested one.
+
+    The gap grows to one frame interval (the median time between consecutive frames: a sparse video
+    still loses its direct neighbours) and to the longest time between two frames of the video that the
+    curation found to be near duplicates (scenes that barely change are guarded as far as they look the
+    same), but no more than a tenth of the video's duration, so every part keeps most of its frames.
+    ``seconds`` of 0 turns the gap off.
+
+    Args:
+        frames_of: video id -> its candidate frames, in time order.
+        times: image id -> time in its video in seconds (None = unknown).
+        duplicate_of: near-duplicate links (``duplicate -> kept``) of the curation.
+        seconds: the requested gap.
+
+    Returns:
+        Video id -> its gap (videos with a frame of unknown time get the requested gap).
+    """
+    out: dict[str, float] = {}
+    for video, ids in frames_of.items():
+        at = [times.get(i) for i in ids]
+        if seconds <= 0 or any(t is None for t in at):
+            out[video] = seconds
+            continue
+        known = [float(t) for t in at if t is not None]
+        steps = sorted(b - a for a, b in zip(known, known[1:], strict=False) if b > a)
+        step = steps[len(steps) // 2] if steps else 0.0
+        members = set(ids)
+        spans = [
+            abs(float(times[a] or 0.0) - float(times[b] or 0.0))
+            for a, b in duplicate_of.items()
+            if a in members and b in members
+        ]
+        cap = (known[-1] - known[0]) / SEGMENTS_PER_VIDEO if len(known) > 1 else 0.0
+        out[video] = max(seconds, min(max([step, *spans]), max(cap, seconds)))
+    return out
+
+
+def _missing_pairs(
+    slots: list[tuple[dict[str, Any], list[str], float]], classes_of: dict[str, set[str]]
+) -> int:
+    """How many (part, class) pairs are empty: a part with a share above 0 that lacks a class of the split.
+
+    Args:
+        slots: ``(part key, image ids, requested share)`` of every part.
+        classes_of: image id -> its classes.
+
+    Returns:
+        The number of classes missing, summed over the parts.
+    """
+    every = {c for found in classes_of.values() for c in found}
+    return sum(
+        len(every - {c for i in ids for c in classes_of.get(i, ())}) for _, ids, share in slots if share > 0
+    )
 
 
 def _segments(
@@ -761,6 +954,20 @@ def _too_few(slots: list[tuple[dict[str, Any], list[str], float]], total: int) -
         Whether some part with a share above 0 is too small.
     """
     return any(share > 0 and len(ids) / total < share / 2 for _, ids, share in slots)
+
+
+def _quality(attempt: _Attempt, classes_of: dict[str, set[str]], total: int) -> tuple[bool, int]:
+    """How bad a way of splitting is (lower is better): a part too small, then (part, class) pairs missing.
+
+    Args:
+        attempt: the way of splitting.
+        classes_of: image id -> its classes.
+        total: number of images split.
+
+    Returns:
+        ``(some requested part is too small, missing (part, class) pairs)``.
+    """
+    return _too_few(attempt.slots, total), _missing_pairs(attempt.slots, classes_of)
 
 
 @dataclass
@@ -863,6 +1070,17 @@ class _Splitter:
     shares: dict[str, float]
     test_share: float
 
+    def smallest(self) -> float:
+        """The smallest share a part asks for (a fold's with K-fold).
+
+        Returns:
+            The share, 0..1.
+        """
+        if self.options.kfold is None:
+            return min(self.shares.values())
+        fold = (1 - self.test_share) / self.options.kfold
+        return min(fold, self.test_share) if self.test_share > 0 else fold
+
     def attempt(self, split_ids: set[str]) -> _Attempt:
         """Split with the videos in ``split_ids`` cut into segments (the others stay whole).
 
@@ -879,7 +1097,8 @@ class _Splitter:
         position, frames_of = self.position, self.frames_of
         segment_of: dict[str, tuple[str, int]] = {}
         for video in sorted(split_ids):
-            for number, (a, b) in enumerate(_chunks(len(frames_of[video]))):
+            pieces = _pieces(len({c for i in frames_of[video] for c in self.classes_of[i]}), self.smallest())
+            for number, (a, b) in enumerate(_chunks(len(frames_of[video]), pieces)):
                 for i in frames_of[video][a:b]:
                     segment_of[i] = (video, number)
         groups = build_groups(candidates, self.video_of, self.duplicate_of, self.classes_of, segment_of)
@@ -1054,29 +1273,47 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         if not big:
             raise
         final = None
-    if big and (final is None or _too_few(final.slots, total)):
+    if options.videos == "auto" and final is not None:  # videos holding a class some part lacks are cut too
+        every = {c for s in classes_of.values() for c in s}
+        lacking = {
+            c
+            for _, ids, share in final.slots
+            if share > 0
+            for c in every - {c for i in ids for c in classes_of.get(i, ())}
+        }
+        big |= {
+            v
+            for v, ids in frames_of.items()
+            if len(ids) >= MIN_SPLIT_FRAMES and any(classes_of[i] & lacking for i in ids)
+        }
+    if big and (final is None or _quality(final, classes_of, total) > (False, 0)):
         try:
-            final = splitter.attempt(big)
+            trial = splitter.attempt(big)
         except ValueError:
             if final is None:
                 raise
+        else:
+            if final is None or _quality(trial, classes_of, total) < _quality(final, classes_of, total):
+                final = trial
     assert final is not None
     split = final.split
 
-    # frames of a train part (or of the folds) right next to a val/test segment are left out
+    # frames right next to a segment of a more protected part are left out: train (or the folds) near
+    # val/test, and val near test
     if final.folds is None:
-        protected = set(final.parts["val"]) | set(final.parts["test"])
-        droppable = set(final.parts["train"])
+        guards = [
+            (set(final.parts["val"]) | set(final.parts["test"]), set(final.parts["train"])),
+            (set(final.parts["test"]), set(final.parts["val"])),
+        ]
     else:
-        protected = set(final.parts["test"])
-        droppable = {i for f in final.folds for i in f}
-    gap = _gap_ids(
-        {v: frames_of[v] for v in split},
-        {i: _seconds(manifest[i], fps) for i in candidates if manifest[i].video in split},
-        protected,
-        droppable,
-        options.gap_seconds,
-    )
+        guards = [(set(final.parts["test"]), {i for f in final.folds for i in f})]
+    cut_frames = {v: frames_of[v] for v in split}
+    times = {i: _seconds(manifest[i], fps) for i in candidates if manifest[i].video in split}
+    gaps = _video_gaps(cut_frames, times, duplicate_of, options.gap_seconds)
+    gap: dict[str, set[str]] = {}
+    for kept, losing in guards:
+        for video, near in _gap_ids(cut_frames, times, kept, losing, gaps).items():
+            gap.setdefault(video, set()).update(near)
     dropped = set().union(*gap.values())
     parts = {p: [i for i in ids if i not in dropped] for p, ids in final.parts.items()}
     folds = None if final.folds is None else [[i for i in f if i not in dropped] for f in final.folds]
@@ -1112,6 +1349,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             if cut
             else [],
             "gap": len(gap.get(video, ())),
+            "gap_seconds": round(gaps.get(video, 0.0), 3) if cut else 0.0,
         }
         videos.append(entry)
         if cut:
@@ -1127,6 +1365,9 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
                 }
             )
 
+    shared = [v["video"] for v in videos if v["split"]]
+    if shared:  # the same scene on both sides: the scores measure seen videos, not new ones
+        warnings.append({"code": "video_parts_shared", "videos": len(shared)})
     analysed = read_json(curation_path(project_dir), {}).get("duplicate_of") is not None
     if not analysed:
         warnings.append({"code": "no_curation"})
