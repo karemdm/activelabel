@@ -273,7 +273,20 @@ def _apply_job(
 
 @router.delete("/projects/{project_id}/sync/{tool}/{plan_id}")
 def discard(project_id: int, tool: str, plan_id: str, state: AppState = STATE) -> dict[str, bool]:
-    """Throw a comparison away: it cannot be applied afterwards (404), from any tab."""
+    """Throw a comparison away: it cannot be applied afterwards (404), from any tab.
+
+    Args:
+        project_id: Id of the project.
+        tool: The remote tool (``cvat``).
+        plan_id: Id of the comparison.
+        state: The shared state of the application.
+
+    Returns:
+        ``{discarded: True}``.
+
+    Raises:
+        ApiError: 404 ``plan_not_found`` when the comparison does not exist.
+    """
     state.project(project_id)
     _tool(tool)
     if not engine.discard_plan(state.store.dir(project_id), plan_id):

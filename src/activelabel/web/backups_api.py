@@ -17,7 +17,15 @@ STATE = Depends(get_state)
 
 @router.get("/projects/{project_id}/annotations/backups")
 def list_backups(project_id: int, state: AppState = STATE) -> dict[str, Any]:
-    """The safety copies of the annotations, newest first: name, created (UTC), images, labels, reason."""
+    """The safety copies of the annotations, newest first: name, created (UTC), images, labels, reason.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{items}``, newest first.
+    """
     state.project(project_id)
     return {"items": backups.list_backups(state.store.dir(project_id))}
 
@@ -28,6 +36,17 @@ def restore_backup(project_id: int, name: str, state: AppState = STATE) -> dict[
 
     Refused with 409 while an activity, training, export or pre-annotation of the project runs; the
     project takes the task of the copy and gets the classes of the copy it does not have.
+
+    Args:
+        project_id: Id of the project.
+        name: File name of the safety copy.
+        state: The shared state of the application.
+
+    Returns:
+        The result of the restore (counts, and the copy made of the current file).
+
+    Raises:
+        ApiError: 404 ``backup_not_found``; 400 for a coded refusal; 409 while the project is busy.
     """
     state.project(project_id)
     state.busy(project_id, training=True)
