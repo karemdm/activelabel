@@ -565,3 +565,16 @@ def test_the_cvat_scope_selector_counts_active_images_and_the_review_names_where
     for lang in ("pt", "en"):
         messages = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         assert "{tool}" in messages["sync.remote_images_other"] and "sync.remote_images_one" in messages
+
+
+def test_the_cvat_settings_start_empty_with_an_example_and_the_tab_names_the_connection():
+    """#419: placeholder instead of a prefilled address, one name for the secret, the tab names the server."""
+    assert "value: entry.url || DEFAULT_URLS" not in JS
+    assert re.search(r"id: 'tool-url'[^\n]*placeholder: DEFAULT_URLS\[tool\]", JS)
+    assert "t('annotate.connected_as'" in JS
+    for lang in ("pt", "en"):
+        messages = _messages(lang)
+        assert (
+            "{server}" in messages["annotate.connected_as"] and "{user}" in messages["annotate.connected_as"]
+        )
+        assert "token" in messages["annotate.field_password"].lower()  # the same words as the error
