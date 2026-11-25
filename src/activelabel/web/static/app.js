@@ -217,7 +217,10 @@
    *  interface does not know, the server's own text. */
   function errorMessage(data, status) {
     const detail = data && data.detail;
-    if (Array.isArray(detail)) return detail.map(validationText).join('; ');
+    if (Array.isArray(detail)) return detail.map(validationText).join('; ');  // a plain FastAPI 422
+    if (data && data.code === 'validation_error' && data.params && Array.isArray(data.params.errors)) {
+      return data.params.errors.map(validationText).join('; ');
+    }
     const info = detail && typeof detail === 'object' ? detail : data;  // older answers keep a dict as detail
     const code = info && typeof info.code === 'string' ? info.code : null;
     if (code && `error.${code}` in I18N) return t(`error.${code}`, errorParams(info.params || info));

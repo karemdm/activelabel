@@ -53,3 +53,35 @@ def test_bad_request_keeps_the_code_of_a_coded_error() -> None:
     assert isinstance(coded, ApiError) and coded.code == "some_code" and coded.params == {"n": 1}
     plain = bad_request(ValueError("nope"))
     assert type(plain) is HTTPException and plain.status_code == 400
+
+
+def test_a_request_with_wrong_types_answers_422_with_a_code_and_the_problems() -> None:
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.post("/n")
+    def numbers(body: dict[str, int]) -> None:
+        return None
+
+    @app.get("/q")
+    def query(page: int) -> None:
+        return None
+
+    client = TestClient(app, raise_server_exceptions=False)
+    body = client.post("/n", json={"a": "x"}).json()
+    assert body["code"] == "validation_error" and isinstance(body["detail"], str)
+    assert body["params"]["errors"][0]["type"] == "int_parsing"
+    assert body["params"]["errors"][0]["loc"] == ["body", "a"]
+    assert "a" in body["detail"]
+    missing = client.get("/q").json()
+    assert missing["code"] == "validation_error" and missing["params"]["errors"][0]["type"] == "missing"
+    assert client.post("/n", content=b"{bad", headers={"content-type": "application/json"}).status_code == 422
+
+
+def test_unknown_address_and_method_answer_json_with_a_code() -> None:
+    client = _app()
+    gone = client.get("/nowhere")
+    assert gone.status_code == 404
+    assert gone.json() == {"detail": "Not Found", "code": "not_found", "params": {}}
+    wrong = client.post("/coded")
+    assert wrong.status_code == 405 and wrong.json()["code"] == "method_not_allowed"

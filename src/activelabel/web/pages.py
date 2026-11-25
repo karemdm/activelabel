@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from activelabel.i18n import DEFAULT, SUPPORTED, messages, pick_language, translate
+from activelabel.web.errors import plain_http_error
 
 WEB_DIR = Path(__file__).parent
 STATIC_DIR = WEB_DIR / "static"
@@ -131,7 +131,7 @@ async def unknown_address(request: Request, exc: Exception) -> Response:
         exc: The HTTP error; anything but a 404 of a page address keeps the JSON answer.
 
     Returns:
-        The page (HTTP 404), or the standard JSON error.
+        The page (HTTP 404), or the coded JSON error.
     """
     path = request.url.path
     if (
@@ -141,7 +141,7 @@ async def unknown_address(request: Request, exc: Exception) -> Response:
     ):
         return render(request, "notfound.html", status_code=404)
     assert isinstance(exc, StarletteHTTPException)
-    return await http_exception_handler(request, exc)
+    return await plain_http_error(request, exc)
 
 
 @router.get("/", response_class=HTMLResponse)
