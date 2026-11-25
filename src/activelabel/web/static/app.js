@@ -891,7 +891,7 @@
     const m = String((job && job.message) || '');
     for (const [shape, key] of JOB_MESSAGE_SHAPES) {
       const found = shape.exec(m);
-      if (found) return t(key, { tool: toolName(found[1]) });
+      if (found) return t(key, { tool: toolName(found[1].toLowerCase()) });
     }
     return tr(`jobmsg.${m}`, m);
   };
