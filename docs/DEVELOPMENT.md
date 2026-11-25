@@ -41,9 +41,20 @@ Never point a development server at a workspace that holds data you care about.
 | FiftyOne tests | `python -m pytest -q -m integration` (starts a database of the tests' own; slow) |
 | One file | `python -m pytest tests/activelabel/test_datasets.py -q` |
 
-`pre-commit` runs ruff, mypy and the fast tests on every commit; CI (`.github/workflows/ci.yml`) runs the
-same on Linux and Windows, plus the FiftyOne tests against a MongoDB service on Linux. Run the checks that
-cover what you changed before you commit, and the whole suite before you open a pull request.
+`pre-commit` runs ruff, mypy and the fast tests on every commit. Run the checks that cover what you changed
+before you commit, and the whole suite before you open a pull request.
+
+CI (`.github/workflows/ci.yml`) runs on every pull request and on `main`:
+
+| Job | What | Required to merge |
+| --- | --- | --- |
+| `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12, Linux with 3.10 (the oldest supported), macOS (Apple silicon) with 3.12 | yes, except macOS |
+| `FiftyOne tests` | the tests marked `integration`, against a MongoDB service of the job | yes |
+| `package` | builds the wheel, checks its version and files, installs it in a clean environment and fetches the pages of the installed server | yes |
+| `training workers (torch CPU)` | the worker and metric tests with the pinned CPU build of PyTorch; fails if one of them is skipped | yes |
+| `ui (node + playwright)` | the JavaScript unit tests and the Playwright smoke tests (see below) | yes |
+
+The macOS job runs on every pull request, but a failure there does not block the merge.
 
 The CVAT synchronisation is tested against a strict in-memory fake of CVAT's REST API
 (`tests/helpers/cvat_fake.py`). A separate workflow, `.github/workflows/cvat-live.yml`, runs nightly (and
@@ -139,19 +150,25 @@ flowchart TB
 - **Environment** (`training/environment.py`). A virtual environment under `<workspace>/training/env`
   (on Windows, a short folder under the user's local application data when the path would be too long;
   the choice is recorded in `training/env.json`). The runner installs only the packages the chosen model
-  needs, plus Pillow and NumPy; PyTorch comes with CUDA support when `nvidia-smi` finds an NVIDIA GPU, and
-  as the CPU build otherwise. Progress goes to the run as visible steps and to `training/install.log`.
-- **Device.** Chosen by the worker when it starts (CUDA, then Apple MPS, then CPU) and recorded in
-  `run.json`, never in the configuration.
-- **Workers** (`training/workers/`). Standalone scripts that import only the standard library and, inside
-  their functions, torch and friends, so they run in an environment without ActiveLabel and their pure
-  helpers can be unit-tested without torch: `classification.py`, `detection.py` (detection, instance
-  segmentation and keypoints), `segmentation.py` (semantic), `predict.py` (pre-annotation) and
-  `export_onnx.py`. `WORKER_FILES` in `runner.py` maps a kind of task to its script.
+  needs, plus Pillow and NumPy, at the tested versions of `PINNED_VERSIONS`; PyTorch comes with CUDA support
+  when `nvidia-smi` finds an NVIDIA GPU (`CUDA_TAGS`), and as the CPU build otherwise. How to move the pins
+  to newer versions is in docs/TRAINING.md (*Pinned package versions*). Progress goes to the run as visible
+  steps and to `training/install.log`.
+- **Device.** Chosen when the run is created (`auto`, `cpu`, `cuda:N` or `mps`; `training/devices.py` lists
+  the choices of the computer and refuses one it does not have), checked again by the worker with PyTorch,
+  and recorded in `run.json`, never in the configuration. Pre-annotation takes the same choice.
+- **Workers** (`training/workers/`). Standalone scripts that run in the training environment, which has no
+  ActiveLabel: they import torch and friends at the top, and their shared helpers (`options.py`:
+  resize policy, schedules, mixed precision, batch fitting; `augment.py`: augmentation techniques) sit next
+  to them and are imported by file name when ActiveLabel is not installed. Their pure helpers are tested
+  through `tests/helpers/worker_loader.py`, and the job *training workers* runs them with a real CPU
+  PyTorch: `classification.py`, `detection.py` (detection, instance segmentation and keypoints),
+  `segmentation.py` (semantic), `predict.py` (pre-annotation) and `export_onnx.py`. `WORKER_FILES` in
+  `runner.py` maps a kind of task to its script.
 - **Protocol.** The runner writes `spec.json` (image paths, class indexes, labels of each part, model,
   hyperparameters) and starts `<env python> <worker> spec.json` with every cache and temporary folder
   pointed to the run's temporary folder. The worker prints one JSON object per line on stdout: `log`,
-  `warning`, `progress`, `epoch` (metrics of an epoch, `best` when it is the best so far), `done` (with the
+  `warning`, `setup` (the device, mixed precision and batch size really used), `progress`, `epoch` (metrics of an epoch, `best` when it is the best so far), `done` (with the
   results) or `error`; `predict.py` also prints one `prediction` per image. Lines that are not JSON go to
   the log. The runner turns events into `run.json`, `metrics.jsonl` and `results.json`.
 - **Cancel** kills the whole process tree (`kill_tree`, using `psutil`). A run that was running when the
@@ -166,7 +183,7 @@ flowchart TB
 
 - `tests/activelabel/web/conftest.py` and `tests/helpers/api_client.py` build an app with a temporary
   workspace; use them for endpoint tests rather than starting a server. `tests/helpers/` also has fakes
-  for CVAT (`sync_fakes.py`, `import_fakes.py`), the training runner (`training_fakes.py`)
+  for CVAT (`cvat_fake.py`, a strict fake of its REST API; `sync_fakes.py`, `import_fakes.py`), the training runner (`training_fakes.py`)
   and builders for images, videos and annotation files.
 - Tests that need FiftyOne are marked `integration` and are left out of the fast run. They never use your own
   FiftyOne data: `tests/conftest.py` starts a `mongod` of the tests' own (FiftyOne's binary, a temporary folder,
@@ -197,7 +214,21 @@ npx playwright install chromium     # Linux CI also needs --with-deps
 - **Smoke tests** (`npm run test:e2e`): Playwright with Chromium, files `tests/e2e/*.spec.js`. The configuration
   (`playwright.config.js`) starts the server itself (`python -m activelabel.cli serve`) on port 8107 with a
   temporary workspace, so it never touches the default port or your own data. Set `ACTIVELABEL_E2E_PYTHON` to use
-  another Python than `python` on the path. They walk the main path (create a project, upload three generated
-  images, open every step in Portuguese and in English) and check that the page logs no error, that no raw text
-  key shows and that nothing scrolls sideways on a phone-width screen. The report of a failed run is in `playwright-report/`.
-- CI runs both in the job `ui (node + playwright)`.
+  another Python than `python` on the path, and `PW_CHANNEL=chrome` (or `msedge`) to use an installed browser
+  instead of the downloaded Chromium. They walk the main path (create a project, upload three generated
+  images, open each of the six steps in Portuguese and in English) and fail on any uncaught page error or
+  console error, on a raw text key on screen, or on a page that scrolls sideways at phone width. The report of
+  a failed run is in `playwright-report/`.
+- Python tests that read the interface's JavaScript use `js_source()` (`tests/helpers/frontend.py`), which
+  joins every `.js` file under `web/static`, so they keep working when the script is split into files.
+- CI runs both in the job `ui (node + playwright)`, with the runner's Google Chrome.
+
+## Versions and releases
+
+The version is never written in the code: setuptools-scm reads it from the last git tag (`vMAJOR.MINOR.PATCH`),
+so a build between two releases carries the number of the last tag, and a checkout without any `v*` tag gives
+`0.0` (CI clones with the whole history for that reason). `activelabel.__version__` comes from the installed
+package (`0.0.0+unknown` when the source folder was never installed) and is recorded in every training run and
+in the API schema (`/openapi.json`).
+How a release is made (changelog, tag, the `release` workflow and its draft) is in
+[RELEASING.md](../RELEASING.md); notable changes go under *Unreleased* in [CHANGELOG.md](../CHANGELOG.md).
