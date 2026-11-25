@@ -31,7 +31,7 @@ from activelabel.labels import (
     load_annotations,
     save_annotations,
 )
-from activelabel.preannotate import image_state
+from activelabel.preannotate import annotated_ids, empty_ids, image_state
 from activelabel.projects import Project, clean_classes
 from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
@@ -126,12 +126,12 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
     active = [r for r in records if r.status == ACTIVE]
     annotations = load_annotations(project_dir)
     ids = {r.id for r in active}
-    # an image listed in the annotations without objects is annotated too (a background image);
-    # an image whose labels are all pre-annotations waits for review and is counted apart
+    # "annotated" = at least one reviewed label, as in the tasks and jobs; an image reviewed with no
+    # objects is counted apart (empty) and an image with only pre-annotations waits for review
     images_map = annotations.images if annotations else {}
-    states = {i: image_state(images_map, i) for i in images_map if i in ids}
-    labelled = [i for i, st in states.items() if st == "human"]
-    preannotated = [i for i, st in states.items() if st == "pre"]
+    labelled = annotated_ids(images_map, ids)
+    empty = empty_ids(images_map, ids)
+    preannotated = {i for i in ids if image_state(images_map, i) == "pre"}
     measured = [r for r in active if r.metrics]
     with_issues = [r for r in active if r.issues]
     if not measured:
@@ -148,6 +148,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
             "active": len(active),
             "excluded": len(records) - len(active),
             "annotated": len(labelled),
+            "empty": len(empty),
             "preannotated": len(preannotated),
             "labels": sum(len(annotations.images[i]) for i in labelled) if annotations else 0,
             "with_issues": len(with_issues),
@@ -156,7 +157,7 @@ def project_overview(state: AppState, project: Project) -> dict[str, Any]:
         },
         "steps": {
             "images": "done" if active else "empty",
-            "annotations": "loaded" if labelled or preannotated else "none",
+            "annotations": "loaded" if labelled or empty or preannotated else "none",
             "curation": curation,
         },
     }
@@ -1074,11 +1075,15 @@ def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, A
     per_class: dict[str, int] = {}
     images = 0
     waiting = 0
+    empty = 0
     for image_id, labels in ground_truth.images.items():
         if image_id not in active:
             continue
         if image_state(ground_truth.images, image_id) == "pre":
             waiting += 1  # pre-annotations: not counted until reviewed
+            continue
+        if not labels:
+            empty += 1  # reviewed with no objects: counted apart
             continue
         images += 1
         for label in labels:
@@ -1089,6 +1094,7 @@ def annotations_summary(project_id: int, state: AppState = STATE) -> dict[str, A
         "task_matches": ground_truth.task is project.task,
         "class_names": ground_truth.classes,
         "images_annotated": images,
+        "images_empty": empty,
         "images_preannotated": waiting,
         "labels_total": sum(per_class.values()),
         "labels_per_class": dict(sorted(per_class.items(), key=lambda kv: -kv[1])),

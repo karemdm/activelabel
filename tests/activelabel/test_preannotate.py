@@ -194,3 +194,24 @@ def test_store_numbers_lists_and_updates(tmp_path):
         store.get(7)
     with pytest.raises(preannotate.RunNotFound):
         store.update(7, status="done")
+
+
+IMAGES = {
+    "a": [Label("cat", bbox=[0, 0, 1, 1])],
+    "b": [Label("cat", bbox=[0, 0, 1, 1], score=0.8)],  # only a pre-annotation
+    "c": [],
+    "d": [Label("cat", bbox=[0, 0, 1, 1], score=0.8), Label("dog", bbox=[0, 0, 1, 1])],
+}
+
+
+def test_annotated_ids_needs_a_reviewed_label():
+    assert preannotate.annotated_ids(IMAGES, ["a", "b", "c", "d", "e"]) == {"a", "d"}
+
+
+def test_annotated_ids_only_looks_at_the_given_ids():
+    assert preannotate.annotated_ids(IMAGES, ["a"]) == {"a"}
+    assert preannotate.annotated_ids({}, ["a"]) == set()
+
+
+def test_empty_ids_are_images_listed_without_objects():
+    assert preannotate.empty_ids(IMAGES, ["a", "b", "c", "d", "e"]) == {"c"}

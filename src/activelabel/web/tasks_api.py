@@ -14,7 +14,7 @@ from activelabel.annotate import credentials
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import load_annotations
-from activelabel.preannotate import image_state
+from activelabel.preannotate import annotated_ids
 from activelabel.sync import links
 from activelabel.sync.registry import get_remote
 from activelabel.tasks_store import (
@@ -97,8 +97,7 @@ def _sets(state: AppState, project_id: int) -> tuple[set[str], set[str]]:
     active = {r.id for r in Manifest(project_dir).all() if r.status == ACTIVE}
     annotations = load_annotations(project_dir)
     images = annotations.images if annotations else {}
-    labelled = {i for i, labels in images.items() if labels and image_state(images, i) == "human"}
-    return active, labelled
+    return active, annotated_ids(images, active)
 
 
 def _view(state: AppState, project_id: int, task: ImageTask) -> dict[str, Any]:

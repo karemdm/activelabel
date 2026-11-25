@@ -65,6 +65,8 @@
   "status.annotations_none": "Nenhuma anotação",
   "status.annotated_one": "{n} imagem anotada",
   "status.annotated_other": "{n} imagens anotadas",
+  "status.empty_one": "{n} sem objetos",
+  "status.empty_other": "{n} sem objetos",
   "status.classes_one": "{n} classe",
   "status.classes_other": "{n} classes",
   "status.not_analyzed": "Não analisadas",

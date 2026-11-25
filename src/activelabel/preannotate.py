@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import builtins
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +103,35 @@ def image_state(images: dict[str, list[Label]], image_id: str) -> str:
     if labels and all(is_preannotation(lb) for lb in labels):
         return "pre"
     return "human"
+
+
+def annotated_ids(images: dict[str, list[Label]], ids: Iterable[str]) -> set[str]:
+    """Ids (among ``ids``) of the images with at least one reviewed label: what "annotated" means everywhere.
+
+    An image whose labels are all pre-annotations waits for review and is not counted; an image
+    reviewed with no objects is counted by :func:`empty_ids`.
+
+    Args:
+        images: Labels per image id (``AnnotationSet.images``).
+        ids: The image ids to look at.
+
+    Returns:
+        The ids with a label made by a person.
+    """
+    return {i for i in ids if images.get(i) and image_state(images, i) == "human"}
+
+
+def empty_ids(images: dict[str, list[Label]], ids: Iterable[str]) -> set[str]:
+    """Ids (among ``ids``) of the images listed in the annotations with no objects (reviewed, empty).
+
+    Args:
+        images: Labels per image id (``AnnotationSet.images``).
+        ids: The image ids to look at.
+
+    Returns:
+        The ids listed with an empty label list.
+    """
+    return {i for i in ids if i in images and not images[i]}
 
 
 def decode_mask(mask: dict[str, Any]) -> Any:
