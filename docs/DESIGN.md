@@ -21,6 +21,24 @@ Principles (from what went wrong in the previous tool):
   views per issue. Tagging an image `exclude` in FiftyOne can be brought back.
 - English and Portuguese, light and dark theme, works at phone width.
 
+**Visual system** (the tokens and their rules are at the top of `web/static/app.css`):
+
+- **Colour says where you are**: blue on the home page and the lists, teal in *Data* (steps 1-3), violet in
+  *Model* (steps 4-6). The project page sets `data-area` on the page and every accent (primary buttons, active
+  tabs and chips, the current step, the band under the top bar) follows it, with a short fade (240 ms) when the
+  person moves from one group to the other. Cards are flat.
+- **Status colours** (ok, warning, danger) only mean a state and always come with an icon or a word, never
+  colour alone; data series of charts and the best values in tables do not use them.
+- **Type**: one sans-serif for text and no uppercase (it breaks Portuguese accents and names such as
+  mAP50-95); a monospaced font with tabular numbers only for ids (`#2`, `v2`), counts, image names and metric
+  tiles.
+- **Touch**: interactive targets are at least 36 px; on a phone every button, tab, chip and field is at least
+  44 × 44 px.
+- **Dialogs**: a head with the title and the close button that stays in view while a long dialog scrolls, and
+  a footer with the actions that stays at the bottom.
+- The contrast of every pair of colour tokens, in light and in dark, is checked by
+  `tests/activelabel/web/test_contrast.py`.
+
 ## Data on disk
 
 ```
@@ -81,8 +99,9 @@ project deletes its recorded dataset (and the plain-named one only when it holds
 3. **Project page** — header (name, `#id`, type, edit, delete; the classes stay on one line with *See all*
    opening the full list) and the six steps in a compact **step bar**: two groups (*Data*, *Model*), a marker
    on each step (done, needs attention, in progress) and the current step scrolled into view on a narrow
-   screen. Texts and dialogs share one pattern (title with a close button, sticky footer, Cancel focused in
-   destructive ones, touch targets of at least 36 px, text of at least 12 px). The steps (the three below,
+   screen. Texts and dialogs share one pattern (title with a close button, both staying in view, sticky footer,
+   Cancel focused in destructive ones, touch targets of at least 36 px and 44 × 44 px on a phone, text of at
+   least 12 px). The steps (the three below,
    then *Data split*, *Training* and *Models*, see [DATASETS.md](DATASETS.md) and
    [TRAINING.md](TRAINING.md); the *Annotations* step also has the tabs *Pre-annotate*, *CVAT* and
    *FiftyOne*, see [PREANNOTATE.md](PREANNOTATE.md), [SYNC.md](SYNC.md) and
@@ -110,9 +129,12 @@ project deletes its recorded dataset (and the plain-named one only when it holds
      FiftyOne* opens the saved view of the current filter. The issues are: blurry, dark, bright, low
      contrast, small, odd aspect ratio, grayscale, near duplicate. (Corrupt files are rejected at
      upload and never become images.)
-4. **Activities card** — a small card in the bottom-right corner (minimisable, closable) with the running
-   and recent jobs of the project: progress, *Stop*, result summary and *See result*; finished ones
-   stay in its history.
+4. **Activities** — a small pill in the bottom-right corner that says what is running ("2 running") or the
+   latest finished activity. A success fades after a few seconds; a failure stays on the pill, red with its
+   icon and word, until the person opens it, and has a × that dismisses it without opening the card. The pill
+   opens the card with the running and recent jobs of the project: progress, *Stop*, result summary and
+   *See result*; finished ones stay in its history (*Clear finished activities* empties it), and the ones the
+   person closed stay closed in this browser.
 
 ## HTTP API
 
@@ -129,8 +151,9 @@ stable `code` and the `params` the translated text needs:
 ```
 
 Status codes: 400 (rejected input), 404 (not found), 409 (conflict: a job of the project is running, or the
-state changed since the person looked), 422 (the body or a parameter has the wrong shape; `detail` is the
-list FastAPI gives), 500 for a damaged data file (`code: "file_damaged"`, `params.file`; the project
+state changed since the person looked), 422 (the body or a parameter has the wrong shape: `code` is
+`validation_error`, `detail` a readable text and `params.errors` one entry per wrong field, each with a code the
+interface translates), 500 for a damaged data file (`code: "file_damaged"`, `params.file`; the project
 list itself survives one damaged project), 503 `fiftyone_unavailable` when the FiftyOne database did not answer
 and 500 `internal_error` for any other unexpected error (its traceback stays in the server log; the body never
 carries the exception text, and the interface never shows a bare "HTTP 500"). Three answers (two 409, one 400) carry an object in `detail` with its own
@@ -139,9 +162,10 @@ the upload `report`). The `code` values of the other errors are:
 
 | Status | Codes |
 | --- | --- |
-| 400 | **Projects, tasks, text:** `project_name_empty`, `project_name_taken`, `project_name_too_long`, `description_too_long`, `class_name_invalid`, `class_name_too_long`, `too_many_classes`, `type_invalid`, `task_name_empty`, `task_name_taken`, `task_name_too_long`, `job_size_invalid`, `control_characters`, `url_invalid`, `url_required`, `confirm_required`, `name_mismatch`, `no_images`, `task_required`, `job_required`. **Annotation files:** `annotation_format_unknown`, `annotation_unreadable`, `annotation_not_json` / `annotation_not_xml` (with `file`, `line`, `column`), `annotation_not_text`, `annotation_files_missing`, `annotation_zip_invalid`, `annotation_path_unsafe`, `annotation_too_large`, `staging_token_invalid`, `backup_name_invalid`, `backup_unreadable`, `annotations_not_convertible`, `video_task_required`. **Curation, scopes, tools, sync:** `unknown_thresholds`, `curation_threshold_not_number`, `curation_threshold_range`, `curation_threshold_not_whole`, `scope_invalid`, `scope_unknown`, `issue_required`, `no_images_match`, `direction_invalid`, `resolution_invalid`, `tool_not_configured`, `tool_unsupported`, `tool_error`, `pull_first`, `fiftyone_not_opened`. **Videos:** `one_file_only`, `video_type_unsupported`, `video_unreadable`, `video_no_frames`, `video_too_many_frames`, `video_not_enough_disk`, `video_range_invalid`, `video_seconds_range`, `video_step_range`, `frame_out_of_range`, `frame_unreadable`. **Data split** (docs/DATASETS.md): `dataset_required`, `not_whole_number`, `split_percentage_range`, `split_sum`, `split_train_empty`, `split_unknown_part`, `kfold_range`, `kfold_test_too_big`, `kfold_too_few_groups`, `background_not_bool`, `videos_mode`, `gap_not_number`, `gap_range`, `tasks_not_list`, `nothing_to_split`, `no_usable_labels`, `note_too_long`, `part_unknown`, `fold_required`, `fold_not_found`, `version_has_no_folds`. **Training and models** (docs/TRAINING.md): `dataset_classes_removed`, `dataset_incomplete`, `dataset_no_validation`, `dataset_train_empty`, `dataset_wrong_type`, `training_unavailable`, `public_model_wrong_type`, and the hyperparameter checks `param_max`, `param_min`, `param_not_bool`, `param_not_choice`, `param_not_finite`, `param_not_number`, `param_not_whole`, `param_too_large`. **Pre-annotation:** `model_kind_mismatch`, `model_not_in_catalogue`, `preannotation_kind_unsupported`, `threshold_range`, `no_images_for_choice` |
-| 404 | `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `run_not_found`, `child_not_found`, `model_not_found`, `public_model_not_found`, `public_model_no_weights`, `model_file_missing`, `download_unknown`, `preannotation_not_found`, `video_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
-| 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `already_discarded`, `annotations_changed`, `session_finished`, `dataset_part_empty`, `dataset_in_use`, `dataset_used_by_runs`, `run_running`, `run_config_damaged`, `model_in_use`, `model_file_in_use`, `preannotation_running`, `video_in_use`, `video_task_running` |
+| 400 | **Projects, tasks, text:** `project_name_empty`, `project_name_taken`, `project_name_too_long`, `description_too_long`, `class_name_invalid`, `class_name_too_long`, `too_many_classes`, `type_invalid`, `task_name_empty`, `task_name_taken`, `task_name_too_long`, `job_size_invalid`, `control_characters`, `url_invalid`, `url_required`, `confirm_required`, `name_mismatch`, `no_images`, `task_required`, `job_required`. **Annotation files:** `annotation_format_unknown`, `annotation_unreadable`, `annotation_not_json` / `annotation_not_xml` (with `file`, `line`, `column`), `annotation_not_text`, `annotation_files_missing`, `annotation_zip_invalid`, `annotation_path_unsafe`, `annotation_too_large`, `staging_token_invalid`, `backup_name_invalid`, `backup_unreadable`, `annotations_not_convertible`, `video_task_required`. **Curation, scopes, tools, sync:** `unknown_thresholds`, `curation_threshold_not_number`, `curation_threshold_range`, `curation_threshold_not_whole`, `scope_invalid`, `scope_unknown`, `issue_required`, `no_images_match`, `direction_invalid`, `resolution_invalid`, `tool_not_configured`, `tool_unsupported`, `tool_error`, `pull_first`, `fiftyone_not_opened`, `fiftyone_keypoints_not_editable`. **Videos:** `one_file_only`, `video_type_unsupported`, `video_unreadable`, `video_no_frames`, `video_too_many_frames`, `video_not_enough_disk`, `video_range_invalid`, `video_seconds_range`, `video_step_range`, `frame_out_of_range`, `frame_unreadable`. **Data split** (docs/DATASETS.md): `dataset_required`, `not_whole_number`, `split_percentage_range`, `split_sum`, `split_incomplete`, `split_train_empty`, `split_unknown_part`, `kfold_range`, `kfold_test_too_big`, `kfold_too_few_groups`, `seed_range`, `background_not_bool`, `videos_mode`, `gap_not_number`, `gap_range`, `tasks_not_list`, `nothing_to_split`, `no_usable_labels`, `note_too_long`, `part_unknown`, `fold_required`, `fold_not_found`, `version_has_no_folds`. **Training and models** (docs/TRAINING.md): `dataset_classes_removed`, `dataset_incomplete`, `dataset_no_validation`, `dataset_train_empty`, `dataset_wrong_type`, `dataset_not_number`, `training_unavailable`, `public_model_wrong_type`, `public_model_no_export`, `format_invalid`, `device_invalid`, `device_unavailable`; the configuration checks `config_choose`, `config_invalid_yaml`, `config_not_mapping`, `config_params_not_mapping`, `config_unknown_options`, `model_unknown`, `model_wrong_type`, `model_no_pretrained`, `mode_invalid`, `start_invalid`, `start_in_params`, `metric_invalid`, `fold_invalid`, `fold_not_allowed`, `single_run_has_grid`, `segmentation_batch_size`; the grid checks `grid_needs_lists`, `grid_entry_not_list`, `grid_list_empty`, `grid_list_repeats`, `grid_too_big`, `param_fixed_and_grid`; the hyperparameter checks `param_unknown`, `param_max`, `param_min`, `param_not_bool`, `param_not_choice`, `param_not_finite`, `param_not_number`, `param_not_whole`, `param_too_large`; the augmentation checks `augmentation_level_invalid`, `augmentations_not_list`, `augmentation_entry_invalid`, `augmentation_unknown`, `augmentation_repeated`, `augmentation_conflict`, `augmentation_param_unknown`, `augmentation_custom_needs_list`, `augmentation_list_needs_custom`, `augmentation_flip_pairs_required`, `augmentation_flip_pairs_invalid`; saving a run as a model `run_not_finished`, `run_already_saved`, `run_no_weights`, `run_dataset_deleted`; a public model's mapping `mapping_empty`, `mapping_unknown_category`, `mapping_unknown_class`. **Pre-annotation:** `model_kind_mismatch`, `model_not_in_catalogue`, `preannotation_kind_unsupported`, `threshold_range`, `no_images_for_choice` |
+| 404 | `not_found` (an unknown address), `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `run_not_found`, `child_not_found`, `model_not_found`, `public_model_not_found`, `public_model_no_weights`, `model_file_missing`, `download_unknown`, `preannotation_not_found`, `video_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
+| 405 | `method_not_allowed` |
+| 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `already_discarded`, `annotations_changed`, `session_finished`, `dataset_part_empty`, `dataset_in_use`, `dataset_used_by_runs`, `run_running`, `run_config_damaged`, `model_in_use`, `model_file_in_use`, `export_running`, `preannotation_running`, `video_in_use`, `video_task_running` |
 
 `tool_error` (400) means a remote tool (CVAT) failed or refused: `detail` is its message and `params` has
 `tool` and `reason`. `tool_unsupported` (400) is a session of a discontinued tool (docs/ANNOTATION.md).
@@ -151,9 +175,12 @@ Texts the interface does not know a code for are shown as the English `detail`.
 A background job that fails also carries `error_code` and `error_params` next to its English `error` (the same
 codes, `error.<code>` in the language files); its `result` is empty: tracebacks go to the log, not to the
 interface. Failures of CVAT (`cvat_unreachable`, `cvat_login_failed`, `cvat_refused`, `cvat_plan_limit`,
-`cvat_rate_limited`, `cvat_error`, `cvat_not_found`...), of the synchronisation (`remote_gone`,
-`sync_remote_changed`, `sync_local_changed`, `sync_link_changed`, `sync_no_remote`) and of the import
-(`cvat_no_images`, `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
+`cvat_rate_limited`, `cvat_error`, `cvat_not_found`, `cvat_not_api`, `cvat_download_failed`,
+`cvat_frames_mismatch`, `cvat_order_changed`, `cvat_image_not_registered`, `cvat_processing_failed`,
+`cvat_processing_timeout`, `cvat_backup_failed`, `cvat_backup_timeout`, `cvat_backup_invalid`...), of the
+synchronisation (`remote_gone`, `sync_remote_changed`, `sync_local_changed`, `sync_link_changed`,
+`sync_task_has_new_images`, `sync_no_remote`, `plan_not_found`) and of the import (`cvat_config_missing`,
+`cvat_url_invalid`, `cvat_no_images`, `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
 sent as `tool_error` with `tool` and `reason`.
 
 ### Limits
@@ -232,8 +259,9 @@ running.
 | GET, POST | `/projects/{id}/datasets`, `/datasets/preview` | see [DATASETS.md](DATASETS.md) | versions / preview / the new version |
 | GET, DELETE | `/projects/{id}/datasets/{n}` | see [DATASETS.md](DATASETS.md) | version / `{deleted}` |
 | GET | `/training/catalog` | `type` | models with hyperparameter specs, selection metrics |
-| GET | `/training/environment` | | installed packages, device found |
-| GET / POST | `/projects/{id}/runs` | POST: run configuration (docs/TRAINING.md) | runs (each with `model_number` and `has_weights`) / the new run, stored as `queued`; it starts as soon as no other heavy process is running |
+| GET | `/training/environment` | | installed packages, the GPU found and `devices` (the device choices of this computer) |
+| GET | `/training/augmentations` | `type` | augmentation levels and techniques (docs/TRAINING.md) |
+| GET / POST | `/projects/{id}/runs` | POST: run configuration and optional `device` (docs/TRAINING.md) | runs (each with `model_number` and `has_weights`) / the new run, stored as `queued`; it starts as soon as no other heavy process is running |
 | GET / DELETE | `/projects/{id}/runs/{n}` | DELETE: `{confirm: true}` (409 while running) | config, status, metrics, results / `{deleted}` |
 | POST | `/projects/{id}/runs/{n}/cancel`, `/reproduce` | | the run / a new run with the same configuration |
 | GET | `/projects/{id}/runs/{n}/log`, `/children/{c}` | `lines` (200 by default) | log tail / one child of a grid or all-folds run |
