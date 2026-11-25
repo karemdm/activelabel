@@ -727,3 +727,12 @@ def test_a_grid_on_a_hold_out_version_counts_one_run_per_combination():
     """With 0 folds the count was combinations x 0 = 0, so a grid of 270 runs passed the limit of 50."""
     assert "Math.max(1, foldCount(versionOf()))" in JS
     assert "const total = combos * folds;" in JS
+
+
+def test_the_import_result_says_what_the_cvat_link_allows():
+    """#567: after an import the person must know whether Open in CVAT, Compare and sync work right away."""
+    assert "t(r.linked ? 'import.linked' : 'import.not_linked')" in JS
+    for lang in ("pt", "en"):
+        texts = (SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8")
+        assert '"import.linked"' in texts and '"import.not_linked"' in texts, lang
+    assert re.search(r"\.report-line\.warn \.icon\s*\{", CSS)

@@ -1,13 +1,17 @@
 import threading
+import time
+import uuid
 from pathlib import Path
 
 import fiftyone as fo
 import pytest
 import requests
+from api_client import make_client
 from fiftyone.utils import cvat as fouc
 from import_fakes import FakeResp, FakeSession, make_images
 from sync_fakes import FakeRemote, box
 
+from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import Manifest
 from activelabel.importing import cvat_import as ci
@@ -496,3 +500,41 @@ def test_import_project_reports_each_downloaded_image(tasks_remote, tmp_path):
     downloads = [(done, total) for done, total, message in progress.seen if message == "Downloading images"]
     assert (1, 5) in downloads and (5, 5) in downloads
     assert [d for d, _ in downloads] == sorted(d for d, _ in downloads)  # never goes back
+
+
+@pytest.mark.integration
+def test_a_project_imported_from_cvat_is_linked_and_opens_in_fiftyone_right_away(
+    tasks_remote, tmp_path, monkeypatch
+):
+    """#567: right after the import, Open in CVAT, Compare and Edit in FiftyOne all work."""
+    client, state = make_client(tmp_path)
+    login = {"url": BASE, "username": SETTINGS.username, "secret": SETTINGS.secret}
+    assert client.put("/api/annotation-tools/cvat", json=login).status_code == 200
+    result = run(state.store, tmp_path, kind="project", remote_id="1", name="Imported")
+    pid = result["project_id"]
+    (link,) = client.get(f"/api/projects/{pid}/links").json()["links"]
+    assert link["tool"] == "cvat" and link["remote_id"] == "1" and link["supported"] is True
+    tasks = client.get(f"/api/projects/{pid}/tasks").json()["tasks"]
+    assert [t["remote"]["task"] for t in tasks] == ["10", "11"]  # each task opens in CVAT
+    prefix = f"activelabel-import-test-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setattr(bridge, "DATASET_PREFIX", prefix)
+    monkeypatch.setattr(bridge, "launch_app", lambda *args, **kwargs: "http://fake-app/datasets/x")
+    try:
+        sent = client.post(f"/api/projects/{pid}/annotate", json={"tool": "fiftyone", "scope": "all"})
+        assert sent.status_code == 200, sent.text
+        job = wait_job(client, sent.json()["id"])
+        assert job["status"] == "done", job
+        assert job["result"]["session"]["images"] == result["images_added"]
+    finally:
+        for name in fo.list_datasets():
+            if name.startswith(prefix):
+                fo.delete_dataset(name)
+
+
+def wait_job(client, job_id):
+    for _ in range(600):
+        job = client.get(f"/api/jobs/{job_id}").json()
+        if job["status"] in ("done", "failed", "cancelled"):
+            return job
+        time.sleep(0.05)
+    raise AssertionError("job did not finish")

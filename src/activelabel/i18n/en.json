@@ -555,6 +555,8 @@
   "import.problems": "Things to check",
   "import.open": "Open the project",
   "import.another": "Import another project",
+  "import.linked": "Linked to its CVAT project: open it in CVAT, compare and synchronise in both directions from the CVAT tab of Annotations; Edit in FiftyOne works right away.",
+  "import.not_linked": "Not linked to CVAT: this task is in no CVAT project, and synchronisation works with CVAT projects. The images and annotations are a copy. To keep both sides in step, move the task into a project in CVAT and import that project.",
   "import.failed_title": "The import failed",
   "import.cancelled": "Import cancelled. No project was created.",
   "import.back": "Back to the list",
