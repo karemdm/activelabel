@@ -185,8 +185,8 @@ flowchart TB
   `segmentation.py` (semantic), `yolo.py` (Ultralytics, only after its licence is accepted), `predict.py`
   (pre-annotation), `embed.py` (embeddings of the similarity map of the curation) and `export_onnx.py`.
   `WORKER_FILES` in `runner.py` maps a kind of task to its script; other heavy work (the similarity map)
-  goes into the same one-at-a-time queue with `TrainingRunner.enqueue_tool` and starts its worker with
-  `run_worker`.
+  goes into the global queue, in the lane of its device, with `TrainingRunner.enqueue_tool` and starts its
+  worker with `run_worker`.
 - **Protocol.** The runner writes `spec.json` (image paths, class indexes, labels of each part, model,
   hyperparameters) and starts `<env python> <worker> spec.json` with every cache and temporary folder
   pointed to the run's temporary folder. The worker prints one JSON object per line on stdout: `log`,
