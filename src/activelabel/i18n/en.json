@@ -1592,6 +1592,7 @@
   "error.annotation_zip_invalid": "The zip file is not valid or is damaged.",
   "error.annotation_files_missing": "No annotation files were found in the upload.",
   "error.url_invalid": "The URL must start with http:// or https:// and name a server.",
+  "error.url_has_credentials": "Put the user and the password in their own fields, not in the URL.",
   "error.url_required": "Give the URL of the tool.",
   "error.remote_gone": "The CVAT project linked to this one no longer exists (it was deleted in CVAT). Use “Unlink” and compare again: a new CVAT project is created.",
   "error.sync_remote_changed": "The CVAT project changed since the comparison. Compare again.",
