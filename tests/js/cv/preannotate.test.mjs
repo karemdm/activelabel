@@ -36,3 +36,23 @@ test('the tab reads the pre-annotations of the project and says when no model fi
   assert.equal(changed, 0);
   assert.equal(typeof pre.choose, 'function');
 });
+
+test('the confidence field counts its steps from a multiple of the step, and "no class" is said once (#663)', async () => {
+  setMessages({ 'pre.classes_none': 'Choose at least one class', 'pre.classes_none_btn': 'None' }, 'en');
+  const model = {
+    number: 1, supported: true, current: true, label: 'Faster R-CNN', kind: 'detection',
+    options: [{ name: 'confidence', type: 'float', default: 0.25, min: 0.001, max: 0.999, step: 0.01, level: 'basic' }],
+    classes: [{ name: 'cat', in_project: true }, { name: 'dog', in_project: true }],
+  };
+  const pre = preannotateBlock({ projectId: 5 }, { changed: () => {}, reviewCvat: () => {}, reviewFiftyone: () => {} });
+  document.body.appendChild(pre.node);
+  await withApi({ models: [model], runs: [] }, () => pre.load());
+  const confidence = pre.node.querySelector('#pre-opt-confidence');
+  assert.equal(confidence.getAttribute('min'), '0');   // 0.25 and 0.7 are whole steps from 0, not from 0.001
+  const none = [...pre.node.querySelectorAll('button')].find((b) => b.textContent === 'None');
+  none.click();
+  const said = [...pre.node.querySelectorAll('.pre-note')].filter((p) => p.textContent.includes('Choose at least one class'));
+  assert.equal(said.length, 1);
+  assert.equal(said[0].id, 'pre-set-problem');   // the disabled Start button points to it
+  pre.node.remove();
+});

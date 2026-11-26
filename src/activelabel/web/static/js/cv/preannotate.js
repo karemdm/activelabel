@@ -225,7 +225,10 @@ export function preannotateBlock(page, hooks) {
     }
     return el('div', { class: `field pre-opt${isChanged ? ' is-changed' : ''}` },
       el('div', { class: 'pre-opt-head' }, el('label', { for: id }, optLabel(o.name)), reset),
-      el('input', { type: 'number', id, min: String(o.min), max: String(o.max), step: String(o.step), value: String(v), 'aria-describedby': hintId, 'aria-invalid': error ? 'true' : null,
+      /* the browser counts steps from `min`: a min that is not a multiple of the step (0.001 with 0.01) would make
+         the default and every value typed "invalid" for it, and the arrows would land on odd values (#663); the
+         real limits are checked by optionError and the server */
+      el('input', { type: 'number', id, min: String(Math.floor(o.min / o.step + 1e-9) * o.step), max: String(o.max), step: String(o.step), value: String(v), 'aria-describedby': hintId, 'aria-invalid': error ? 'true' : null,
         onchange: (e) => setOption(model, o, e.target.value) }),
       hint);
   }
@@ -263,7 +266,7 @@ export function preannotateBlock(page, hooks) {
         el('button', { type: 'button', class: 'btn small', onclick: () => setClasses(model, []) }, t('pre.classes_none_btn')),
         el('button', { type: 'button', class: 'btn small', onclick: () => setClasses(model, usable.filter((c) => !chosen.includes(c))) }, t('pre.classes_invert'))),
       picker,
-      !chosen.length && usable.length ? el('p', { class: 'pre-note warn' }, icon('warning', 16), t('pre.classes_none')) : null,
+      !chosen.length && usable.length ? el('p', { class: 'pre-note warn', id: 'pre-set-problem' }, icon('warning', 16), t('pre.classes_none')) : null,   // the Start button points here
       outside.length ? el('p', { class: 'hint' }, t('pre.classes_outside', { names: outside.slice(0, 10).join(', ') + (outside.length > 10 ? '…' : '') })) : null);
   }
   function settingsBlock(model) {
@@ -291,7 +294,7 @@ export function preannotateBlock(page, hooks) {
           more.length ? el('details', { class: 'pre-more', open: form.more || moreChanged, ontoggle: (e) => { form.more = e.currentTarget.open; } },
             el('summary', null, t('pre.params_more')),
             el('div', { class: 'pre-opts' }, ...more.map((o) => optionField(model, o)))) : null) : null,
-        problem ? el('p', { class: 'pre-note warn', id: 'pre-set-problem' }, icon('warning', 16), problem) : null,
+        problem && problem !== t('pre.classes_none') ? el('p', { class: 'pre-note warn', id: 'pre-set-problem' }, icon('warning', 16), problem) : null,   // no classes: said once, under them (#663)
         anyChanged ? el('div', { class: 'pre-set-foot' }, el('button', { type: 'button', class: 'btn small', onclick: () => { settings[model.number] = { options: {}, classes: null }; remember(); draw(true); } }, t('pre.set_reset_all'))) : null));
   }
   /* the settings a run used, in one line, and a way to fill the form with them */
