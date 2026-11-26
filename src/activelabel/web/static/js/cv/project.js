@@ -126,6 +126,7 @@ export function initProject() {
       ctx.project = await api('GET', `/projects/${projectId}`);
     } catch (err) { return; }
     renderStepper();
+    renderHeader();  // its Open in FiftyOne button depends on the image count
   }
 
   function showMissing() {
