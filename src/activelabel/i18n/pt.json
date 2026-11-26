@@ -1568,7 +1568,7 @@
   "error.gap_not_number": "O intervalo de segurança deve ser um número de segundos.",
   "error.gap_range": "O intervalo de segurança deve ficar entre 0 e {max} segundos.",
   "error.kfold_range": "O K-fold precisa de 2 a 10 folds.",
-  "error.kfold_test_too_big": "A porcentagem de teste precisa deixar imagens para os folds.",
+  "error.kfold_test_too_big": "Com K-fold a parte de teste pode ficar com no máximo {max}% das imagens.",
   "error.kfold_too_few_groups": "Só há {groups} grupos de imagens para {folds} folds: diminua o K.",
   "error.no_usable_labels": "Nenhum dos rótulos tem a forma que um projeto de {task} precisa.",
   "error.not_whole_number": "O valor deve ser um número inteiro.",

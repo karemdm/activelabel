@@ -220,7 +220,7 @@ Split options are checked with a code the interface translates (400): `not_whole
 boolean where a whole number is needed), `split_percentage_range` (outside 0–100), `split_sum` (without
 K-fold the parts must add up to 100), `split_incomplete` (some parts given, others left out so the total is
 not 100; `params.parts` names the missing ones), `split_unknown_part`, `split_train_empty`, `kfold_range`
-(K outside 2–10), `kfold_test_too_big` (test 100 % with K-fold), `kfold_too_few_groups` (fewer groups of
+(K outside 2–10), `kfold_test_too_big` (test above 90 % with K-fold, the same limit as the interface), `kfold_too_few_groups` (fewer groups of
 images than folds), `seed_range` (outside 0–4294967295), `background_not_bool`, `videos_mode`,
 `gap_not_number`, `gap_range` (outside 0–3600 s), `tasks_not_list`, `task_not_found`, `nothing_to_split`,
 `no_usable_labels`, `note_too_long`; when reading a version's images: `part_unknown`, `fold_required`,

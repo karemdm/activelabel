@@ -1568,7 +1568,7 @@
   "error.gap_not_number": "The safety gap must be a number of seconds.",
   "error.gap_range": "The safety gap must be between 0 and {max} seconds.",
   "error.kfold_range": "K-fold needs between 2 and 10 folds.",
-  "error.kfold_test_too_big": "The test percentage must leave images for the folds.",
+  "error.kfold_test_too_big": "With K-fold the test part can take at most {max}% of the images.",
   "error.kfold_too_few_groups": "There are only {groups} groups of images for {folds} folds: lower K.",
   "error.no_usable_labels": "None of the labels has the shape a {task} project needs.",
   "error.not_whole_number": "The value must be a whole number.",
