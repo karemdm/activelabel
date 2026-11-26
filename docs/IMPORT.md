@@ -153,7 +153,8 @@ targets (for example `age`). The values come in one `.csv` or `.json` file (form
   (docs/SYNC.md, docs/ANNOTATION.md). Importing a CVAT project (or a task of one) with the type
   *Regression* reads those tags as values; a CVAT task outside any project cannot be imported as regression
   (400 `regression_not_supported_yet`), since its values are read through the project.
-- Not built yet for regression projects: the data split, training and pre-annotation answer 400
+- The data split balances bins of the values of the first target (docs/DATASETS.md).
+- Not built yet for regression projects: training and pre-annotation answer 400
   `regression_not_supported_yet`.
 
 ## HTTP API

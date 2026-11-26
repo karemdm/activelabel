@@ -853,6 +853,8 @@
   "ds.b_few_images_folds": "{n} folds: few images",
   "ds.w_classes_unused_one": "The class {list} has no annotation in the chosen images: the model cannot learn it.",
   "ds.w_classes_unused_other": "The classes {list} have no annotation in the chosen images: the model cannot learn them.",
+  "ds.w_target_constant": "Every value of {target} is {value}: a model cannot learn anything from it.",
+  "ds.b_target_constant": "{target}: always {value}",
   "ds.b_classes_unused_one": "1 class without annotations",
   "ds.b_classes_unused_other": "{n} classes without annotations",
   "ds.images_with_bg": "Images (background included)",

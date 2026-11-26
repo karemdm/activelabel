@@ -71,6 +71,14 @@ warnings. Nothing is saved until the person confirms.
   the part furthest below its image target; ties are broken with the seeded random generator.
   Everything is deterministic for the same options and seed.
   Classification uses the image class; detection/segmentation/keypoints the classes of its objects.
+- **Regression projects** (#619) are stratified by **bins** of the values instead of classes: the values of the
+  first target (the first of the project's targets that has values) are cut into up to 5 quantile bins (about
+  as many values in each, and at least 10: a few images make fewer bins, so tiny bins do not pull the parts away
+  from the proportions asked for; equal values share a bin, so fewer bins when there are fewer distinct values),
+  and the
+  bins are spread over the parts like classes, so every part gets low, middle and high values. K-fold works the
+  same way. Only images with values are split (there is no background), and an image keeps the first value of
+  each target.
 - **Information** `video_split` (not a problem): a video that was cut and whose segments went to two or
   more parts is reported with its name, the number of segments, the parts that use spread segments and the
   frames left out as a gap. It is shown in a neutral style, not as a warning.
@@ -91,6 +99,9 @@ warnings. Nothing is saved until the person confirms.
     version, see *Labels that are left out*;
   - `no_curation`: curation was not analysed, so the near-duplicate rule could not apply;
   - `classes_unused`: classes of the project that no chosen image has (`classes`): the model cannot learn them;
+    in a regression project, targets without any value;
+  - `target_constant` (regression): every value of a target is the same (`target`, `value`): a model cannot
+    learn anything from it;
   - `video_split`: information, not a problem (see above).
 - Excluded images and images of tasks not chosen never enter.
 - **Pre-annotations are ignored**: labels with a `score` (made by a model, docs/PREANNOTATE.md) are
