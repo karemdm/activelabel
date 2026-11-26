@@ -162,7 +162,7 @@ export function initQueue() {
     timer = setTimeout(refresh, panel.hidden ? 15000 : 3000);
   }
   async function cancel(row) {
-    const ok = await confirmDialog({ title: t('queue.cancel_title'), text: t('queue.cancel_text', { what: tr(`job.kind.${row.kind}`, row.kind), project: row.project_name }), confirmLabel: t('queue.cancel') });
+    const ok = await confirmDialog({ title: t('queue.cancel_title'), text: t('queue.cancel_text', { what: tr(`job.kind.${row.kind}`, row.kind), project: row.project_name }), confirmLabel: t('queue.cancel_confirm'), cancelLabel: t('queue.keep') });
     if (!ok) return;
     try { await api('POST', row.cancel); } catch (err) { toastError(err); }
     refresh();
