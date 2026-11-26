@@ -148,6 +148,23 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 .topnav a { color: var(--text); text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; }
 .topnav a:hover { background: var(--surface-2); }
 .topbar-tools { display: flex; align-items: center; gap: var(--space-2); }
+/* the queue of heavy work (#603): the top bar button with its count and the panel under it */
+.topbar-tools { position: relative; }
+.queue-btn { gap: 0.4rem; }
+.queue-count { min-width: 1.4rem; padding: 0 0.35rem; border-radius: var(--radius-pill); background: var(--area); color: #fff; font-size: var(--font-xs); font-weight: 700; text-align: center; }
+.queue-count[hidden] { display: none; }
+.queue-panel { position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 50; width: min(34rem, calc(100vw - 2rem)); max-height: 70vh; overflow: auto; padding: var(--space-3) var(--space-4); box-shadow: 0 12px 32px rgb(0 0 0 / 0.18); }
+.queue-panel[hidden] { display: none; }
+.queue-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.queue-head h2 { margin: 0; font-size: var(--font-lg); }
+.queue-rows { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.queue-row { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.queue-row-top { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.queue-row-top .btn, .queue-row-top > .muted { margin-left: auto; }
+.queue-progress { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.queue-progress .progress { flex: 1; }
+.queue-msg { margin: var(--space-1) 0 0; }
+.queue-empty { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 var(--space-1); }
 .lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .lang-switch a { display: inline-flex; align-items: center; min-height: var(--touch); padding: 0 0.65rem; text-decoration: none; color: var(--text); font-weight: 600; font-size: var(--font-sm); }
 .lang-switch a[aria-current] { background: var(--surface-2); color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }
