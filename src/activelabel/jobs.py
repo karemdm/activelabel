@@ -13,11 +13,12 @@ import threading
 import traceback
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from typing import Any
 
 from activelabel.constants import CANCELLED, DONE, FAILED, FINISHED, QUEUED, RUNNING
+from activelabel.scheduler import LIGHT, Limits, Scheduler
 from activelabel.storage import now
 from activelabel.textcheck import message_of
 
@@ -72,6 +73,7 @@ class Job:
     project_id: int
     kind: str
     status: str = QUEUED
+    device: str = LIGHT  # lane of the global queue: light, cpu, cuda:N or mps (activelabel.scheduler)
     done: int = 0
     total: int = 0
     message: str = ""
@@ -139,23 +141,32 @@ JobFunction = Callable[[Progress], dict[str, Any] | None]
 
 
 class JobManager:
-    """Runs jobs one at a time, in submission order, in a background thread."""
+    """Keeps the jobs of one part of the app; the :class:`Scheduler` decides when each one starts.
 
-    def __init__(self, workers: int = 1, keep: int = 50) -> None:
-        """Start the worker threads.
+    Several managers may share one scheduler: their jobs then wait in the same lanes.
+    """
+
+    def __init__(self, workers: int = 1, keep: int = 50, scheduler: Scheduler | None = None) -> None:
+        """Create the manager.
 
         Args:
-            workers: how many jobs may run at the same time.
+            workers: how many light jobs may run at the same time when the manager has its own scheduler.
             keep: finished jobs kept in the list; the oldest finished ones are dropped past it.
+            scheduler: the queue shared with other managers; by default one of its own, in memory.
         """
-        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="activelabel-job")
+        self.scheduler = scheduler or Scheduler(limits=Limits(light=workers))
         self._jobs: dict[str, Job] = {}
         self._cancel: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._keep = keep
 
     def submit(
-        self, project_id: int, kind: str, function: JobFunction, params: dict[str, Any] | None = None
+        self,
+        project_id: int,
+        kind: str,
+        function: JobFunction,
+        params: dict[str, Any] | None = None,
+        device: str = LIGHT,
     ) -> Job:
         """Queue a job and return its state (updated in place while it runs).
 
@@ -164,25 +175,41 @@ class JobManager:
             kind: what the job does (``import``, ``analyze``...).
             function: the work; receives a :class:`Progress` and may return a result dict.
             params: say what the job is about (for example ``{"number": 3}``) and are listed with it.
+            device: lane of the job: ``light`` for an activity that computes little, otherwise the device
+                it computes on (``cpu``, ``cuda:N``, ``mps``).
 
         Returns:
             The job, in the queued state.
         """
-        job = Job(uuid.uuid4().hex[:12], project_id, kind, params=dict(params or {}))
+        job = Job(uuid.uuid4().hex[:12], project_id, kind, device=device, params=dict(params or {}))
         cancel = threading.Event()
         with self._lock:
             self._jobs[job.id] = job
             self._cancel[job.id] = cancel
             self._trim()
-        self._pool.submit(self._run, job, cancel, function)
+        self.scheduler.add(job, partial(self._run, job, cancel, function))
         return job
 
     def _run(self, job: Job, cancel: threading.Event, function: JobFunction) -> None:
-        """Run one job in a worker thread and record how it ended.
+        """Run one job in a worker thread, record how it ended and free its place in the queue.
 
         Args:
             job: the job to update.
-            cancel: set when the job is cancelled; a job cancelled while queued never starts.
+            cancel: set when the job is cancelled; a job cancelled before it starts does not run.
+            function: the work of the job.
+        """
+        try:
+            self._execute(job, cancel, function)
+        finally:
+            self.scheduler.finished(job)
+
+    @staticmethod
+    def _execute(job: Job, cancel: threading.Event, function: JobFunction) -> None:
+        """Run the work of a job and record how it ended.
+
+        Args:
+            job: the job to update.
+            cancel: set when the job is cancelled.
             function: the work of the job.
         """
         if cancel.is_set():
@@ -205,7 +232,7 @@ class JobManager:
         job.finished = now()
 
     def cancel(self, job_id: str) -> Job:
-        """Ask a job to stop (queued jobs never start; running ones stop at their next check).
+        """Stop a job: a queued one leaves the queue at once, a running one stops at its next check.
 
         Args:
             job_id: id of the job.
@@ -221,8 +248,10 @@ class JobManager:
             event = self._cancel[job_id]
         if job.status not in FINISHED:
             event.set()
-            if job.status == QUEUED:
-                job.message = "Cancelling…"
+            if job.status == QUEUED and self.scheduler.discard(job):
+                job.status, job.finished, job.message = CANCELLED, now(), ""
+            elif job.status == QUEUED:
+                job.message = "Cancelling…"  # it is starting: it stops at its first check
         return job
 
     def get(self, job_id: str) -> Job:
@@ -289,9 +318,9 @@ class JobManager:
             self._cancel.pop(job.id, None)
 
     def shutdown(self) -> None:
-        """Cancel everything and stop the worker."""
+        """Close the queue (what waits stays in ``queue.json`` for the restart); cancel what runs."""
+        self.scheduler.close()
         with self._lock:
             events = list(self._cancel.values())
         for event in events:
             event.set()
-        self._pool.shutdown(wait=False, cancel_futures=True)
