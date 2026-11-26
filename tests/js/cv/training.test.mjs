@@ -15,7 +15,7 @@ const { setMessages } = await import('../../../src/activelabel/web/static/js/she
 const { trainingPanel } = await import('../../../src/activelabel/web/static/js/cv/training.js');
 
 setMessages({
-  'task.detection': 'Detection', 'tr.family_none': 'no model for {type} projects', 'tr.family_licence': 'needs its {name} licence', 'tr.licence_open': 'Accept {name}…',
+  'task.detection': 'Detection', 'tr.family_licence': 'needs its {name} licence', 'tr.licence_open': 'Accept {name}…',
   'tr.family.torchvision': 'torchvision', 'tr.family.timm': 'timm', 'tr.family.ultralytics': 'Ultralytics',
 }, 'en');
 
@@ -56,7 +56,7 @@ test('the Training step counts the runs for the step bar', async () => {
   assert.equal(stepper, 1);
 });
 
-test('the new-run dialog asks for the family first; families that cannot train here are disabled with why', async () => {
+test('the new-run dialog asks for the family first; only families with a model for the type are listed (#601)', async () => {
   const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
   document.body.appendChild(panel.node);
   await withApi(async () => {
@@ -67,8 +67,7 @@ test('the new-run dialog asks for the family first; families that cannot train h
   assert.ok(family, 'the family list is in the dialog');
   const options = Object.fromEntries([...family.options].map((o) => [o.value, o]));
   assert.equal(options.torchvision.disabled, false);
-  assert.equal(options.timm.disabled, true);
-  assert.match(options.timm.textContent, /no model for detection projects/);
+  assert.equal(options.timm, undefined, 'timm has no detection model here, so it is not listed');
   assert.equal(options.ultralytics.disabled, true);
   assert.match(options.ultralytics.textContent, /needs its AGPL-3.0 licence/);
   assert.equal(document.querySelector('[data-act="licence-ultralytics"]').textContent, 'Accept AGPL-3.0…');
