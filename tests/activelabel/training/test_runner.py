@@ -570,6 +570,33 @@ def test_tool_jobs_share_the_queue_and_unknown_ones_are_ignored(setup):
     runner.cancel_tool(1, "unknown", "embed")  # nothing queued, no process: nothing happens
 
 
+class Flag:
+    """Records that it was called (the owner's cancel of a tool)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+
+
+def test_a_tool_waits_in_its_device_lane_and_the_queue_cancels_it_through_its_owner(setup):
+    _, _, runner = setup
+    hold, owner = Hold(), Flag()
+    first = runner.enqueue_tool(1, "tool", hold, device="cuda:0")
+    assert hold.started.wait(5) and runner.tool_job(first).device == "cuda:0"
+    queued = runner.enqueue_tool(1, "tool", lambda p: None, device="cuda:0", on_cancel=owner)
+    plain = runner.enqueue_tool(1, "tool", lambda p: None, device="cuda:0")
+    assert runner.cancel_job(queued) and owner.calls == 1  # the owner cancels it (and records it)
+    assert runner.cancel_job(plain) and runner.tool_job(plain).status == "cancelled"
+    hold.release.set()
+    wait_for(lambda: runner.tool_job(first).status == "done")
+    done = runner.enqueue_tool(1, "tool", lambda p: None, device="cpu", on_cancel=owner)
+    wait_for(lambda: runner.tool_job(done).status == "done")
+    runner.enqueue_tool(1, "tool", lambda p: None, device="cpu")  # finished tools leave the cancel table
+    assert done not in runner._tool_cancels
+
+
 # -- the global queue: lanes, order and restart (#604) --------------------------------------
 
 

@@ -763,6 +763,7 @@ class TrainingRunner:
         self._tmp: dict[tuple[int, int], Path] = {}
         self._export_procs: dict[tuple[int, int, str], subprocess.Popen[str]] = {}
         self._pre_jobs: dict[tuple[int, int], str] = {}
+        self._tool_cancels: dict[str, Callable[[], Any]] = {}  # job id -> how the tool's owner cancels it
         self._jobs.scheduler.listen(self._write_positions)
 
     @property
@@ -984,23 +985,40 @@ class TrainingRunner:
                 time.sleep(0.05)
 
     def enqueue_tool(
-        self, project_id: int, kind: str, function: JobFunction, params: dict[str, Any] | None = None
+        self,
+        project_id: int,
+        kind: str,
+        function: JobFunction,
+        params: dict[str, Any] | None = None,
+        device: str = "auto",
+        on_cancel: Callable[[], Any] | None = None,
     ) -> str:
-        """Queue other heavy work (such as the embeddings of the similarity map) behind the runs.
+        """Queue other heavy work (such as the embeddings of the similarity map) in the global queue.
 
-        It shares the one-at-a-time queue of the training runs, exports and pre-annotations, so two heavy
-        processes never run together.
+        It waits in the lane of its device like the training runs, exports and pre-annotations, so two heavy
+        jobs never run together on one device.
 
         Args:
             project_id: id of the project.
             kind: what the job does (listed with it).
             function: the work; receives the job's progress handle.
             params: what the job is about.
+            device: where the work computes (``auto``, ``cpu``, ``cuda:N`` or ``mps``): its lane.
+            on_cancel: how the owner of the job cancels it (records it and stops its worker); the global
+                queue's cancel button calls it (:meth:`cancel_job`). Without it the job is only asked to stop.
 
         Returns:
             The id of the queued job.
         """
-        return self._jobs.submit(project_id, kind, function, params).id
+        job_id = self._jobs.submit(project_id, kind, function, params, device=self._lane(device)).id
+        with self._lock:
+            for old in [
+                k for k in self._tool_cancels if self._jobs.get(k).status in (DONE, FAILED, CANCELLED)
+            ]:
+                del self._tool_cancels[old]  # finished tools need no cancel any more
+            if on_cancel is not None:
+                self._tool_cancels[job_id] = on_cancel
+        return job_id
 
     def tool_job(self, job_id: str) -> Job | None:
         """A job queued with :meth:`enqueue_tool`.
@@ -1216,8 +1234,8 @@ class TrainingRunner:
     def cancel_job(self, job_id: str) -> bool:
         """Cancel one of the runner's jobs by its id (the global queue's cancel button).
 
-        A training run or a pre-annotation is cancelled as from its own page (its process is killed and its
-        store updated); an export is asked to stop.
+        A training run, a pre-annotation or a tool queued with ``on_cancel`` (the similarity map) is cancelled
+        as from its own page (its process is killed and its state updated); an export is asked to stop.
 
         Args:
             job_id: id of the job.
@@ -1230,10 +1248,14 @@ class TrainingRunner:
         except KeyError:
             return False
         number = int(job.params.get("number", 0))
+        with self._lock:
+            on_cancel = self._tool_cancels.pop(job_id, None)
         if job.kind == "training":
             self.cancel(job.project_id, number)
         elif job.kind == "preannotate":
             self.cancel_preannotation(job.project_id, number)
+        elif on_cancel is not None:
+            on_cancel()  # a tool (the similarity map...): its owner kills the worker and records it
         else:
             self._jobs.cancel(job_id)
         return True

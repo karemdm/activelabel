@@ -129,3 +129,35 @@ def test_images_to_embed_skips_missing_files(setup):
     manifest.file_path(first).unlink()
     items = similarity_job.images_to_embed(manifest)
     assert len(items) == 8 and first.id not in {i["id"] for i in items}
+
+
+# -- the global queue (#604): lane of the device and its cancel button --------------------------
+
+
+def test_the_map_waits_in_the_lane_of_its_device(setup):
+    client, state, runner, _ = setup
+    data = similarity_job.start(runner, state.project(1), state.store.dir(1), device="slow")
+    job = runner.tool_job(data["job"])
+    assert job is not None and job.kind == similarity_job.KIND and job.device == "slow"
+    similarity_job.cancel(runner, 1, state.store.dir(1))  # the fake "slow" device never ends by itself
+    wait_for(finished(state))
+
+
+def test_the_queue_cancel_button_kills_the_running_worker(setup):
+    client, state, runner, _ = setup
+    data = similarity_job.start(runner, state.project(1), state.store.dir(1), device="slow")
+    wait_for(lambda: similarity.SimilarityStore(state.store.dir(1)).read().get("phase") == "embedding")
+    assert runner.cancel_job(data["job"]) is True
+    assert wait_for(finished(state))["status"] == "cancelled"
+
+
+def test_the_queue_cancel_button_on_a_waiting_map(setup):
+    client, state, runner, _ = setup
+    gate: list[bool] = []
+    blocker = runner.enqueue_tool(1, "block", lambda progress: wait_for(lambda: progress.check() or gate, 30))
+    data = similarity_job.start(runner, state.project(1), state.store.dir(1))
+    assert runner.cancel_job(data["job"]) is True
+    assert similarity.SimilarityStore(state.store.dir(1)).read()["status"] == "cancelled"
+    assert runner.tool_job(data["job"]).status == "cancelled"
+    gate.append(True)
+    wait_for(lambda: runner.tool_job(blocker).status == "done")
