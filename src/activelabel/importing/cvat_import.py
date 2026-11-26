@@ -19,9 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import fiftyone as fo
 import requests
-from fiftyone.utils import cvat as fouc
 
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.annotate.fo_labels import labels_from_fo
@@ -32,6 +30,7 @@ from activelabel.importing import common
 from activelabel.importing.common import MAX_ITEMS, Origin, RemoteNotFound
 from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
+from activelabel.optional import fo, fouc, require_fiftyone
 from activelabel.projects import ProjectStore, clean_classes
 from activelabel.storage import write_json
 from activelabel.sync import engine as sync_engine
@@ -325,6 +324,7 @@ def _download(settings: ToolSettings, kind: str, remote_id: str, data_dir: Path)
         {"project_id": int(remote_id)} if kind == "project" else {"task_ids": [int(remote_id)]}
     )
     url = settings.url.strip().rstrip("/")
+    require_fiftyone()  # the annotations are read with FiftyOne's CVAT reader
     dataset = fo.Dataset(f"activelabel-import-{uuid.uuid4().hex[:10]}")
     try:
         try:

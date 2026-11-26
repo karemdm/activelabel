@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import fiftyone as fo
-import fiftyone.brain as fob
 import numpy as np
+
+from activelabel.optional import fo, fob
 
 BRAIN_KEY = "activelabel_similarity"
 GROUP_FIELD = "similarity_group"

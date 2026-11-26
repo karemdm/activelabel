@@ -1530,6 +1530,7 @@
   "error.curation_threshold_range": "Threshold \"{threshold}\": enter a value from {min} to {max}.",
   "error.curation_threshold_not_whole": "Threshold \"{threshold}\": enter a whole number.",
   "error.fiftyone_not_opened": "Open the project in FiftyOne first, tag images with 'exclude', then try again.",
+  "error.fiftyone_not_installed": "FiftyOne is not installed. Add it with: {install}",
   "error.fiftyone_unavailable": "The FiftyOne database did not respond. Try again; if it keeps failing, restart ActiveLabel (another program using FiftyOne may be holding it).",
   "error.internal_error": "Something went wrong on the server. Try again; if it keeps failing, the server log has the details.",
   "error.http_status": "The server answered with an error (code {status}). Try again.",

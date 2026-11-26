@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fiftyone import ViewField as F
-
 from activelabel import fiftyone_bridge
 from activelabel.annotate.base import GROUND_TRUTH, Pulled, Sent, ToolError, ToolSettings, need_dataset
 from activelabel.annotate.fo_labels import labels_and_notes
 from activelabel.labels import Label
+from activelabel.optional import F
 from activelabel.projects import Project
 
 

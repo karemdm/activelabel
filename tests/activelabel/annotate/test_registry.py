@@ -1,5 +1,6 @@
 import pytest
 
+from activelabel import optional
 from activelabel.annotate import registry
 from activelabel.annotate.base import ToolError
 from activelabel.annotate.fiftyone_tool import FiftyOneTool
@@ -15,3 +16,11 @@ def test_overrides_win(monkeypatch):
     fake = object()
     monkeypatch.setitem(registry.OVERRIDES, "fiftyone", fake)
     assert registry.get_tool("fiftyone") is fake
+
+
+def test_fiftyone_tool_without_fiftyone_says_how_to_install_it(monkeypatch):
+    monkeypatch.setattr(registry, "FIFTYONE", False)
+    with pytest.raises(ToolError) as caught:
+        registry.get_tool("fiftyone")
+    assert caught.value.code == "fiftyone_not_installed"
+    assert caught.value.params == {"install": optional.FIFTYONE_INSTALL}

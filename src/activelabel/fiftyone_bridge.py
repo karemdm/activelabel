@@ -24,10 +24,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import fiftyone as fo
-from fiftyone import ViewField as F
-from fiftyone.core.utils import to_slug
-
 from activelabel.annotate import sessions
 from activelabel.annotate.fo_labels import fingerprint
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
@@ -35,6 +31,7 @@ from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
+from activelabel.optional import F, fo, to_slug
 from activelabel.projects import Project
 from activelabel.sync.links import label_hash
 from activelabel.tasks import Task

@@ -12,6 +12,7 @@ from import_fakes import FakeResp, FakeSession, make_images
 from sync_fakes import FakeRemote, box
 
 from activelabel import fiftyone_bridge as bridge
+from activelabel import optional
 from activelabel.annotate.base import ToolError, ToolSettings
 from activelabel.images.manifest import Manifest
 from activelabel.importing import cvat_import as ci
@@ -563,3 +564,11 @@ def test_import_project_reports_what_it_could_not_bring(tasks_remote, tmp_path):
     assert problems["shapes_not_converted"]["examples"] == ["ellipse: 2", "tracks: 2"]
     assert result["images_added"] == 4 and result["labels"] == 2
     assert problems["duplicate_labels_dropped"]["count"] == 1  # the bus box of b0
+
+
+def test_download_without_fiftyone_stops_before_reading(monkeypatch, tmp_path):
+    monkeypatch.setattr(optional, "FIFTYONE", False)
+    settings = ToolSettings("cvat", url="http://cvat", username="u", secret="s")
+    with pytest.raises(optional.FeatureMissing) as caught:
+        ci._download(settings, "project", "7", tmp_path)
+    assert caught.value.code == "fiftyone_not_installed"

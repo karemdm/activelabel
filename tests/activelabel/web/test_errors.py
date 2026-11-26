@@ -5,12 +5,21 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from activelabel import optional
 from activelabel.errors import CodedError
 from activelabel.storage import DamagedFile
-from activelabel.web.errors import ApiError, api_error, bad_request, damaged_file, install_error_handlers
+from activelabel.web.errors import (
+    ApiError,
+    api_error,
+    bad_request,
+    damaged_file,
+    install_error_handlers,
+    need_fiftyone,
+)
 
 
 def _app() -> TestClient:
@@ -123,3 +132,13 @@ def test_an_unexpected_error_answers_a_code_not_a_bare_text() -> None:
     assert down.status_code == 503 and down.json()["code"] == "fiftyone_unavailable"
     page = client.get("/page")
     assert page.status_code == 500 and page.text == "Internal Server Error"
+
+
+def test_need_fiftyone_passes_when_installed_and_answers_501_when_not(monkeypatch) -> None:
+    monkeypatch.setattr(optional, "FIFTYONE", True)
+    assert need_fiftyone() is None
+    monkeypatch.setattr(optional, "FIFTYONE", False)
+    with pytest.raises(ApiError) as caught:
+        need_fiftyone()
+    assert caught.value.status_code == 501 and caught.value.code == "fiftyone_not_installed"
+    assert caught.value.params == {"install": optional.FIFTYONE_INSTALL}

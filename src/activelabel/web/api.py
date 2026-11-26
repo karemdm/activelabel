@@ -31,6 +31,7 @@ from activelabel.labels import (
     load_annotations,
     save_annotations,
 )
+from activelabel.optional import FIFTYONE
 from activelabel.preannotate import annotated_ids, empty_ids, image_state
 from activelabel.projects import Project, ProjectNotFound, clean_classes
 from activelabel.scheduler import CPU
@@ -38,7 +39,7 @@ from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
-from activelabel.web.errors import ApiError, bad_request
+from activelabel.web.errors import ApiError, bad_request, need_fiftyone
 from activelabel.web.state import AppState, get_state
 
 LOG = logging.getLogger(__name__)
@@ -525,7 +526,7 @@ def delete_project(project_id: int, body: DeleteProject, state: AppState = STATE
     project_dir = state.store.dir(project_id)
     recorded = recorded_name(project_dir)
     state.store.delete(project_id)
-    if recorded:  # a project that never used FiftyOne has nothing there: do not start it
+    if recorded and FIFTYONE:  # a project that never used FiftyOne has nothing there: do not start it
         drop_fiftyone_dataset(project_dir, project_id, recorded)
     return {"deleted": project_id}
 
@@ -1364,6 +1365,7 @@ def open_fiftyone(
         The queued job (id and state); its result is read from the job when it finishes.
     """
     project = state.project(project_id)
+    need_fiftyone()
     manifest = state.manifest(project_id)
     project_dir = state.store.dir(project_id)
     view = body.view if body else None
@@ -1390,6 +1392,7 @@ def pull_exclusions(project_id: int, state: AppState = STATE) -> dict[str, int]:
         ``{excluded}``: how many images were excluded.
     """
     state.project(project_id)
+    need_fiftyone()
     manifest = state.manifest(project_id)
     dataset = fiftyone_bridge.existing_dataset(state.store.dir(project_id), project_id)
     if dataset is None:
