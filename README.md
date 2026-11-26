@@ -137,8 +137,9 @@ project is its *type*.)
    rejected when uploaded. *Analyze images* also checks that each stored file is still the imported one:
    a file deleted or replaced outside ActiveLabel is flagged *File missing* or *File changed*, and a
    training refuses such images with `dataset_images_missing` / `dataset_images_changed`.) The *Similarity map* groups similar images: *Compute map* reads every
-   active image with a small ImageNet network in the training environment (installed on first use,
-   queued with the trainings), places them on a 2-D map (t-SNE, or PCA for very small or large sets)
+   active image with a small ImageNet network in the training environment (the first time it asks before
+   installing PyTorch, as the training dialog does; you choose the device; at least 5 active images),
+   places them on a 2-D map (t-SNE, or PCA for very small or large sets)
    and splits them into groups (k-means), each shown with its size and most typical image. Regrouping (API for now; a CPU job of the
    global queue) groups the same map again without recomputing it: k-means with the number of groups you choose, or
    HDBSCAN with groups of free size, where images that fit no group are noise (no group). The same
