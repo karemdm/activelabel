@@ -44,7 +44,7 @@ polygon, so such a ring is one (closed implicitly), even when it was saved as `c
 Only a polyline that is neither closed nor filled and has no ring of 3 points is a line, and is skipped
 (`open_polyline`).
 
-The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`.
+The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`. Starting the App waits at most 2 minutes and switching it to another dataset at most 30 seconds; an App that does not answer in time is dropped and the activity fails with a message instead of waiting for ever (#525).
 
 **Images with no objects.** An image can be listed in the project's annotations with an empty list of
 labels: reviewed, with nothing to label (a background image, for example). It is not "annotated", which
