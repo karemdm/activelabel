@@ -355,7 +355,8 @@ def build_spec(
         The spec dict written to ``spec.json``, with its ``digest`` (:func:`spec_digest`).
 
     Raises:
-        RunnerError: a grid or all-folds config, images no longer in the project, labels without the
+        RunnerError: a grid or all-folds config, images no longer in the project or changed on disk
+            (``dataset_images_missing``, ``dataset_images_changed``), labels without the
             shape the model trains on, an empty train or validation part, no keypoints, or keypoint flip
             pairs that name a point the labels do not have.
     """
@@ -379,14 +380,21 @@ def build_spec(
     )
     unusable: list[str] = []
     missing = 0
+    changed = 0
     for name in ("train", "val", "test"):
         items: list[dict[str, Any]] = []
         for image_id in parts.get(name, []):
             record = records.get(image_id)
-            path = manifest.file_path(record) if record else None
-            if path is None or not path.exists():
+            problem = (
+                manifest.file_problem(record) if record is not None else "missing"
+            )  # quick: the size (#620)
+            if record is None or problem == "missing":
                 missing += 1
                 continue
+            if problem == "changed":
+                changed += 1
+                continue
+            path = manifest.file_path(record)
             own = labels.get(image_id) or []
             if model.task_kind in OBJECT_KINDS:
                 objects = _objects(own, classes, model.task_kind, expected_points)
@@ -399,7 +407,17 @@ def build_spec(
             items.append({"path": str(path.resolve()), "label": classes.index(own[0]["label"])})
         out_parts[name] = items
     if missing:
-        raise RunnerError(f"{missing} image(s) of this dataset version are no longer in the project.")
+        raise RunnerError(
+            f"{missing} image(s) of this dataset version are no longer in the project or on disk.",
+            "dataset_images_missing",
+            {"count": missing},
+        )
+    if changed:
+        raise RunnerError(
+            f"{changed} image file(s) of this dataset version changed on disk after they were imported.",
+            "dataset_images_changed",
+            {"count": changed},
+        )
     if unusable:
         raise RunnerError(
             f"{len(unusable)} image(s) of this dataset version have labels without the shape a "

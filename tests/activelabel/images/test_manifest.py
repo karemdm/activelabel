@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -54,3 +55,21 @@ def test_cached_parse_never_leaks_changes_or_hides_edits(tmp_path):
     data[0]["name"] = "edited by hand.png"
     manifest.path.write_text(json.dumps(data, indent=3), encoding="utf-8")  # another process changed the file
     assert manifest.get("a").name == "edited by hand.png"
+
+
+def test_file_problem_finds_missing_resized_and_replaced_files(tmp_path):
+    """#620: the quick check compares the size; the deep one the content (the id), except for video frames."""
+    manifest = Manifest(tmp_path)
+    content = b"pretend image bytes"
+    image_id = hashlib.sha256(content).hexdigest()[:16]
+    plain = ImageRecord(image_id, "a.png", f"images/{image_id}.png", 4, 4, len(content), "t")
+    frame = ImageRecord("f" * 16, "v_0.png", "images/frame.png", 4, 4, len(content), "t", video="v1", frame=0)
+    assert manifest.file_problem(plain) == "missing"
+    (tmp_path / "images").mkdir()
+    manifest.file_path(plain).write_bytes(content)
+    manifest.file_path(frame).write_bytes(content)  # a frame's id is salted: only its size is checked
+    assert manifest.file_problem(plain, deep=True) is None and manifest.file_problem(frame, deep=True) is None
+    manifest.file_path(plain).write_bytes(content + b"!")
+    assert manifest.file_problem(plain) == "changed"
+    manifest.file_path(plain).write_bytes(content.upper())  # same size, other content
+    assert manifest.file_problem(plain) is None and manifest.file_problem(plain, deep=True) == "changed"

@@ -95,6 +95,11 @@ class _ZipTooLarge(Exception):
     """The archive is larger than allowed once expanded."""
 
 
+#: Pillow modes of images with more than 8 bits per channel that it cannot turn into RGB faithfully (#620);
+#: 16-bit colour PNGs open as 8-bit RGB and are fine. CMYK, palette and alpha images convert well.
+HIGH_DEPTH_MODES = frozenset({"I;16", "I;16B", "I;16L", "I;16N", "I", "F"})
+
+
 def _clean_name(name: str) -> str | None:
     """Normalised relative name, or None when it is absolute (``/``, ``C:/``) or climbs out with ``..``.
 
@@ -141,7 +146,7 @@ def _read_image(path: Path) -> tuple[int, int, str]:
 
     Raises:
         ValueError: the file is not a readable image of a supported kind (the message is the rejection
-            reason: ``corrupt``, ``too large``, ``unsupported``, ``too small``).
+            reason: ``corrupt``, ``too large``, ``unsupported``, ``high bit depth``, ``too small``).
     """
     try:
         with Image.open(path) as probe:
@@ -151,12 +156,15 @@ def _read_image(path: Path) -> tuple[int, int, str]:
             width, height = image.size
             orientation = image.getexif().get(ORIENTATION_TAG, 1)
             extension = FORMAT_EXTENSIONS.get(image.format or "")
+            mode = image.mode
     except Image.DecompressionBombError as exc:
         raise ValueError("too large") from exc
     except Exception as exc:  # noqa: BLE001 - Pillow raises many kinds of errors for bad files
         raise ValueError("corrupt") from exc
     if extension is None:
         raise ValueError("unsupported")
+    if mode in HIGH_DEPTH_MODES:  # 16-bit grey or 32-bit: turned into RGB as is, it would become all white
+        raise ValueError("high bit depth")
     if orientation in (5, 6, 7, 8):
         width, height = height, width
     if min(width, height) < MIN_SIDE:

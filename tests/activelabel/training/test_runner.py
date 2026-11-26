@@ -7,6 +7,7 @@ import pytest
 from training_fakes import FakeEnv, finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
+from activelabel.images.manifest import Manifest
 from activelabel.jobs import CANCELLED, QUEUED
 from activelabel.labels import Label
 from activelabel.preannotate import PreannotationStore
@@ -951,3 +952,26 @@ def test_record_downloads_survives_a_deleted_run_or_a_failing_write(tmp_path, ca
         runner_module.TrainingRunner._record_downloads(update, tmp)
         assert not tmp.exists()
     assert "Could not record the downloads" in caplog.text
+
+
+def test_build_spec_refuses_images_missing_or_changed_on_disk_with_a_code(setup):
+    """#620: a file deleted or replaced after the import stops the run with a translatable code."""
+    _, state, _ = setup
+    project_dir = state.store.dir(1)
+    version = DatasetStore(project_dir).read(1)
+    model = get_model("resnet18")
+    run_dir = project_dir / "runs" / "r1"
+    manifest = Manifest(project_dir)
+    first = manifest.get(version["parts"]["train"][0])
+    path = manifest.file_path(first)
+    original = path.read_bytes()
+    path.write_bytes(original + b"edited")
+    with pytest.raises(RunnerError) as info:
+        build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, version)
+    assert (info.value.code, info.value.params) == ("dataset_images_changed", {"count": 1})
+    path.unlink()
+    with pytest.raises(RunnerError) as info:
+        build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, version)
+    assert (info.value.code, info.value.params) == ("dataset_images_missing", {"count": 1})
+    path.write_bytes(original)
+    assert build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, version)

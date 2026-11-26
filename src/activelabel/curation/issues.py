@@ -16,11 +16,15 @@ import numpy as np
 
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
+from activelabel.jobs import Progress
 from activelabel.storage import read_json, write_json
 
 DARK, BRIGHT, LOW_CONTRAST, BLURRY = "dark", "bright", "low_contrast", "blurry"
 SMALL, ODD_ASPECT, GRAYSCALE, NEAR_DUPLICATE = "small", "odd_aspect", "grayscale", "near_duplicate"
-ISSUES = (DARK, BRIGHT, LOW_CONTRAST, BLURRY, SMALL, ODD_ASPECT, GRAYSCALE, NEAR_DUPLICATE)
+#: The stored file is gone or is not the imported one any more (#620): found by :func:`flag_files`.
+FILE_MISSING, FILE_CHANGED = "file_missing", "file_changed"
+FILE_ISSUES = (FILE_MISSING, FILE_CHANGED)
+ISSUES = (DARK, BRIGHT, LOW_CONTRAST, BLURRY, SMALL, ODD_ASPECT, GRAYSCALE, NEAR_DUPLICATE, *FILE_ISSUES)
 
 
 @dataclass
@@ -239,10 +243,12 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
         Number of images per issue (every issue is present, possibly 0).
     """
     thresholds = thresholds or load_thresholds(manifest.project_dir)
-    measured = [r for r in manifest.active() if r.metrics]
+    active = manifest.active()
+    measured = [r for r in active if r.metrics]
     sharpness = [r.metrics["sharpness"] for r in measured if "sharpness" in r.metrics]
     typical = median(sharpness) if sharpness else 0.0
-    flags: dict[str, list[str]] = {r.id: [] for r in measured}
+    # the file problems found by flag_files stay: thresholds do not change them
+    flags: dict[str, list[str]] = {r.id: [i for i in r.issues if i in FILE_ISSUES] for r in measured}
 
     for record in measured:
         m, issues = record.metrics, flags[record.id]
@@ -282,7 +288,40 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
     current = {r.id: r.issues for r in measured}
     manifest.update({i: {"issues": v} for i, v in flags.items() if v != current[i]})
     _save_duplicate_of(manifest.project_dir, duplicate_of)
-    return {issue: sum(issue in v for v in flags.values()) for issue in ISSUES}
+    final = {**{r.id: r.issues for r in active}, **flags}  # unmeasured images keep their file problems
+    return {issue: sum(issue in v for v in final.values()) for issue in ISSUES}
+
+
+def flag_files(manifest: Manifest, progress: Progress | None = None) -> dict[str, int]:
+    """Check that every active image file is the imported one (flags ``file_missing``, ``file_changed``).
+
+    The content is hashed (see :meth:`Manifest.file_problem`), so a file replaced by another of the same size
+    is found too. An image whose file is fine again loses the flag.
+
+    Args:
+        manifest: images of the project.
+        progress: reports progress and can cancel.
+
+    Returns:
+        ``{file_missing, file_changed}``: how many images have each problem.
+    """
+    active = manifest.active()
+    if progress:
+        progress.update(done=0, total=len(active), message="Checking the image files")
+    changes: dict[str, dict[str, Any]] = {}
+    counts = dict.fromkeys(FILE_ISSUES, 0)
+    for n, record in enumerate(active, 1):
+        problem = manifest.file_problem(record, deep=True)
+        flag = {"missing": FILE_MISSING, "changed": FILE_CHANGED}.get(problem or "")
+        kept = [i for i in record.issues if i not in FILE_ISSUES] + ([flag] if flag else [])
+        if flag:
+            counts[flag] += 1
+        if kept != record.issues:
+            changes[record.id] = {"issues": kept}
+        if progress and n % 50 == 0:
+            progress.update(done=n)
+    manifest.update(changes)
+    return counts
 
 
 def reset_curation(manifest: Manifest) -> int:

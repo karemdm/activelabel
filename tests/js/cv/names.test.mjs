@@ -16,9 +16,10 @@ setMessages({
   'issue.dark': 'Dark images', 'ds.part_train': 'Training', 'ds.part_val': 'Validation', 'ds.part_test': 'Test',
 }, 'en');
 
-test('the four task types and the eight curation issues, in the order the screens show them', () => {
+test('the four task types and the ten curation issues (two about the stored file), in the order the screens show them', () => {
   assert.deepEqual(TASKS, ['classification', 'detection', 'segmentation', 'keypoints']);
-  assert.equal(ISSUES.length, 8);
+  assert.equal(ISSUES.length, 10);
+  assert.deepEqual(ISSUES.slice(-2), ['file_missing', 'file_changed']);   // #620
   assert.ok(SKIP_FILES.has('thumbs.db'));
 });
 
