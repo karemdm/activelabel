@@ -177,19 +177,22 @@ validation part of run *i*; the other folds are its training part). Its `stats` 
 version. The images themselves are not copied (they never change; an image deleted from the project
 makes the version *incomplete*, shown on its card).
 
-### Labels changed after a version
+### Images or labels changed after a version
 
-A version keeps its labels on purpose, so training stays reproducible. To make sure nobody trains on old
-labels without knowing, the summary of every version carries `stale: {changed_images, added, removed}`:
-the usable human labels of the version's images today, compared per image (by hash) with the copy in the
-version. `changed_images` counts images whose labels differ, `added` images that had none and have some now,
-`removed` images that had some and have none (or left the project). Predictions (labels with a score) do
-not count. All zeros means the version is current. The result is cached per version and recomputed only when
-`annotations.json` changes.
+A version keeps its images and labels on purpose, so training stays reproducible. To make sure nobody trains on
+an old state without knowing, the summary of every version carries
+`stale: {changed_images, added, removed, excluded, restored}`: the usable human labels of the version's images
+today, compared per image (by hash) with the copy in the version, and the images left out or put back since.
+`changed_images` counts images whose labels differ, `added` images that had none and have some now, `removed`
+images that had some and have none, `excluded` images of the version that are excluded now, and `restored`
+images that were excluded when the version was made (kept in `excluded_at_creation`) and are active now. An
+image deleted from the project is not counted here: it makes the version *incomplete*. Predictions (labels
+with a score) do not count. All zeros means the version is current. The result is cached per version and
+recomputed only when `annotations.json` or the image list (`images.json`) changes.
 
 The version card shows a warning (icon and text, not only colour) with the number of images (the sum of the
-three counts): *Labels changed after this version (N images) — create a new version to train with them*
-(*Rótulos mudaram depois desta versão...*), and a *New version from this one* button that opens the
+five counts): *Images or labels changed after this version (N images) — create a new version to train with them*
+(*Imagens ou rótulos mudaram depois desta versão...*), and a *New version from this one* button that opens the
 new-version form with this version's options (tasks, split or K-fold, background, seed, videos mode and gap).
 The *New run* dialog shows a similar warning under the version chosen ("training uses the old labels"). Neither
 blocks training. A version that was just created has all zeros.

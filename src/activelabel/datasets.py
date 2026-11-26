@@ -54,7 +54,8 @@ SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
 SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
 MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
 
-_STALE_CACHE: dict[tuple[Path, int], tuple[tuple[int, int], dict[str, int]]] = {}
+_STALE_CACHE: dict[tuple[Path, int], tuple[tuple[int, ...], dict[str, int]]] = {}
+FRESH = {"changed_images": 0, "added": 0, "removed": 0, "excluded": 0, "restored": 0}
 _LOCKS: dict[Path, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 
@@ -1528,24 +1529,35 @@ def _label_hash(items: list[dict[str, Any]] | None) -> str:
     ).hexdigest()
 
 
-def stale_counts(data: dict[str, Any], people: dict[str, list[Label]]) -> dict[str, int]:
-    """How the current labels of a version's images differ from the labels it froze.
+def stale_counts(
+    data: dict[str, Any], people: dict[str, list[Label]], status: dict[str, str] | None = None
+) -> dict[str, int]:
+    """How the images and current labels of a version differ from what it froze.
 
-    The labels compared are the usable ones (the same rule the split uses), per image, by hash.
+    The labels compared are the usable ones (the same rule the split uses), per image, by hash. With
+    ``status``, the images left out or put back since the version was made count too.
 
     Args:
-        data: The stored version, with its label copy.
+        data: The stored version, with its label copy (and ``excluded_at_creation`` when it has one).
         people: The current human labels per image id.
+        status: ``active`` / ``excluded`` per image id of the project now; None to compare labels only.
 
     Returns:
-        ``{changed_images, added, removed}``: images whose labels changed, images that had no labels
-        in the version and have some now, images that had labels and have none now.
+        ``{changed_images, added, removed, excluded, restored}``: images whose labels changed, that had no
+        labels in the version and have some now, that had labels and have none now; images of the version
+        that are excluded now, and images that were excluded when the version was made and are active now.
+        Images that left the project are not counted here: they make the version ``incomplete``.
     """
     folds = data.get("folds")
     ids = {i for v in data["parts"].values() for i in v} | {i for f in folds or [] for i in f}
+    counts = dict(FRESH)
+    if status is not None:
+        gone_or_out = {i for i in ids if status.get(i) != ACTIVE}
+        counts["excluded"] = sum(1 for i in gone_or_out if i in status)
+        counts["restored"] = sum(1 for i in data.get("excluded_at_creation") or [] if status.get(i) == ACTIVE)
+        ids -= gone_or_out
     current, _ = usable_labels(Task(data["type"]), {i: people[i] for i in ids if people.get(i)})
     frozen = data.get("labels") or {}
-    counts = {"changed_images": 0, "added": 0, "removed": 0}
     for image_id in ids:
         before = _label_hash(frozen.get(image_id))
         after = _label_hash([lb.as_dict() for lb in current.get(image_id, [])])
@@ -1666,10 +1678,13 @@ class DatasetStore:
                 "warnings": plan.warnings,
                 "videos": plan.videos,
                 "fingerprint": plan.fingerprint(),
+                "excluded_at_creation": sorted(
+                    i for i, r in Manifest(self.project_dir).load().items() if r.status != ACTIVE
+                ),
             }
             write_json(self._file(number), data)
             write_json(counter_file, {"next": number + 1})
-        return _summary(data, self._manifest_ids(), {"changed_images": 0, "added": 0, "removed": 0})
+        return _summary(data, self._manifest_ids(), dict(FRESH))
 
     def versions(self) -> list[dict[str, Any]]:
         """Summaries of every version, newest first.
@@ -1686,21 +1701,23 @@ class DatasetStore:
         return out
 
     def _stale(self, number: int, data: dict[str, Any]) -> dict[str, int]:
-        """The ``stale`` counts of a version, recomputed only when ``annotations.json`` changed.
+        """The ``stale`` counts of a version, recomputed only when ``annotations.json`` or the images changed.
 
         Args:
             number: the version number.
             data: the stored file of the version.
 
         Returns:
-            ``{changed_images, added, removed}`` (see ``stale_counts``).
+            ``{changed_images, added, removed, excluded, restored}`` (see ``stale_counts``).
         """
-        path = annotations_path(self.project_dir)
-        try:
-            info = path.stat()
-            stamp = (info.st_mtime_ns, info.st_size)
-        except OSError:
-            stamp = (0, 0)
+        manifest = Manifest(self.project_dir)
+        stamp: tuple[int, ...] = ()
+        for path in (annotations_path(self.project_dir), manifest.path):
+            try:
+                info = path.stat()
+                stamp += (info.st_mtime_ns, info.st_size)
+            except OSError:
+                stamp += (0, 0)
         key = (self.project_dir, number)
         cached = _STALE_CACHE.get(key)
         if cached and cached[0] == stamp:
@@ -1710,7 +1727,8 @@ class DatasetStore:
             k: [lb for lb in v if lb.score is None]
             for k, v in (annotations.images if annotations else {}).items()
         }
-        counts = stale_counts(data, people)
+        status = {i: r.status for i, r in manifest.load().items()}
+        counts = stale_counts(data, people, status)
         _STALE_CACHE[key] = (stamp, counts)
         return dict(counts)
 

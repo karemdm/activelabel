@@ -1227,6 +1227,9 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   .tr-table-wrap th:first-child, .ds-table-wrap th:first-child, .table-wrap th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
   .tr-rank tr.best th:first-child { background: var(--area-soft); }
   .tr-table-wrap th[scope="row"] { max-width: 11rem; }
+  /* #636: a wide split table scrolls; its first column keeps room for a class name instead of one letter per line */
+  .ds-table { width: max-content; min-width: 100%; }
+  .ds-table th[scope="row"], .ds-table thead th:first-child { min-width: 8rem; overflow-wrap: break-word; }
 }
 @media (max-width: 480px) {
   /* segmented choices stack, one full-width option per line, instead of breaking 1 + 2 inside one border */
