@@ -46,6 +46,40 @@ FAKE_WORKER = textwrap.dedent(
     """
 )
 
+# the embeddings worker (workers/embed.py) without torch: three clear groups by position. The device of the
+# spec drives it: "fail" reports an error, "skip" skips the first image (unreadable), "slow" waits a minute
+FAKE_EMBED = textwrap.dedent(
+    """
+    import json, sys, time
+    from pathlib import Path
+    import numpy as np
+
+    spec = json.loads(Path(sys.argv[1]).read_text())
+    items, device = spec["items"], spec["device"]
+    if device == "fail":
+        print(json.dumps({"event": "error", "message": "boom"}), flush=True)
+        sys.exit(1)
+    ids, rows = [], []
+    for step, item in enumerate(items, start=1):
+        if device == "skip" and step == 1:
+            print(json.dumps({"event": "skipped", "id": item["id"], "message": "unreadable"}), flush=True)
+        else:
+            centre = np.zeros(8)
+            centre[step % 3] = 10.0
+            rows.append(centre + np.random.default_rng(step).normal(0, 0.1, 8))
+            ids.append(item["id"])
+        print(json.dumps({"event": "progress", "step": step, "steps": len(items)}), flush=True)
+        if device == "slow":
+            time.sleep(60)
+    out = Path(spec["output"])
+    out.mkdir(parents=True, exist_ok=True)
+    np.save(out / "vectors.npy", np.array(rows, dtype=np.float32))
+    (out / "ids.json").write_text(json.dumps(ids))
+    results = {"images": len(ids), "dims": 8, "backbone": spec["backbone"]}
+    print(json.dumps({"event": "done", "results": results}), flush=True)
+    """
+)
+
 
 class FakeEnv(TrainingEnvironment):
     ensured: list[list[str]]
