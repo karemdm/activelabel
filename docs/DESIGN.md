@@ -171,8 +171,8 @@ Status codes: 400 (rejected input), 404 (not found), 409 (conflict: a job of the
 state changed since the person looked), 422 (the body or a parameter has the wrong shape: `code` is
 `validation_error`, `detail` a readable text and `params.errors` one entry per wrong field, each with a code the
 interface translates), 500 for a damaged data file (`code: "file_damaged"`, `params.file`; the project
-list itself survives one damaged project), 503 `fiftyone_unavailable` when the FiftyOne database did not answer
-and 500 `internal_error` for any other unexpected error (its traceback stays in the server log; the body never
+list itself survives one damaged project), 503 `fiftyone_unavailable` when the FiftyOne database did not answer,
+501 `fiftyone_not_installed` when a feature needs FiftyOne and only the core is installed (`params.install` is the command that adds it; docs/DEVELOPMENT.md, *Light install*), and 500 `internal_error` for any other unexpected error (its traceback stays in the server log; the body never
 carries the exception text, and the interface never shows a bare "HTTP 500"). Three answers (two 409, one 400) carry an object in `detail` with its own
 `code` the interface acts on: `task_change_annotations` and `classes_in_use` (PATCH of a project) and `no_images_added` (a task created from files that add nothing, with
 the upload `report`). The `code` values of the other errors are:
@@ -183,6 +183,7 @@ the upload `report`). The `code` values of the other errors are:
 | 403 | `host_not_allowed` (a `Host` that is not this server: `127.0.0.1`, `localhost`, `[::1]`, the address it listens on or a name of `ACTIVELABEL_ALLOWED_HOSTS`, on its port; `params.host`), `origin_not_allowed` (a change, any method but GET/HEAD/OPTIONS, whose `Origin` or `Referer` is another site; `params.origin`). See "Calling the API from a script" in the README |
 | 404 | `not_found` (an unknown address), `project_not_found`, `task_not_found`, `job_not_found`, `activity_not_found`, `image_not_found`, `dataset_not_found`, `run_not_found`, `child_not_found`, `model_not_found`, `public_model_not_found`, `public_model_no_weights`, `model_file_missing`, `download_unknown`, `preannotation_not_found`, `video_not_found`, `session_not_found`, `plan_not_found`, `staging_not_found`, `tool_unknown`, `not_linked` |
 | 405 | `method_not_allowed` |
+| 501 | `fiftyone_not_installed` (`params.install`) |
 | 409 | `busy`, `busy_training`, `task_closed`, `already_applied`, `already_discarded`, `annotations_changed`, `session_finished`, `dataset_part_empty`, `dataset_in_use`, `dataset_used_by_runs`, `run_running`, `run_config_damaged`, `model_in_use`, `model_file_in_use`, `export_running`, `preannotation_running`, `video_in_use`, `video_task_running` |
 
 `tool_error` (400) means a remote tool (CVAT) failed or refused: `detail` is its message and `params` has
@@ -278,6 +279,8 @@ running.
 | GET, POST | `/projects/{id}/datasets`, `/datasets/preview` | see [DATASETS.md](DATASETS.md) | versions / preview / the new version |
 | GET, DELETE | `/projects/{id}/datasets/{n}` | see [DATASETS.md](DATASETS.md) | version / `{deleted}` |
 | GET | `/training/catalog` | `type` | models with hyperparameter specs, selection metrics |
+| GET | `/features` | | what is installed: `{fiftyone: {installed, version, install, provides}, training_environment: {exists, path, bytes, packages}}` (`install` is the command that adds FiftyOne; the light install, docs/DEVELOPMENT.md) |
+| DELETE | `/training/environment` | `{confirm: true}` | removes the training environment (the next run installs what it needs again) and returns what `/features` returns; 400 `confirm_required` without the confirmation, 409 `busy_training` while a training, pre-annotation, export or similarity map waits or runs |
 | GET | `/training/environment` | | installed packages, the GPU found and `devices` (the device choices of this computer) |
 | GET | `/training/augmentations` | `type` | augmentation levels and techniques (docs/TRAINING.md) |
 | GET | `/training/licences` | | the licences to accept before a package is installed (Ultralytics, AGPL-3.0) and whether each was accepted |

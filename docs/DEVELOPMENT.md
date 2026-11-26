@@ -201,6 +201,33 @@ flowchart TB
 - **Adding a kind of task** needs a worker, an entry in `WORKER_FILES`, metrics in `catalog.METRICS`, a
   case in `runner.build_spec`, and tests with a fake worker.
 
+## Light install
+
+`pip install activelabel` is the core; FiftyOne is an extra (issue #218):
+
+| Extra | Contents |
+| --- | --- |
+| *(none)* | projects, images, curation and the similarity map, annotations, tasks, videos, CVAT synchronisation, datasets, training and pre-annotation (their packages live in the training environment, [TRAINING.md](TRAINING.md)); `scikit-learn` and `requests` are core dependencies |
+| `fiftyone` | `fiftyone`, with the pins that keep it working (`graphql-core`, `importlib-metadata`): the FiftyOne App, its annotation tool, the import of CVAT projects and the similarity map in the App |
+| `all` | the same as `fiftyone` |
+| `dev` | the test tools, and `fiftyone` (the tests cover its parts too) |
+
+**The rule: only `src/activelabel/optional.py` imports FiftyOne.** It is an adapter: `fo`, `fob`, `F`,
+`to_slug` and `fouc` are `None` when FiftyOne is missing, and `FIFTYONE` says whether it can be used. Any
+module that needs FiftyOne imports these names from `optional` (never `import fiftyone`), and the entry
+point of the feature calls `require_fiftyone()` first, which raises `FeatureMissing` with the code
+`fiftyone_not_installed` and the install command. In the web layer use `web.errors.need_fiftyone()`, which
+turns that into HTTP 501. A module must stay importable without FiftyOne: use the names only inside
+functions, after the check.
+
+`GET /api/features` reports what is installed and `DELETE /api/training/environment` removes the training
+environment (`web/features_api.py`); both are in [DESIGN.md](DESIGN.md).
+
+To test without FiftyOne, either use a second virtual environment with the core only (`pip install -e . pytest httpx`) and run
+the fast tests, or patch `optional.FIFTYONE` to `False`
+(and the names to `None`) in a test, as the tests of the 501 answers do. The CI job that checks the built
+wheel installs it with no extras, so it also proves that the server starts without FiftyOne.
+
 ## Testing tips
 
 - `tests/activelabel/web/conftest.py` and `tests/helpers/api_client.py` build an app with a temporary

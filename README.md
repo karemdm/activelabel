@@ -46,8 +46,23 @@ Python 3.10 or newer.
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .              # the core
+python -m pip install -e ".[fiftyone]"  # the core plus FiftyOne (".[all]" is the same; ".[dev]" includes it)
+python -m pip install -e ".[dev]"       # to develop: FiftyOne plus the test and lint tools
 ```
+
+The core is a light install: projects, images, curation measures and the similarity map, annotations,
+tasks, videos, CVAT synchronisation, datasets, training and pre-annotation. The extra adds FiftyOne:
+
+| Install | What you get |
+| --- | --- |
+| `pip install activelabel` | everything above; the training packages are not part of it, they go to a separate training environment installed on first use ([docs/TRAINING.md](docs/TRAINING.md)) |
+| `pip install "activelabel[fiftyone]"` (or `[all]`) | also the FiftyOne App, the FiftyOne annotation tool, the import of CVAT projects (read with FiftyOne's CVAT reader) and the similarity map in the App |
+
+Without FiftyOne, the features of the extra answer HTTP 501 `fiftyone_not_installed` with the install
+command, and the rest works. *GET /api/features* tells what is installed and how much space the training
+environment takes; *DELETE /api/training/environment* removes that environment (the next run installs what
+it needs again). See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), *Light install*.
 
 ## Run
 
