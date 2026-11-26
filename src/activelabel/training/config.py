@@ -305,6 +305,8 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
     params = _check_values(model, config.params)
     grid: dict[str, list[Any]] = {}
     for name, values in config.grid.items():
+        if name in model.without:
+            continue
         if name in config.params:
             raise ConfigError(
                 "param_fixed_and_grid",
@@ -483,7 +485,7 @@ def _check_values(model: ModelSpec, values: dict[str, Any]) -> dict[str, Any]:
         values: hyperparameter name to value (``start`` is not allowed here).
 
     Returns:
-        The checked values.
+        The checked values, without the ones the model does not offer (``ModelSpec.without``).
 
     Raises:
         ConfigError: ``start`` is among the values, or a value is not valid.
@@ -494,5 +496,9 @@ def _check_values(model: ModelSpec, values: dict[str, Any]) -> dict[str, Any]:
             raise ConfigError(
                 "start_in_params", "Set the start with the 'start' option, not inside 'params'."
             )
+        if (
+            name in model.without
+        ):  # a setting its library has not got: dropped, so older configurations run (#666)
+            continue
         out[name] = _check_one(model, name, value)
     return out

@@ -780,7 +780,7 @@ def warn_unsupported(spec: dict[str, Any], techniques: list[str]) -> None:
             code="yolo_scheduler_unsupported",
             params={"scheduler": unsupported},
         )
-    if spec["start"] == "finetune" and float(p["backbone_lr_factor"]) != 1.0:
+    if spec["start"] == "finetune" and float(p.get("backbone_lr_factor", 1.0)) != 1.0:  # old configs only
         emit(
             "warning",
             message="Ultralytics trains the whole network at one learning rate: the backbone factor "
