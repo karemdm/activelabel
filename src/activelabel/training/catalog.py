@@ -1030,14 +1030,26 @@ def _smp_models() -> list[ModelSpec]:
         One spec per decoder and encoder.
     """
     out = [_smp(d, dl, e, el) for d, dl in SMP_DECODERS for e, el in SMP_ENCODERS]
-    return out + [_smp("Segformer", "SegFormer", e, el) for e, el in SMP_SEGFORMER_ENCODERS]
+    # the family in the name: the transformers family has SegFormers too (#671)
+    return out + [_smp("Segformer", "SegFormer (smp)", e, el) for e, el in SMP_SEGFORMER_ENCODERS]
 
 
 #: Hugging Face transformers models (#606): ``(architecture key, checkpoint, architecture, variant, project
 #: type, kind, input size, parameters in millions)``. The checkpoints are public and not gated on the Hub.
+#: Mask2Former sizes (#671): Swin-T and Swin-S as the Hub's model pages give them, Swin-B from the paper
+#: (arXiv 2112.01527, the "#params." of the COCO instance segmentation table).
 HF_MODELS = (
     *(
-        ("segformer", f"nvidia/mit-b{k}", "SegFormer", f"B{k}", "segmentation", "semantic", 512, m)
+        (
+            "segformer",
+            f"nvidia/mit-b{k}",
+            "SegFormer (transformers)",  # the smp family has SegFormers too (#671)
+            f"B{k}",
+            "segmentation",
+            "semantic",
+            512,
+            m,
+        )
         for k, m in enumerate((3.8, 13.7, 27.5, 47.3, 64.1, 84.7))
     ),
     ("detr", "facebook/detr-resnet-50", "DETR", "ResNet-50", "detection", "detection", 640, 41.3),
@@ -1055,9 +1067,9 @@ HF_MODELS = (
             "segmentation",
             "instance",
             640,
-            None,
+            m,
         )
-        for s, v in (("tiny", "Swin-T"), ("small", "Swin-S"), ("base", "Swin-B"))
+        for s, v, m in (("tiny", "Swin-T", 47.5), ("small", "Swin-S", 68.8), ("base", "Swin-B", 107.0))
     ),
 )
 #: Weights whose licence on the Hub is "other" (NVIDIA's SegFormer, Meta's Mask2Former): read it before use.

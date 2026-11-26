@@ -51,8 +51,8 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLO26 (proposed first), YOLO11, YOLOv8; sizes n s m l x | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
-| Segmentation (semantic) | transformers (Hugging Face, Apache-2.0) | SegFormer B0–B5 (nvidia/mit-b0 to b5) | torch, torchvision, transformers |
-| Segmentation (semantic) | smp (segmentation_models_pytorch, MIT) | U-Net, U-Net++, DeepLabV3+, FPN, PSPNet, LinkNet, MA-Net, PAN, UPerNet on ResNet-34/50 or MobileNetV2; SegFormer on MiT-B0/B1/B2 | torch, torchvision, segmentation-models-pytorch |
+| Segmentation (semantic) | transformers (Hugging Face, Apache-2.0) | SegFormer (transformers) B0–B5 (nvidia/mit-b0 to b5) | torch, torchvision, transformers |
+| Segmentation (semantic) | smp (Segmentation Models, segmentation_models_pytorch, MIT) | U-Net, U-Net++, DeepLabV3+, FPN, PSPNet, LinkNet, MA-Net, PAN, UPerNet on ResNet-34/50 or MobileNetV2; SegFormer (smp) on MiT-B0/B1/B2 | torch, torchvision, segmentation-models-pytorch |
 | Detection | transformers (Hugging Face, Apache-2.0) | DETR ResNet-50/101; RT-DETR R18/R34/R50/R101 | torch, torchvision, transformers |
 | Segmentation (instance) | transformers (Hugging Face, Apache-2.0) | Mask2Former Swin-T/S/B (COCO instance checkpoints) | torch, torchvision, transformers |
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLO26/11/v8-seg n–x | torch, torchvision / ultralytics |
@@ -68,10 +68,14 @@ backbone (frozen in `transfer`, `backbone_lr_factor` in `finetune`) and the deco
 the classifier. smp refuses sides that are not a multiple of the encoder's output stride (32 for these encoders;
 16 for DeepLabV3+ and PAN, which dilate it), so the worker asks for a multiple of 32, which suits all of them;
 the dialog keeps at least 128 pixels (an old limit of PAN, not checked by smp itself); 512 by default.
+The dialog calls the family *Segmentation Models (smp)*, and its SegFormers *SegFormer (smp)*, apart from the
+*SegFormer (transformers)* of the Hugging Face family (#671). Their size (`params_m`) is unknown: smp publishes
+the size of its encoders, not of whole models.
 
 **Hugging Face transformers (#606).** The `transformers` family has SegFormer B0 to B5 (semantic segmentation,
 encoders `nvidia/mit-b0` to `b5`), DETR ResNet-50/101 and RT-DETR R18/R34/R50/R101 (detection) and Mask2Former
-Swin-T/S/B (instance segmentation, COCO instance checkpoints). Ids are `hf_<architecture>_<checkpoint name>`
+Swin-T/S/B (instance segmentation, COCO instance checkpoints; 47.5, 68.8 and 107 million parameters, from the
+Hub's model pages and the Mask2Former paper). Ids are `hf_<architecture>_<checkpoint name>`
 (for example `hf_detr_detr_resnet_50`) and are built as `<architecture>:<checkpoint>` from the Hugging Face
 Hub; the checkpoints are public and not gated. The downloads go to the run's temporary folder (`HF_HOME`) and
 the Hub's telemetry is off. They train with the workers that already exist, `segmentation.py` for SegFormer and

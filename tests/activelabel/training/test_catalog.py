@@ -402,7 +402,9 @@ def test_smp_offers_decoders_on_encoders_for_semantic_segmentation():
 def test_transformers_offers_segformer_detr_rtdetr_and_mask2former():
     """#606 step 2: Hugging Face models, architecture and variant, built from their Hub checkpoint."""
     hf = [m for m in catalog.MODELS if m.family == "transformers"]
-    assert {m.arch for m in hf} == {"SegFormer", "DETR", "RT-DETR", "Mask2Former"} and len(hf) == 15
+    assert {m.arch for m in hf} == {"SegFormer (transformers)", "DETR", "RT-DETR", "Mask2Former"} and len(
+        hf
+    ) == 15
     assert {m.task_kind for m in hf} == {"semantic", "detection", "instance"}
     detr = get_model("hf_detr_detr_resnet_50")
     assert (detr.library_name, detr.types, "transformers" in detr.packages) == (
@@ -430,3 +432,20 @@ def test_ultralytics_models_do_not_offer_a_backbone_factor():
         RunConfig.from_dict({**base, "params": {"backbone_lr_factor": 0.1, "epochs": 3}}), "detection"
     )
     assert older.params == {"epochs": 3}  # an older configuration still runs (Reproduce), without the factor
+
+
+def test_the_two_segformer_families_say_which_they_are():
+    """#671: smp and transformers both have SegFormers; the name says the family."""
+    smp, hf = get_model("smp_segformer_mit_b0"), get_model("hf_segformer_mit_b0")
+    assert (smp.arch, smp.label) == ("SegFormer (smp)", "SegFormer (smp) MiT-B0")
+    assert (hf.arch, hf.label) == ("SegFormer (transformers)", "SegFormer (transformers) B0")
+
+
+def test_mask2former_sizes_are_the_published_ones_and_smp_sizes_stay_unknown():
+    """#671: published sizes only; smp publishes encoder sizes, not whole models, so those stay unknown."""
+    sizes = [
+        get_model(f"hf_mask2former_mask2former_swin_{s}_coco_instance").params_m
+        for s in ("tiny", "small", "base")
+    ]
+    assert sizes == [47.5, 68.8, 107.0]
+    assert all(m.params_m is None for m in catalog.MODELS if m.family == "smp")
