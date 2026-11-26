@@ -62,6 +62,8 @@ test('decimal comma: numbers and lists are read the way the language writes them
   assert.deepEqual(i18n.splitNumbers('0.01, 0.001'), ['0.01', '0.001']);
   assert.equal(i18n.nfExact.format(0.0001), '0,0001');
   assert.equal(i18n.listSeparator(), '; ');
+  assert.deepEqual(i18n.splitNumbers('10,20', true), ['10', '20']);   // whole numbers: every comma separates
+  assert.deepEqual(i18n.splitNumbers('10,20'), ['10,20']);
   setMessages({}, 'en');
   assert.equal(i18n.parseNumber('0,01'), NaN);
   assert.deepEqual(i18n.splitNumbers('0.01, 0.001'), ['0.01', '0.001']);

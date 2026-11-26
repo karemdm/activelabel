@@ -162,14 +162,15 @@ versão, o cartão avisa "Rótulos mudaram depois desta versão" e oferece *Nova
 Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md).
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
-(transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
-todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo começa pela família do modelo. Estão disponíveis
+(transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade (valores
+separados por ponto e vírgula, com vírgula decimal: `0,01; 0,001`) ou todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo começa pela família do modelo. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
 pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) aparecem quando você lê e aceita a
 licença no próprio diálogo (*Ler e aceitar a licença…*; veja *Licences* em TRAINING.md, em inglês). No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
 *GPU n* ou *GPU da Apple (MPS)*), como a foto vira a entrada quadrada (*Esticar*, *Letterbox* ou *Corte
 central*, o mesmo na avaliação, na pré-anotação e no ONNX), o agendamento da taxa de aprendizado
-(*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com épocas de aquecimento, a precisão mista (numa GPU
+(*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com épocas de aquecimento (nunca mais que as épocas do treino; a
+paciência da parada antecipada também fica abaixo delas), a precisão mista (numa GPU
 CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técnica passa o nível para
 *Personalizado*. Trocar de modelo mantém os valores que você mudou, quando o novo modelo os aceita, e
 diz o que mudou. Se a GPU ficar sem memória, o lote é reduzido à metade até caber. Os pacotes
