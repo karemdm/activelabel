@@ -150,9 +150,9 @@ round of labels to review, not to replace a model trained on the project's own i
   name of a COCO category, also in the plural: `gato` or `gatos` for `cat`, `pessoa` for `person`, `cachorro` or
   `cão` for `dog`, `carro` for `car`; a name that matches exactly wins over a translation). The dialog opens
   with the suggestion filled in and shows *N of M project classes linked to a model category*; *Review* opens the
-  choices, one list of categories per class (*— not used —* leaves the class out). Categories not mapped are
-  ignored. Through the API the mapping is `{category: class}` and several categories may name one class
-  (`truck` and `car` → `car`); the dialog chooses one category per class.
+  choices, one multiple-choice list of categories per class (none chosen leaves the class out; several may name one
+  class, `truck` and `car` → `car`). Categories not mapped are ignored. Through the API the mapping is
+  `{category: class}`; a category can go to one class only.
 - **Weights**: nothing is stored in the project (`model.json` only, with `source: "public"`, the
   catalogue id and the mapping). Each pre-annotation run downloads the weights from the torchvision
   servers into the run's temporary folder, removed at the end; it needs `torch` and `torchvision`
