@@ -215,6 +215,8 @@
   "problem.converted_to_box": "Polígonos ou pontos-chave foram convertidos em caixas.",
   "problem.dropped_other_kind": "Algumas anotações não cabem no tipo do projeto e ficaram de fora.",
   "problem.images_missing": "Imagens idênticas ou ilegíveis não foram adicionadas.",
+  "problem.shapes_not_converted": "Algumas formas do CVAT não podem ser convertidas (elipses, máscaras, tracks...) e ficaram de fora; elas continuam no CVAT.",
+  "problem.duplicate_labels_dropped": "Anotações de imagens idênticas ou ilegíveis não foram importadas (cada imagem idêntica entra uma vez, com as anotações da primeira cópia).",
   "problem.images_rejected": "Alguns arquivos não são imagens legíveis e foram ignorados.",
   "problem.images_duplicate": "Imagens idênticas foram adicionadas uma só vez.",
   "problem.image_download_failed": "Algumas imagens não puderam ser baixadas.",
