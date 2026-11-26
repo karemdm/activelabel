@@ -36,16 +36,22 @@ Everything below goes into the first release, 0.1.0.
   after a version (docs/DATASETS.md).
 - **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon)
   with pinned, tested package versions; classification (torchvision, timm), detection, instance, semantic
-  and keypoint models; grid search and K-fold runs; data augmentation choices; metrics such as mAP,
-  OKS mAP, mask mAP and PCK (docs/TRAINING.md).
+  and keypoint models; grid search and K-fold runs; data augmentation choices; the device (automatic, CPU,
+  GPU or Apple MPS), the resize policy, learning rate schedules with warmup, mixed precision and a batch
+  that is halved when the GPU runs out of memory; resume of a failed or cancelled run from its checkpoint;
+  warnings and failures of a run shown by code in the interface language; metrics such as mAP, OKS mAP,
+  mask mAP and PCK (docs/TRAINING.md).
 - **Models and pre-annotation.** Saved models with PyTorch and ONNX weights, public pretrained models with
   a class mapping, and pre-annotation of new images for review, also with segmentation models
   (docs/PREANNOTATE.md).
 - **Interface.** A step bar grouped in Dados and Modelo, Portuguese and English texts, API errors with
   stable codes that the interface translates, light and dark colours, a phone layout with 44 px touch
   targets, and an activity pill for running jobs (docs/DESIGN.md).
-- **Quality and releases.** Tests that mirror the source tree with coverage of 80% or more; CI on Linux,
-  Windows and macOS from a path with accents and spaces; JavaScript and Playwright tests; a nightly run
+- **Local server guard.** The server answers only calls made to its own address and refuses changes that
+  come from another site (403 `host_not_allowed`, `origin_not_allowed`); `ACTIVELABEL_ALLOWED_HOSTS` adds
+  names; scripts that send no `Origin` keep working (README).
+- **Quality and releases.** Tests that mirror the source tree with coverage of 80% or more; CI on Linux and
+  Windows, and on macOS after a merge, from a path with accents and spaces; JavaScript and Playwright tests; a nightly run
   against a real CVAT; a wheel check in a clean environment; one version source (the git tag) and a
   release workflow that creates a draft release (RELEASING.md).
 - **Format version of the stored data.** JSON files carry `format_version`; older files are read as they are,
