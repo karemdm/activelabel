@@ -2,12 +2,12 @@
  * architecture and size of the model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
 import { staleCount } from './datasets.js';
-import { defaultModel, modelPicker } from './model_picker.js';
+import { defaultModel, largeForCpu, modelName, modelPicker } from './model_picker.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
-import { LOCALE, decimalSign, fmtDateTime, listSeparator, nf3, nfExact, lower, parseNumber, runName, splitNumbers, num, t, tn, tr } from '../shell/i18n.js';
+import { LOCALE, decimalSign, fmtDateTime, listSeparator, nf1, nf3, nfExact, lower, parseNumber, runName, splitNumbers, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
@@ -211,7 +211,7 @@ export function trainingPanel(page) {
       el('div', { class: 'tr-run-head' },
         comparableRun(r) ? compareCheck({ id: `${id}-cmp`, label: runName(r.number), checked: chosen.has(r.number), onChange: (on) => choose([r.number], on) }) : null,
         el('h3', { id: `${id}-t` }, runName(r.number)),
-        el('span', { class: 'tr-model' }, m ? m.label : r.model),
+        el('span', { class: 'tr-model' }, m ? modelName(m) : r.model),
         badge(r)),
       el('p', { class: 'muted tr-meta' }, meta.join(' · ')),
       pct != null ? el('progress', { class: 'tr-progress', max: '100', value: String(pct), 'aria-label': t('common.progress') }) : null,
@@ -310,7 +310,7 @@ export function trainingPanel(page) {
     fill(cmpBox, compareTable({
       id: 'tr-compare', title: t('tr.compare'), help: t('tr.compare_help'), cols,
       resultsOf: (r) => (details.get(r.number) || {}).data && details.get(r.number).data.results,
-      head: (r) => { const m = modelOf(r.model); return [`#${r.number}`, el('span', { class: 'md-arch' }, m ? m.label : r.model)]; },
+      head: (r) => { const m = modelOf(r.model); return [`#${r.number}`, el('span', { class: 'md-arch' }, m ? modelName(m) : r.model)]; },
     }));
   }
 
@@ -530,6 +530,8 @@ export function trainingPanel(page) {
     const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
     /* what a change of model did to the hyperparameters, in one line; read out by screen readers */
     const modelChanges = el('p', { class: 'hint tr-model-changes', id: 'tr-model-changes', role: 'status' });
+    /* a very large network on a computer that trains on the CPU (#668): said before it is started */
+    const cpuWarning = el('p', { class: 'report-line warn tr-cpu-warning', id: 'tr-cpu-warning', role: 'status', hidden: true });
     let shownModel = null;   // the model the form holds values of
     let touched = false;     // the person chose a model: the size this computer suits is no longer proposed
     /* architecture (or generation) and size (or variant) of the family (#632); the task is the project's */
@@ -586,6 +588,7 @@ export function trainingPanel(page) {
       fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))));
       if (shownModel) drawModelNote(modelNow());
       if (env.default_size) picker.setSuggested(env.default_size, !touched);
+      drawCpuWarning();
     }).catch(() => {});
 
     // parameters
@@ -851,6 +854,14 @@ export function trainingPanel(page) {
     }
     /* `sizeOnly`: another size of the same architecture keeps every value the person chose and says nothing,
        unless a value had to go back to its default (#312, #632) */
+    /* on the CPU: the device chosen is the CPU, or automatic on a computer without a GPU (once known) */
+    function drawCpuWarning() {
+      const m = modelNow();
+      const onCpu = deviceSel.value === 'cpu' || (deviceSel.value === 'auto' && !!st.env && !st.env.gpu);
+      const show = onCpu && largeForCpu(m);
+      cpuWarning.hidden = !show;
+      fill(cpuWarning, ...(show ? [icon('warning', 16), t('tr.cpu_large', { model: modelName(m), params: nf1.format(m.params_m) })] : []));
+    }
     function drawModel(sizeOnly = false) {
       const m = modelNow();
       /* the catalogue's own note is English: the screen says it by family, in the interface language */
@@ -867,13 +878,15 @@ export function trainingPanel(page) {
       if (shownModel && sizeOnly && !notes.resets) modelChanges.textContent = '';
       else if (shownModel) {
         const shown = notes.length > 4 ? [...notes.slice(0, 4), t('tr.params_more', { n: notes.length - 4 })] : notes;
-        modelChanges.textContent = notes.length ? `${t('tr.chg_title', { model: m.label })} ${shown.join(' · ')}` : t('tr.chg_none', { model: m.label });
+        modelChanges.textContent = notes.length ? `${t('tr.chg_title', { model: modelName(m) })} ${shown.join(' · ')}` : t('tr.chg_none', { model: modelName(m) });
       }
       shownModel = m;
+      drawCpuWarning();
       setMode(st.mode);
     }
     familySel.addEventListener('change', () => { touched = true; chooseFamily(familySel.value); });
     metricSel.addEventListener('change', () => { st.metric = metricSel.value; });
+    deviceSel.addEventListener('change', drawCpuWarning);
 
     function changed() {
       let combos = 1;
@@ -965,7 +978,7 @@ export function trainingPanel(page) {
           el('div', { class: 'field' }, el('label', { for: 'tr-family' }, t('tr.family')), familySel, familyNote),
           picker.archField,
           picker.variantField,
-          el('div', { class: 'tr-model-box' }, el('span', { class: 'sr-only' }, `${t('tr.model')}: `), picker.summary, modelNote, modelChanges)),
+          el('div', { class: 'tr-model-box' }, el('span', { class: 'sr-only' }, `${t('tr.model')}: `), picker.summary, cpuWarning, modelNote, modelChanges)),
         el('div', { class: 'tr-col' },
           el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp),
           el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
@@ -1156,7 +1169,7 @@ export function trainingPanel(page) {
       return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-config' },
         el('h3', { id: 'trd-config', class: 'section-title' }, t('tr.config')),
         el('dl', { class: 'tr-dl' },
-          row(t('tr.model'), m ? m.label : c.model),
+          row(t('tr.model'), m ? modelName(m) : c.model),
           row(t('tr.dataset'), datasetText(r)),
           row(t('tr.start'), startName(c.start || r.start)),
           row(t('tr.mode'), c.mode === 'grid' ? t('tr.mode_grid') : t('tr.mode_single')),

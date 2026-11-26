@@ -77,6 +77,33 @@ test('the new-run dialog asks for the family first; only families with a model f
   panel.node.remove();
 });
 
+test('a very large model on the CPU is warned about, by device and by model (#668)', async () => {
+  setMessages({ 'tr.cpu_large': '{model} has {params} M parameters: slow on the CPU.' }, 'en');
+  const saved = ANSWERS['/api/training/catalog'];
+  const big = { ...model('regnet', 'torchvision'), arch: 'RegNetY', variant: '128GF', params_m: 644.8 };
+  const small = { ...model('resnet', 'torchvision'), arch: 'ResNet', variant: '18', params_m: 11.7 };
+  ANSWERS['/api/training/catalog'] = { models: [big, small], common: [], metrics: {} };
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  try {
+    await withApi(async () => {
+      panel.startWith(1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const warning = document.getElementById('tr-cpu-warning');
+    assert.equal(warning.hidden, false, 'automatic on a computer without a GPU is the CPU');
+    assert.match(warning.textContent, /RegNetY 128GF has 644.8 M parameters/);
+    const arch = document.getElementById('tr-arch');
+    arch.value = 'ResNet';
+    arch.dispatchEvent(new window.Event('change'));
+    assert.equal(warning.hidden, true, 'a small model: nothing to say');
+  } finally {
+    ANSWERS['/api/training/catalog'] = saved;
+    document.querySelector('dialog[open]') && document.querySelector('dialog[open]').close();
+    panel.node.remove();
+  }
+});
+
 test('another size of the same architecture keeps the edited values and says nothing (#312, #632)', async () => {
   const saved = ANSWERS['/api/training/catalog'];
   const sized = (variant) => ({ ...model(`net${variant}`, 'torchvision'), arch: 'Net', variant });
