@@ -903,3 +903,11 @@ def test_the_public_model_mapping_needs_no_ctrl_to_clear():
         assert "Ctrl" not in texts["md.mapping_help"]
         for key in ("md.mapping_add_button", "md.mapping_clear", "md.mapping_remove", "md.mapping_used"):
             assert texts[key], key
+
+
+def test_a_plan_with_only_renames_can_be_applied():
+    """#587: a comparison that only renames (a task, a class, the project) is not "in sync": Apply shows."""
+    project_js = (SRC / "web" / "static" / "js" / "cv" / "project.js").read_text(encoding="utf-8")
+    block = project_js[project_js.index("const planIsEmpty") :][:600]
+    for key in ("'tasks_rename'", "'renamed_classes'", "'project_rename'"):
+        assert key in block, key

@@ -69,3 +69,33 @@ test('syncBlock is the sync section of the Annotations step', () => {
   assert.equal(typeof block.draw, 'function');
   assert.equal(typeof block.reveal, 'function');
 });
+
+test('the review shows task, class and project renames in their direction, and names kept on both sides (#587)', () => {
+  setMessages({
+    'annotate.tool.cvat': 'CVAT', 'sync.push': 'To {tool}', 'sync.pull': 'From {tool}', 'sync.row_tasks_rename': 'Task names',
+    'sync.row_classes_rename': 'Renamed classes', 'sync.row_project_rename': 'Project name', 'sync.rename_item': '{old} → {new}',
+    'sync.rename_conflicts': 'Renamed on both sides:', 'sync.rename_conflict_item': 'here "{here}", in {tool} "{there}"',
+  }, 'en');
+  const { ctx, sync } = makePage();
+  ctx.jobs = [{
+    id: 'p1', kind: 'sync_plan', status: 'done', created: '2026-11-26T10:00:00',
+    result: {
+      plan_id: 'x1', tool: 'cvat', remote: { name: 'P' }, scope: { kind: 'project' }, direction: 'both',
+      tasks_rename: [{ task: 1, remote_task: '7', old: 'day 1', new: 'Day one', direction: 'push' }, { task: 2, remote_task: '8', old: 'b', new: 'Birds', direction: 'pull' }],
+      renamed_classes: [{ from: 'car', to: 'vehicle' }],
+      project_rename: { old: 'Street', new: 'Streets', direction: 'push' },
+      tasks_rename_conflicts: [{ task: 3, remote_task: '9', local: 'A', remote: 'B' }],
+    },
+  }];
+  const block = sync.syncBlock();
+  document.body.append(block.node);
+  block.draw(true);
+  const [push, pull] = [...block.node.querySelectorAll('.sync-dir')].map((s) => s.textContent);
+  assert.match(push, /Project name.*Street → Streets/);
+  assert.match(push, /Task names.*day 1 → Day one/);
+  assert.doesNotMatch(push, /Birds/);
+  assert.match(pull, /Task names.*b → Birds/);
+  assert.match(pull, /Renamed classes.*car → vehicle/);
+  assert.match(block.node.textContent, /Renamed on both sides:.*here "A", in CVAT "B"/);
+  block.node.remove();
+});
