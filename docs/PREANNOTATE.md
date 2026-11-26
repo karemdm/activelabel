@@ -109,7 +109,8 @@ error `interrupted`; it can be started again. Logs:
 `<project>/preannotations/p<N>.log`; runs: `<project>/preannotations.json`.
 
 Supported: classification, detection, keypoints, **instance segmentation and semantic segmentation**
-(torchvision; semantic segmentation also with the segmentation_models_pytorch family). A segmentation model predicts masks; the worker (which has no OpenCV) sends each mask as a
+(torchvision; semantic segmentation also with the segmentation_models_pytorch family; Hugging Face transformers: SegFormer, DETR, RT-DETR
+and Mask2Former). A segmentation model predicts masks; the worker (which has no OpenCV) sends each mask as a
 run-length code of at most a fixed size on its longer side, and ActiveLabel turns it into polygons: the
 outer outline of every region (holes are not kept), regions smaller than `min_region` of the image (0.02 % by
 default) are dropped as noise, and each outline is simplified (Douglas-Peucker, tolerance `simplify` of its

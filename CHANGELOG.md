@@ -36,7 +36,7 @@ Everything below goes into the first release, 0.1.0.
   after a version (docs/DATASETS.md).
 - **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon)
   with pinned, tested package versions; classification (all 80 torchvision networks and 102 timm networks, grouped by architecture), detection, instance, semantic (torchvision and segmentation_models_pytorch)
-  and keypoint models; grid search and K-fold runs; data augmentation choices; the device (automatic, CPU,
+  and keypoint models, and Hugging Face transformers models (SegFormer, DETR, RT-DETR, Mask2Former); grid search and K-fold runs; data augmentation choices; the device (automatic, CPU,
   GPU or Apple MPS), the resize policy, learning rate schedules with warmup, mixed precision and a batch
   that is halved when the GPU runs out of memory; resume of a failed or cancelled run from its checkpoint;
   warnings and failures of a run shown by code in the interface language; metrics such as mAP, OKS mAP,

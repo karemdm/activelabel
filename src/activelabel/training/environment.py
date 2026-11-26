@@ -46,6 +46,7 @@ PINNED_VERSIONS: dict[str, str] = {
     "timm": "1.0.31",
     "onnx": "1.23.2",
     "segmentation-models-pytorch": "0.5.0",
+    "transformers": "5.23.0",
     "ultralytics": "8.4.218",
 }
 
@@ -323,6 +324,30 @@ def parse_nvidia_smi(query_output: str, plain_output: str = "") -> GpuInfo | Non
     return None
 
 
+#: Packages whose pinned version needs a newer Python than ActiveLabel's minimum (transformers 5: 3.11).
+PYTHON_FLOORS: dict[str, tuple[int, int]] = {"transformers": (3, 11)}
+
+
+def python_floor_problem(packages: Iterable[str], version: tuple[int, int]) -> str | None:
+    """Why the training environment cannot install these packages with this Python, or ``None``.
+
+    Args:
+        packages: requirements to install.
+        version: ``(major, minor)`` of the Python the environment is made with.
+
+    Returns:
+        A readable sentence naming the package and the Python it needs, or ``None``.
+    """
+    for name in packages:
+        floor = PYTHON_FLOORS.get(normalize(re.split(r"[<>=!~\[ ]", name, maxsplit=1)[0]))
+        if floor and version < floor:
+            return (
+                f"{name} needs Python {floor[0]}.{floor[1]} or newer, and ActiveLabel runs on Python "
+                f"{version[0]}.{version[1]}: install ActiveLabel with a newer Python to use these models."
+            )
+    return None
+
+
 def cuda_tag(cuda_version: str | None) -> str | None:
     """Newest PyTorch CUDA build (``cu124``...) not above the driver's CUDA version, or None.
 
@@ -573,10 +598,14 @@ class TrainingEnvironment:
             step: function that receives the step code (``train_env_install:<packages>``).
 
         Raises:
-            TrainingEnvError: the environment could not be created or a package could not be installed.
+            TrainingEnvError: the environment could not be created, a package could not be installed, or a
+                package needs a newer Python (``PYTHON_FLOORS``).
             LicenceNotAccepted: a package needs a licence the person has not accepted (nothing is installed).
         """
         packages = list(packages)
+        problem = python_floor_problem(packages, sys.version_info[:2])
+        if problem:
+            raise TrainingEnvError(problem)
         LicenceStore(self.workspace).require(licences_of_packages(packages))
         self.create(check, step)
         todo = self.missing(packages)

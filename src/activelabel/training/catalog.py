@@ -13,7 +13,7 @@ from typing import Any
 
 from activelabel.errors import CodedError
 
-FAMILIES = ("torchvision", "timm", "smp", "ultralytics")
+FAMILIES = ("torchvision", "timm", "smp", "transformers", "ultralytics")
 TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints")
 STARTS = ("transfer", "finetune", "scratch")
 #: How a photo becomes the square input of the network (see ``workers/options.py``).
@@ -134,7 +134,8 @@ class ModelSpec:
         id: stable identifier (also the weights name where there is one).
         label: name shown to people.
         types: project types that offer it.
-        family: ``torchvision``, ``timm``, ``smp`` (segmentation_models_pytorch) or ``ultralytics``.
+        family: ``torchvision``, ``timm``, ``smp`` (segmentation_models_pytorch), ``transformers`` (Hugging
+            Face) or ``ultralytics``.
         task_kind: classification, detection, semantic, instance or keypoints.
         packages: pip requirement names the training environment needs.
         image_size: default input size (pixels, square).
@@ -372,6 +373,7 @@ _TV = ("torch", "torchvision")
 _TIMM = ("torch", "torchvision", "timm")
 _ULTRA = ("ultralytics",)
 _SMP = ("torch", "torchvision", "segmentation-models-pytorch")
+_HF = ("torch", "torchvision", "transformers")
 _TRANSFORMER = {"lr": 0.0001}
 #: Detectors keep the proportions of the photo by default (torchvision's own resize did too).
 _TV_DET = {
@@ -1010,8 +1012,86 @@ def _smp_models() -> list[ModelSpec]:
     return out + [_smp("Segformer", "SegFormer", e, el) for e, el in SMP_SEGFORMER_ENCODERS]
 
 
+#: Hugging Face transformers models (#606): ``(architecture key, checkpoint, architecture, variant, project
+#: type, kind, input size, parameters in millions)``. The checkpoints are public and not gated on the Hub.
+HF_MODELS = (
+    *(
+        ("segformer", f"nvidia/mit-b{k}", "SegFormer", f"B{k}", "segmentation", "semantic", 512, m)
+        for k, m in enumerate((3.8, 13.7, 27.5, 47.3, 64.1, 84.7))
+    ),
+    ("detr", "facebook/detr-resnet-50", "DETR", "ResNet-50", "detection", "detection", 640, 41.3),
+    ("detr", "facebook/detr-resnet-101", "DETR", "ResNet-101", "detection", "detection", 640, 60.2),
+    ("rtdetr", "PekingU/rtdetr_r18vd", "RT-DETR", "R18", "detection", "detection", 640, 20.0),
+    ("rtdetr", "PekingU/rtdetr_r34vd", "RT-DETR", "R34", "detection", "detection", 640, 31.0),
+    ("rtdetr", "PekingU/rtdetr_r50vd", "RT-DETR", "R50", "detection", "detection", 640, 42.0),
+    ("rtdetr", "PekingU/rtdetr_r101vd", "RT-DETR", "R101", "detection", "detection", 640, 76.0),
+    *(
+        (
+            "mask2former",
+            f"facebook/mask2former-swin-{s}-coco-instance",
+            "Mask2Former",
+            v,
+            "segmentation",
+            "instance",
+            640,
+            None,
+        )
+        for s, v in (("tiny", "Swin-T"), ("small", "Swin-S"), ("base", "Swin-B"))
+    ),
+)
+#: Weights whose licence on the Hub is "other" (NVIDIA's SegFormer, Meta's Mask2Former): read it before use.
+_HF_LICENCE_NOTE = "The Hub lists these weights' licence as 'other': read it before any commercial use."
+_HF_OBJECT = {
+    "optimizer": "adamw",
+    "lr": 0.0001,
+    "batch_size": 4,
+    "weight_decay": 0.0001,
+    "resize": "letterbox",
+}
+_HF_SEG = {"optimizer": "adamw", "lr": 0.00006, "batch_size": 4}
+#: The whole encoder of a transformers detector trains in fine-tuning: the number of stages is fixed.
+_HF_TRAINABLE = replace(
+    _TRAINABLE_LAYERS,
+    default=5,
+    min=5,
+    max=5,
+    help="transformers models train their whole encoder in fine-tuning.",
+)
+
+
+def _hf(entry: tuple[str, str, str, str, str, str, int, float | None]) -> ModelSpec:
+    """A Hugging Face transformers model, trained by the segmentation or the detection worker.
+
+    Args:
+        entry: a row of :data:`HF_MODELS`.
+
+    Returns:
+        The model spec: id ``hf_<architecture>_<checkpoint name>``, built as ``<architecture>:<checkpoint>``.
+    """
+    key, checkpoint, arch, variant, ptype, kind, size, millions = entry
+    name = checkpoint.split("/")[-1].replace("-", "_").lower()
+    semantic = kind == "semantic"
+    return ModelSpec(
+        f"hf_{key}_{name}",
+        f"{arch} {variant}",
+        (ptype,),
+        "transformers",
+        kind,
+        _HF,
+        size,
+        notes=_HF_LICENCE_NOTE if key in ("segformer", "mask2former") else "",
+        params=(_CLASS_WEIGHTS, _SEG_LOSS) if semantic else (_HF_TRAINABLE, _SCORE_THRESH),
+        defaults=_HF_SEG if semantic else _HF_OBJECT,
+        limits=_SMP_LIMITS if semantic else {},
+        arch=arch,
+        variant=variant,
+        params_m=millions,
+        builder=f"{key}:{checkpoint}",
+    )
+
+
 MODELS: tuple[ModelSpec, ...] = tuple(
-    _classification() + _torchvision_models() + _smp_models() + _yolo_models()
+    _classification() + _torchvision_models() + _smp_models() + [_hf(e) for e in HF_MODELS] + _yolo_models()
 )
 _BY_ID = {m.id: m for m in MODELS}
 

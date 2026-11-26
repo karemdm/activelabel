@@ -37,9 +37,10 @@ from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.transforms.functional import pil_to_tensor
 
 try:
-    from activelabel.training.workers import augment, options
+    from activelabel.training.workers import augment, hf_models, options
 except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import hf_models  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
 METRICS = ("map50_95", "map50")
@@ -89,8 +90,15 @@ def load_spec(path: str | Path) -> dict[str, Any]:
         raise SpecError(f"This worker trains {', '.join(TASKS)}, not {spec['task']}.")
     if spec.get("fold") == "all":
         raise SpecError("Training all folds comes later: choose one fold.")
-    if spec["family"] != "torchvision":
-        raise SpecError(f"This worker trains torchvision models, not {spec['family']}.")
+    if spec["family"] == "transformers":
+        if spec["task"] == "keypoints":
+            raise SpecError("The transformers family has no keypoint models.")
+        try:
+            hf_models.split_id(str(spec["model"]))
+        except ValueError as exc:
+            raise SpecError(str(exc)) from None
+    elif spec["family"] != "torchvision":
+        raise SpecError(f"This worker trains torchvision and transformers models, not {spec['family']}.")
     if spec["start"] not in ("transfer", "finetune", "scratch"):
         raise SpecError(f"Unknown start '{spec['start']}'.")
     if spec["metric"] not in METRICS:
@@ -705,7 +713,11 @@ def set_score_thresh(model: Any, value: float) -> None:
 
 
 def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
-    """The torchvision model with predictors for the project's classes (+ background).
+    """The model with predictors for the project's classes: torchvision's (+ background) or transformers'.
+
+    A ``transformers`` model (``<architecture>:<checkpoint>``: DETR, RT-DETR, Mask2Former) is wrapped by
+    ``hf_models.HfDetector`` so that it trains and evaluates like torchvision's; its whole encoder trains in
+    fine-tuning.
 
     Args:
         spec: The job spec (``model``, ``classes``, ``start``, ``params`` and ``num_keypoints``).
@@ -715,9 +727,16 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
         The model.
 
     Raises:
-        SpecError: torchvision has no such detection model.
+        SpecError: torchvision has no such detection model, or transformers is missing or has no such model.
     """
     p, model_id = spec["params"], spec["model"]
+    if spec.get("family") == "transformers":  # DETR, RT-DETR, Mask2Former (#606)
+        try:
+            arch, _ = hf_models.split_id(str(model_id))
+            net = hf_models.build_network(str(model_id), len(spec["classes"]), pretrained)
+        except (ImportError, ValueError) as exc:
+            raise SpecError(str(exc)) from None
+        return hf_models.HfDetector(net, arch, float(p.get("score_thresh", 0.05)))
     builder = getattr(torchvision.models.detection, model_id, None)
     if builder is None:
         raise SpecError(f"torchvision has no detection model '{model_id}'.")

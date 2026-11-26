@@ -51,7 +51,10 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLO26 (proposed first), YOLO11, YOLOv8; sizes n s m l x | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
+| Segmentation (semantic) | transformers (Hugging Face, Apache-2.0) | SegFormer B0–B5 (nvidia/mit-b0 to b5) | torch, torchvision, transformers |
 | Segmentation (semantic) | smp (segmentation_models_pytorch, MIT) | U-Net, U-Net++, DeepLabV3+, FPN, PSPNet, LinkNet, MA-Net, PAN, UPerNet on ResNet-34/50 or MobileNetV2; SegFormer on MiT-B0/B1/B2 | torch, torchvision, segmentation-models-pytorch |
+| Detection | transformers (Hugging Face, Apache-2.0) | DETR ResNet-50/101; RT-DETR R18/R34/R50/R101 | torch, torchvision, transformers |
+| Segmentation (instance) | transformers (Hugging Face, Apache-2.0) | Mask2Former Swin-T/S/B (COCO instance checkpoints) | torch, torchvision, transformers |
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLO26/11/v8-seg n–x | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLO26/11/v8-pose n–x | torch, torchvision / ultralytics |
 
@@ -65,6 +68,19 @@ backbone (frozen in `transfer`, `backbone_lr_factor` in `finetune`) and the deco
 the classifier. smp refuses sides that are not a multiple of the encoder's output stride (32 for these encoders;
 16 for DeepLabV3+ and PAN, which dilate it), so the worker asks for a multiple of 32, which suits all of them;
 the dialog keeps at least 128 pixels (an old limit of PAN, not checked by smp itself); 512 by default.
+
+**Hugging Face transformers (#606).** The `transformers` family has SegFormer B0 to B5 (semantic segmentation,
+encoders `nvidia/mit-b0` to `b5`), DETR ResNet-50/101 and RT-DETR R18/R34/R50/R101 (detection) and Mask2Former
+Swin-T/S/B (instance segmentation, COCO instance checkpoints). Ids are `hf_<architecture>_<checkpoint name>`
+(for example `hf_detr_detr_resnet_50`) and are built as `<architecture>:<checkpoint>` from the Hugging Face
+Hub; the checkpoints are public and not gated. The downloads go to the run's temporary folder (`HF_HOME`) and
+the Hub's telemetry is off. They train with the workers that already exist, `segmentation.py` for SegFormer and
+`detection.py` for DETR, RT-DETR and Mask2Former, so metrics, checkpoints and pre-annotation are the same;
+ONNX export is not checked for them. Images are normalised with the ImageNet mean and standard deviation and
+padded to a multiple of 32. In fine-tuning the whole encoder trains (`trainable_backbone_layers` is fixed at
+5 for them). Defaults: AdamW, learning rate 1e-4 (detectors) or 6e-5 (SegFormer), batch 4. `transformers` is
+pinned at 5.23.0 and installed by the first run that uses it; it needs Python 3.11 or newer, and on an older
+Python the run fails with a readable message.
 
 **Architecture and variant (#618).** Each model of the catalogue has an `arch` (the architecture or
 generation the dialog groups by: `ResNet`, `EfficientNet`, `Faster R-CNN`...) and a `variant` (its size inside
@@ -399,11 +415,15 @@ segmentation), which is then queued right after saving.
 ## Licences
 
 Ultralytics is licensed AGPL-3.0, a copyleft licence that asks more than the other training packages
-(PyTorch, torchvision and timm are BSD or Apache): software that uses Ultralytics and is distributed, or
+(PyTorch, torchvision and timm are BSD or Apache; transformers is Apache-2.0): software that uses Ultralytics and is distributed, or
 offered to others as a network service, must be offered under the AGPL with its source. Using it privately to
 train models does not by itself trigger that, but whoever accepts takes responsibility for how the trained
 models and any service built on them are used. Read the licence text before accepting
 (<https://www.gnu.org/licenses/agpl-3.0.html>) and ask your organisation when in doubt.
+
+The weights of the `transformers` models have their own licences. DETR and RT-DETR are Apache-2.0; SegFormer
+(NVIDIA) and Mask2Former (Meta) are listed as "other" on the Hub: read the licence before commercial use. The
+catalogue `notes` of those models say so.
 
 Because of this, ActiveLabel does not install or use Ultralytics until the licence is accepted:
 
@@ -479,7 +499,8 @@ from scratch and checks the events and files.
 
 A new release of PyTorch or timm must not change results or break a first install (#160), so the training
 packages are installed at fixed, tested versions: `PINNED_VERSIONS` in
-`src/activelabel/training/environment.py` (torch, torchvision, timm, segmentation-models-pytorch, onnx and ultralytics). A package that
+`src/activelabel/training/environment.py` (torch, torchvision, timm, segmentation-models-pytorch, transformers, onnx and
+ultralytics). A package that
 is already in the training environment at another version is installed again at the pinned one, as the
 same visible step of the run. A requirement written with its own specifier (`timm>=1.0`) is left as it is.
 The versions actually used are recorded in each run's `run.json`.
