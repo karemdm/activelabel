@@ -540,3 +540,12 @@ def test_digest_ignores_folder_device_and_resume():
     )
     assert runner_module.spec_digest(spec) == same
     assert runner_module.spec_digest({**spec, "params": {"lr": 0.2}}) != same
+
+
+def test_tool_jobs_share_the_queue_and_unknown_ones_are_ignored(setup):
+    _, _, runner = setup
+    job_id = runner.enqueue_tool(1, "tool", lambda progress: {"ok": True}, {"what": "x"})
+    job = wait_for(lambda: (j := runner.tool_job(job_id)) and j.status == "done" and j)
+    assert job.kind == "tool" and job.result == {"ok": True} and job.params == {"what": "x"}
+    assert runner.tool_job("unknown") is None
+    runner.cancel_tool(1, "unknown", "embed")  # nothing queued, no process: nothing happens
