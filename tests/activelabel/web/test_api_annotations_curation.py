@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 from sample_images import make_image
 
 from activelabel.annotations import cleanup_staging, load_staged
+from activelabel.curation import quality
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
@@ -353,3 +355,19 @@ def test_starting_the_service_removes_old_staging_and_leaves_the_tasks_alone(tmp
     assert staged(state) == [recent]
     listed = TaskStore(state.store.dir(1)).get(task.json()["task"]["id"])
     assert (listed.open, listed.incomplete) == (True, False)  # closed when the task list is read, not here
+
+
+def test_asking_for_the_analysis_again_while_it_waits_gives_the_same_job(tmp_path, monkeypatch):
+    """#603: the API queued the same analysis again (41 jobs for 6 projects); now it gives the waiting one."""
+    client, _ = setup_project(tmp_path)
+    gate = threading.Event()
+    real = quality.measure_images
+    monkeypatch.setattr(quality, "measure_images", lambda *a, **k: gate.wait(10) and real(*a, **k))
+    first = client.post("/api/projects/1/curation/analyze", json={}).json()
+    second = client.post("/api/projects/1/curation/analyze", json={}).json()
+    assert second["id"] == first["id"]
+    gate.set()
+    assert wait_job(client, 1, first["id"])["status"] == "done"
+    third = client.post("/api/projects/1/curation/analyze", json={}).json()
+    assert third["id"] != first["id"]  # once finished, a new analysis can be asked
+    wait_job(client, 1, third["id"])
