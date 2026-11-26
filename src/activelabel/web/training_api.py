@@ -426,7 +426,7 @@ def list_runs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
         state: The shared state of the application.
 
     Returns:
-        ``{runs}``, newest first; each run has ``model`` and ``has_weights``.
+        ``{runs}``, newest first; each run has ``model_number`` (``None`` if not saved) and ``has_weights``.
     """
     store = _store(state, project_id)
     saved = {m["run"]: m["number"] for m in ModelStore(state.store.dir(project_id)).list()}

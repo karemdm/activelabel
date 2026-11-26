@@ -1,9 +1,8 @@
 """Detection, instance segmentation and keypoints worker (torchvision): ``python detection.py spec.json``.
 
-Standalone, like ``classification.py``: it imports the standard library and numpy at the top and
-torch, torchvision and PIL only inside the functions that need them, so it runs in the training
-environment (which has no ActiveLabel) and its pure helpers (target conversion, IoU, COCO-style AP,
-spec parsing) can be tested without torch.
+Standalone, like ``classification.py``: it imports the standard library, numpy, torch, torchvision and PIL
+at the top of the module, so it runs in the training environment (which has no ActiveLabel) and its pure
+helpers (target conversion, IoU, COCO-style AP, spec parsing) can be tested without torch.
 
 Spec ``parts`` items are ``{"path", "objects": [{"label", "bbox", "polygons", "keypoints"}]}`` with
 relative coordinates (ActiveLabel labels, ``labels.py``); ``label`` is the 0-based class index (the model

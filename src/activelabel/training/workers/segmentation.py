@@ -4,9 +4,9 @@ Same protocol as the classification worker: one JSON object per line on stdout (
 ``warning``, ``setup``, ``progress``, ``epoch``, ``done``, ``error``), and ``best.pt``, ``last.pt`` and
 ``results.json`` in ``output_dir``.
 
-Standalone: it imports only the standard library and, inside the functions that need them, torch,
-torchvision, numpy and PIL, so it runs in the training environment (which has no ActiveLabel) and
-its pure helpers (rasterization, augmentation, metrics, spec parsing) can be tested without torch.
+Standalone: it imports only the standard library, torch, torchvision, numpy and PIL (at the top of the
+module), so it runs in the training environment (which has no ActiveLabel) and its pure helpers
+(rasterization, augmentation, metrics, spec parsing) can be tested without torch.
 
 Spec data (``parts[name]`` items)::
 
