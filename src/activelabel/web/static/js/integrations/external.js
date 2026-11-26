@@ -156,8 +156,10 @@ export function annotateBlock(page) {
         link ? unlink : null,
         el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: name }), onclick: () => openSetup('cvat') }, t('annotate.settings'))));
     const entry = state.tools.cvat || {};
+    /* the task list asks CVAT: when it did not answer, the connection is set up but not "connected" now (#602) */
+    const down = cvatTasks().some((x) => x.cvat === 'unreachable');
     const connected = ready && entry.url
-      ? el('p', { class: 'muted small cvat-connected' }, t('annotate.connected_as', { server: serverName(entry.url), user: entry.username || '?' }))
+      ? el('p', { class: 'muted small cvat-connected' }, t(down ? 'annotate.connected_down' : 'annotate.connected_as', { server: serverName(entry.url), user: entry.username || '?' }))
       : null;
     const facts = link
       ? el('dl', { class: 'facts link-facts' },
@@ -201,7 +203,7 @@ export function annotateBlock(page) {
   let cvatSig = null;
   function cvatDraw(force) {
     if (!state.loaded) return;
-    const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length, state.tools.cvat]);
+    const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length, cvatTasks().some((x) => x.cvat === 'unreachable'), state.tools.cvat]);
     if (!force && sig === cvatSig) return;
     cvatSig = sig;
     drawCvatInfo();

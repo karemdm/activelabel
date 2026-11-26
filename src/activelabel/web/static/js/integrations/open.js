@@ -45,6 +45,9 @@ export async function openInFiftyOne(page) {
   } catch (err) { toastError(err); }
 }
 
+/** A reason as a sentence of a paragraph: the task-list texts (also used as short titles) end without a stop. */
+export const sentence = (text) => (/[.!?…]$/.test(text) ? text : `${text}.`);
+
 /** A link that opens `url` in a new tab, as a button. */
 const openLink = (id, url, tool, text) => el('a', { class: 'btn', id, href: url, target: '_blank', rel: 'noopener' },
   icon(tool, 18), text, ' ', icon('external', 14));
@@ -63,12 +66,14 @@ export function headerCvatButton(page) {
   } }, icon('cvat', 18), text);
 }
 
-/** The "Open in FiftyOne" button of the project header (disabled, with why, while the project has no images). */
+/** The "Open in FiftyOne" button of the project header. While the project has no images it is marked as not
+ *  available (aria-disabled, dimmed) but still answers a tap with why, since a title is never seen on a touch
+ *  screen (#602). */
 export function headerFiftyoneButton(page) {
   const reason = fiftyoneReason(page.ctx.project);
   return el('button', {
-    type: 'button', class: 'btn', id: 'head-open-fiftyone', disabled: !!reason, title: reason ? t(reason) : null,
-    onclick: () => openInFiftyOne(page),
+    type: 'button', class: `btn${reason ? ' is-unavailable' : ''}`, id: 'head-open-fiftyone', 'aria-disabled': reason ? 'true' : null, title: reason ? t(reason) : null,
+    onclick: () => (reason ? toast(t(reason), 'info', 5000) : openInFiftyOne(page)),
   }, icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') }));
 }
 
@@ -76,10 +81,11 @@ export function headerFiftyoneButton(page) {
  *  not; then one line on how the edits come back. Arguments as in cvatTarget. */
 export function cvatOpenRow({ link, configured, task, job }) {
   const target = cvatTarget({ link, configured, task, job });
-  const action = target.url
-    ? openLink('cvat-open', target.url, 'cvat', t(target.label, { task: task ? task.name : '', n: job }))
-    : el('p', { class: 'open-reason', id: 'cvat-open-reason' }, icon('info', 16), t(target.reason));
-  return el('div', { class: 'open-row' }, action, el('p', { class: 'muted small' }, t('open.cvat_back')));
+  /* the way back is said only when there is something to open; a reason stands alone, as a sentence (#602) */
+  if (!target.url) return el('div', { class: 'open-row' }, el('p', { class: 'open-reason', id: 'cvat-open-reason' }, icon('info', 16), sentence(t(target.reason))));
+  return el('div', { class: 'open-row' },
+    openLink('cvat-open', target.url, 'cvat', t(target.label, { task: task ? task.name : '', n: job })),
+    el('p', { class: 'muted small' }, t('open.cvat_back')));
 }
 
 /** The open row of the FiftyOne tab: open the project's dataset (to look at and edit), and how the edits come back. */

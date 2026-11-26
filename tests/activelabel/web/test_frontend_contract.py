@@ -573,7 +573,8 @@ def test_the_cvat_settings_start_empty_with_an_example_and_the_tab_names_the_con
     """#419: placeholder instead of a prefilled address, one name for the secret, the tab names the server."""
     assert "value: entry.url || DEFAULT_URLS" not in JS
     assert re.search(r"id: 'tool-url'[^\n]*placeholder: DEFAULT_URLS\[tool\]", JS)
-    assert "t('annotate.connected_as'" in JS
+    # #602: "connected" only while CVAT answers; when the task list found it down, the line says so
+    assert "t(down ? 'annotate.connected_down' : 'annotate.connected_as'" in JS
     for lang in ("pt", "en"):
         messages = _messages(lang)
         assert (
