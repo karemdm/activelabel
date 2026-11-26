@@ -84,7 +84,11 @@ project is its *type*.)
    an open menu: *Edit in FiftyOne* (*Editar no FiftyOne*) and *Open in CVAT* (*Abrir no CVAT*), an entry
    that cannot be used yet being disabled with the reason (for example, project not linked to CVAT); FiftyOne does not edit keypoints, so a keypoints project offers *View in
    FiftyOne* and is edited in CVAT. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
-2. **Annotations** (optional) has five tabs:
+2. **Annotations** (optional) has five tabs. *Open in CVAT* and *Open in FiftyOne* (*Abrir no CVAT*,
+   *Abrir no FiftyOne*), in the project header and in the CVAT and FiftyOne tabs, open the linked CVAT
+   project (or the task or job chosen in the CVAT tab) and the project's FiftyOne dataset to look at and edit;
+   before the project is in CVAT the button says why and leads to the CVAT tab. The edits come back as before:
+   through *Compare with CVAT* and through a FiftyOne edit session.
    - *Summary* (*Resumo*): what the project has, as tiles (images annotated, annotations, classes with
      annotations, to review) and the top classes, with a search and *Show all*.
    - *Pre-annotate* (*Pré-anotar*): a saved model, or a public pretrained one (COCO), suggests

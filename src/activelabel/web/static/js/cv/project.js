@@ -1,4 +1,4 @@
-/* The project page: its header (edit, delete), the step bar, the activity strip, the six steps and the page
+/* The project page: its header (open in CVAT and FiftyOne, edit, delete), the step bar, the activity strip, the six steps and the page
  * object they share, and the address (#step) that follows the current step. */
 import { createActivities } from './activities.js';
 import { annotationsPanel } from './annotations.js';
@@ -10,6 +10,7 @@ import { modelsPanel } from './models.js';
 import { issueName, taskBadge, taskName, taskPicker } from './names.js';
 import { createStepper } from './stepper.js';
 import { trainingPanel } from './training.js';
+import { headerCvatButton, headerFiftyoneButton } from '../integrations/open.js';
 import { createSync } from '../integrations/sync.js';
 import { linkBadge, originBadge } from '../integrations/tools.js';
 import { api } from '../shell/api.js';
@@ -151,6 +152,9 @@ export function initProject() {
         p.description ? el('p', { class: 'muted' }, p.description) : null,
         (p.classes || []).length ? classLine(p.classes) : null),
       el('div', { class: 'project-head-actions' },
+        /* look at and edit the annotations in the tools (#602) */
+        headerCvatButton(page),
+        headerFiftyoneButton(page),
         el('button', { type: 'button', class: 'btn', onclick: openEdit }, t('project.edit')),
         el('button', { type: 'button', class: 'btn danger-outline', onclick: openDelete }, t('project.delete'))));
   }

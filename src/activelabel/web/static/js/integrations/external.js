@@ -1,5 +1,6 @@
 /* Annotating in an external tool from the Annotations step: CVAT tasks and FiftyOne edit sessions, their
  * setup, and bringing the annotations back. */
+import { cvatOpenRow, fiftyoneOpenRow } from './open.js';
 import {
   SESSION_TOOLS, TOOLS, imagesOf, isHttp, openCvatAudit, openToolSetup, serverName, statusLabel, toolName,
 } from './tools.js';
@@ -21,7 +22,9 @@ export function annotateBlock(page) {
   const cvatDirBox = el('div', { class: 'cvat-dir' });
   const cvatSendBox = el('div', { class: 'send-row' });
   const cvatCtaBox = el('div', { class: 'cvat-cta card', hidden: true });
-  const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatDirBox, cvatSendBox);
+  const cvatOpenBox = el('div', { class: 'cvat-open' });
+  const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatOpenBox, cvatDirBox, cvatSendBox);
+  const foOpenBox = el('div', { class: 'fo-open' });
   const scopeBox = el('div', { class: 'scope-wrap' });
   const sendBox = el('div', { class: 'send-row' });
   const sessionsBox = el('div', { class: 'sessions' });
@@ -31,7 +34,7 @@ export function annotateBlock(page) {
     cvatCtaBox, cvatCard, sync.node);
   const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
     el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-    scopeBox, sendBox,
+    foOpenBox, scopeBox, sendBox,
     el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
       el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
       sessionsBox));
@@ -102,6 +105,15 @@ export function annotateBlock(page) {
         row('job', t('sync.scope_job'), jobSelect,list.length > 0 && !!task && task.jobs.length > 0)),
       list.length ? null : el('p', { class: 'hint' }, t('sync.no_tasks'))));
     if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
+    drawOpen();
+  }
+
+  /* the Open in CVAT / Open in FiftyOne rows (#602): what the scope chosen in CVAT opens, or why it cannot yet */
+  function drawOpen() {
+    const c = state.cvat;
+    const task = c.scope === 'project' ? null : cvatTask();
+    fill(cvatOpenBox, cvatOpenRow({ link: cvatLink(), configured: isReady('cvat'), task, job: c.scope === 'job' ? c.job : null }));
+    fill(foOpenBox, fiftyoneOpenRow(page));
   }
 
   function drawSend() {
@@ -194,6 +206,7 @@ export function annotateBlock(page) {
     cvatSig = sig;
     drawCvatInfo();
     drawCvatSend();
+    drawOpen();
   }
   ctx.cvatDraw = cvatDraw;
 

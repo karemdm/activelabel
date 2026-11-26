@@ -250,7 +250,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .class-line-chips.overflowing { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
 .class-line-chips .chip { flex: none; white-space: nowrap; }
 .class-line .btn { flex: none; }
-.project-head-actions { display: flex; gap: var(--space-2); align-items: flex-start; }
+.project-head-actions { display: flex; gap: var(--space-2); align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; }
 
 /* project: one full-width bar with the steps in groups (data | model), above the current step. Each group
    is its own card with its title, so the boundary between the two areas is physical (not a colour: the
@@ -616,6 +616,10 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .cvat-dir .seg-opt { white-space: normal; }
 .dir-help { margin: var(--space-2) 0 0; }
 .cvat-card .send-row { margin-top: 0.2rem; }
+/* Open in CVAT / Open in FiftyOne (#602): the button, or why it cannot open yet, and how the edits come back */
+.open-row { display: flex; align-items: center; gap: var(--space-2) var(--space-4); flex-wrap: wrap; margin: var(--space-2) 0 var(--space-3); }
+.open-row > p { margin: 0; flex: 1 1 24rem; }
+.open-row .open-reason { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; }
 .sync-section .sync-box:not(:empty) { margin-top: var(--space-4); }
 .sync-direction { font-weight: 600; }
 .annot-section .sessions-section { margin: var(--space-5) 0 0; }
