@@ -53,6 +53,7 @@ MAX_SEGMENTS_PER_VIDEO = 20  # ...more when its classes need them (see _pieces),
 SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
 SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
 MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
+MAX_KFOLD_TEST = 90  # with K-fold, at least 10 % of the images stay for the folds
 
 _STALE_CACHE: dict[tuple[Path, int], tuple[tuple[int, ...], dict[str, int]]] = {}
 FRESH = {"changed_images": 0, "added": 0, "removed": 0, "excluded": 0, "restored": 0}
@@ -161,8 +162,12 @@ def _parse_split(data: dict[str, Any], kfold: int | None) -> dict[str, int]:
     if any(v < 0 or v > 100 for v in split.values()):
         raise CodedError("split_percentage_range", "Percentages must be between 0 and 100.")
     if kfold is not None:
-        if split["test"] >= 100:
-            raise CodedError("kfold_test_too_big", "The test percentage must leave images for the folds.")
+        if split["test"] > MAX_KFOLD_TEST:  # the same limit as the interface (#636)
+            raise CodedError(
+                "kfold_test_too_big",
+                f"With K-fold the test part can take at most {MAX_KFOLD_TEST} %.",
+                max=MAX_KFOLD_TEST,
+            )
         return split
     if sum(split.values()) != 100:
         left_out = [k for k in PARTS if k not in given]

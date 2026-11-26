@@ -988,3 +988,11 @@ def test_a_class_of_the_project_without_any_label_is_warned(tmp_path):
     pdir, project = build(tmp_path, {f"i{n:03d}": ["a" if n % 2 else "b"] for n in range(30)})
     found = [w for w in plan(pdir, project).warnings if w["code"] == "classes_unused"]
     assert found == [{"code": "classes_unused", "classes": ["c", "rare"]}]
+
+
+def test_kfold_test_share_has_the_same_limit_as_the_interface():
+    """#636 item 9: the server refuses what the dialog refuses (test above 90 % with K-fold)."""
+    assert parse_options({"kfold": 5, "split": {"test": 90}}, []).split["test"] == 90
+    with pytest.raises(CodedError) as info:
+        parse_options({"kfold": 5, "split": {"test": 95}}, [])
+    assert info.value.code == "kfold_test_too_big" and info.value.params == {"max": 90}
