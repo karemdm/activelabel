@@ -166,3 +166,38 @@ def test_carry_predictions_needs_the_same_value() -> None:
     assert (same[0].score, same[0].model) == (0.8, "m1")
     changed = links.carry_predictions([scored], [Label("age", value=40.0)])
     assert (changed[0].score, changed[0].model) == (None, None)
+
+
+def linked(tmp_path, tool, image_id, base):
+    entry = {"key": "1:0", "base": links.label_hash(base)}
+    links.save_link(tmp_path, tool, links.new_link("http://x", "7", "P", {image_id: entry}))
+
+
+def test_mark_edited_marks_every_link_that_holds_the_image(tmp_path):
+    linked(tmp_path, "cvat", "a", [box("cat")])
+    linked(tmp_path, "other", "a", [box("cat")])
+    before = links.get_link(tmp_path, "cvat")["revision"]
+    edited = [box("cat", 0.1001)]
+    assert sorted(links.mark_edited(tmp_path, "a", edited)) == ["cvat", "other"]
+    link = links.get_link(tmp_path, "cvat")
+    assert link["items"]["a"]["edited"] == links.label_hash(edited)
+    assert link["revision"] == before
+
+
+def test_mark_edited_without_a_link_holding_the_image(tmp_path):
+    assert links.mark_edited(tmp_path, "a", [box("cat")]) == []
+    linked(tmp_path, "cvat", "b", [box("cat")])
+    assert links.mark_edited(tmp_path, "a", [box("cat")]) == []
+    assert "edited" not in links.get_link(tmp_path, "cvat")["items"]["b"]
+
+
+def test_edited_here_only_while_the_labels_are_the_marked_ones():
+    base, edited = [box("cat")], [box("cat", 0.5)]
+    entry = {"key": "1:0", "base": links.label_hash(base), "edited": links.label_hash(edited)}
+    assert links.edited_here(entry, edited)
+    assert not links.edited_here(entry, base)  # edited back to the base
+    assert not links.edited_here(entry, [box("cat", 0.7)])  # changed again, elsewhere
+    assert not links.edited_here({"key": "1:0", "base": entry["base"]}, edited)
+    assert not links.edited_here(None, edited)
+    same_as_base = {"key": "1:0", "base": links.label_hash(edited), "edited": links.label_hash(edited)}
+    assert not links.edited_here(same_as_base, edited)

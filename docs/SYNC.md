@@ -17,7 +17,7 @@ unlinked, which changes nothing in that tool.
 
 `<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, local_name, created, last_sync, revision,
 tasks?, classes?, local_name?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
-"removed"?: true}}}}`
+"removed"?: true, "edited"?: "<hash>"}}}}`
 (one link per tool; `key` identifies the image in the remote project, `"<task_id>:<frame>"` in CVAT;
 `revision` goes up on every save, so a comparison made before
 another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md (a task left in CVAT after it was deleted here has `kept_remote: true`); `classes` is
@@ -26,7 +26,14 @@ keeps the labels as they were at the last sync (`labels`) and their hash (`base`
 the labels in the internal format, sorted, coordinates rounded to 4 decimals); `removed` marks an image
 removed on both sides. Whether a side changed is decided by comparing its labels with `labels` with a
 tolerance of 0.2 % of the image side, so geometry noise from the round trip does not count as a change;
-links written by older versions only have the hash and are compared exactly. For a label with polygons only the polygons are compared: its box is derived from them (a COCO box is a pixel wider
+links written by older versions only have the hash and are compared exactly. An edit made inside
+ActiveLabel (`PUT /projects/{id}/images/{image_id}/labels`, docs/ANNOTATION.md) writes `edited`, the hash of the
+labels it saved, into the entry of that image in every link: while the image still has those labels (and they
+are not the labels of the last sync) the comparison takes it as changed here, even when the edit is within the
+tolerance, so it is sent (or is a conflict when CVAT changed it too). The link's `revision` does not change; a
+comparison made before the edit refuses that image when it is applied (its labels changed). The next sync
+writes a new entry without `edited`. A push still leaves a CVAT shape alone when it is within the tolerance of
+the label (see *What a push sends to CVAT*), so an edit that small changes the base, not CVAT. For a label with polygons only the polygons are compared: its box is derived from them (a COCO box is a pixel wider
 than the one the tool computes).
 
 A link is created:

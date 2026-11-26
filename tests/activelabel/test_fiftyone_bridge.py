@@ -480,6 +480,26 @@ def test_a_sample_without_a_fingerprint_counts_as_edited(tmp_path, project):
     assert bridge.is_edited(sample, Task.DETECTION)
 
 
+def test_an_edit_in_activelabel_is_shown_unless_fiftyone_holds_edits(tmp_path, project):
+    """#588: a sample is rewritten with the edited labels; one edited in the App keeps its edits."""
+    manifest = build(tmp_path, count=2)
+    cat = [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {"i0": cat}, {}))
+    dog = [Label("dog", bbox=[0.3, 0.3, 0.2, 0.2])]
+    assert bridge.show_project_labels(dataset, "i0", Task.DETECTION, dog)
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    assert sample[bridge.GROUND_TRUTH].detections[0].label == "dog"
+    assert sample[bridge.WRITTEN_LABELS] == label_hash(dog) and not bridge.is_edited(sample, Task.DETECTION)
+    sample[bridge.GROUND_TRUTH].detections[0].bounding_box = [0.5, 0.5, 0.2, 0.2]  # edited in the App
+    sample.save()
+    assert not bridge.show_project_labels(dataset, "i0", Task.DETECTION, cat)
+    assert (
+        dataset.match(fo.ViewField("image_id") == "i0").first()[bridge.GROUND_TRUTH].detections[0].label
+        == "dog"
+    )
+    assert not bridge.show_project_labels(dataset, "missing", Task.DETECTION, cat)
+
+
 def test_app_url_is_localhost():
     assert bridge.app_url(SimpleNamespace(name="d"), None, 5161) == "http://localhost:5161/datasets/d"
 

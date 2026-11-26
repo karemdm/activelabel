@@ -404,6 +404,9 @@ def _info_obj(data: dict[str, Any]) -> RemoteInfo:
 def _decide(entry: dict[str, Any] | None, local: list[Label], remote: list[Label]) -> str:
     """Pull / push / same / conflict from the labels at the last sync, here and there (geometry tolerant).
 
+    An image edited inside ActiveLabel since (:func:`activelabel.sync.links.mark_edited`) counts as changed
+    here even when the edit is within the tolerance.
+
     Args:
         entry: Link entry of the image (its base labels or hash), or None when never synchronised.
         local: The labels of the image in the project.
@@ -428,6 +431,7 @@ def _decide(entry: dict[str, Any] | None, local: list[Label], remote: list[Label
         return CONFLICT
     else:
         local_changed, remote_changed = not same(local, base), not same(remote, base)
+    local_changed = local_changed or links.edited_here(entry, local)  # an edit in ActiveLabel, however small
     if not local_changed and not remote_changed:
         return SAME
     if not local_changed:
