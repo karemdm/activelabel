@@ -34,8 +34,8 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   resumed run (#321) downloads its pretrained weights again (from tens to a few hundred MB, depending on
   the model). Folders left by a process that was killed are removed when ActiveLabel starts. Only the
   run's results stay.
-- **One heavy job per device.** Training runs, pre-annotations (docs/PREANNOTATE.md), ONNX exports,
-  curation analyses and video extractions of every project wait in one global queue with a lane per
+- **One heavy job per device.** Training runs, pre-annotations (docs/PREANNOTATE.md), the embeddings of
+  the similarity map, ONNX exports, curation analyses and video extractions of every project wait in one global queue with a lane per
   device (`cpu`, `cuda:0`, `cuda:1`..., `mps`): by default one job at a time on each GPU and one on the
   CPU (`ACTIVELABEL_QUEUE_GPU`, `ACTIVELABEL_QUEUE_CPU`), first come first served inside a lane. A run
   on `cuda:0` and an export (CPU) may run together; two runs on `cuda:0` never do. A run with device

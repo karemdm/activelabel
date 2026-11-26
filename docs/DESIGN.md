@@ -299,8 +299,8 @@ See [ANNOTATION.md](ANNOTATION.md) (`/annotation-tools`, `/projects/{id}/annotat
 
 All the work of the app waits in one global queue (`scheduler.py`) with a **lane** per device. Heavy
 work goes to the lane of the device it computes on: training runs (a grid or all-folds run takes one
-place for all its children), pre-annotations, ONNX exports (`cpu`), curation analyses (`cpu`) and video
-extractions (`cpu`). Light activities (import, sync, annotation transfer, FiftyOne) share the `light`
+place for all its children), pre-annotations, the embeddings of the similarity map (`similarity`, on the
+device chosen for it), ONNX exports (`cpu`), curation analyses (`cpu`) and video extractions (`cpu`). Light activities (import, sync, annotation transfer, FiftyOne) share the `light`
 lane, one at a time. A lane runs at most its limit of jobs at once: `ACTIVELABEL_QUEUE_CPU` for `cpu`,
 `ACTIVELABEL_QUEUE_GPU` for each of `cuda:N` and `mps` (1 by default), `light` 1. Inside a lane the
 order is strict first come first served, whatever the project (no priority for short jobs: a position
@@ -310,6 +310,8 @@ The waiting and running jobs are written to `<workspace>/queue.json` on every ch
 waiting ones are queued again in the same order (a job whose project, run, model or video is gone is
 dropped); the ones that were running are listed as `interrupted`: a training run is then `failed`
 (`interrupted`) and can be resumed from its last checkpoint (docs/TRAINING.md), the others are asked again.
+A similarity map is not queued again: one left queued or running is shown as `interrupted` and is computed
+again from its button.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -335,7 +337,7 @@ dropped); the ones that were running are listed as `interrupted`: a training run
 ```
 
 Running items come first, then the waiting ones in queue order. `kind` is `training`, `preannotate`,
-`export`, `analyze`, `video_task` or a light kind (`import_folder`, `sync_apply`...); `params` says what
+`export`, `similarity`, `analyze`, `video_task` or a light kind (`import_folder`, `sync_apply`...); `params` says what
 it is about (`{"number": 3}` for a run or pre-annotation, `{"number", "format"}` for an export). The
 `queue_position` of a waiting run (`run.json`) is its `position` in its lane.
 
