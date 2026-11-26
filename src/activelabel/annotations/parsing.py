@@ -14,6 +14,7 @@ from activelabel.annotations.coco import parse_coco
 from activelabel.annotations.context import ParseContext
 from activelabel.annotations.folders import folder_classes, parse_folders
 from activelabel.annotations.models import ParseResult
+from activelabel.annotations.regression import is_regression_json, parse_regression
 from activelabel.annotations.staging import IMAGE_SUFFIXES
 from activelabel.annotations.target import VideoTarget
 from activelabel.annotations.videoformats import (
@@ -28,7 +29,7 @@ from activelabel.annotations.xmlformats import parse_cvat, parse_voc
 from activelabel.annotations.yolo import is_label_text, is_names_file, parse_yolo
 from activelabel.images.manifest import ImageRecord
 
-FORMATS = ("coco", "yolo", "voc", "cvat", "folders", "cvatvideo", "mot")
+FORMATS = ("coco", "yolo", "voc", "cvat", "folders", "cvatvideo", "mot", "regression")
 VIDEO_ONLY = ("cvatvideo", "mot")  # formats that only make sense for a video task
 
 
@@ -39,7 +40,8 @@ def _json_format(path: Path) -> str | None:
         path: the file.
 
     Returns:
-        ``"coco"`` when it looks like COCO, else None (also when it cannot be read).
+        ``"coco"`` when it looks like COCO, ``"regression"`` when it holds values per image and target
+        (see :mod:`activelabel.annotations.regression`), else None (also when it cannot be read).
     """
     try:
         data: Any = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -47,7 +49,7 @@ def _json_format(path: Path) -> str | None:
         return None
     if isinstance(data, dict) and isinstance(data.get("images"), list) and "annotations" in data:
         return "coco"
-    return None
+    return "regression" if is_regression_json(data) else None
 
 
 def _xml_format(path: Path) -> str | None:
@@ -96,7 +98,7 @@ def _yolo_part(path: Path) -> str | None:
 
 
 def detect_format(files: list[Path]) -> str | None:
-    """Annotation format by content: coco, yolo, voc, cvat, cvatvideo (CVAT video), mot or None.
+    """Annotation format by content: coco, yolo, voc, cvat, cvatvideo (CVAT video), mot, regression or None.
 
     Several YOLO txt files plus data.yaml count as one dataset. Unrelated files are ignored; files of
     two different formats give None. Class folders (``folders``) are recognised when the files are
@@ -114,7 +116,15 @@ def detect_format(files: list[Path]) -> str | None:
     mot = False
     for path in files:
         suffix = path.suffix.lower()
-        fmt = _json_format(path) if suffix == ".json" else _xml_format(path) if suffix == ".xml" else None
+        fmt = (
+            _json_format(path)
+            if suffix == ".json"
+            else _xml_format(path)
+            if suffix == ".xml"
+            else "regression"
+            if suffix == ".csv"
+            else None
+        )
         if fmt:
             found.add(fmt)
         elif suffix in (".txt", ".yaml", ".yml", ".names"):
@@ -199,7 +209,7 @@ def parse(
     Args:
         files: annotation files (see :func:`detect_format`).
         fmt: one of ``FORMATS``: coco, yolo, voc, cvat, folders (ignores ``files``), cvatvideo
-            and mot (these two need ``target``).
+            and mot (these two need ``target``), regression (CSV or JSON values).
         images: images of the project (of the video task, when ``target`` is given).
         target: a video task. COCO and YOLO files are then matched by frame number instead of by file
             name (see :mod:`activelabel.annotations.videoformats`); cvatvideo and mot need it.
@@ -227,6 +237,7 @@ def parse(
             "cvat": parse_cvat,
             "cvatvideo": parse_cvat_video,
             "mot": parse_mot,
+            "regression": parse_regression,
         }
         parsers[fmt](ctx, files)
     return ctx.result()

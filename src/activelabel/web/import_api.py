@@ -166,9 +166,17 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
 
     Returns:
         The queued job (id and state); its result is read from the job when it finishes.
+
+    Raises:
+        ApiError: a regression task (``regression_not_supported_yet``), an unknown kind, or the remote
+            data cannot be found or read.
     """
     importer = _importer(body.tool)
     need_fiftyone()  # the annotations are read with FiftyOne's CVAT reader
+    if body.task is Task.REGRESSION:  # no remote tool holds regression values yet (#619)
+        raise ApiError(
+            400, "regression_not_supported_yet", "This is not available for regression projects yet."
+        )
     if body.kind not in KINDS[body.tool]:
         raise ApiError(
             400,

@@ -219,7 +219,7 @@ def test_the_project_form_has_two_columns_and_the_cards_show_coverage():
 
 def test_the_project_header_shows_the_classes_on_one_line_with_see_all():
     """The header keeps the classes to one line; the full list opens in a dialog."""
-    assert "classLine(p.classes)" in JS and "classes.see_all" in JS
+    assert "classLine(p.classes, p.task)" in JS and "classes.see_all" in JS
     assert re.search(r"\.class-line-chips\s*\{[^}]*flex-wrap: nowrap", CSS)
 
 

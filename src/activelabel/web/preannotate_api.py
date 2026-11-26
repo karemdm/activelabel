@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from activelabel import preannotate, preannotate_options
 from activelabel.errors import CodedError
+from activelabel.tasks import refuse_regression
 from activelabel.training import devices
 from activelabel.training.catalog import get_model
 from activelabel.training.models import ModelNotFound, ModelStore
@@ -114,7 +115,10 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
     Returns:
         The queued pre-annotation run.
     """
-    state.project(project_id)
+    try:
+        refuse_regression(state.project(project_id).task)
+    except CodedError as error:
+        raise bad_request(error) from None
     project_dir = state.store.dir(project_id)
     try:
         card = ModelStore(project_dir).get(body.model)

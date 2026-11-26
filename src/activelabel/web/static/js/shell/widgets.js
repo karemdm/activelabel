@@ -86,7 +86,11 @@ export function classList(classes) {
 }
 
 /* The classes of the project on one line of the page header: the first ones that fit, and "see all" for the rest. */
-export function classLine(classes) {
+/* a regression project calls its classes targets (#619) */
+const classesTitle = (task) => t(task === 'regression' ? 'field.targets' : 'field.classes');
+
+export function classLine(classes, task) {
+  const title = classesTitle(task);
   const chip = (c) => el('span', { class: 'chip static' }, c);
   const open = (e) => {
     const list = el('ul', { class: 'chips' }, ...classes.map((c) => el('li', null, chip(c))));
@@ -95,8 +99,8 @@ export function classLine(classes) {
         const q = ev.target.value.trim().toLowerCase();
         fill(list, ...classes.filter((c) => c.toLowerCase().includes(q)).map((c) => el('li', null, chip(c))));
       } });
-    const dlg = el('dialog', { class: 'dialog', 'aria-label': `${t('field.classes')} (${num(classes.length)})` },
-      el('div', { class: 'dialog-body' }, el('h2', null, `${t('field.classes')} (${num(classes.length)})`),
+    const dlg = el('dialog', { class: 'dialog', 'aria-label': `${title} (${num(classes.length)})` },
+      el('div', { class: 'dialog-body' }, el('h2', null, `${title} (${num(classes.length)})`),
         classes.length > 12 ? el('div', { class: 'field' }, search) : null, list,
         el('div', { class: 'form-actions' }, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.close')))));
     dlg.addEventListener('close', () => { dlg.remove(); e.target.focus(); });
@@ -113,7 +117,7 @@ export function classLine(classes) {
   };
   new ResizeObserver(measure).observe(chips);
   return el('div', { class: 'class-line' },
-    el('span', { class: 'muted class-line-label' }, `${t('field.classes')} (${num(classes.length)})`),
+    el('span', { class: 'muted class-line-label' }, `${title} (${num(classes.length)})`),
     chips, btn);
 }
 

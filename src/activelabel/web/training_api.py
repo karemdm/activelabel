@@ -11,9 +11,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
+from activelabel.errors import CodedError
 from activelabel.jobs import DONE
 from activelabel.projects import Project
 from activelabel.storage import now
+from activelabel.tasks import refuse_regression
 from activelabel.training import augmentations, devices
 from activelabel.training.catalog import (
     COMMON_PARAMS,
@@ -46,6 +48,9 @@ CONFIG_MESSAGES = {
 }
 #: Fields of a stored warning of a run.
 WARNING_KEYS = ("code", "params", "message")
+#: the project types the catalogues answer for; regression has no model yet, so its answers are empty (#619)
+ASKED_TYPES = (*PROJECT_TYPES, "regression")
+
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 
@@ -160,7 +165,15 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
 
     Returns:
         The configuration, validated and with the dataset fingerprint.
+
+    Raises:
+        ApiError: a regression project (``regression_not_supported_yet``), or the dataset or the
+            configuration is not right.
     """
+    try:
+        refuse_regression(project.task)
+    except CodedError as error:
+        raise bad_request(error) from None
     try:
         version = DatasetStore(state.store.dir(project.id)).get(config.dataset)
     except DatasetNotFound:
@@ -257,12 +270,12 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
         architecture and size fields), ``experimental``, ``params_m`` and ``file_mb``; ``default_arch`` is the
         architecture a family proposes first (``{"ultralytics": "YOLO26"}``).
     """
-    if type is not None and type not in PROJECT_TYPES:
+    if type is not None and type not in ASKED_TYPES:
         raise ApiError(
             400,
             "type_invalid",
-            f"The type must be one of: {', '.join(PROJECT_TYPES)}.",
-            choices=list(PROJECT_TYPES),
+            f"The type must be one of: {', '.join(ASKED_TYPES)}.",
+            choices=list(ASKED_TYPES),
         )
     return {
         "models": [m.as_dict() for m in models_for(type)],
@@ -285,12 +298,12 @@ def augmentation_catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A0
     Raises:
         ApiError: unknown project type.
     """
-    if type is not None and type not in PROJECT_TYPES:
+    if type is not None and type not in ASKED_TYPES:
         raise ApiError(
             400,
             "type_invalid",
-            f"The type must be one of: {', '.join(PROJECT_TYPES)}.",
-            choices=list(PROJECT_TYPES),
+            f"The type must be one of: {', '.join(ASKED_TYPES)}.",
+            choices=list(ASKED_TYPES),
         )
     kinds = sorted({m.task_kind for m in models_for(type)})
     return {"levels": list(augmentations.LEVELS), "kinds": {k: augmentations.catalogue(k) for k in kinds}}

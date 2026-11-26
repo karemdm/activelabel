@@ -34,7 +34,7 @@ from activelabel.labels import AnnotationSet, Label
 from activelabel.optional import ActiveFields, F, SidebarGroupDocument, fo, to_slug
 from activelabel.projects import Project
 from activelabel.sync.links import label_hash
-from activelabel.tasks import Task
+from activelabel.tasks import Task, refuse_regression
 from activelabel.tasks_store import ImageTask, TaskStore, jobs
 
 GROUND_TRUTH = "ground_truth"
@@ -183,7 +183,11 @@ def _label_type(task: Task) -> type:
 
     Returns:
         ``Classification``, ``Detections``, ``Polylines`` or ``Keypoints``.
+
+    Raises:
+        CodedError: a regression project (``regression_not_supported_yet``).
     """
+    refuse_regression(task)
     return {
         Task.CLASSIFICATION: fo.Classification,
         Task.DETECTION: fo.Detections,
@@ -614,7 +618,11 @@ def sync_dataset(
 
     Returns:
         The dataset.
+
+    Raises:
+        CodedError: a regression project (``regression_not_supported_yet``).
     """
+    refuse_regression(project.task)
     name = dataset_name(manifest.project_dir, project.id)
     dataset = fo.load_dataset(name) if fo.dataset_exists(name) else fo.Dataset(name, persistent=True)
     dataset.persistent = True

@@ -2,7 +2,7 @@
 import { el, fill, icon } from '../shell/dom.js';
 import { t, tn, tr } from '../shell/i18n.js';
 
-export const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
+export const TASKS = ['classification', 'detection', 'segmentation', 'keypoints', 'regression'];
 
 export const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate', 'file_missing', 'file_changed'];
 
@@ -27,7 +27,7 @@ export const nextTaskNumber = (tasks) =>
 
 export const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
-/** Four large selectable cards for the task. Returns {node, get, set}. */
+/** Large selectable cards for the task. Returns {node, get, set}. */
 export function taskPicker(name, value) {
   let current = value || 'detection';
   const node = el('div', { class: 'task-cards', role: 'radiogroup' });

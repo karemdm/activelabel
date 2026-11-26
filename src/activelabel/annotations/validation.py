@@ -6,7 +6,15 @@ from collections import Counter
 
 from activelabel.annotations.context import bbox_of_points
 from activelabel.annotations.models import MAX_EXAMPLES, PROBLEMS, ParseResult, Problem, ValidationReport
-from activelabel.labels import KEYPOINTS_COUNT_MISMATCH, NO_GEOMETRY, Label, task_of, validate_labels
+from activelabel.labels import (
+    KEYPOINTS_COUNT_MISMATCH,
+    NO_GEOMETRY,
+    REPEATED_TARGET,
+    VALUE_INVALID,
+    Label,
+    task_of,
+    validate_labels,
+)
 from activelabel.projects import Project
 from activelabel.tasks import Task
 
@@ -26,7 +34,8 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
     imported only ``discard`` is offered.
 
     Labels without the shape the task needs (a box in a segmentation file, a pose with another number of
-    points than most) are reported as ``no_geometry`` / ``keypoints_count_mismatch`` warnings, with the number
+    points than most, a regression image with two values of one target) are reported as ``no_geometry`` /
+    ``keypoints_count_mismatch`` / ``repeated_target`` / ``value_invalid`` warnings, with the number
     and example image ids; :func:`activelabel.annotations.importer.apply` leaves them out.
 
     Args:
@@ -67,8 +76,9 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
         matches or not converts
     ):  # labels the task cannot use are left out on import
         found = validate_labels(inferred, result.labels)
-        for code in (NO_GEOMETRY, KEYPOINTS_COUNT_MISMATCH):
-            if found.counts[code]:
+        reported = {p.code for p in problems}  # the parser already reports a value that is not a number
+        for code in (NO_GEOMETRY, KEYPOINTS_COUNT_MISMATCH, REPEATED_TARGET, VALUE_INVALID):
+            if found.counts[code] and code not in reported:
                 level, message = PROBLEMS[code]
                 problems.append(Problem(level, code, message, found.counts[code], found.examples[code]))
     can_import = bool(labels) and not any(p.level == "error" for p in problems)

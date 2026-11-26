@@ -49,6 +49,11 @@ PROBLEMS: dict[str, tuple[str, str]] = {
     "unsupported_shape": ("warning", "Some shapes of an unsupported type were skipped."),
     "rle_bbox_only": ("warning", "Mask (RLE) objects were imported as boxes only."),
     "multiple_classes": ("warning", "Some images have more than one class; only the first one is kept."),
+    "value_invalid": ("warning", "Some values are not a finite number and were skipped."),
+    "repeated_target": (
+        "warning",
+        "Some images have more than one value for a target; only the first one is kept.",
+    ),
     "no_geometry": ("warning", "Some labels lack the shape this task needs and were skipped."),
     "keypoints_count_mismatch": (
         "warning",
@@ -95,7 +100,7 @@ class ParseResult:
     """What was read from the annotation files.
 
     Attributes:
-        format: coco, yolo, voc, cvat, folders, cvatvideo or mot.
+        format: coco, yolo, voc, cvat, folders, cvatvideo, mot or regression.
         labels: labels per image id. Images matched without objects have an empty list.
         classes: class names in file order (declared ones first, then by first use).
         files: names of the annotation files read.

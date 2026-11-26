@@ -40,6 +40,18 @@ export function initNew() {
   document.getElementById('task-picker').replaceWith(picker.node);
   const chips = chipsInput('classes-input', Array.isArray(draft.classes) ? draft.classes.map(String) : []);
   document.getElementById('classes-field').replaceWith(chips.node);
+  /* regression: the "classes" are the targets, the names of the values to predict */
+  const label = document.getElementById('classes-label');
+  const hint = document.getElementById('classes-hint');
+  const wording = () => {
+    const targets = picker.get() === 'regression';
+    if (label) label.textContent = t(targets ? 'field.targets' : 'field.classes');
+    if (hint) hint.textContent = t(targets ? 'new.targets_hint' : 'new.classes_hint');
+    const input = document.getElementById('classes-input');
+    if (input) input.placeholder = t(targets ? 'targets.placeholder' : 'classes.placeholder');
+  };
+  picker.node.addEventListener('change', wording);
+  wording();
   if (typeof draft.name === 'string') form.elements.name.value = draft.name;
   if (typeof draft.description === 'string') form.elements.description.value = draft.description;
   const btn = document.getElementById('create-btn');

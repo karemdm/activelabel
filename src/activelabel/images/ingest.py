@@ -28,7 +28,7 @@ from activelabel.jobs import Cancelled, Progress
 from activelabel.storage import now
 
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"})
-ANNOTATION_EXTENSIONS = frozenset({".json", ".txt", ".xml", ".yaml", ".yml"})
+ANNOTATION_EXTENSIONS = frozenset({".json", ".txt", ".xml", ".yaml", ".yml", ".csv"})
 IGNORED_NAMES = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
 
 MIN_SIDE = 8

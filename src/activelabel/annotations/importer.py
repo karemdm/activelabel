@@ -102,7 +102,10 @@ def apply(
     Returns:
         Summary: action, mode, format, task, images/labels imported, kept (merge), added classes,
         ``backup`` (the copy of the previous file, empty when there was none) and
-        ``labels_dropped`` (``{reason: count}`` of labels without the shape the task needs).
+        ``labels_dropped`` (``{reason: count}`` of labels without the shape the task needs) and
+        ``classes_reduced``
+        counts the images that had several classes (classification) or several values of one target
+        (regression) and kept only the first.
 
     Raises:
         ValueError: unknown action or mode, action not allowed for these files, nothing to import,
@@ -150,6 +153,14 @@ def apply(
             if len({lb.label.lower() for lb in items}) > 1:
                 reduced += 1
             labels[key] = items[:1]
+    elif task is Task.REGRESSION:  # one value per target and image: keep the first of each
+        for key, items in labels.items():
+            first: dict[str, Label] = {}
+            for lb in items:
+                first.setdefault(lb.label.lower(), lb)
+            if len(first) < len(items):
+                reduced += 1
+            labels[key] = list(first.values())
     canon = {c.lower(): c for c in project.classes}
     for items in labels.values():
         for lb in items:
