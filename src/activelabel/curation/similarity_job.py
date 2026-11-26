@@ -182,6 +182,10 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, device: str
     try:
         manifest = Manifest(project_dir)
         items = images_to_embed(manifest)
+        listed = {i["id"] for i in items}
+        missing = [
+            r.id for r in manifest.active() if r.id not in listed
+        ]  # no file: not read, like unreadable
         if not items:
             raise ValueError("The project has no image to map.")
         runner.environment.ensure(PACKAGES, progress.check, partial(_tell, store))
@@ -209,7 +213,7 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, device: str
             finished=now(),
             phase="",
             backbone=str(results.get("backbone") or BACKBONE),
-            unreadable=events.unreadable,
+            unreadable=events.unreadable + missing,  # else the new map would be "outdated" at once
             fiftyone_error=fiftyone_error,
         )
     except Cancelled:

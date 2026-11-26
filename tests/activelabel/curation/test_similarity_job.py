@@ -169,3 +169,17 @@ def test_publish_without_fiftyone_gives_a_readable_message(monkeypatch, tmp_path
     monkeypatch.setattr(similarity_job.fiftyone_bridge, "sync_dataset", database_down)  # must not be called
     message = similarity_job._publish(SimpleNamespace(id=1), None, tmp_path, {})
     assert "FiftyOne is not installed" in message and optional.FIFTYONE_INSTALL in message
+
+
+def test_an_image_without_its_file_is_listed_so_the_new_map_is_not_outdated(setup):
+    """Found in a real run: an image whose file was deleted was left out silently, so a map just computed
+    said "the images changed since this map"; it is now listed with the unreadable ones."""
+    client, state, runner, _ = setup
+    manifest = state.manifest(1)
+    first = manifest.active()[0]
+    manifest.file_path(first).unlink()
+    similarity_job.start(runner, state.project(1), state.store.dir(1))
+    done = wait_for(finished(state))
+    assert done["status"] == "done" and done["unreadable"] == [first.id]
+    active = {r.id for r in state.manifest(1).active()}
+    assert similarity_job.state(runner, state.store.dir(1), active)["outdated"] is False
