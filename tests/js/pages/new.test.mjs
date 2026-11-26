@@ -7,7 +7,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { initNew } = await import('../../../src/activelabel/web/static/js/pages/new.js');
+const { initNew, readDraft, writeDraft } = await import('../../../src/activelabel/web/static/js/pages/new.js');
 
 setMessages({ 'new.name_required': 'Give the project a name', 'error.project_name_taken': 'That name is taken' }, 'en');
 
@@ -60,4 +60,35 @@ test('the project is sent with its name, task and classes; an error gives the bu
   assert.equal(document.getElementById('create-btn').disabled, false);
   assert.equal(lastToast().dataset.text, 'That name is taken');
   box.remove();
+});
+
+/** A sessionStorage stand-in. */
+function memoryStorage() {
+  const data = new Map();
+  return { getItem: (k) => (data.has(k) ? data.get(k) : null), setItem: (k, v) => data.set(k, String(v)), removeItem: (k) => data.delete(k), data };
+}
+
+test('the typed form is kept for the reload of a language switch and forgotten when empty (#637)', () => {
+  const storage = memoryStorage();
+  const draft = { name: 'Cats', description: 'pets', task: 'segmentation', classes: ['cat', 'dog'] };
+  writeDraft(storage, draft);
+  assert.deepEqual(readDraft(storage), draft);
+  writeDraft(storage, { name: '', description: '', task: 'detection', classes: [] });
+  assert.equal(readDraft(storage), null);
+  writeDraft(storage, draft);
+  writeDraft(storage, null);
+  assert.equal(storage.data.size, 0);
+});
+
+test('a damaged or blocked storage gives an empty form, never an error', () => {
+  const storage = memoryStorage();
+  storage.setItem('activelabel.new-project-draft', '{not json');
+  assert.equal(readDraft(storage), null);
+  storage.setItem('activelabel.new-project-draft', '[1]');
+  assert.equal(readDraft(storage), null);
+  const blocked = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => {} };
+  assert.equal(readDraft(blocked), null);
+  writeDraft(blocked, { name: 'x' });
+  assert.equal(readDraft(null), null);
+  window.dispatchEvent(new window.Event('pagehide'));   // the page without storage saves nothing and does not throw
 });
