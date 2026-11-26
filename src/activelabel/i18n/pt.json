@@ -1876,6 +1876,7 @@
   "open.cvat_no_address": "O vínculo com o CVAT não tem endereço: compare com o CVAT de novo.",
   "open.cvat_remote_gone": "O projeto no CVAT foi excluído. Use Desvincular, ou compare de novo para criar um novo projeto no CVAT.",
   "open.fo_no_images": "Adicione imagens para abrir o projeto no FiftyOne.",
+  "open.regression_later": "Ainda não disponível para projetos de regressão.",
   "tr.compare": "Comparação dos treinos",
   "cmp.per_class": "Por classe · {metric}",
   "cmp.zero_classes_one": "{n} classe com 0 em todos os escolhidos",

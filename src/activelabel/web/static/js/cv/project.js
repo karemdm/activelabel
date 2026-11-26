@@ -167,7 +167,16 @@ export function initProject() {
     const descInput = el('textarea', { id: 'e-desc', rows: '3', maxlength: '2000' }, p.description || '');
     const picker = taskPicker('e-task', p.task);
     const chips = chipsInput('e-classes', p.classes || []);
-    if (p.task === 'regression') chips.node.querySelector('input').placeholder = t('targets.placeholder');
+    /* a regression project names its classes targets (#619); the label follows the type chosen here */
+    const classesLabel = el('label', { for: 'e-classes' }, '');
+    const wording = () => {
+      const targets = picker.get() === 'regression';
+      classesLabel.textContent = t(targets ? 'field.targets' : 'field.classes');
+      const input = chips.node.querySelector('input');
+      if (input) input.placeholder = t(targets ? 'targets.placeholder' : 'classes.placeholder');
+    };
+    picker.node.addEventListener('change', wording);
+    wording();
     const save = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
     const dlg = el('dialog', { class: 'dialog wide', 'aria-label': t('project.edit') },
       el('form', { class: 'dialog-body form', method: 'dialog' },
@@ -178,7 +187,7 @@ export function initProject() {
             el('div', { class: 'field' }, el('label', { for: 'e-name' }, t('field.name')), nameInput,
               ctx.links.some((l) => l.tool === 'cvat') ? el('p', { class: 'hint', id: 'e-name-hint' }, t('project.rename_cvat')) : null),
             el('div', { class: 'field' }, el('label', { for: 'e-desc' }, t('field.description')), descInput),
-            el('div', { class: 'field' }, el('label', { for: 'e-classes' }, t(p.task === 'regression' ? 'field.targets' : 'field.classes')), chips.node)),
+            el('div', { class: 'field' }, classesLabel, chips.node)),
           el('fieldset', { class: 'field' }, el('legend', null, t('field.task')), picker.node)),
         el('div', { class: 'form-actions' }, save, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
     dlg.querySelector('form').noValidate = true;  // the app's own message, in the app's language, not the browser's bubble

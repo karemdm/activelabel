@@ -1876,6 +1876,7 @@
   "open.cvat_no_address": "The CVAT link has no address: compare with CVAT again.",
   "open.cvat_remote_gone": "The CVAT project was deleted. Use Unlink, or compare again to create a new project in CVAT.",
   "open.fo_no_images": "Add images to open the project in FiftyOne.",
+  "open.regression_later": "Not available for regression projects yet.",
   "tr.compare": "Comparison of the runs",
   "cmp.per_class": "Per class · {metric}",
   "cmp.zero_classes_one": "{n} class with 0 in every chosen one",
