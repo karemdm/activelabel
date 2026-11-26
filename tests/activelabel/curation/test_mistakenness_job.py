@@ -6,7 +6,7 @@ import pytest
 from training_fakes import saved_model_project, tmp_dirs, wait_for
 
 from activelabel import fiftyone_bridge
-from activelabel.curation import mistakenness_job
+from activelabel.curation import fiftyone_runs, mistakenness_job
 from activelabel.errors import CodedError
 from activelabel.labels import load_annotations, save_annotations
 from activelabel.training.models import ModelNotFound
@@ -221,6 +221,18 @@ def test_a_job_left_by_a_previous_start_is_interrupted(setup):
     assert mistakenness_job.state_of(runner, state.store.dir(2)) == {}
 
 
+def database_down(*args, **kwargs):
+    raise RuntimeError("database down")
+
+
+def test_a_failure_recording_the_run_is_only_logged(setup, monkeypatch):
+    client, state, runner, score = setup
+    monkeypatch.setattr(mistakenness_job.fiftyone_runs, "record", database_down)
+    start(state, runner)
+    done = wait_for(finished(state))
+    assert done["status"] == "done" and len(done["scores"]) == 8
+
+
 @pytest.mark.integration
 def test_the_predictions_are_compared_in_fiftyone(project, monkeypatch):
     client, state, runner = project
@@ -231,7 +243,10 @@ def test_the_predictions_are_compared_in_fiftyone(project, monkeypatch):
         done = wait_for(finished(state), timeout=180)
         assert done["status"] == "done", done
         assert len(done["scores"]) == 8 and all(s["hardness"] is not None for s in done["scores"].values())
-        assert fo.load_dataset(name).has_sample_field("hardness")
+        dataset = fo.load_dataset(name)
+        assert dataset.has_sample_field("hardness")
+        config = dataset.get_run_info(fiftyone_runs.RUN_KEYS["mistakenness"]).config.serialize()
+        assert config["images"] == 8 and "hardness" in config["fields"]
     finally:
         if fo.dataset_exists(name):
             fo.delete_dataset(name)

@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import fiftyone as fo
 import numpy as np
@@ -8,13 +9,20 @@ from sample_images import make_image
 from training_fakes import FAKE_EMBED, FakeEnv, wait_for
 
 from activelabel import fiftyone_bridge
-from activelabel.curation import clustering_job, similarity, similarity_fiftyone, similarity_job
+from activelabel.curation import (
+    clustering_job,
+    fiftyone_runs,
+    similarity,
+    similarity_fiftyone,
+    similarity_job,
+)
 from activelabel.errors import CodedError
 from activelabel.training.runner import TrainingRunner
 
 FINISHED = ("done", "failed", "cancelled")
 COUNT = 12
 REAL_PUBLISH = similarity_job._publish
+REAL_EXISTING = fiftyone_bridge.existing_dataset
 
 
 def never_cluster(vectors, method, groups, min_size):
@@ -49,6 +57,7 @@ def setup(tmp_path, monkeypatch):
     state.runner = runner
     published = []
     monkeypatch.setattr(similarity_job, "_publish", lambda *args: published.append(args) or "")
+    monkeypatch.setattr(fiftyone_bridge, "existing_dataset", lambda project_dir, pid: None)  # no FiftyOne run
     yield client, state, runner, published
     runner.shutdown()
 
@@ -119,6 +128,23 @@ def test_a_publish_failure_keeps_the_groups(setup, monkeypatch):
     clustering_job.start(runner, state.project(1), state.store.dir(1), "kmeans", groups=2)
     done = wait_for(finished(state))
     assert done["status"] == "done" and done["fiftyone_error"] == "database down"
+    assert len(similarity.SimilarityStore(state.store.dir(1)).read()["groups"]) == 2
+
+
+def test_without_fiftyone_no_run_is_recorded(monkeypatch, tmp_path):
+    monkeypatch.setattr(clustering_job.optional, "FIFTYONE", False)
+    monkeypatch.setattr(fiftyone_bridge, "existing_dataset", database_down)  # never reached
+    clustering_job._record(SimpleNamespace(id=1), tmp_path, {"method": "auto"}, 3)
+
+
+def test_a_failure_recording_the_run_is_only_logged(setup, monkeypatch):
+    client, state, runner, published = setup
+    save_map(state)
+    monkeypatch.setattr(fiftyone_bridge, "existing_dataset", lambda project_dir, pid: "dataset")
+    monkeypatch.setattr(clustering_job.fiftyone_runs, "record", database_down)
+    clustering_job.start(runner, state.project(1), state.store.dir(1), "kmeans", groups=2)
+    done = wait_for(finished(state))
+    assert done["status"] == "done" and done["fiftyone_error"] == ""
     assert len(similarity.SimilarityStore(state.store.dir(1)).read()["groups"]) == 2
 
 
@@ -219,6 +245,7 @@ def test_the_noise_has_no_group_in_the_fiftyone_field(setup, monkeypatch):
     client, state, runner, published = setup
     name = f"test-clustering-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(similarity_job, "_publish", REAL_PUBLISH)
+    monkeypatch.setattr(fiftyone_bridge, "existing_dataset", REAL_EXISTING)
     monkeypatch.setattr(fiftyone_bridge, "dataset_name", lambda project_dir, pid: name)
     save_map(state, outlier=True)
     try:
@@ -228,6 +255,8 @@ def test_the_noise_has_no_group_in_the_fiftyone_field(setup, monkeypatch):
         dataset = fo.load_dataset(name)
         assert similarity_fiftyone.BRAIN_KEY in dataset.list_brain_runs()
         assert dataset.values(similarity_fiftyone.GROUP_FIELD).count(None) == 1
+        config = dataset.get_run_info(fiftyone_runs.RUN_KEYS["clustering"]).config.serialize()
+        assert config["method"] == "hdbscan" and config["min_size"] == 4 and config["images"] == COUNT
     finally:
         if fo.dataset_exists(name):
             fo.delete_dataset(name)

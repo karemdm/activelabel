@@ -9,7 +9,7 @@ from sample_images import make_image
 from training_fakes import FakeEnv, wait_for
 
 from activelabel import fiftyone_bridge
-from activelabel.curation import similarity, uniqueness, uniqueness_job
+from activelabel.curation import fiftyone_runs, similarity, uniqueness, uniqueness_job
 from activelabel.errors import CodedError
 from activelabel.training.runner import TrainingRunner
 
@@ -209,6 +209,7 @@ def test_the_scores_are_written_to_the_fiftyone_field(setup, monkeypatch):
         dataset = fo.load_dataset(name)
         by_image = dict(zip(dataset.values("image_id"), dataset.values(uniqueness_job.FIELD), strict=True))
         assert by_image == done["scores"]
+        assert fiftyone_runs.RUN_KEYS["uniqueness"] in dataset.list_runs()
     finally:
         if fo.dataset_exists(name):
             fo.delete_dataset(name)
