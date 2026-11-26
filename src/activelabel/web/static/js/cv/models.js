@@ -184,10 +184,10 @@ export function modelsPanel(page) {
     const note = el('textarea', { id: 'md-public-note', rows: '2', maxlength: '500' });
     const save = el('button', { type: 'submit', class: 'btn primary' }, t('md.public_add'));
     const err = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
-    /* the first public category chosen for two project classes ({category, classes}), or null: a category goes to one class only */
+    /* st.map: project class -> the public categories chosen for it (several may name one class). Returns the first category chosen for two project classes ({category, classes}), or null: a category goes to one class only */
     function clash() {
       const by = {};
-      for (const [cls, from] of Object.entries(st.map)) if (from) (by[from] = by[from] || []).push(cls);
+      for (const [cls, froms] of Object.entries(st.map)) for (const from of froms) (by[from] = by[from] || []).push(cls);
       const found = Object.entries(by).find(([, classes]) => classes.length > 1);
       return found ? { category: found[0], classes: found[1] } : null;
     }
@@ -198,9 +198,9 @@ export function modelsPanel(page) {
       return !!c;
     }
     function suggested() {
-      /* project class -> the public category suggested for it (same name) */
+      /* project class -> the public categories suggested for it (same name) */
       const out = {};
-      for (const [from, to] of Object.entries(modelOf().suggested || {})) if (!(to in out)) out[to] = from;
+      for (const [from, to] of Object.entries(modelOf().suggested || {})) (out[to] = out[to] || []).push(from);
       return out;
     }
     function drawChoices() {
@@ -213,7 +213,7 @@ export function modelsPanel(page) {
       }));
     }
     let mapOpen = false;
-    const linked = () => data.project_classes.filter((cls) => st.map[cls]).length;
+    const linked = () => data.project_classes.filter((cls) => (st.map[cls] || []).length).length;
     const mapLine = () => t('md.mapping_summary', { n: num(linked()), total: num(data.project_classes.length) });
     function drawMap() {
       drawChoices();
@@ -221,9 +221,8 @@ export function modelsPanel(page) {
       const line = el('span', null, mapLine());
       const rows = el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
           const id = `md-map-${cls}`;
-          const sel = el('select', { id, class: 'tr-select', onchange: (e) => { st.map[cls] = e.target.value; line.textContent = mapLine(); showClash(); } },
-            el('option', { value: '' }, t('md.mapping_none')),
-            ...m.classes.map((c) => el('option', { value: c, selected: st.map[cls] === c }, c)));
+          const sel = el('select', { id, class: 'tr-select', multiple: true, size: '4', onchange: (e) => { st.map[cls] = [...e.target.selectedOptions].map((o) => o.value); line.textContent = mapLine(); showClash(); } },
+            ...m.classes.map((c) => el('option', { value: c, selected: (st.map[cls] || []).includes(c) }, c)));
           return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), sel);
         }));
       const box = el('details', { class: 'md-map', open: mapOpen || !linked() },
@@ -247,7 +246,7 @@ export function modelsPanel(page) {
       e.preventDefault();
       if (showClash()) return;
       const mapping = {};
-      for (const [cls, from] of Object.entries(st.map)) if (from) mapping[from] = cls;
+      for (const [cls, froms] of Object.entries(st.map)) for (const from of froms) mapping[from] = cls;
       if (!Object.keys(mapping).length) { err.textContent = t('md.mapping_empty'); err.hidden = false; return; }
       save.disabled = true;
       try {
