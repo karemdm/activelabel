@@ -142,6 +142,9 @@ project is its *type*.)
    and splits them into groups (k-means), each shown with its size and most typical image. The same
    map opens in the FiftyOne App (Embeddings panel, run `activelabel_similarity`, coloured by the
    field `similarity_group`).
+   *Uniqueness* scores each active image from 0 (it has a near twin) to 1 (the most unique) from the
+   embeddings the map saved (compute the map first): it is a CPU job of the global queue, and the scores
+   also go to the field `uniqueness` in FiftyOne.
 
 ### Model
 
