@@ -2,7 +2,7 @@
  * are chosen, select all of this list, clear) and the table, one row per metric with the best value of each
  * row highlighted. The classes whose value is 0 (or missing) in every chosen column are folded away. */
 import { el, icon } from '../shell/dom.js';
-import { LOCALE, fmtBytes, num, t, tn, tr } from '../shell/i18n.js';
+import { fmtBytes, nf3, num, t, tn, tr } from '../shell/i18n.js';
 
 const PER_CLASS_KEYS = ['f1', 'ap50_95', 'iou'];
 
@@ -54,7 +54,6 @@ export function bestOf(row) {
  *  header, `resultsOf` and `sizeOf` as in comparisonRows, `id` the id of the section, `title` its heading and
  *  `help` the line under it. */
 export function compareTable({ id, title, help, cols, head, resultsOf, sizeOf = null }) {
-  const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   const { groups, zeroClasses } = comparisonRows(cols, resultsOf, sizeOf);
   const cell = (row, v, best) => el('td', { class: `num${best ? ' best' : ''}` }, v == null ? '—' : row.size ? fmtBytes(v) : nf3.format(v));
   const body = [];

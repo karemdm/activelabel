@@ -4,7 +4,7 @@ import { compareBar, compareCheck, compareTable } from './compare.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
-import { LOCALE, fmtBytes, fmtDate, num, t, tn, tr } from '../shell/i18n.js';
+import { fmtBytes, fmtDateTime, nf3, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
@@ -14,7 +14,6 @@ export function modelsPanel(page) {
   const panel = { node, mounted: false };
   const box = el('div', { class: 'md-body' });
   const announcer = el('p', { class: 'sr-only', 'aria-live': 'polite' });
-  const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   const labels = {};
   let models = [];
   let timer = null;
@@ -122,10 +121,10 @@ export function modelsPanel(page) {
           ? el('span', { class: 'tr-badge done md-current' }, icon('star', 14), t('md.current'))
           : el('button', { type: 'button', class: 'btn small', 'data-act': 'current', onclick: () => change(m, { current: true }, t('md.made_current', { n: m.number })) }, t('md.make_current'))),
       isPublic(m)
-        ? el('p', { class: 'muted tr-meta' }, el('span', { class: 'md-public' }, t('md.public_badge')), ` ${t('md.public_meta', { date: fmtDate(m.created) })}`)
-        : el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDate(m.created)].join(' · ')),
+        ? el('p', { class: 'muted tr-meta' }, el('span', { class: 'md-public' }, t('md.public_badge')), ` ${t('md.public_meta', { date: fmtDateTime(m.created) })}`)
+        : el('p', { class: 'muted tr-meta' }, [t('tr.dataset_short', { n: m.dataset }), startName(m.start), t('md.from_run', { n: m.run }), fmtDateTime(m.created)].join(' · ')),
       isPublic(m)
-        ? el('details', { class: 'md-mapping' }, el('summary', null, tn('md.classes_n', Object.keys(m.mapping || {}).length)),
+        ? el('details', { class: 'md-mapping' }, el('summary', null, tn('md.classes_n', new Set(Object.values(m.mapping || {})).size)),
           el('p', null, el('span', { class: 'muted' }, `${t('md.mapping')}: `),
             Object.entries(m.mapping || {}).map(([from, to]) => (from === to ? from : `${from} → ${to}`)).join(', ')))
         : el('p', { class: 'tr-facts' },
@@ -281,7 +280,7 @@ export function modelsPanel(page) {
         : null,
       el('ul', { class: 'tr-cards' }, ...models.map(card)),
       compareBlock(),
-      models.some((m) => !isPublic(m)) ? el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help')) : null,
+      models.some((m) => !isPublic(m) && ONNX_KINDS.includes(m.task_kind)) ? el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help')) : null,
     ].filter(Boolean)));
   }
 

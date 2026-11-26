@@ -6,7 +6,7 @@ import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
-import { LOCALE, fmtDate, fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
+import { LOCALE, fmtDateTime, nf3, lower, runName, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
@@ -18,7 +18,6 @@ export function trainingPanel(page) {
   const cmpBarBox = el('div', { class: 'cmp-bar-box' });
   const cmpBox = el('div', { class: 'cmp-box' });
   const announcer = el('p', { class: 'sr-only', 'aria-live': 'polite' });
-  const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   const MAX_GRID = 50;
   const ACTIVE = (r) => r.status === 'queued' || r.status === 'running';
   let runs = [];
@@ -168,8 +167,8 @@ export function trainingPanel(page) {
     }
     return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
       el('div', { class: 'tr-run-head' },
-        comparableRun(r) ? compareCheck({ id: `${id}-cmp`, label: `#${r.number}`, checked: chosen.has(r.number), onChange: (on) => choose([r.number], on) }) : null,
-        el('h3', { id: `${id}-t` }, `#${r.number}`),
+        comparableRun(r) ? compareCheck({ id: `${id}-cmp`, label: runName(r.number), checked: chosen.has(r.number), onChange: (on) => choose([r.number], on) }) : null,
+        el('h3', { id: `${id}-t` }, runName(r.number)),
         el('span', { class: 'tr-model' }, m ? m.label : r.model),
         badge(r)),
       el('p', { class: 'muted tr-meta' }, meta.join(' · ')),
@@ -434,7 +433,7 @@ export function trainingPanel(page) {
 
     // data
     const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
-      [`v${v.version}`, fmtDate(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
+      [`v${v.version}`, fmtDateTime(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
     datasetSel.value = String(st.dataset);
     const foldSel = sel('tr-fold');
     const foldField = el('div', { class: 'field', hidden: true }, el('label', { for: 'tr-fold' }, t('tr.fold')), foldSel);

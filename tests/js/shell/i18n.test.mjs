@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as i18n from '../../../src/activelabel/web/static/js/shell/i18n.js';
 
-const { setMessages, fmt, t, tr, tn, num, fmtDate, fmtBytes, lower } = i18n;
+const { setMessages, fmt, t, tr, tn, num, fmtDate, fmtBytes, lower, runName } = i18n;
 
 test('setMessages changes the texts and the locale that importers see (live bindings)', () => {
   setMessages({ hello: 'Olá, {name}' }, 'pt');
@@ -39,4 +39,13 @@ test('fmtBytes, fmtDate and lower follow the locale', () => {
   assert.equal(fmtDate('not a date'), '');
   assert.notEqual(fmtDate('2026-01-02T00:00:00'), '');
   assert.equal(lower('ÁRVORE'), 'árvore');
+});
+
+test('runName, nf3 and fmtDateTime are the shared formats (#548)', () => {
+  setMessages({}, 'pt');
+  assert.equal(runName(3), '#3');
+  assert.equal(i18n.nf3.format(0.12345), '0,123');
+  assert.equal(i18n.nf4.format(0.12345), '0,1235');
+  assert.equal(i18n.fmtDateTime('2026-11-25T12:28:00'), i18n.fmtDate('2026-11-25T12:28:00') + ', 12:28');
+  assert.equal(i18n.fmtDateTime('nope'), '');
 });

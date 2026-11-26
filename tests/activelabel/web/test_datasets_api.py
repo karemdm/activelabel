@@ -3,6 +3,7 @@ from sample_images import make_image
 
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
+from activelabel.web import datasets_api
 
 BASE = "/api/projects/1/datasets"
 
@@ -182,3 +183,8 @@ def test_preview_tells_the_largest_kfold(tmp_path):
     small = few.post(BASE + "/preview", json={"seed": 1}).json()
     assert small["max_kfold"] == 2  # two classes of 2 images: the test part takes one of each (#347)
     assert few.post(BASE + "/preview", json={"kfold": 5}).status_code == 400
+
+
+def test_runs_in_the_messages_are_named_like_on_the_screens():
+    """#548: the screens call a run ``#1``, so the error text does too."""
+    assert datasets_api._numbers([1, 2, 4]) == "#1, #2, #4"

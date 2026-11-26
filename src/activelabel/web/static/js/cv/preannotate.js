@@ -4,7 +4,7 @@ import { deviceName } from './names.js';
 import { api } from '../shell/api.js';
 import { confirmDialog } from '../shell/dialogs.js';
 import { el, fill, icon } from '../shell/dom.js';
-import { LOCALE, fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
+import { fmtDateTime, nf3, nf4, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 
 /* A saved model suggests labels for new images; a person reviews them in CVAT or FiftyOne.
@@ -16,9 +16,7 @@ export function preannotateBlock(page, hooks) {
   const { projectId } = page;
   const node = el('div', { class: 'pre' });
   const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
-  const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   const form = { model: null, task: null, scope: 'unlabeled', device: 'auto', open: false, more: false, query: '' };
-  const nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
   /* the settings of each model (#86): only what differs from the defaults the server describes. `options` holds
      values by name (a number field keeps a wrong value as typed, to show its error); `classes` null means every
      class of the model. Remembered in this browser, per project and model. */

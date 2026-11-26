@@ -210,10 +210,10 @@ def test_deleting_a_version_checks_the_runs_that_use_it(tmp_path):
     queued = client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).json()["number"]
     path = "/api/projects/1/datasets/1"
     blocked = client.request("DELETE", path, json={"confirm": True, "confirm_runs": True})
-    assert blocked.status_code == 409 and f"r{queued}" in blocked.json()["detail"]
+    assert blocked.status_code == 409 and f"#{queued}" in blocked.json()["detail"]
     store.update(queued, status="done")  # the run finished
     asked = client.request("DELETE", path, json={"confirm": True})
-    assert asked.status_code == 409 and f"r{queued}" in asked.json()["detail"]
+    assert asked.status_code == 409 and f"#{queued}" in asked.json()["detail"]
     assert client.get(path).status_code == 200
     assert client.request("DELETE", path, json={"confirm": True, "confirm_runs": True}).status_code == 200
 

@@ -6,6 +6,8 @@ export let LOCALE = 'en';
 export let I18N = {};
 export let nf = new Intl.NumberFormat(LOCALE);
 export let nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+export let nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
+export let nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
 
 /** Sets the texts (as the server writes them in `window.I18N`) and the locale of the formats. */
 export function setMessages(messages, locale) {
@@ -13,6 +15,8 @@ export function setMessages(messages, locale) {
   LOCALE = locale || 'en';
   nf = new Intl.NumberFormat(LOCALE);
   nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+  nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
+  nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
 }
 
 export const fmt = (text, vars) =>
@@ -33,8 +37,10 @@ export const fmtDate = (iso) => {
 };
 export const fmtDateTime = (iso) => {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
 };
+/** How a training run is named on every screen: `#3` (the same as the run's title). */
+export const runName = (n) => `#${n}`;
 export const fmtBytes = (n) => {
   if (n < 1024) return `${num(n)} B`;
   if (n < 1024 * 1024) return `${nf1.format(n / 1024)} KB`;

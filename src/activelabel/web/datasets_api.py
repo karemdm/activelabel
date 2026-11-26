@@ -66,9 +66,9 @@ def _numbers(runs: list[int]) -> str:
         runs: Run numbers.
 
     Returns:
-        The numbers as text (``r1, r2``).
+        The numbers as text (``#1, #2``, as the screens name the runs).
     """
-    return ", ".join(f"r{n}" for n in runs)
+    return ", ".join(f"#{n}" for n in runs)
 
 
 def _runs_using(state: AppState, project_id: int, version: int) -> tuple[list[int], list[int]]:
