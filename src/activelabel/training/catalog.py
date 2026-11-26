@@ -873,6 +873,51 @@ def _torchvision_models() -> list[ModelSpec]:
     ]
 
 
+#: Ultralytics generations (#632), the default first; YOLO12 is not offered (owner's decision). Every
+#: generation has pretrained weights for every task and size (release v8.4.0 of ``ultralytics/assets``).
+YOLO_GENERATIONS = (("yolo26", "YOLO26"), ("yolo11", "YOLO11"), ("yolov8", "YOLOv8"))
+YOLO_SIZES = "nsmlx"
+#: ``(id suffix, project type, kind of task)`` of the Ultralytics tasks ActiveLabel trains.
+YOLO_TASKS = (
+    ("", "detection", "detection"),
+    ("-seg", "segmentation", "instance"),
+    ("-pose", "keypoints", "keypoints"),
+    ("-cls", "classification", "classification"),
+)
+#: Batch by size (n/s small, l/x large): what fits a common GPU at the default input size.
+YOLO_BATCH = {"n": 16, "s": 16, "m": 8, "l": 4, "x": 4}
+#: Parameters in millions, from Ultralytics' published tables, by generation and task (sizes n s m l x).
+YOLO_PARAMS: dict[tuple[str, str], tuple[float, ...]] = {
+    ("yolov8", ""): (3.2, 11.2, 25.9, 43.7, 68.2),
+    ("yolov8", "-seg"): (3.4, 11.8, 27.3, 46.0, 71.8),
+    ("yolov8", "-pose"): (3.3, 11.6, 26.4, 44.4, 69.4),
+    ("yolov8", "-cls"): (2.7, 6.4, 17.0, 37.5, 57.4),
+    ("yolo11", ""): (2.6, 9.4, 20.1, 25.3, 56.9),
+    ("yolo11", "-seg"): (2.9, 10.1, 22.4, 27.6, 62.1),
+    ("yolo11", "-pose"): (2.9, 9.9, 20.9, 26.2, 58.8),
+    ("yolo11", "-cls"): (1.6, 5.5, 10.4, 12.9, 28.4),
+}
+#: The architecture each family proposes first (the dialog's default).
+DEFAULT_ARCH = {"ultralytics": "YOLO26"}
+#: GPU memory from which the dialog proposes a medium model rather than a small one.
+LARGE_GPU_MB = 8 * 1024
+
+
+def device_size(gpu_memory_mb: int | None, on_gpu: bool) -> str:
+    """The size the dialog proposes first for this computer: n on the CPU, s on a small GPU, m on a large one.
+
+    Args:
+        gpu_memory_mb: memory of the GPU, in MiB (``None`` when not known).
+        on_gpu: whether the training runs on a GPU.
+
+    Returns:
+        ``n``, ``s`` or ``m``.
+    """
+    if not on_gpu:
+        return "n"
+    return "m" if gpu_memory_mb is not None and gpu_memory_mb >= LARGE_GPU_MB else "s"
+
+
 def _yolo_models() -> list[ModelSpec]:
     """The Ultralytics YOLO models (trained by ``workers/yolo.py`` once the AGPL licence is accepted).
 
@@ -880,14 +925,10 @@ def _yolo_models() -> list[ModelSpec]:
         One spec per generation, size and task.
     """
     out = []
-    variants = (
-        ("", "detection", "detection"),
-        ("-seg", "segmentation", "instance"),
-        ("-pose", "keypoints", "keypoints"),
-    )
-    for suffix, ptype, kind in variants:
-        for gen, name in (("yolov8", "YOLOv8"), ("yolo11", "YOLO11")):
-            for size in "nsml":
+    for suffix, ptype, kind in YOLO_TASKS:
+        for gen, name in YOLO_GENERATIONS:
+            params = YOLO_PARAMS.get((gen, suffix))
+            for k, size in enumerate(YOLO_SIZES):
                 out.append(
                     ModelSpec(
                         f"{gen}{size}{suffix}",
@@ -896,10 +937,13 @@ def _yolo_models() -> list[ModelSpec]:
                         "ultralytics",
                         kind,
                         _ULTRA,
-                        640,
+                        224 if kind == "classification" else 640,
                         notes="Ultralytics is licensed AGPL-3.0: accept the licence before it is installed.",
                         params=(_MOSAIC, _CLOSE_MOSAIC),
-                        defaults=_YOLO,
+                        defaults={**_YOLO, "batch_size": YOLO_BATCH[size]},
+                        arch=name,
+                        variant=size,
+                        params_m=params[k] if params else None,
                         choices=_YOLO_CHOICES,
                     )
                 )
