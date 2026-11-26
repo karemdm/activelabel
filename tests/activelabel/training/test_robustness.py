@@ -8,7 +8,7 @@ import textwrap
 import pytest
 from api_client import make_client, upload
 from sample_images import make_image
-from training_fakes import finished, tmp_dirs, wait_for
+from training_fakes import finished, settled, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
 from activelabel.labels import AnnotationSet, Label, save_annotations
@@ -200,7 +200,7 @@ def test_old_run_without_classes_and_deleted_version_is_a_readable_error(setup):
     store = RunStore(state.store.dir(1))
     n = new_run(state, epochs=2)
     runner.enqueue(1, n)
-    wait_for(finished(store, n))
+    wait_for(settled(store, n))  # the runner writes run.json once more after "done"
     run = json.loads((store.path(n) / "run.json").read_text())
     del run["classes"]
     (store.path(n) / "run.json").write_text(json.dumps(run))
@@ -214,7 +214,7 @@ def test_old_run_without_classes_reads_the_version(setup):
     store = RunStore(state.store.dir(1))
     n = new_run(state, epochs=2)
     runner.enqueue(1, n)
-    wait_for(finished(store, n))
+    wait_for(settled(store, n))  # the runner writes run.json once more after "done"
     run = json.loads((store.path(n) / "run.json").read_text())
     del run["classes"]
     (store.path(n) / "run.json").write_text(json.dumps(run))

@@ -120,3 +120,10 @@ def tmp_dirs(runner):
 
 def finished(store, n):
     return lambda: (r := store.get(n))["status"] in ("done", "failed", "cancelled") and r
+
+
+def settled(store, n):
+    """Finished, and the runner's last write done too: after the status, it deletes the temporary folder and
+    records ``downloads`` on the run (#643). A test that edits ``run.json`` must wait for it, or that late
+    write puts back what the test removed."""
+    return lambda: (r := store.get(n))["status"] in ("done", "failed", "cancelled") and "downloads" in r and r
