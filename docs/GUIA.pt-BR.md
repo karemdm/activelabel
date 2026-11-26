@@ -65,7 +65,9 @@ segmentação ou pontos-chave). O número do projeto é automático. As classes 
 podem vir dos arquivos de anotação, ser digitadas (Enter ou vírgula adiciona uma classe) ou coladas como lista. Um projeto que já existe no CVAT pode
 ser importado em vez de criado (veja [IMPORT.md](IMPORT.md), em inglês). A página do projeto
 mostra uma barra compacta com os seis passos, em dois grupos; cada passo tem um marcador (feito,
-pede atenção, em andamento) e o seu estado.
+pede atenção, em andamento) e o seu estado. Dentro de um projeto a cor de destaque é a do seu tipo
+(por exemplo verde-azulado na classificação, violeta na detecção), sempre junto do ícone e do nome do tipo;
+a página inicial continua azul.
 
 No ActiveLabel, *task* é um pacote de imagens, como no CVAT; o tipo do projeto é o que a
 interface chama de *Tipo*.

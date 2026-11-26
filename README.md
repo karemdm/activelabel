@@ -69,6 +69,8 @@ segmentation or keypoints). The project number is automatic. Classes are optiona
 come from the annotation files, or be typed (Enter or a comma adds a class) or pasted as a list. A project that already exists in CVAT can
 be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
 bar with the six steps; each step shows a marker (done, needs attention, in progress) and its status.
+Inside a project the accent colour is the one of its type (for example teal for classification, violet for
+detection), always with the type's icon and name; the home page stays blue.
 (In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
 project is its *type*.)
 
