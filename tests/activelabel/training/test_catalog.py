@@ -301,3 +301,37 @@ def test_torchvision_and_timm_networks_of_the_same_name_have_their_own_ids():
         "B0",
     )
     assert get_model("resnet18").library_name == "resnet18"
+
+
+def test_timm_offers_its_classification_families_under_its_own_ids():
+    """#617: timm's families with arch and variant; a name torchvision also has gets ``timm_``."""
+    timm = [m for m in catalog.MODELS if m.family == "timm"]
+    assert len(timm) >= 100 and all(m.task_kind == "classification" and "timm" in m.packages for m in timm)
+    for arch in (
+        "ResNet",
+        "MobileNetV4",
+        "EfficientNet",
+        "GhostNet",
+        "MobileViT",
+        "ConvNeXt V2",
+        "NFNet",
+        "ViT",
+        "DeiT",
+        "Swin",
+        "BEiT",
+        "EVA-02",
+        "CaiT",
+        "CoAtNet",
+        "MaxViT",
+        "FastViT",
+    ):
+        assert any(m.arch == arch for m in timm), arch
+    assert get_model("efficientnet_b0").family == get_model("efficientnet_b3").family == "timm"  # older runs
+    assert (get_model("timm_resnet50").library_name, get_model("resnet50").family) == (
+        "resnet50",
+        "torchvision",
+    )
+    eva = get_model("eva02_base_patch14_448").param("image_size")
+    assert eva.default == eva.min == eva.max == 448  # fixed position embeddings
+    fastvit = get_model("fastvit_t8").param("image_size")
+    assert fastvit.default == 256 and fastvit.min < 256

@@ -478,7 +478,19 @@ _FIXED_INPUT = ("ViT", "MaxViT")
 #: Smallest input of architectures that cannot take the common minimum (their pooling would reach zero).
 _MIN_INPUT = {"Inception": 75, "AlexNet": 64}
 #: Transformers (and ConvNeXt) train better with a lower learning rate.
-_LOW_LR = ("ViT", "Swin", "Swin V2", "MaxViT", "ConvNeXt")
+_LOW_LR = (
+    "ViT",
+    "Swin",
+    "Swin V2",
+    "MaxViT",
+    "ConvNeXt",
+    "ConvNeXt V2",
+    "DeiT",
+    "BEiT",
+    "EVA-02",
+    "CaiT",
+    "CoAtNet",
+)
 
 
 def _classifier_defaults(arch: str, millions: float) -> dict[str, Any]:
@@ -547,20 +559,128 @@ def _classifier(entry: tuple[str, str, str, str, float, int]) -> ModelSpec:
     )
 
 
-def _timm_classifier(id_: str, arch: str, variant: str, label: str, millions: float, size: int) -> ModelSpec:
+#: timm classification networks (#617), from the default pretrained configuration of timm 1.0.31:
+#: ``(timm name, architecture, variant, label, parameters in millions, input size, fixed input size)``. The
+#: weights are the first (default) pretrained tag of each name.
+_TIMM_CLASSIFIERS: tuple[tuple[str, str, str, str, float, int, bool], ...] = (
+    ("resnet18", "ResNet", "18", "ResNet 18", 11.69, 224, False),
+    ("resnet34", "ResNet", "34", "ResNet 34", 21.8, 224, False),
+    ("resnet50", "ResNet", "50", "ResNet 50", 25.56, 224, False),
+    ("resnet101", "ResNet", "101", "ResNet 101", 44.55, 224, False),
+    ("resnet152", "ResNet", "152", "ResNet 152", 60.19, 224, False),
+    ("resnext50_32x4d", "ResNeXt", "50 32x4d", "ResNeXt 50 32x4d", 25.03, 224, False),
+    ("resnext101_32x8d", "ResNeXt", "101 32x8d", "ResNeXt 101 32x8d", 88.79, 224, False),
+    ("resnext101_64x4d", "ResNeXt", "101 64x4d", "ResNeXt 101 64x4d", 83.46, 224, False),
+    ("regnety_008", "RegNet", "Y-800MF", "RegNet Y-800MF", 6.26, 224, False),
+    ("regnety_016", "RegNet", "Y-1.6GF", "RegNet Y-1.6GF", 11.2, 224, False),
+    ("regnety_032", "RegNet", "Y-3.2GF", "RegNet Y-3.2GF", 19.44, 224, False),
+    ("regnety_080", "RegNet", "Y-8GF", "RegNet Y-8GF", 39.18, 224, False),
+    ("regnety_160", "RegNet", "Y-16GF", "RegNet Y-16GF", 83.59, 224, False),
+    ("densenet121", "DenseNet", "121", "DenseNet 121", 7.98, 224, False),
+    ("densenet169", "DenseNet", "169", "DenseNet 169", 14.15, 224, False),
+    ("densenet201", "DenseNet", "201", "DenseNet 201", 20.01, 224, False),
+    ("mobilenetv3_small_100", "MobileNetV3", "Small 1.0", "MobileNetV3 Small 1.0", 2.54, 224, False),
+    ("mobilenetv3_large_100", "MobileNetV3", "Large 1.0", "MobileNetV3 Large 1.0", 5.48, 224, False),
+    ("mobilenetv3_large_150d", "MobileNetV3", "Large 1.5d", "MobileNetV3 Large 1.5d", 14.62, 256, False),
+    ("mobilenetv4_conv_small", "MobileNetV4", "Conv S", "MobileNetV4 Conv S", 3.77, 224, False),
+    ("mobilenetv4_conv_medium", "MobileNetV4", "Conv M", "MobileNetV4 Conv M", 9.72, 256, False),
+    ("mobilenetv4_hybrid_medium", "MobileNetV4", "Hybrid M", "MobileNetV4 Hybrid M", 11.07, 256, False),
+    ("mobilenetv4_conv_large", "MobileNetV4", "Conv L", "MobileNetV4 Conv L", 32.59, 384, False),
+    ("mobilenetv4_hybrid_large", "MobileNetV4", "Hybrid L", "MobileNetV4 Hybrid L", 37.76, 384, False),
+    ("efficientnet_b0", "EfficientNet", "B0", "EfficientNet B0", 5.29, 224, False),
+    ("efficientnet_b2", "EfficientNet", "B2", "EfficientNet B2", 9.11, 256, False),
+    ("efficientnet_b3", "EfficientNet", "B3", "EfficientNet B3", 12.23, 288, False),
+    ("efficientnet_b4", "EfficientNet", "B4", "EfficientNet B4", 19.34, 320, False),
+    ("efficientnet_b5", "EfficientNet", "B5", "EfficientNet B5", 30.39, 448, False),
+    ("tf_efficientnet_b6", "EfficientNet", "B6", "EfficientNet B6", 43.04, 528, False),
+    ("tf_efficientnet_b7", "EfficientNet", "B7", "EfficientNet B7", 66.35, 600, False),
+    ("tf_efficientnetv2_s", "EfficientNetV2", "S", "EfficientNetV2 S", 21.46, 300, False),
+    ("tf_efficientnetv2_m", "EfficientNetV2", "M", "EfficientNetV2 M", 54.14, 384, False),
+    ("tf_efficientnetv2_l", "EfficientNetV2", "L", "EfficientNetV2 L", 118.52, 384, False),
+    ("ghostnet_100", "GhostNet", "1.0", "GhostNet 1.0", 5.18, 224, False),
+    ("ghostnetv2_100", "GhostNet", "V2 1.0", "GhostNet V2 1.0", 6.16, 224, False),
+    ("ghostnetv2_160", "GhostNet", "V2 1.6", "GhostNet V2 1.6", 12.39, 224, False),
+    ("mobilevit_xxs", "MobileViT", "XXS", "MobileViT XXS", 1.27, 256, False),
+    ("mobilevit_xs", "MobileViT", "XS", "MobileViT XS", 2.32, 256, False),
+    ("mobilevit_s", "MobileViT", "S", "MobileViT S", 5.58, 256, False),
+    ("mobilevitv2_100", "MobileViTv2", "1.0", "MobileViTv2 1.0", 4.9, 256, False),
+    ("mobilevitv2_150", "MobileViTv2", "1.5", "MobileViTv2 1.5", 10.59, 256, False),
+    ("mobilevitv2_200", "MobileViTv2", "2.0", "MobileViTv2 2.0", 18.45, 256, False),
+    ("convnext_atto", "ConvNeXt", "A", "ConvNeXt A", 3.7, 224, False),
+    ("convnext_tiny", "ConvNeXt", "T", "ConvNeXt T", 28.59, 224, False),
+    ("convnext_small", "ConvNeXt", "S", "ConvNeXt S", 50.22, 224, False),
+    ("convnext_base", "ConvNeXt", "B", "ConvNeXt B", 88.59, 224, False),
+    ("convnext_large", "ConvNeXt", "L", "ConvNeXt L", 197.77, 224, False),
+    ("convnextv2_atto", "ConvNeXt V2", "A", "ConvNeXt V2 A", 3.71, 224, False),
+    ("convnextv2_nano", "ConvNeXt V2", "N", "ConvNeXt V2 N", 15.62, 224, False),
+    ("convnextv2_tiny", "ConvNeXt V2", "T", "ConvNeXt V2 T", 28.64, 224, False),
+    ("convnextv2_base", "ConvNeXt V2", "B", "ConvNeXt V2 B", 88.72, 224, False),
+    ("convnextv2_large", "ConvNeXt V2", "L", "ConvNeXt V2 L", 197.96, 224, False),
+    ("eca_nfnet_l0", "NFNet", "ECA-L0", "NFNet ECA-L0", 24.14, 224, False),
+    ("eca_nfnet_l1", "NFNet", "ECA-L1", "NFNet ECA-L1", 41.41, 256, False),
+    ("eca_nfnet_l2", "NFNet", "ECA-L2", "NFNet ECA-L2", 56.72, 320, False),
+    ("dm_nfnet_f0", "NFNet", "F0", "NFNet F0", 71.49, 192, False),
+    ("dm_nfnet_f1", "NFNet", "F1", "NFNet F1", 132.63, 224, False),
+    ("dm_nfnet_f3", "NFNet", "F3", "NFNet F3", 254.92, 320, False),
+    ("vit_tiny_patch16_224", "ViT", "Ti/16", "ViT Ti/16", 5.72, 224, True),
+    ("vit_small_patch16_224", "ViT", "S/16", "ViT S/16", 22.05, 224, True),
+    ("vit_base_patch16_224", "ViT", "B/16", "ViT B/16", 86.57, 224, True),
+    ("vit_base_patch16_384", "ViT", "B/16 384", "ViT B/16 384", 86.86, 384, True),
+    ("vit_large_patch16_224", "ViT", "L/16", "ViT L/16", 304.33, 224, True),
+    ("deit_small_patch16_224", "DeiT", "S/16", "DeiT S/16", 22.05, 224, True),
+    ("deit_base_patch16_224", "DeiT", "B/16", "DeiT B/16", 86.57, 224, True),
+    ("deit3_small_patch16_224", "DeiT", "DeiT3 S/16", "DeiT DeiT3 S/16", 22.06, 224, True),
+    ("deit3_base_patch16_224", "DeiT", "DeiT3 B/16", "DeiT DeiT3 B/16", 86.59, 224, True),
+    ("deit3_large_patch16_224", "DeiT", "DeiT3 L/16", "DeiT DeiT3 L/16", 304.37, 224, True),
+    ("swin_tiny_patch4_window7_224", "Swin", "T", "Swin T", 28.29, 224, True),
+    ("swin_small_patch4_window7_224", "Swin", "S", "Swin S", 49.61, 224, True),
+    ("swin_base_patch4_window7_224", "Swin", "B", "Swin B", 87.77, 224, True),
+    ("swin_base_patch4_window12_384", "Swin", "B 384", "Swin B 384", 87.9, 384, True),
+    ("swin_large_patch4_window7_224", "Swin", "L", "Swin L", 196.53, 224, True),
+    ("beit_base_patch16_224", "BEiT", "B/16", "BEiT B/16", 86.53, 224, True),
+    ("beit_base_patch16_384", "BEiT", "B/16 384", "BEiT B/16 384", 86.74, 384, True),
+    ("beit_large_patch16_224", "BEiT", "L/16", "BEiT L/16", 304.43, 224, True),
+    ("beitv2_base_patch16_224", "BEiT", "BEiTv2 B/16", "BEiT BEiTv2 B/16", 86.53, 224, True),
+    ("beitv2_large_patch16_224", "BEiT", "BEiTv2 L/16", "BEiT BEiTv2 L/16", 304.43, 224, True),
+    ("eva02_tiny_patch14_336", "EVA-02", "Ti/14 336", "EVA-02 Ti/14 336", 5.76, 336, True),
+    ("eva02_small_patch14_336", "EVA-02", "S/14 336", "EVA-02 S/14 336", 22.13, 336, True),
+    ("eva02_base_patch14_448", "EVA-02", "B/14 448", "EVA-02 B/14 448", 87.12, 448, True),
+    ("eva02_large_patch14_448", "EVA-02", "L/14 448", "EVA-02 L/14 448", 305.08, 448, True),
+    ("cait_xxs24_224", "CaiT", "XXS24", "CaiT XXS24", 11.96, 224, True),
+    ("cait_xxs36_224", "CaiT", "XXS36", "CaiT XXS36", 17.3, 224, True),
+    ("cait_s24_224", "CaiT", "S24", "CaiT S24", 46.92, 224, True),
+    ("cait_s36_384", "CaiT", "S36 384", "CaiT S36 384", 68.37, 384, True),
+    ("cait_m36_384", "CaiT", "M36 384", "CaiT M36 384", 271.22, 384, True),
+    ("coatnet_nano_rw_224", "CoAtNet", "N", "CoAtNet N", 15.14, 224, True),
+    ("coatnet_0_rw_224", "CoAtNet", "0", "CoAtNet 0", 27.44, 224, True),
+    ("coatnet_1_rw_224", "CoAtNet", "1", "CoAtNet 1", 41.72, 224, True),
+    ("coatnet_2_rw_224", "CoAtNet", "2", "CoAtNet 2", 73.87, 224, True),
+    ("maxvit_nano_rw_256", "MaxViT", "N", "MaxViT N", 15.45, 256, True),
+    ("maxvit_tiny_tf_224", "MaxViT", "T", "MaxViT T", 30.92, 224, True),
+    ("maxvit_small_tf_224", "MaxViT", "S", "MaxViT S", 68.93, 224, True),
+    ("maxvit_base_tf_224", "MaxViT", "B", "MaxViT B", 119.47, 224, True),
+    ("maxvit_large_tf_224", "MaxViT", "L", "MaxViT L", 211.79, 224, True),
+    ("fastvit_t8", "FastViT", "T8", "FastViT T8", 4.03, 256, False),
+    ("fastvit_t12", "FastViT", "T12", "FastViT T12", 7.55, 256, False),
+    ("fastvit_s12", "FastViT", "S12", "FastViT S12", 9.47, 256, False),
+    ("fastvit_sa24", "FastViT", "SA24", "FastViT SA24", 21.55, 256, False),
+    ("fastvit_ma36", "FastViT", "MA36", "FastViT MA36", 44.07, 256, False),
+)
+
+
+def _timm_classifier(entry: tuple[str, str, str, str, float, int, bool], taken: set[str]) -> ModelSpec:
     """A classification model of timm.
 
     Args:
-        id_: model id (the timm model name).
-        arch: the architecture the dialog groups by.
-        variant: its size inside the architecture.
-        label: name shown to people.
-        millions: parameters, in millions.
-        size: input size of its pretrained weights.
+        entry: a row of :data:`_TIMM_CLASSIFIERS`.
+        taken: ids of the torchvision models: a timm network of the same name gets the id ``timm_<name>``
+            (``efficientnet_b0`` and ``efficientnet_b3``, which older runs used, keep theirs).
 
     Returns:
         The model spec.
     """
+    name, arch, variant, label, millions, size, fixed = entry
+    id_ = f"timm_{name}" if name in taken else name
     return ModelSpec(
         id_,
         label,
@@ -571,9 +691,11 @@ def _timm_classifier(id_: str, arch: str, variant: str, label: str, millions: fl
         size,
         params=(_LABEL_SMOOTHING, _CLASS_WEIGHTS, _CLS_LOSS, _FOCAL_GAMMA),
         defaults=_classifier_defaults(arch, millions),
+        limits={"image_size": (size, size)} if fixed else {},
         arch=arch,
         variant=variant,
         params_m=millions,
+        builder=name if id_ != name else "",
     )
 
 
@@ -583,11 +705,9 @@ def _classification() -> list[ModelSpec]:
     Returns:
         One spec per model, torchvision and timm.
     """
-    timm = [
-        _timm_classifier("efficientnet_b0", "EfficientNet", "B0", "EfficientNet-B0", 5.3, 224),
-        _timm_classifier("efficientnet_b3", "EfficientNet", "B3", "EfficientNet-B3", 12.2, 288),
-    ]
-    return [_classifier(entry) for entry in _TV_CLASSIFIERS] + timm
+    torchvision = [_classifier(entry) for entry in _TV_CLASSIFIERS]
+    taken = {m.id for m in torchvision}
+    return torchvision + [_timm_classifier(entry, taken) for entry in _TIMM_CLASSIFIERS]
 
 
 def _tv(
