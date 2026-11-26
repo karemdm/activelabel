@@ -109,3 +109,12 @@ test('closing a dialog gives the focus back to its button, or to what opened it 
   assert.equal(document.activeElement, redrawn);
   redrawn.remove();
 });
+
+test('a confirmation whose action is itself a cancel names its other button differently (#603)', async () => {
+  const pending = confirmDialog({ title: 'Cancel this job?', text: 'It stops now.', confirmLabel: 'Cancel the job', cancelLabel: 'Keep it' });
+  const dlg = document.querySelector('dialog[open]');
+  const labels = [...dlg.querySelectorAll('button')].map((b) => b.textContent).filter((x) => x !== 'Close' && x !== '');
+  assert.deepEqual(labels.sort(), ['Cancel the job', 'Keep it']);
+  [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Keep it').click();
+  assert.equal(await pending, false);
+});

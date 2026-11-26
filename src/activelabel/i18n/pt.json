@@ -1831,10 +1831,12 @@
   "queue.position": "Na fila · {n}º",
   "queue.waiting": "Na fila",
   "queue.cancel": "Cancelar",
+  "queue.keep": "Manter",
+  "queue.cancel_confirm": "Cancelar a atividade",
   "queue.no_cancel": "Não pode ser cancelada",
   "queue.empty": "Nada rodando nem na fila.",
   "queue.button_n_one": "Fila: {n} atividade pesada",
   "queue.button_n_other": "Fila: {n} atividades pesadas",
   "queue.cancel_title": "Cancelar esta atividade?",
-  "queue.cancel_text": "{what} do projeto {project} para agora (ou sai da fila). O que já foi feito nela se perde."
+  "queue.cancel_text": "A atividade {what} do projeto {project} será interrompida agora (ou sai da fila). O que já foi feito nela se perde."
 }

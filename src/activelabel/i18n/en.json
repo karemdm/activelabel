@@ -1831,6 +1831,8 @@
   "queue.position": "Waiting · #{n}",
   "queue.waiting": "Waiting",
   "queue.cancel": "Cancel",
+  "queue.keep": "Keep it",
+  "queue.cancel_confirm": "Cancel the job",
   "queue.no_cancel": "Cannot be cancelled",
   "queue.empty": "Nothing running or waiting.",
   "queue.button_n_one": "Queue: {n} heavy job",

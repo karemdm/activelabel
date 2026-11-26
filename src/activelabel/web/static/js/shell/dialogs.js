@@ -121,7 +121,7 @@ export function choiceDialog({ title, text, choices }) {
   });
 }
 
-export function confirmDialog({ title, text, confirmLabel, danger = true, requireText = null }) {
+export function confirmDialog({ title, text, confirmLabel, danger = true, requireText = null, cancelLabel = null }) {
   return new Promise((resolve) => {
     const input = requireText
       ? el('input', { type: 'text', 'aria-label': t('delete.type_name'), autocomplete: 'off' })
@@ -136,7 +136,7 @@ export function confirmDialog({ title, text, confirmLabel, danger = true, requir
         if (mismatch.hidden) input.removeAttribute('aria-invalid'); else input.setAttribute('aria-invalid', 'true');
       });
     }
-    const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, t('common.cancel'));
+    const cancelBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close('cancel') }, cancelLabel || t('common.cancel'));   // a different word when the action is itself a cancel (#603)
     const dlg = el('dialog', { class: 'dialog', 'aria-label': title },
       el('form', { method: 'dialog', class: 'dialog-body' },
         el('h2', null, title),
