@@ -209,8 +209,9 @@ Os pesos são baixados a cada uso, numa pasta temporária apagada no fim; é pre
 As tarefas demoradas (análise, envio, sincronização, treinamento, exportação, pré-anotação)
 aparecem numa pequena pílula no canto inferior direito da página do projeto; ela abre um cartão com
 progresso, *Parar* e *Ver resultado*. Um sucesso some sozinho; uma falha fica vermelha até ser aberta ou
-dispensada no ×; as atividades concluídas ficam no histórico. Só um processo pesado (treinamento, exportação ou pré-anotação) roda de
-cada vez; os outros esperam na fila.
+dispensada no ×; as atividades concluídas ficam no histórico. Trabalho pesado (treinamento, pré-anotação, exportação, análise de
+curadoria, extração de vídeo) roda um por vez em cada dispositivo (CPU, cada GPU); os outros esperam numa
+fila global, que sobrevive a um reinício.
 
 Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos, em inglês),
 [DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês),
@@ -226,6 +227,8 @@ Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos,
 | `ACTIVELABEL_LANG` | `en` | Idioma padrão da interface (`en` ou `pt`) |
 | `ACTIVELABEL_IMPORT_ROOT` | (desligado) | Pasta desta máquina cujas subpastas podem ser importadas pelo caminho (só pela API, sem botão na interface) |
 | `ACTIVELABEL_ALLOWED_HOSTS` | (nenhum) | Outros nomes, separados por vírgula, em que o servidor responde, por exemplo o nome desta máquina na rede local ao servir com `--host` |
+| `ACTIVELABEL_QUEUE_CPU` | `1` | Trabalhos que podem rodar ao mesmo tempo na faixa do processador da fila de trabalho (vazio, inválido ou menor que 1: 1) |
+| `ACTIVELABEL_QUEUE_GPU` | `1` | Trabalhos que podem rodar ao mesmo tempo em cada faixa de GPU (`cuda:N`, `mps`) da fila de trabalho (vazio, inválido ou menor que 1: 1) |
 
 O endereço e o usuário do CVAT ficam em `<workspace>/tools.json`; senhas e tokens só no chaveiro
 do sistema.

@@ -89,7 +89,7 @@ settings existed is repeated with its `threshold` and the defaults.
 
 ## How it runs
 
-A run is queued with the training runs and exports (one heavy process at a time) and uses the training
+A run waits in the global queue on the lane of its device (one heavy job per device at a time, docs/DESIGN.md) and uses the training
 environment; model packages that are missing are installed first (a visible step of the run). The network is rebuilt from the model's configuration, the
 weights are loaded, and each image is processed as in the model's evaluation: the **resize policy** saved with
 the weights (`stretch`, `letterbox` or `center_crop`, docs/TRAINING.md) brings the photo to the model's input size
