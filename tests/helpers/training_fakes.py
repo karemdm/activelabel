@@ -20,6 +20,12 @@ FAKE_WORKER = textwrap.dedent(
     names = ("TORCH_HOME", "HF_HOME", "XDG_CACHE_HOME", "PIP_CACHE_DIR", "TMPDIR", "TEMP", "TMP")
     (out / "env.json").write_text(json.dumps({
         "env": {k: os.environ.get(k) for k in names}, "cwd": os.getcwd(), "spec": sys.argv[1]}))
+    size = int(spec["params"].get("download", 0))
+    if size:  # fake pretrained weights, downloaded where the runner sends the caches
+        hub = Path(os.environ["TORCH_HOME"]) / "hub" / "checkpoints"
+        hub.mkdir(parents=True, exist_ok=True)
+        (hub / "fake-backbone.pth").write_bytes(b"w" * size)
+        (Path.cwd() / "yolo-fake.pt").write_bytes(b"y" * size)
     print("not json noise", flush=True)
     print(json.dumps({"event": "log", "message": "hello"}), flush=True)
     print(json.dumps({"event": "setup", "device": "cpu", "amp": False}), flush=True)
