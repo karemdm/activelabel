@@ -72,6 +72,8 @@ def _reads(script: Path) -> tuple[set[str], set[str]]:
 
 
 TRAINABLE = [m for m in MODELS if m.family not in NOT_TRAINABLE]
+#: Options a worker still reads from older configurations although its models no longer declare them (#666).
+LEGACY_READS = {"ultralytics": {"backbone_lr_factor"}}
 
 
 @pytest.mark.parametrize("model", TRAINABLE, ids=lambda m: m.id)
@@ -84,7 +86,8 @@ def test_every_declared_parameter_is_read_by_the_worker(model):
     assert "augmentations" in spec  # the augmentation level reaches the worker as a list of techniques
     unread = declared - params - {"start"} - set(RESOLVED_PARAMS)
     assert not unread, f"{model.id}: declared but not read: {unread}"
-    assert params <= declared, f"{model.id}: read but not declared: {params - declared}"
+    legacy = LEGACY_READS.get(model.family, set())  # read only to warn about an older configuration
+    assert params - legacy <= declared, f"{model.id}: read but not declared: {params - declared - legacy}"
 
 
 def test_yolo_worker_reads_the_options_only_yolo_models_declare():
@@ -413,3 +416,17 @@ def test_transformers_offers_segformer_detr_rtdetr_and_mask2former():
         and "other" in get_model("hf_segformer_mit_b0").notes
     )
     assert get_model("hf_mask2former_mask2former_swin_tiny_coco_instance").types == ("segmentation",)
+
+
+def test_ultralytics_models_do_not_offer_a_backbone_factor():
+    """#666: Ultralytics has one learning rate for the whole network; the 0.1 default made every YOLO
+    fine-tune end with the yolo_backbone_lr_ignored warning."""
+    for model in (m for m in MODELS if m.family == "ultralytics"):
+        assert model.param("backbone_lr_factor") is None, model.id
+    assert get_model("resnet18").param("backbone_lr_factor") is not None
+    base = {"dataset": 1, "model": "yolov8n", "start": "finetune", "mode": "single"}
+    assert validate(RunConfig.from_dict(base), "detection")
+    older = validate(
+        RunConfig.from_dict({**base, "params": {"backbone_lr_factor": 0.1, "epochs": 3}}), "detection"
+    )
+    assert older.params == {"epochs": 3}  # an older configuration still runs (Reproduce), without the factor

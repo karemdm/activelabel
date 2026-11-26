@@ -165,6 +165,7 @@ class ModelSpec:
         builder: the name the library builds it by, when it differs from ``id`` (two families have a
             network of the same name: torchvision's EfficientNet-B0 is ``tv_efficientnet_b0`` here).
         multiples: what a common parameter must be a multiple of for this model (``{"image_size": 32}``).
+        without: common parameters this model does not offer (its library has no such setting).
     """
 
     id: str
@@ -186,6 +187,7 @@ class ModelSpec:
     params_m: float | None = None
     builder: str = ""
     multiples: dict[str, int] = field(default_factory=dict)
+    without: tuple[str, ...] = ()
 
     @property
     def library_name(self) -> str:
@@ -197,13 +199,15 @@ class ModelSpec:
         return self.builder or self.id
 
     def param_specs(self) -> list[ParamSpec]:
-        """Common parameters (with this model's defaults, limits and choices) followed by the model's own.
+        """Common parameters (but those in ``without``) with this model's defaults and limits, then its own.
 
         Returns:
             The effective specs, in the order the form shows them.
         """
         out = []
         for spec in COMMON_PARAMS:
+            if spec.name in self.without:
+                continue
             default = (
                 self.image_size if spec.name == "image_size" else self.defaults.get(spec.name, spec.default)
             )
@@ -402,6 +406,8 @@ _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
 #: Ultralytics decays the learning rate linearly or with a cosine (``cos_lr``); ``none`` keeps it constant.
 _YOLO_CHOICES: dict[str, tuple[str, ...]] = {"scheduler": ("none", "cosine")}
+#: Ultralytics trains the whole network at one learning rate: no backbone factor to offer (#666).
+_YOLO_WITHOUT = ("backbone_lr_factor",)
 _FIXED_224: dict[str, tuple[float, float]] = {"image_size": (224, 224)}
 _FIXED_320: dict[str, tuple[float, float]] = {"image_size": (320, 320)}
 
@@ -962,6 +968,7 @@ def _yolo_models() -> list[ModelSpec]:
                         variant=size,
                         params_m=params[k] if params else None,
                         choices=_YOLO_CHOICES,
+                        without=_YOLO_WITHOUT,
                     )
                 )
     return out
