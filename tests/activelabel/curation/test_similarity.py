@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from activelabel.curation import similarity
 
@@ -72,3 +73,58 @@ def test_a_map_is_outdated_when_the_active_images_change():
     assert similarity.is_outdated(state, {"a", "b", "c", "d"})
     assert similarity.is_outdated(state, {"a"})
     assert not similarity.is_outdated({}, {"a"})
+
+
+def test_cluster_auto_is_find_groups():
+    vectors, _ = blobs([12, 8, 5])
+    assert similarity.cluster(vectors).tolist() == similarity.find_groups(vectors).tolist()
+    assert similarity.cluster(vectors, "auto", 7).tolist() == similarity.find_groups(vectors).tolist()
+
+
+def test_cluster_kmeans_gives_the_asked_number_largest_first():
+    vectors, truth = blobs([12, 8, 5, 3])
+    labels = similarity.cluster(vectors, "kmeans", groups=4)
+    assert sorted(set(labels.tolist())) == [0, 1, 2, 3]
+    assert [int((labels == g).sum()) for g in range(4)] == [12, 8, 5, 3]
+    assert len(set(labels[truth == 1].tolist())) == 1
+    assert len(set(similarity.cluster(vectors, "kmeans", groups=2).tolist())) == 2
+
+
+def test_cluster_hdbscan_finds_blobs_and_marks_an_outlier_as_noise():
+    vectors, truth = blobs([12, 9])
+    outlier = np.full((1, vectors.shape[1]), 50.0)
+    labels = similarity.cluster(np.vstack([vectors, outlier]), "hdbscan", min_size=4)
+    assert labels[-1] == similarity.NOISE
+    assert sorted(set(labels[:-1].tolist())) == [0, 1]
+    assert len(set(labels[:12].tolist())) == 1 and labels[0] == 0  # the largest blob is group 0
+
+
+def test_cluster_hdbscan_with_nothing_dense_is_all_noise():
+    vectors = np.random.default_rng(3).normal(size=(10, 16)) * np.arange(1, 11)[:, None] ** 2
+    labels = similarity.cluster(vectors, "hdbscan", min_size=9)
+    assert set(labels.tolist()) <= {similarity.NOISE, 0}
+
+
+@pytest.mark.parametrize(
+    ("method", "groups", "min_size"),
+    [("dbscan", 3, 5), ("kmeans", 1, 5), ("kmeans", similarity.MAX_CHOSEN_GROUPS + 1, 5), ("hdbscan", 0, 1)],
+)
+def test_cluster_refuses_a_method_or_number_out_of_range(method, groups, min_size):
+    vectors, _ = blobs([12, 8])
+    with pytest.raises(ValueError):
+        similarity.cluster(vectors, method, groups, min_size)
+
+
+def test_cluster_with_fewer_than_four_images_is_one_group():
+    assert similarity.cluster(np.eye(3), "kmeans", groups=2).tolist() == [0, 0, 0]
+    assert similarity.cluster(np.eye(3), "hdbscan").tolist() == [0, 0, 0]
+    assert similarity.cluster(np.ones((10, 4)), "hdbscan").tolist() == [0] * 10
+
+
+def test_typical_images_ignores_the_noise():
+    vectors, _ = blobs([5, 4])
+    ids = [f"i{k}" for k in range(len(vectors))]
+    labels = np.array([0] * 5 + [1] * 3 + [similarity.NOISE])
+    groups = similarity.typical_images(ids, vectors, labels)
+    assert [(g["group"], g["size"]) for g in groups] == [(0, 5), (1, 3)]
+    assert all(g["typical"] != "i8" for g in groups)

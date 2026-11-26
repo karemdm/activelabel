@@ -215,6 +215,7 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, device: str
             backbone=str(results.get("backbone") or BACKBONE),
             unreadable=events.unreadable + missing,  # else the new map would be "outdated" at once
             fiftyone_error=fiftyone_error,
+            clustering={},  # a new map has its own groups (``auto``): a regrouping no longer applies
         )
     except Cancelled:
         store.update(status=CANCELLED, finished=now(), phase="")

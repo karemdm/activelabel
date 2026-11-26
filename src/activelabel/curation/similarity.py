@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from sklearn.cluster import KMeans
+from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
@@ -32,6 +32,11 @@ TSNE_LIMIT = 3000  # above this many images t-SNE is slow on a CPU: the map uses
 REDUCED_DIMS = 50  # the groups are found on the embeddings reduced to this many dimensions
 SILHOUETTE_SAMPLE = 2000  # images used to compare the numbers of groups
 SEED = 0
+#: Ways to regroup the map (#614): ``auto`` (k-means, best silhouette), ``kmeans`` (a given number of
+#: groups) and ``hdbscan`` (groups of free size; images that fit no group are noise, group -1).
+CLUSTER_METHODS = ("auto", "kmeans", "hdbscan")
+MAX_CHOSEN_GROUPS = 50  # most groups a person may ask k-means for
+NOISE = -1
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _GUARD = threading.Lock()
@@ -114,6 +119,59 @@ def find_groups(vectors: np.ndarray) -> np.ndarray:
     return _by_size(best_labels)
 
 
+def _reduced(vectors: np.ndarray) -> np.ndarray:
+    """The embeddings reduced to at most ``REDUCED_DIMS`` dimensions (PCA), as the groups are found on them.
+
+    Args:
+        vectors: Embeddings, one row per image.
+
+    Returns:
+        The reduced rows (the embeddings themselves when they are already small).
+    """
+    dims = min(REDUCED_DIMS, len(vectors), vectors.shape[1])
+    if dims >= vectors.shape[1]:
+        return vectors
+    return np.asarray(PCA(n_components=dims, random_state=SEED).fit_transform(vectors))
+
+
+def cluster(vectors: np.ndarray, method: str = "auto", groups: int = 0, min_size: int = 5) -> np.ndarray:
+    """Group the images again with a chosen method (#614).
+
+    Args:
+        vectors: Embeddings, one row per image.
+        method: ``auto``, ``kmeans`` or ``hdbscan`` (see :data:`CLUSTER_METHODS`).
+        groups: With ``kmeans``: how many groups (2 to :data:`MAX_CHOSEN_GROUPS`, at most one per image).
+        min_size: With ``hdbscan``: the smallest group (2 or more).
+
+    Returns:
+        The group of each image, 0 the largest; ``hdbscan`` gives :data:`NOISE` to images of no group.
+
+    Raises:
+        ValueError: unknown method, or a number out of range.
+    """
+    if method not in CLUSTER_METHODS:
+        raise ValueError(f"The method must be one of: {', '.join(CLUSTER_METHODS)}.")
+    count = len(vectors)
+    if method == "auto":
+        return find_groups(vectors)
+    if count < 4 or np.allclose(vectors, vectors[0]):
+        return np.zeros(count, dtype=int)
+    reduced = _reduced(vectors)
+    if method == "kmeans":
+        if not 2 <= groups <= MAX_CHOSEN_GROUPS:
+            raise ValueError(f"The number of groups must be from 2 to {MAX_CHOSEN_GROUPS}.")
+        labels = KMeans(n_clusters=min(groups, count), n_init="auto", random_state=SEED).fit_predict(reduced)
+        return _by_size(labels)
+    if min_size < 2:
+        raise ValueError("The smallest group must have at least 2 images.")
+    labels = HDBSCAN(min_cluster_size=min(min_size, count), copy=True).fit_predict(reduced)
+    kept = labels != NOISE
+    out = np.full(count, NOISE, dtype=int)
+    if kept.any():
+        out[kept] = _by_size(labels[kept])
+    return out
+
+
 def _by_size(labels: np.ndarray) -> np.ndarray:
     """Renumber the groups from the largest (0) to the smallest.
 
@@ -138,10 +196,10 @@ def typical_images(ids: list[str], vectors: np.ndarray, labels: np.ndarray) -> l
         labels: Group of each image.
 
     Returns:
-        ``[{"group", "size", "typical"}]`` ordered by group number.
+        ``[{"group", "size", "typical"}]`` ordered by group number (the noise of HDBSCAN is not a group).
     """
     out = []
-    for group in sorted(set(labels.tolist())):
+    for group in sorted(set(labels.tolist()) - {NOISE}):
         rows = np.flatnonzero(labels == group)
         centre = vectors[rows].mean(axis=0)
         closest = rows[int(np.argmin(np.linalg.norm(vectors[rows] - centre, axis=1)))]

@@ -39,7 +39,10 @@ def publish(dataset: fo.Dataset, result: dict[str, Any]) -> int:
     sample_ids = [sample_of[points["ids"][i]] for i in rows]
     dataset.set_values(
         GROUP_FIELD,
-        {sid: points["group"][i] + 1 for sid, i in zip(sample_ids, rows, strict=True)},
+        {  # groups from 1 in the App; an image of no group (HDBSCAN noise, -1) has none
+            sid: (points["group"][i] + 1 if points["group"][i] >= 0 else None)
+            for sid, i in zip(sample_ids, rows, strict=True)
+        },
         key_field="id",
     )
     fob.compute_visualization(
