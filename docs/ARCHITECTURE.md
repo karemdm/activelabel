@@ -11,6 +11,7 @@ Interface names are the English ones; the Portuguese names are in `src/activelab
 ```mermaid
 flowchart TB
   UI["Browser<br/>pages and JS modules"]
+  GRD["LocalOnly guard<br/>web/guard.py"]
   API["FastAPI routers<br/>web/*_api.py"]
   DOM["Domain code<br/>labels, datasets, sync,<br/>curation, training"]
   JOB["Light jobs<br/>one worker thread"]
@@ -18,7 +19,8 @@ flowchart TB
   ENV["Training environment<br/>separate Python and workers"]
   DISK[("Workspace on disk<br/>JSON, images, weights")]
   EXT["CVAT, FiftyOne,<br/>system keyring"]
-  UI --> API
+  UI --> GRD
+  GRD --> API
   API --> DOM
   API --> JOB
   API --> RUN
@@ -30,7 +32,9 @@ flowchart TB
   ENV --> DISK
 ```
 
-Arrows mean "calls or uses". The browser talks to the routers over HTTP (`/api`, `/static`, pages); the
+Arrows mean "calls or uses". The browser talks to the routers over HTTP (`/api`, `/static`, pages), through the `LocalOnly` guard, which
+refuses a `Host` that is not this server and a change that comes from another site (403 `host_not_allowed`,
+`origin_not_allowed`; README, *Calling the API from a script*); the
 domain code reads and writes the workspace (section 2) and reaches CVAT and FiftyOne through
 `sync/cvat_remote.py` (synchronisation and import), `annotate/fiftyone_tool.py` (edit sessions) and
 `fiftyone_bridge.py`; the runner creates and fills the
@@ -50,6 +54,9 @@ Rules that shape the design:
   computer when it is created; it is recorded in `run.json`, never in the configuration, so a configuration
   repeats on any computer.
 - Secrets live only in the system keyring; `tools.json` has addresses and user names.
+- The interface is native ES modules without a build step (`static/js`: `shell` for the common helpers,
+  `integrations` for CVAT, FiftyOne and the tools, `cv` for the steps of a project and `pages` for the home,
+  new and import pages), all loaded from `main.js`; every text goes through i18n (`pt.json`, `en.json`).
 - Every API error answers `{detail, code, params}` and a failed job carries `error_code` and `error_params`;
   the interface translates the code (docs/DESIGN.md, *Errors*).
 
@@ -175,9 +182,9 @@ stateDiagram-v2
   running --> done: finish
   running --> failed: error
   running --> cancelled: cancel
+  failed --> queued: resume
+  cancelled --> queued: resume
   done --> [*]
-  failed --> [*]
-  cancelled --> [*]
 ```
 
 While a run is `running` it goes through these phases (`phase` in `run.json`):
@@ -188,7 +195,8 @@ flowchart LR
 ```
 
 A run that was running when the service stopped ends as `failed` (`interrupted`) at the next start;
-queued runs are queued again.
+queued runs are queued again. A failed or cancelled single run that kept a checkpoint can be resumed: it is
+queued again with the same number and goes on from that epoch (`POST .../runs/{n}/resume`).
 
 A grid search or an all-folds run is one run with **children** trained one after another in the same
 slot:
