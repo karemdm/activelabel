@@ -2,6 +2,7 @@
  * a 2-D map where similar images sit together, and groups of similar images. The same map opens in the FiftyOne
  * App (Embeddings panel). */
 import { api } from '../shell/api.js';
+import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { el, esc, fill, icon } from '../shell/dom.js';
 import { num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
@@ -82,12 +83,13 @@ export function similarityBlock(page) {
   }
 
   async function openApp() {
+    if (sayFiftyoneMissing()) return;   // #675
     try {
       const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: {} });
       if (job && job.id && ctx) ctx.openWhenDone.add(job.id);
       toast(t('sim.fo_starting'), 'info', 6000);
       if (jobStarted) await jobStarted(job);
-    } catch (err) { toastError(err); }
+    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
   }
 
   function groupList() {
@@ -105,7 +107,7 @@ export function similarityBlock(page) {
       done ? t('sim.recompute') : t('sim.compute'));
     const actions = el('div', { class: 'cur-actions' }, startBtn,
       active ? el('button', { type: 'button', class: 'btn', onclick: cancel }, t('sim.cancel')) : null,
-      done && !active ? el('button', { type: 'button', class: 'btn', onclick: openApp }, t('sim.open_fo')) : null);
+      done && !active ? fiftyoneButton(el('button', { type: 'button', class: 'btn', onclick: openApp }, t('sim.open_fo'))) : null);
     const status = statusText(state);
     live.textContent = status;
     const body = [];

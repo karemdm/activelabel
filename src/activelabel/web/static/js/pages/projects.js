@@ -1,6 +1,7 @@
 /* The home page: the list of projects. */
 import { annotationStatus, taskBadge } from '../cv/names.js';
 import { api } from '../shell/api.js';
+import { openFeatures } from '../shell/features.js';
 import { el, fill } from '../shell/dom.js';
 import { fmtDate, num, t, tn } from '../shell/i18n.js';
 import { toastError } from '../shell/toast.js';
@@ -8,6 +9,12 @@ import { progressBar } from '../shell/widgets.js';
 
 export async function initProjects() {
   const root = document.getElementById('projects-root');
+  /* what is installed (FiftyOne, the training environment) and the removal of the environment (#658) */
+  const actions = document.querySelector('.page-head .head-actions');
+  if (actions) {
+    const parts = el('button', { type: 'button', class: 'btn', id: 'features-open', onclick: (e) => openFeatures(e.currentTarget) }, t('features.title'));
+    actions.prepend(parts);
+  }
   let list;
   try {
     list = await api('GET', '/projects');

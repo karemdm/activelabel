@@ -1,6 +1,7 @@
 /* Step 3, Curation: measure the images, flag the ones that may hurt the dataset, exclude or restore them, and
  * the thresholds of the checks. */
 import { imageGrid, openLightbox } from './grid.js';
+import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { ISSUES, issueName } from './names.js';
 import { similarityBlock } from './similarity.js';
 import { api } from '../shell/api.js';
@@ -290,25 +291,27 @@ export function curationPanel(page) {
   }
 
   async function openFiftyOne() {
+    if (sayFiftyoneMissing()) return;   // #658: the toast says how to add it
     const view_ = issue ? `curation - ${issue}` : 'curation - quality issues';
     try {
       const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { view: view_ } });
       if (job && job.id) ctx.openWhenDone.add(job.id);
       toast(t('cur.fo_starting'), 'info', 4000);
       await jobStarted(job);
-    } catch (err) { toastError(err); }
+    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
   }
   async function pullExclusions() {
     try {
+      if (sayFiftyoneMissing()) return;
       const r = await api('POST', `/projects/${projectId}/fiftyone/pull-exclusions`);
       toast(tn('cur.pulled_n', (r && r.excluded) || 0), 'success', 5000);
       await after();
     } catch (err) { toastError(err); }
   }
 
-  const openFoBtn = el('button', { type: 'button', class: 'btn', onclick: once(openFiftyOne, () => kindActive('fiftyone')) }, t('cur.open_fo'));
+  const openFoBtn = fiftyoneButton(el('button', { type: 'button', class: 'btn', onclick: once(openFiftyOne, () => kindActive('fiftyone')) }, t('cur.open_fo')));
   ctx.watchers.push(() => { openFoBtn.disabled = kindActive('fiftyone'); });
-  const pullFoBtn = el('button', { type: 'button', class: 'btn', title: t('cur.fo_hint'), onclick: once(pullExclusions) }, t('cur.pull_fo'));
+  const pullFoBtn = fiftyoneButton(el('button', { type: 'button', class: 'btn', title: t('cur.fo_hint'), onclick: once(pullExclusions) }, t('cur.pull_fo')));
 
   add(node,
     el('h2', { id: 'h-curation' }, t('step.curation')),

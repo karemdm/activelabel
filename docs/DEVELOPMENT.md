@@ -221,7 +221,10 @@ turns that into HTTP 501. A module must stay importable without FiftyOne: use th
 functions, after the check.
 
 `GET /api/features` reports what is installed and `DELETE /api/training/environment` removes the training
-environment (`web/features_api.py`); both are in [DESIGN.md](DESIGN.md).
+environment (`web/features_api.py`); both are in [DESIGN.md](DESIGN.md). In the interface, *Installed parts* on the home page shows
+both (FiftyOne with the command that adds it; the training environment with its size, packages and *Remove*),
+and every button that needs FiftyOne is dimmed without it and says, when pressed, how to install it (a
+`501 fiftyone_not_installed` from the server is shown the same way).
 
 To test without FiftyOne, either use a second virtual environment with the core only (`pip install -e . pytest httpx`) and run
 the fast tests, or patch `optional.FIFTYONE` to `False`

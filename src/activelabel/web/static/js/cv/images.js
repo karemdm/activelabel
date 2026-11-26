@@ -4,6 +4,7 @@ import { imageGrid, openLightbox } from './grid.js';
 import { CHUNK, SKIP_FILES, nextTaskNumber, partName } from './names.js';
 import { isHttp, jobMessage, toolName } from '../integrations/tools.js';
 import { api, errorMessage } from '../shell/api.js';
+import { fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { confirmDialog, menuButton } from '../shell/dialogs.js';
 import { add, el, fill, icon } from '../shell/dom.js';
 import { nf1, num, t, tn, tr } from '../shell/i18n.js';
@@ -458,21 +459,23 @@ export function imagesPanel(page) {
 
   /** The FiftyOne view of a task or job, to look at (a video task shows each video as an ordered sequence). */
   async function openTaskInFiftyOne(task, job) {
+    if (sayFiftyoneMissing()) return;   // #675
     try {
       const started = await api('POST', `/projects/${projectId}/fiftyone`, { json: job ? { task: task.id, job } : { task: task.id } });
       if (started && started.id) ctx.openWhenDone.add(started.id);
       toast(t('cur.fo_starting'), 'info', 4000);
       await jobStarted(started);
-    } catch (err) { toastError(err); }
+    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
   }
 
   /** An edit session on exactly the active images of the task or job (its card is in Annotations). */
   async function editInFiftyOne(task, job) {
+    if (sayFiftyoneMissing()) return;   // #675
     try {
       const started = await api('POST', `/projects/${projectId}/annotate`, { json: { tool: 'fiftyone', scope: 'task', task: task.id, ...(job ? { job } : {}) } });
       toast(t('annotate.send_started', { tool: toolName('fiftyone') }), 'info', 4000);
       await jobStarted(started);
-    } catch (err) { toastError(err); }
+    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
   }
 
   /** A 404/409 means the task changed elsewhere (another tab): show the real state instead of a dead card. */

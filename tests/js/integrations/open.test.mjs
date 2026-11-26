@@ -81,10 +81,11 @@ test('the header opens the linked CVAT project, or takes the person to Annotatio
   assert.equal(button.title, 'Set it up and compare in Annotations → CVAT.');
   button.click();
   assert.deepEqual(calls, ['annotations', 'sync']);
-  /* #602: not disabled, so a tap on a touch screen still says why */
+  /* #602/#675: not disabled, so a tap on a touch screen still says why */
   const fo = headerFiftyoneButton(page);
   assert.equal(fo.disabled, false);
   assert.equal(fo.getAttribute('aria-disabled'), 'true');
+  assert.ok(fo.classList.contains('is-unavailable'));
   assert.equal(fo.title, 'Add images first.');
   assert.ok(fo.classList.contains('is-unavailable'));
 });

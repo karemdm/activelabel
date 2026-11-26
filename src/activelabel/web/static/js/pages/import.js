@@ -2,6 +2,7 @@
 import { taskBadge, taskPicker } from '../cv/names.js';
 import { jobMessage, openToolSetup, statusText, toolName } from '../integrations/tools.js';
 import { api, jobFailure } from '../shell/api.js';
+import { fiftyoneMissing, fiftyoneMissingNote, loadFeatures, sayFiftyoneMissing } from '../shell/features.js';
 import { el, fill, icon } from '../shell/dom.js';
 import { fmtDate, num, t, tn, tr } from '../shell/i18n.js';
 import { toastError } from '../shell/toast.js';
@@ -9,6 +10,10 @@ import { classList, problemRow, progressBar } from '../shell/widgets.js';
 
 export function initImport() {
   const root = document.getElementById('import-root');
+  /* the import from CVAT goes through FiftyOne: without it the page says so first, with the command (#658) */
+  loadFeatures().then(() => {
+    if (fiftyoneMissing() && root && !root.querySelector('#fo-missing')) root.prepend(fiftyoneMissingNote());
+  });
   const SOURCES = ['cvat'];
   const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null, conn: {} };
   const ready = (tool) => !!(state.tools[tool] && state.tools[tool].configured);
@@ -204,6 +209,7 @@ export function initImport() {
       el('div', { class: 'form-actions' }, go));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (sayFiftyoneMissing()) return;
       const name = nameInput.value.trim();
       if (!name) { toastError(new Error(t('new.name_required'))); nameInput.focus(); return; }
       go.disabled = true;
