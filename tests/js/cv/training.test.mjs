@@ -12,7 +12,7 @@ const proto = window.HTMLDialogElement.prototype;
 if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
 if (!proto.close) proto.close = function close() { this.removeAttribute('open'); this.dispatchEvent(new window.Event('close')); };
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { trainingPanel } = await import('../../../src/activelabel/web/static/js/cv/training.js');
+const { trainingPanel, scheduleClash } = await import('../../../src/activelabel/web/static/js/cv/training.js');
 
 setMessages({
   'task.detection': 'Detection', 'tr.family_licence': 'needs its {name} licence', 'tr.licence_open': 'Accept {name}…',
@@ -149,4 +149,13 @@ test('a finished run with quality alerts shows a badge on the card and the list 
   assert.equal(panel.node.querySelector('#run-1 .tr-badge.alert'), null);  // only a finished run has them
   ANSWERS['/api/projects/5/runs'] = { runs: [] };
   panel.node.remove();
+});
+
+test('scheduleClash refuses a warmup or a patience longer than the training, over every grid value (#546)', () => {
+  assert.equal(scheduleClash({ epochs: [10], warmup_epochs: [30] }).field, 'warmup_epochs');
+  assert.equal(scheduleClash({ epochs: [3, 20], warmup_epochs: [5] }).epochs, 3);
+  assert.equal(scheduleClash({ epochs: [3], patience: [50] }).field, 'patience');
+  assert.equal(scheduleClash({ epochs: [3], patience: [3] }).key, 'error.patience_exceeds_epochs');
+  assert.equal(scheduleClash({ epochs: [10], warmup_epochs: [10], patience: [0] }), null);
+  assert.equal(scheduleClash({ warmup_epochs: [5] }), null);
 });

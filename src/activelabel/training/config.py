@@ -317,6 +317,7 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         if len({repr(v) for v in checked}) != len(checked):
             raise ConfigError("grid_list_repeats", f"The grid list of '{name}' repeats a value.", name=name)
         grid[name] = checked
+    _check_schedule(model, params, grid)
     if model.task_kind == "semantic":
         batches = [params["batch_size"]] if "batch_size" in params else []
         batches += grid.get("batch_size", [])
@@ -354,6 +355,58 @@ def validate(config: RunConfig, project_type: str, folds: int = 0) -> RunConfig:
         dataset_fingerprint=config.dataset_fingerprint,
         augmentations=_check_augmentations(model, params, grid, config.augmentations),
     )
+
+
+def _values(model: ModelSpec, params: dict[str, Any], grid: dict[str, list[Any]], name: str) -> list[Any]:
+    """Every value a hyperparameter takes in a run: the fixed one, the grid list or the model's default.
+
+    Args:
+        model: catalogue entry.
+        params: the checked fixed hyperparameters.
+        grid: the checked grid lists.
+        name: the hyperparameter.
+
+    Returns:
+        The values (empty when the model has no such hyperparameter).
+    """
+    spec = model.param(name)
+    if name in params:
+        return [params[name]]
+    return list(grid.get(name) or ([spec.default] if spec else []))
+
+
+def _check_schedule(model: ModelSpec, params: dict[str, Any], grid: dict[str, list[Any]]) -> None:
+    """Refuse a warmup or a patience that cannot fit in the epochs (any combination of a grid counts).
+
+    Args:
+        model: catalogue entry.
+        params: the checked fixed hyperparameters.
+        grid: the checked grid lists.
+
+    Raises:
+        ConfigError: ``warmup_epochs`` above ``epochs`` (the rate would still be rising when the run ends), or
+            ``patience`` of ``epochs`` or more (the run could never stop early).
+    """
+    epochs, warmup, patience = (
+        _values(model, params, grid, n) for n in ("epochs", "warmup_epochs", "patience")
+    )
+    if not epochs:
+        return
+    shortest = min(epochs)
+    if warmup and max(warmup) > shortest:
+        raise ConfigError(
+            "warmup_exceeds_epochs",
+            f"The warmup ({max(warmup)} epochs) is longer than the training ({shortest} epochs).",
+            warmup=max(warmup),
+            epochs=shortest,
+        )
+    if patience and max(patience) > 0 and max(patience) >= shortest:
+        raise ConfigError(
+            "patience_exceeds_epochs",
+            f"The patience ({max(patience)} epochs) can never be reached in {shortest} epochs.",
+            patience=max(patience),
+            epochs=shortest,
+        )
 
 
 def _check_augmentations(

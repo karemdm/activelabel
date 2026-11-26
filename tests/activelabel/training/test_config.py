@@ -159,3 +159,33 @@ def test_grid_children_keep_the_augmentations():
     assert len(cfg.expand()) == 2 and len(cfg.children(2)) == 4
     for child in [*cfg.expand(), *cfg.children(2)]:
         assert child.augmentations == _checked_augs() and child.params["augmentation"] == "custom"
+
+
+@pytest.mark.parametrize(
+    "kw, code",
+    [
+        ({"params": {"epochs": 10, "warmup_epochs": 30}}, "warmup_exceeds_epochs"),
+        ({"params": {"epochs": 2, "warmup_epochs": 3, "scheduler": "onecycle"}}, "warmup_exceeds_epochs"),
+        ({"params": {"epochs": 3, "patience": 50}}, "patience_exceeds_epochs"),
+        ({"params": {"epochs": 3, "patience": 3}}, "patience_exceeds_epochs"),
+        (
+            {"mode": "grid", "grid": {"epochs": [3, 20]}, "params": {"warmup_epochs": 5}},
+            "warmup_exceeds_epochs",
+        ),
+    ],
+)
+def test_a_warmup_or_patience_longer_than_the_training_is_refused(kw, code):
+    """#546: the combination makes no sense, so the server says why."""
+    with pytest.raises(ConfigError) as error:
+        validate(_cfg(**kw), "classification")
+    assert error.value.code == code
+
+
+def test_a_warmup_or_patience_that_fits_is_accepted():
+    ok = validate(_cfg(params={"epochs": 10, "warmup_epochs": 10, "patience": 5}), "classification")
+    assert ok.params["patience"] == 5
+
+
+def test_the_range_message_is_not_in_scientific_notation():
+    with pytest.raises(ConfigError, match=r"at most 2147483647\."):
+        validate(_cfg(params={"seed": 2**31}), "classification")

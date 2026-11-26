@@ -877,3 +877,13 @@ def test_the_delete_dialogs_use_the_same_verb_in_portuguese():
     assert pt["ds.delete_title"].startswith("Apagar") and pt["ds.delete_used_title"].startswith("Apagar")
     assert pt["ds.delete_used_confirm"].startswith("Apagar")
     assert "Excluir" not in pt["ds.delete_used_title"] + pt["ds.delete_used_text"]
+
+
+def test_the_grid_fields_read_the_decimal_comma_and_show_numbers_in_the_language():
+    """#546: the grid reads the decimal comma and hyperparameters are shown with the language's sign."""
+    training = (STATIC / "js" / "cv" / "training.js").read_text(encoding="utf-8")
+    assert "splitNumbers(text)" in training and "parseNumber(tok)" in training
+    assert "const plain = (v) => nfExact.format" in training
+    assert "scheduleClash(reads)" in training
+    pt = json.loads((Path(i18n.__file__).parent / "pt.json").read_text(encoding="utf-8"))
+    assert "ponto e vírgula" in pt["tr.mode_grid_help"]
