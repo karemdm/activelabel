@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from activelabel import preannotate
+from activelabel import preannotate, preannotate_options
 from activelabel.errors import CodedError
 from activelabel.training import devices
 from activelabel.training.catalog import get_model
@@ -26,8 +26,10 @@ class StartBody(BaseModel):
     model: int
     task: int
     scope: str = "unlabeled"
-    threshold: float = 0.5
+    threshold: float | None = None  # the minimum confidence of older clients: ``options.confidence`` wins
     device: str = "auto"
+    options: dict[str, Any] | None = None  # inference parameters (see preannotate_options); missing: defaults
+    classes: list[str] | None = None  # classes to write; None: every class of the model the project has
 
 
 class AcceptBody(BaseModel):
@@ -46,7 +48,8 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
     Returns:
         The models of the project that can pre-annotate, each with its details.
     """
-    project_task = state.project(project_id).task
+    project = state.project(project_id)
+    project_task = project.task
     out = []
     for card in ModelStore(state.store.dir(project_id)).list():
         public = card.get("source") == "public"
@@ -64,6 +67,8 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
                 "task_kind": kind,
                 "current": card.get("current", False),
                 "metric": card.get("metric"),
+                "classes": preannotate_options.model_classes(card, list(project.classes)),
+                "options": preannotate_options.schema(kind),
                 "value": card.get("value"),
                 "supported": not missing
                 and kind in preannotate.KINDS
@@ -83,7 +88,8 @@ def overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
         state: The shared state of the application.
 
     Returns:
-        ``{models, tasks, runs}``.
+        ``{models, tasks, runs}``; each model has its ``classes`` (``name``, ``in_project``) and the
+        ``options`` its kind takes (see :func:`activelabel.preannotate_options.schema`).
     """
     state.project(project_id)
     project_dir = state.store.dir(project_id)
@@ -100,7 +106,9 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
 
     Args:
         project_id: Id of the project.
-        body: The task, the model, the threshold and the device (``auto``, ``cpu``, ``cuda:N`` or ``mps``).
+        body: The task, the model, the device (``auto``, ``cpu``, ``cuda:N`` or ``mps``), the ``options``
+            (inference parameters; ``threshold`` is the older name of ``options.confidence``) and the
+            ``classes`` to write.
         state: The shared state of the application.
 
     Returns:
@@ -138,9 +146,17 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
         device = devices.check_here(body.device, state.settings.workspace)
     except devices.DeviceError as error:
         raise bad_request(error) from None
-    threshold = round(body.threshold, 3)  # the value that is stored and used
-    if not 0.0 < threshold < 1.0:  # also refuses NaN
-        raise ApiError(400, "threshold_range", "The minimum confidence must be between 0.001 and 0.999.")
+    given = dict(body.options or {})
+    if body.threshold is not None and "confidence" not in given:
+        threshold = round(body.threshold, 3)
+        if not 0.0 < threshold < 1.0:  # also refuses NaN
+            raise ApiError(400, "threshold_range", "The minimum confidence must be between 0.001 and 0.999.")
+        given["confidence"] = threshold
+    try:
+        options = preannotate_options.resolve(str(info.get("task_kind") or ""), given)
+        classes = preannotate_options.resolve_classes(info.get("classes") or [], body.classes)
+    except CodedError as error:
+        raise bad_request(error) from None
     try:
         images = preannotate.targets(project_dir, body.task, body.scope)
     except ValueError as error:
@@ -160,7 +176,9 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
         task=body.task,
         task_name=task_name,
         scope=body.scope,
-        threshold=threshold,
+        threshold=options["confidence"],
+        options=options,
+        classes=classes,
         total=len(images),
         device=device,
     )

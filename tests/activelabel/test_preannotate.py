@@ -145,6 +145,7 @@ def test_apply_predictions_unlabeled_never_touches_people_work(project_dir):
         "skipped": 2,
         "empty": 1,
         "dropped_class": 1,
+        "dropped_unchosen": 0,
         "dropped_geometry": 0,
     }
     images = load_annotations(project_dir).images
@@ -215,3 +216,30 @@ def test_annotated_ids_only_looks_at_the_given_ids():
 
 def test_empty_ids_are_images_listed_without_objects():
     assert preannotate.empty_ids(IMAGES, ["a", "b", "c", "d", "e"]) == {"c"}
+
+
+def test_apply_predictions_writes_only_the_chosen_classes(project_dir):
+    predictions = {
+        "p3": [Label("a", score=0.9, model="m2"), Label("b", score=0.8, model="m2")],
+        "p4": [Label("a", score=0.9, model="m2")],
+    }
+    counts = preannotate.apply_predictions(project_dir, project(), predictions, "unlabeled", keep=["b"])
+    assert (counts["images"], counts["objects"], counts["dropped_unchosen"], counts["empty"]) == (1, 1, 2, 1)
+    images = load_annotations(project_dir).images
+    assert [lb.label for lb in images["p3"]] == ["b"] and "p4" not in images
+    assert [lb.label for lb in images["p2"]] == ["b"] and images["p1"][0].model == "m1"  # untouched
+
+
+def test_mask_polygons_follow_the_region_and_simplify_settings():
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:50, 10:50] = True  # 16% of the image
+    mask[70:73, 70:73] = True  # 0.09%
+    assert len(preannotate.mask_polygons(mask)) == 2
+    assert len(preannotate.mask_polygons(mask, min_region=0.01)) == 1
+    yy, xx = np.mgrid[:100, :100]
+    disc = (xx - 50) ** 2 + (yy - 50) ** 2 < 30**2
+    fine = preannotate.mask_polygons(disc, simplify=0.0)[0]
+    coarse = preannotate.mask_polygons(disc, simplify=0.02)[0]
+    assert len(fine) > len(coarse) >= 3
+    labels = preannotate.mask_labels([{"label": "a", "score": 0.9, "mask": encode(mask)}], min_region=0.01)
+    assert len(labels) == 1

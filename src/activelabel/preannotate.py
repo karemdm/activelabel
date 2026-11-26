@@ -154,14 +154,18 @@ def decode_mask(mask: dict[str, Any]) -> Any:
     return flat.reshape(height, width)
 
 
-def mask_polygons(mask: Any) -> list[list[list[float]]]:
+def mask_polygons(
+    mask: Any, min_region: float = MIN_REGION, simplify: float = SIMPLIFY
+) -> list[list[list[float]]]:
     """Outer outlines of the regions of a boolean mask as relative rings (holes are not kept).
 
-    Regions below ``MIN_REGION`` of the image are dropped and every outline is simplified
-    (Douglas-Peucker, tolerance ``SIMPLIFY`` of its perimeter, at least 1 pixel).
+    Regions below ``min_region`` of the image are dropped and every outline is simplified
+    (Douglas-Peucker, tolerance ``simplify`` of its perimeter, at least 1 pixel).
 
     Args:
         mask: a boolean 2-D array.
+        min_region: smallest region kept, as a share of the image (0 keeps every region of 2 pixels or more).
+        simplify: simplification tolerance, as a share of each outline's perimeter (0: 1 pixel).
 
     Returns:
         One ring per region: points ``[x, y]`` relative to the width and height (0..1), at least 3 each.
@@ -170,9 +174,9 @@ def mask_polygons(mask: Any) -> list[list[list[float]]]:
     found, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     rings = []
     for contour in found:
-        if cv2.contourArea(contour) < max(2.0, MIN_REGION * width * height):
+        if cv2.contourArea(contour) < max(2.0, min_region * width * height):
             continue
-        tolerance = max(1.0, SIMPLIFY * cv2.arcLength(contour, True))
+        tolerance = max(1.0, simplify * cv2.arcLength(contour, True))
         points = cv2.approxPolyDP(contour, tolerance, True).reshape(-1, 2)
         if len(points) >= 3:
             rings.append([[round((x + 0.5) / width, 6), round((y + 0.5) / height, 6)] for x, y in points])
@@ -193,7 +197,9 @@ def _box_of(rings: list[list[list[float]]]) -> list[float]:
     return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
 
 
-def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
+def mask_labels(
+    items: list[dict[str, Any]], min_region: float = MIN_REGION, simplify: float = SIMPLIFY
+) -> list[Label]:
     """Labels from the predictions of a segmentation model (``mask`` in each item, others as they are).
 
     An item with a box is one object (an instance): all the regions of its mask are its rings. An
@@ -202,6 +208,8 @@ def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
 
     Args:
         items: predictions as dicts (``label`` and ``score``/``model``/``bbox``; ``mask`` is optional).
+        min_region: smallest region kept, as a share of the image (see :func:`mask_polygons`).
+        simplify: outline simplification, as a share of the perimeter (see :func:`mask_polygons`).
 
     Returns:
         The labels: an item without ``mask`` is converted as it is, the others get polygons and a box
@@ -215,7 +223,7 @@ def mask_labels(items: list[dict[str, Any]]) -> list[Label]:
         if "mask" not in item:
             out.append(Label.from_dict(item))
             continue
-        rings = mask_polygons(decode_mask(item["mask"]))
+        rings = mask_polygons(decode_mask(item["mask"]), min_region, simplify)
         if not rings:
             continue
         common = {"score": item.get("score"), "model": item.get("model")}
@@ -319,25 +327,32 @@ def task_counts(project_dir: Path) -> list[dict[str, Any]]:
 
 
 def apply_predictions(
-    project_dir: Path, project: Project, predictions: dict[str, list[Label]], scope: str
+    project_dir: Path,
+    project: Project,
+    predictions: dict[str, list[Label]],
+    scope: str,
+    keep: Iterable[str] | None = None,
 ) -> dict[str, int]:
     """Write a model's labels, never over a person's labels.
 
     Images that changed since the run started are skipped: with ``unlabeled`` an image a person
     labelled (or reviewed as empty) meanwhile, with ``unreviewed`` an image that now has a reviewed
     label, and an image deleted or excluded meanwhile. Only labels of the project's CURRENT classes and
-    with the shape its task needs are kept; the others are counted, not written.
+    with the shape its task needs are kept, and only of the classes chosen for the run; the others are
+    counted, not written.
 
     Args:
         project_dir: folder of the project.
         project: the project (its type and classes).
         predictions: image id -> the model's labels (each with a ``score``).
         scope: ``unlabeled`` or ``unreviewed``: what the run was allowed to fill.
+        keep: the classes chosen for the run (``None``: every class of the project).
 
     Returns:
         ``{"images": written, "objects": labels written, "skipped": images left as they were,
         "empty": images the model found nothing in, "dropped_class": labels of a class the project does
-        not have, "dropped_geometry": labels without the shape of the task}``.
+        not have, "dropped_unchosen": labels of a class not chosen for the run, "dropped_geometry": labels
+        without the shape of the task}``.
     """
     manifest = Manifest(project_dir).load()
     with annotations_lock(project_dir):
@@ -345,12 +360,14 @@ def apply_predictions(
             project.task, list(project.classes), {}, {}
         )
         classes = set(project.classes)
+        chosen = classes if keep is None else classes & set(keep)
         counts = {
             "images": 0,
             "objects": 0,
             "skipped": 0,
             "empty": 0,
             "dropped_class": 0,
+            "dropped_unchosen": 0,
             "dropped_geometry": 0,
         }
         wanted = "none" if scope == "unlabeled" else "pre"
@@ -365,6 +382,8 @@ def apply_predictions(
                     continue
                 if lb.label not in classes:
                     counts["dropped_class"] += 1
+                elif lb.label not in chosen:
+                    counts["dropped_unchosen"] += 1
                 elif geometry_problem(project.task, lb):
                     counts["dropped_geometry"] += 1
                 else:
