@@ -1,4 +1,4 @@
-"""The job that computes the similarity map of a project (in the training queue: one heavy job at a time).
+"""The job that computes the similarity map of a project (in the global queue: one heavy job per device).
 
 Phases: ``environment`` (torch and torchvision in the training environment, installed on first use),
 ``embedding`` (the worker ``embed.py`` reads every active image), ``map`` (2-D map and groups, in the app)
@@ -91,7 +91,7 @@ def start(
     """Queue the computation of the map (the caller checked that none is queued or running).
 
     Args:
-        runner: The training runner (its queue runs one heavy job at a time).
+        runner: The training runner (the job waits in the global queue, in the lane of its device).
         project: The project.
         project_dir: Folder of the project.
         device: Where the network runs (``auto``, ``cpu``, ``cuda:N`` or ``mps``).
@@ -105,7 +105,12 @@ def start(
             status=QUEUED, created=now(), started="", finished="", error="", fiftyone_error="", phase=""
         )
         job_id = runner.enqueue_tool(
-            project.id, KIND, lambda progress: run(runner, project, project_dir, device, progress), {}
+            project.id,
+            KIND,
+            partial(run, runner, project, project_dir, device),
+            {},
+            device=device,
+            on_cancel=partial(cancel, runner, project.id, project_dir),
         )
         return store.update(job=job_id)
 
