@@ -62,7 +62,7 @@ host padrão `127.0.0.1`, a não ser numa rede confiável.
 
 Na lista de projetos, *Novo projeto*: nome, descrição e **tipo** (classificação, detecção,
 segmentação ou pontos-chave). O número do projeto é automático. As classes são opcionais;
-podem vir dos arquivos de anotação. Um projeto que já existe no CVAT pode
+podem vir dos arquivos de anotação, ser digitadas (Enter ou vírgula adiciona uma classe) ou coladas como lista. Um projeto que já existe no CVAT pode
 ser importado em vez de criado (veja [IMPORT.md](IMPORT.md), em inglês). A página do projeto
 mostra uma barra compacta com os seis passos, em dois grupos; cada passo tem um marcador (feito,
 pede atenção, em andamento) e o seu estado.
@@ -104,10 +104,6 @@ interface chama de *Tipo*.
   ActiveLabel; só as imagens editadas no FiftyOne trazem a versão de lá. Geometrias inválidas que voltam
   do FiftyOne são listadas como problema, nunca gravadas em silêncio.
 
-Antes de qualquer mudança que apague ou reescreva anotações em bloco (importação que substitui,
-aplicação do FiftyOne ou do CVAT, classe renomeada no CVAT, restauração), o ActiveLabel faz uma cópia de
-segurança das anotações; ficam as 20 mais recentes. Uma imagem revisada sem nenhum objeto (uma imagem
-de fundo, por exemplo) não conta como anotada: aparece à parte, como "N sem objetos".
 - *Importar anotações*: solte os arquivos de anotação (ou um .zip). O formato é detectado
   (COCO JSON, YOLO txt com `data.yaml`/`classes.txt`, Pascal VOC XML, XML do CVAT para
   imagens ou vídeo, MOT, pastas de classes), os arquivos são casados
@@ -118,6 +114,11 @@ de fundo, por exemplo) não conta como anotada: aparece à parte, como "N sem ob
   *Descartar*. Se o projeto já tem anotações, escolha também *Mesclar* ou *Substituir*.
   Anotações feitas para um vídeo inteiro vão para uma task de vídeo, casadas pelo número do
   quadro ([VIDEO.md](VIDEO.md)).
+
+Antes de qualquer mudança que apague ou reescreva anotações em bloco (importação que substitui,
+aplicação do FiftyOne ou do CVAT, classe renomeada no CVAT, restauração), o ActiveLabel faz uma cópia de
+segurança das anotações; ficam as 20 mais recentes. Uma imagem revisada sem nenhum objeto (uma imagem
+de fundo, por exemplo) não conta como anotada: aparece à parte, como "N sem objetos".
 
 **3. Curadoria.** *Analisar imagens* mede brilho, contraste, nitidez, tamanho e um hash
 perceptual de cada imagem. Os filtros por problema (borradas, escuras, claras, baixo contraste,
@@ -152,17 +153,17 @@ Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade ou
-todos os folds. Há curvas ao vivo e avaliação na parte de teste. Estão disponíveis
+todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo começa pela família do modelo. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
-pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) treinam depois que a licença
-é aceita (veja *Licences* em TRAINING.md) e, por enquanto, ficam escondidos na interface. No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
+pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) aparecem quando você lê e aceita a
+licença no próprio diálogo (*Ler e aceitar a licença…*; veja *Licences* em TRAINING.md, em inglês). No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
 *GPU n* ou *GPU da Apple (MPS)*), como a foto vira a entrada quadrada (*Esticar*, *Letterbox* ou *Corte
 central*, o mesmo na avaliação, na pré-anotação e no ONNX), o agendamento da taxa de aprendizado
 (*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com épocas de aquecimento, a precisão mista (numa GPU
 CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técnica passa o nível para
 *Personalizado*. Trocar de modelo mantém os valores que você mudou, quando o novo modelo os aceita, e
 diz o que mudou. Se a GPU ficar sem memória, o lote é reduzido à metade até caber. Os pacotes
-necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração. Detalhes:
+necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último ponto de controle com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, lote, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, compare os modelos, escolha o
