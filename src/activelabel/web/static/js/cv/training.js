@@ -502,14 +502,19 @@ export function trainingPanel(page) {
     /* what a change of model did to the hyperparameters, in one line; read out by screen readers */
     const modelChanges = el('p', { class: 'hint tr-model-changes', id: 'tr-model-changes', role: 'status' });
     let shownModel = null;   // the model the form holds values of
-    /* the models of the chosen family; grouped by kind when the family has more than one (e.g. boxes and masks) */
+    /* the models of the chosen family; grouped by kind when the family has more than one (e.g. boxes and masks),
+       else by architecture (#618: ResNet, EfficientNet...) when there are several */
     function drawModelList() {
       const mine = models.filter((m) => m.family === st.family);
       const kinds = new Set(mine.map((m) => m.task_kind));
+      const archs = [...new Set(mine.map((m) => m.arch || m.label))];
       const options = (list) => list.map((m) => el('option', { value: m.id }, m.label));
-      fill(modelSel, ...(kinds.size > 1
+      const groups = kinds.size > 1
         ? [...kinds].map((k) => el('optgroup', { label: tr(`tr.kind.${k}`, k) }, ...options(mine.filter((m) => m.task_kind === k))))
-        : options(mine)));
+        : archs.length > 1 && archs.length < mine.length
+          ? archs.map((a) => el('optgroup', { label: a }, ...options(mine.filter((m) => (m.arch || m.label) === a))))
+          : options(mine);
+      fill(modelSel, ...groups);
       if (!mine.some((m) => m.id === st.model)) st.model = mine[0].id;
       modelSel.value = st.model;
     }

@@ -35,7 +35,7 @@ Everything below goes into the first release, 0.1.0.
   video-aware splits with a safety gap, and warnings for labels left out, empty parts and labels changed
   after a version (docs/DATASETS.md).
 - **Training.** A separate training environment installed on demand (CPU, NVIDIA GPU or Apple silicon)
-  with pinned, tested package versions; classification (torchvision, timm), detection, instance, semantic
+  with pinned, tested package versions; classification (all 80 torchvision networks, grouped by architecture, and timm), detection, instance, semantic
   and keypoint models; grid search and K-fold runs; data augmentation choices; the device (automatic, CPU,
   GPU or Apple MPS), the resize policy, learning rate schedules with warmup, mixed precision and a batch
   that is halved when the GPU runs out of memory; resume of a failed or cancelled run from its checkpoint;

@@ -186,3 +186,53 @@ def test_training_with_inverse_weights_and_focal_loss(worker, tmp_path, monkeypa
     results = worker.train(spec)
     assert results["epochs_run"] == 3
     assert any(e == "log" and "Class weights" in f["message"] for e, f in events.seen)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "layer"),
+    [
+        ("mobilenet_v2", "Linear"),
+        ("squeezenet1_1", "Conv2d"),
+        ("densenet121", "Linear"),
+        ("shufflenet_v2_x0_5", "Linear"),
+        ("mnasnet0_5", "Linear"),
+        ("efficientnet_b0", "Linear"),
+    ],
+)
+def test_build_model_replaces_the_head_of_each_architecture(worker, model_id, layer):
+    """#618: every architecture's classifier layer is found and gets one output per class."""
+    spec = {
+        "classes": ["a", "b", "c"],
+        "model": model_id,
+        "family": "torchvision",
+        "params": {"image_size": 96},
+    }
+    model, head = worker.build_model(spec, False)
+    assert type(head).__name__ == layer
+    model.eval()
+    with worker.torch.no_grad():
+        assert tuple(model(worker.torch.zeros(1, 3, 96, 96)).shape) == (1, 3)
+
+
+def test_networks_with_auxiliary_heads_give_plain_logits_in_training(worker):
+    spec = {
+        "classes": ["a", "b"],
+        "model": "googlenet",
+        "family": "torchvision",
+        "params": {"image_size": 96},
+    }
+    model, _ = worker.build_model(spec, False)
+    model.train()
+    assert isinstance(model(worker.torch.zeros(2, 3, 96, 96)), worker.torch.Tensor)  # no GoogLeNetOutputs
+
+
+def test_networks_with_a_fixed_input_refuse_another_size(worker):
+    for model_id, side in (("vit_b_32", 224), ("vit_h_14", 518), ("maxvit_t", 224)):
+        spec = {
+            "classes": ["a"],
+            "model": model_id,
+            "family": "torchvision",
+            "params": {"image_size": side + 32},
+        }
+        with pytest.raises(worker.SpecError, match=f"only takes {side} pixel"):
+            worker.build_model(spec, False)

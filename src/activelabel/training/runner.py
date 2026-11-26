@@ -430,7 +430,7 @@ def build_spec(
         **extra,
         "augmentations": techniques,
         "task": model.task_kind,
-        "model": model.id,
+        "model": model.library_name,
         "family": model.family,
         "start": config.start,
         "params": params,
@@ -1297,7 +1297,7 @@ class TrainingRunner:
                 "worker": worker,
                 "task": model.task_kind,
                 "build": {
-                    "model": model.id,
+                    "model": model.library_name,
                     "family": model.family,
                     "classes": list(card.get("classes") or []),
                     "params": config.effective_params(model),
@@ -1460,7 +1460,7 @@ class TrainingRunner:
                 spec["checkpoint"] = str((folder / "best.pt").resolve())
                 spec["worker"] = self._scripts(model.task_kind).stem
                 spec["build"] = {
-                    "model": model.id,
+                    "model": model.library_name,
                     "family": model.family,
                     "classes": list(card.get("classes") or []),
                     "params": config.effective_params(model),
