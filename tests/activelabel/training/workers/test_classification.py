@@ -168,3 +168,21 @@ def test_resume_refuses_a_changed_training_or_no_checkpoint(worker, tmp_path, mo
     with pytest.raises(worker.options.CodedFailure) as changed:
         worker.train({**spec, "resume": True, "digest": "other"})
     assert changed.value.code == "resume_config_changed"
+
+
+# -- class imbalance (#147) ------------------------------------------------------------
+
+
+def test_label_counts(worker):
+    items = [{"label": 0}, {"label": 1}, {"label": 1}]
+    assert worker.label_counts(items, 3) == [1, 2, 0]
+
+
+def test_training_with_inverse_weights_and_focal_loss(worker, tmp_path, monkeypatch):
+    events = Events()
+    monkeypatch.setattr(worker, "emit", events)
+    spec = small_spec(tmp_path, "imbalanced")
+    spec["params"] = {**spec["params"], "class_weights": "inverse", "loss": "focal", "focal_gamma": 1.5}
+    results = worker.train(spec)
+    assert results["epochs_run"] == 3
+    assert any(e == "log" and "Class weights" in f["message"] for e, f in events.seen)

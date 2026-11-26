@@ -284,6 +284,39 @@ COMMON_PARAMS: tuple[ParamSpec, ...] = (
 _LABEL_SMOOTHING = ParamSpec(
     "label_smoothing", "float", 0.0, 0.0, 0.5, help="Softens the target classes.", group="model"
 )
+_CLASS_WEIGHTS = ParamSpec(
+    "class_weights",
+    "choice",
+    "none",
+    choices=("none", "inverse"),
+    help="inverse: rare classes weigh more in the loss (inverse of their frequency in the training part).",
+    group="model",
+)
+_CLS_LOSS = ParamSpec(
+    "loss",
+    "choice",
+    "cross_entropy",
+    choices=("cross_entropy", "focal"),
+    help="focal: counts the easy examples less, for imbalanced classes.",
+    group="model",
+)
+_FOCAL_GAMMA = ParamSpec(
+    "focal_gamma",
+    "float",
+    2.0,
+    0.0,
+    5.0,
+    help="Focal loss: how much easy examples are discounted.",
+    group="model",
+)
+_SEG_LOSS = ParamSpec(
+    "loss",
+    "choice",
+    "cross_entropy",
+    choices=("cross_entropy", "dice", "cross_entropy_dice"),
+    help="dice and cross_entropy_dice make small classes count (a model that only predicts background).",
+    group="model",
+)
 _TRAINABLE_LAYERS = ParamSpec(
     "trainable_backbone_layers",
     "int",
@@ -349,7 +382,7 @@ def _classifier(
         "classification",
         _TV if family == "torchvision" else _TIMM,
         size,
-        params=(_LABEL_SMOOTHING,),
+        params=(_LABEL_SMOOTHING, _CLASS_WEIGHTS, _CLS_LOSS, _FOCAL_GAMMA),
         defaults=defaults or {},
         limits=limits or {},
     )
@@ -386,9 +419,12 @@ def _tv(id_: str, label: str, ptype: str, kind: str, size: int, defaults: dict[s
         defaults: replacements for the default of common parameters.
 
     Returns:
-        The model spec; object models add the backbone layers and score threshold parameters.
+        The model spec; object models add the backbone layers and score threshold parameters, semantic models
+        the class weights and loss.
     """
     extra = (_TRAINABLE_LAYERS, _SCORE_THRESH) if kind in ("detection", "instance", "keypoints") else ()
+    if kind == "semantic":
+        extra = (_CLASS_WEIGHTS, _SEG_LOSS)
     limits = _FIXED_320 if id_.startswith("ssdlite320") else {}  # SSDlite has a fixed input
     if id_.startswith("ssdlite320"):
         defaults = {**defaults, "resize": "stretch"}  # what SSDlite's own resize did

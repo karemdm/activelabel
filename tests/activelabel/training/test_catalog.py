@@ -127,7 +127,24 @@ def test_family_defaults():
     assert get_model("vit_b_16").param("lr").default == 0.0001
     assert get_model("resnet18").param("lr").default == 0.001
     semantic = {p.name for p in get_model("deeplabv3_resnet50").params}
-    assert semantic == set()  # no score threshold nor backbone layers: the worker reads neither
+    # no score threshold nor backbone layers (the worker reads neither): only the imbalance options
+    assert semantic == {"class_weights", "loss"}
+
+
+def test_imbalance_options_keep_the_old_behaviour_by_default():
+    for model_id in ("resnet18", "deeplabv3_resnet50"):
+        model = get_model(model_id)
+        assert model.param("class_weights").default == "none"
+        assert model.param("loss").default == "cross_entropy"
+    assert get_model("resnet18").param("loss").choices == ("cross_entropy", "focal")
+    assert get_model("deeplabv3_resnet50").param("loss").choices == (
+        "cross_entropy",
+        "dice",
+        "cross_entropy_dice",
+    )
+    assert get_model("resnet18").param("focal_gamma").default == 2.0
+    assert "focal_gamma" not in {p.name for p in get_model("deeplabv3_resnet50").param_specs()}
+    assert "class_weights" not in {p.name for p in get_model("yolov8n").param_specs()}
 
 
 def test_limits_do_not_change_the_common_parameters():

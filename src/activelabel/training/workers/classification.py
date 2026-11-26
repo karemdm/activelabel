@@ -245,6 +245,22 @@ def split_folds_note(spec: dict[str, Any]) -> str:
     return f"Images: {sizes}{fold}. Classes: {len(spec['classes'])}."
 
 
+def label_counts(items: list[dict[str, Any]], n_classes: int) -> list[int]:
+    """Images of each class in a part.
+
+    Args:
+        items: The images of the part (``label`` each, the class index).
+        n_classes: Number of classes.
+
+    Returns:
+        One count per class, in class order.
+    """
+    counts = [0] * n_classes
+    for item in items:
+        counts[int(item["label"])] += 1
+    return counts
+
+
 class ImageDataset:
     """Map-style dataset of ``{"path", "label"}`` items (works with ``torch.utils.data.DataLoader``)."""
 
@@ -599,7 +615,16 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model, head = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, head, torch)
-    loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=float(p.get("label_smoothing", 0.0)))
+    counts = label_counts(parts["train"], len(classes))
+    weights = options.class_weights(counts, str(p.get("class_weights", "none")))
+    if weights is not None:
+        emit("log", message=f"Class weights (inverse frequency): {[round(w, 2) for w in weights]}.")
+    loss_fn = options.build_loss(
+        str(p.get("loss", "cross_entropy")),
+        weights,
+        float(p.get("label_smoothing", 0.0)),
+        float(p.get("focal_gamma", 2.0)),
+    ).to(device)
     if device.startswith("cuda") and resumed is None:  # the largest batch up to the one asked for that fits
         try_batch = partial(
             options.probe,

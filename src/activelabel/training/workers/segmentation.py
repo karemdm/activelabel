@@ -46,6 +46,7 @@ STD = (0.229, 0.224, 0.225)
 METRICS = ("miou", "dice", "pixel_accuracy")
 MODELS = ("deeplabv3_resnet50", "deeplabv3_mobilenet_v3_large", "fcn_resnet50", "lraspp_mobilenet_v3_large")
 AUX_WEIGHT = 0.5
+PIXEL_COUNT_SIDE = 256  # longest side of the masks drawn to count the pixels of each class
 BACKGROUND = "background"
 ProgressFn = Any
 
@@ -209,6 +210,35 @@ def resize_pair(image: Any, mask: Any, size: int, policy: str = options.LEGACY_R
         options.fit_image(image, size, policy),
         options.fit_image(mask, size, policy, Image.Resampling.NEAREST, 0),
     )
+
+
+def pixel_counts(items: list[dict[str, Any]], classes: list[str], size: int, policy: str) -> list[int]:
+    """Pixels of each class (the background first) in the masks of a part, as the network sees them.
+
+    The masks are drawn on a reduced copy (at most ``PIXEL_COUNT_SIDE`` pixels a side) and resized with
+    the resize policy, so letterbox bands count as background.
+
+    Args:
+        items: The images of the part (``path`` and ``objects`` each).
+        classes: The project's classes (without the background).
+        size: Side of the square the network takes.
+        policy: The resize policy (one of ``options.RESIZE_POLICIES``).
+
+    Returns:
+        One count per class, the background first.
+    """
+    side = min(size, PIXEL_COUNT_SIDE)
+    counts = numpy.zeros(len(classes) + 1, dtype="int64")
+    for item in items:
+        with Image.open(item["path"]) as opened:
+            width, height = opened.size  # the header only: the photo is not decoded
+        scale = min(1.0, PIXEL_COUNT_SIDE / max(width, height))
+        mask = rasterize_mask(
+            item.get("objects") or [], max(1, round(width * scale)), max(1, round(height * scale)), classes
+        )
+        fitted = options.fit_image(mask, side, policy, Image.Resampling.NEAREST, 0)
+        counts += numpy.bincount(numpy.asarray(fitted).ravel(), minlength=len(classes) + 1)
+    return [int(c) for c in counts]
 
 
 def _ratio(a: float, b: float) -> float:
@@ -710,7 +740,17 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
     model = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, torch)
-    loss_fn = torch.nn.CrossEntropyLoss()
+    weighting = str(p.get("class_weights", "none"))
+    # counting the pixels draws every training mask once: only when the weights use them
+    counts = pixel_counts(parts["train"], classes, size, policy) if weighting != "none" else []
+    weights = options.class_weights(counts, weighting)
+    if weights is not None:
+        emit(
+            "log",
+            message="Class weights (inverse pixel frequency, background first): "
+            + str([round(w, 2) for w in weights]),
+        )
+    loss_fn = options.build_loss(str(p.get("loss", "cross_entropy")), weights).to(device)
     if device.startswith("cuda") and resumed is None:  # the largest batch up to the one asked for that fits
         try_batch = partial(
             options.probe,
