@@ -1,4 +1,4 @@
-"""Ultralytics YOLO worker (detection, instance segmentation, pose): ``python yolo.py spec.json``.
+"""Ultralytics YOLO worker (detection, instance and pose, classification): ``python yolo.py spec.json``.
 
 Standalone, like the other workers: it runs in the training environment (which has no ActiveLabel) and talks
 to the runner with the same events (``log``, ``warning``, ``setup``, ``progress``, ``resumed``, ``epoch``,
@@ -7,8 +7,8 @@ needs the ``ultralytics`` package, whose licence (AGPL-3.0) the person accepts b
 (``training/licences.py``).
 
 The spec's images become an Ultralytics dataset in a temporary folder (images linked or copied, one label
-file per image, ``data.yaml``), the model is trained by Ultralytics' own trainer, and callbacks turn its
-epochs into ``epoch`` events:
+file per image, ``data.yaml``; for classification one folder per class in each part), the model is trained by
+Ultralytics' own trainer, and callbacks turn its epochs into ``epoch`` events:
 
 - **Resize policy**: ``letterbox`` is what Ultralytics does itself; ``stretch`` and ``center_crop`` photos are
   fitted to the square input first (:func:`prepare_dataset`), labels included, like the other workers.
@@ -18,6 +18,8 @@ epochs into ``epoch`` events:
 - **Selection**: the best epoch is the one with the best selection metric, not Ultralytics' own fitness, so
   ``best.pt`` is a copy of ``last.pt`` taken at that epoch; patience and early stopping follow the same
   metric.
+- **Classification**: the scores are those of the classification worker (accuracy, macro F1, per class and the
+  confusion matrix ``[true][predicted]``), computed from Ultralytics' confusion matrix.
 - **Resume**: ``last.pt`` is Ultralytics' checkpoint (optimizer, EMA, schedule); ``yolo_state.json`` keeps the
   best epoch and the run's ``digest``.
 """
@@ -47,12 +49,16 @@ except ImportError:  # the licence was not accepted, or the package is missing: 
     settings = None
 
 try:
+    from activelabel.training.workers import classification as scoring
     from activelabel.training.workers import options
-except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling file
+except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
+    import classification as scoring  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
-METRICS = ("map50_95", "map50")
-TASKS = ("detection", "instance", "keypoints")
+METRICS = ("map50_95", "map50", "accuracy", "macro_f1")
+TASKS = ("detection", "instance", "keypoints", "classification")
+#: Selection metrics of each task.
+TASK_METRICS = {"classification": ("accuracy", "macro_f1")}
 STATE_FILE = "yolo_state.json"
 RUN_NAME = "yolo"
 #: Ultralytics optimizer names of the ``optimizer`` option.
@@ -107,8 +113,9 @@ def load_spec(path: str | Path) -> dict[str, Any]:
         raise SpecError(f"This worker trains Ultralytics models, not {spec['family']}.")
     if spec["start"] not in ("transfer", "finetune", "scratch"):
         raise SpecError(f"Unknown start '{spec['start']}'.")
-    if spec["metric"] not in METRICS:
-        raise SpecError(f"The selection metric must be one of: {', '.join(METRICS)}.")
+    allowed = TASK_METRICS.get(spec["task"], ("map50_95", "map50"))
+    if spec["metric"] not in allowed:
+        raise SpecError(f"The selection metric must be one of: {', '.join(allowed)}.")
     parts = spec["parts"]
     if not parts.get("train") or not parts.get("val"):
         raise SpecError("Training needs images in the train and validation parts.")
@@ -389,18 +396,50 @@ def per_class_scores(metric: Any, classes: list[str], support: Any = None) -> di
     return out
 
 
-def scores_of(metrics: Any, classes: list[str], task: str) -> Scores:
+def classification_scores(matrix: Any, classes: list[str]) -> Scores:
+    """The scores of the classification worker from Ultralytics' confusion matrix.
+
+    Args:
+        matrix: Ultralytics' ``matrix[predicted][true]`` counts (any array of ``len(classes)`` rows).
+        classes: class names, in index order.
+
+    Returns:
+        ``accuracy``, ``macro_f1``, ``per_class``, ``confusion_matrix`` (``[true][predicted]``), ``images``.
+    """
+    n = len(classes)
+    rows = [[int(round(float(matrix[p][t]))) for p in range(n)] for t in range(n)]
+    return {
+        "accuracy": scoring.accuracy(rows),
+        "macro_f1": scoring.macro_f1(rows),
+        "per_class": scoring.per_class(rows, classes),
+        "confusion_matrix": rows,
+        "images": sum(sum(r) for r in rows),
+    }
+
+
+def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -> Scores:
     """The scores of an Ultralytics metrics object, in the shape the other workers report.
 
     Args:
-        metrics: ``DetMetrics``, ``SegmentMetrics`` or ``PoseMetrics`` (``box``, ``seg`` or ``pose``).
+        metrics: ``DetMetrics``, ``SegmentMetrics``, ``PoseMetrics`` (``box``, ``seg`` or ``pose``) or
+            ``ClassifyMetrics``.
         classes: class names, in index order.
-        task: ``detection``, ``instance`` or ``keypoints``.
+        task: ``detection``, ``instance``, ``keypoints`` or ``classification``.
+        matrix: the validator's ``ConfusionMatrix`` (classification; its ``matrix`` is read).
 
     Returns:
         ``map50``, ``map50_95`` and ``per_class`` of the boxes, plus ``mask_map50``, ``mask_map50_95``
-        (instance) or ``kp_map50``, ``kp_map50_95`` (keypoints).
+        (instance) or ``kp_map50``, ``kp_map50_95`` (keypoints); for classification those of
+        :func:`classification_scores`.
+
+    Raises:
+        ValueError: a classification without a confusion matrix.
     """
+    if task == "classification":
+        found = matrix if matrix is not None else getattr(metrics, "confusion_matrix", None)
+        if found is None:
+            raise ValueError("Ultralytics gave no confusion matrix for this classification.")
+        return classification_scores(getattr(found, "matrix", found), classes)
     box = metrics.box
     scores: Scores = {
         "map50": float(box.map50),
@@ -476,6 +515,8 @@ def prepare_dataset(spec: dict[str, Any], root: Path, flip_idx: list[int] | None
     points = int(spec.get("num_keypoints") or 0)
     size, policy = int(spec["params"]["image_size"]), str(spec["params"]["resize"])
     names = [name for name in ("train", "val", "test") if spec["parts"].get(name)]
+    if task == "classification":
+        return prepare_classification(spec, root, names, size, policy)
     for name in names:
         (root / "images" / name).mkdir(parents=True)
         (root / "labels" / name).mkdir(parents=True)
@@ -500,6 +541,38 @@ def prepare_dataset(spec: dict[str, Any], root: Path, flip_idx: list[int] | None
     yaml = root / "data.yaml"
     yaml.write_text(data_yaml(root, classes, names, points, flip_idx), encoding="utf-8")
     return yaml
+
+
+def prepare_classification(
+    spec: dict[str, Any], root: Path, names: list[str], size: int, policy: str
+) -> Path:
+    """Write an Ultralytics classification dataset: ``<part>/<class index>/<image>`` under ``root``.
+
+    The class folders are named by the zero-padded index (``0000``...), so Ultralytics, which sorts them by
+    name, numbers the classes as the project does; every part has every class folder.
+
+    Args:
+        spec: the job spec (``parts`` with ``label`` class indices, ``classes``).
+        root: an empty folder for the dataset.
+        names: the parts that have images (``train``, ``val``, ``test``).
+        size: side of the square input.
+        policy: the resize policy (``letterbox`` is left to Ultralytics).
+
+    Returns:
+        ``root``, what Ultralytics takes as ``data`` for classification.
+    """
+    for name in names:
+        for index in range(len(spec["classes"])):
+            (root / name / f"{index:04d}").mkdir(parents=True)
+        for k, item in enumerate(spec["parts"][name]):
+            source, folder = Path(item["path"]), root / name / f"{int(item['label']):04d}"
+            if policy == "letterbox":
+                link_or_copy(source, folder / f"{k:06d}{source.suffix.lower() or '.jpg'}")
+            else:
+                with Image.open(source) as opened:
+                    photo = ImageOps.exif_transpose(opened).convert("RGB")
+                    options.fit_image(photo, size, policy).save(folder / f"{k:06d}.jpg", quality=95)
+    return root
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +697,13 @@ class EpochRecorder:
         Args:
             trainer: the Ultralytics trainer.
         """
-        self._scores = scores_of(trainer.validator.metrics, self.spec["classes"], self.spec["task"])
+        validator = trainer.validator
+        self._scores = scores_of(
+            validator.metrics,
+            self.spec["classes"],
+            self.spec["task"],
+            getattr(validator, "confusion_matrix", None),
+        )
         losses = trainer.label_loss_items(trainer.tloss)
         rates = list(getattr(trainer, "lr", {}).values())
         self._row = {

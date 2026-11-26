@@ -80,14 +80,15 @@ class GpuInfo:
     name: str
     driver: str
     cuda: str | None  # "12.4"; None when the output does not say
+    memory_mb: int | None = None  # total memory in MiB; None when the output does not say
 
     def as_dict(self) -> dict[str, Any]:
         """Plain data for the API and run.json.
 
         Returns:
-            ``name``, ``driver`` and ``cuda`` as a dict.
+            ``name``, ``driver``, ``cuda`` and ``memory_mb`` as a dict.
         """
-        return {"name": self.name, "driver": self.driver, "cuda": self.cuda}
+        return {"name": self.name, "driver": self.driver, "cuda": self.cuda, "memory_mb": self.memory_mb}
 
 
 def normalize(name: str) -> str:
@@ -297,10 +298,11 @@ def run_logged(cmd: list[str], log: Path, check: CheckFn, poll: float = 0.5) -> 
 
 
 def parse_nvidia_smi(query_output: str, plain_output: str = "") -> GpuInfo | None:
-    """Parse the CSV query (``name, driver``) and, when given, the CUDA version of the plain output.
+    """Parse the CSV query (``name, driver[, memory]``) and, when given, the CUDA version of the plain output.
 
     Args:
-        query_output: output of ``nvidia-smi --query-gpu=name,driver_version --format=csv,noheader``.
+        query_output: output of ``nvidia-smi --query-gpu=name,driver_version,memory.total``
+            ``--format=csv,noheader`` (``memory.total`` as ``12288 MiB``; an output without it is read too).
         plain_output: output of a plain ``nvidia-smi`` (where ``CUDA Version`` appears).
 
     Returns:
@@ -310,7 +312,13 @@ def parse_nvidia_smi(query_output: str, plain_output: str = "") -> GpuInfo | Non
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 2 and parts[0]:
             match = re.search(r"CUDA Version:\s*(\d+\.\d+)", plain_output)
-            return GpuInfo(name=parts[0], driver=parts[1], cuda=match.group(1) if match else None)
+            memory = re.match(r"(\d+)", parts[2]) if len(parts) > 2 else None
+            return GpuInfo(
+                name=parts[0],
+                driver=parts[1],
+                cuda=match.group(1) if match else None,
+                memory_mb=int(memory.group(1)) if memory else None,
+            )
     return None
 
 
@@ -449,7 +457,9 @@ class TrainingEnvironment:
         Returns:
             The GPU, or ``None``.
         """
-        code, out = capture(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
+        code, out = capture(
+            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"]
+        )
         if code != 0 or parse_nvidia_smi(out) is None:
             return None
         code, plain = capture(["nvidia-smi"])

@@ -169,7 +169,7 @@ def test_load_spec_checks_the_worker_can_train_it(w, tmp_path):
     file.write_text(json.dumps(spec))
     assert w.load_spec(file)["model"] == "yolov8n"
     for change, message in (
-        ({"task": "classification"}, "not classification"),
+        ({"task": "classification"}, "accuracy, macro_f1"),  # its metrics are not those of boxes
         ({"task": "semantic"}, "not semantic"),
         ({"family": "torchvision"}, "not torchvision"),
         ({"start": "x"}, "Unknown start"),
@@ -565,3 +565,26 @@ def test_main_reports_done_or_a_coded_error(w, fake, tmp_path, capsys):
     assert w.main(["yolo.py", str(file)]) == 1
     error = next(e for e in events(capsys) if e["event"] == "error")
     assert error["code"] == "device_unavailable"
+
+
+def test_classification_scores_come_from_ultralytics_confusion_matrix(w):
+    """Ultralytics counts ``matrix[predicted][true]``; the scores use ``[true][predicted]``."""
+    matrix = [[3, 1], [0, 2]]  # predicted a: 3 true a, 1 true b; predicted b: 2 true b
+    scores = w.classification_scores(matrix, ["a", "b"])
+    assert scores["confusion_matrix"] == [[3, 0], [1, 2]] and scores["images"] == 6
+    assert scores["accuracy"] == pytest.approx(5 / 6) and 0 < scores["macro_f1"] < 1
+    assert set(scores["per_class"]) == {"a", "b"}
+    assert w.scores_of(None, ["a", "b"], "classification", matrix)["accuracy"] == pytest.approx(5 / 6)
+    with pytest.raises(ValueError, match="confusion matrix"):
+        w.scores_of(object(), ["a", "b"], "classification")
+
+
+def test_a_classification_dataset_has_one_folder_per_class_in_each_part(w, tmp_path):
+    spec = make_spec(tmp_path, model="yolo11n-cls", task="classification", resize="stretch")
+    for part in spec["parts"].values():
+        for k, item in enumerate(part):
+            item["label"] = k % 2
+    root = tmp_path / "data"
+    assert w.prepare_classification(spec, root, ["train", "val"], 64, "stretch") == root
+    assert sorted(p.name for p in (root / "train").iterdir()) == ["0000", "0001"]
+    assert len(list((root / "val" / "0001").iterdir())) == 1

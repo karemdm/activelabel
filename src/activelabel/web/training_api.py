@@ -15,7 +15,15 @@ from activelabel.jobs import DONE
 from activelabel.projects import Project
 from activelabel.storage import now
 from activelabel.training import augmentations, devices
-from activelabel.training.catalog import COMMON_PARAMS, METRICS, PROJECT_TYPES, get_model, models_for
+from activelabel.training.catalog import (
+    COMMON_PARAMS,
+    DEFAULT_ARCH,
+    METRICS,
+    PROJECT_TYPES,
+    device_size,
+    get_model,
+    models_for,
+)
 from activelabel.training.config import ConfigError, RunConfig, validate
 from activelabel.training.environment import TrainingEnvironment
 from activelabel.training.licences import (
@@ -245,7 +253,9 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
         type: Project type to list the models of (all when omitted).
 
     Returns:
-        ``{models, common, metrics}``.
+        ``{models, common, metrics, default_arch}``: each model has its ``arch`` and ``variant`` (the dialog's
+        architecture and size fields), ``experimental``, ``params_m`` and ``file_mb``; ``default_arch`` is the
+        architecture a family proposes first (``{"ultralytics": "YOLO26"}``).
     """
     if type is not None and type not in PROJECT_TYPES:
         raise ApiError(
@@ -258,6 +268,7 @@ def catalog(type: str | None = None) -> dict[str, Any]:  # noqa: A002 - the quer
         "models": [m.as_dict() for m in models_for(type)],
         "common": [p.as_dict() for p in COMMON_PARAMS],
         "metrics": {kind: {"choices": list(v[0]), "default": v[1]} for kind, v in METRICS.items()},
+        "default_arch": dict(DEFAULT_ARCH),
     }
 
 
@@ -297,7 +308,9 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
         state: The shared state of the application.
 
     Returns:
-        ``{exists, packages, gpu, devices}`` (plus ``missing`` and ``install_needed`` with ``model``);
+        ``{exists, packages, gpu, devices, default_size}`` (plus ``missing`` and ``install_needed`` with
+        ``model``); ``default_size`` is the model size the dialog proposes first here (``n`` without a GPU,
+        ``s`` on a GPU under 8 GB, ``m`` from 8 GB);
         ``devices`` are the device choices of this computer (``auto``, ``cpu``, ``cuda:N``, ``mps``).
     """
     env = TrainingEnvironment(state.settings.workspace)
@@ -309,6 +322,7 @@ def environment(model: str | None = None, state: AppState = STATE) -> dict[str, 
         "packages": installed,
         "gpu": None if gpu is None else gpu.as_dict(),
         "devices": devices.available(env),
+        "default_size": device_size(None if gpu is None else gpu.memory_mb, gpu is not None),
     }
     if model is not None:
         spec = get_model(model)

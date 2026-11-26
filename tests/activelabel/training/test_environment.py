@@ -413,3 +413,10 @@ def test_ensure_refuses_a_licensed_package_until_accepted(env, monkeypatch):
     monkeypatch.setattr(TrainingEnvironment, "installed", lambda self: {})
     env.ensure(["ultralytics"], nothing, lambda s: None)
     assert any("ultralytics==" + envmod.PINNED_VERSIONS["ultralytics"] in cmd for cmd in ran)
+
+
+def test_parse_nvidia_smi_reads_the_memory_when_asked():
+    """#632: the GPU memory picks the size the dialog proposes first."""
+    info = parse_nvidia_smi("NVIDIA GeForce RTX 3060, 551.61, 12288 MiB\n")
+    assert info is not None and info.memory_mb == 12288 and info.as_dict()["memory_mb"] == 12288
+    assert parse_nvidia_smi(QUERY).memory_mb is None  # type: ignore[union-attr]

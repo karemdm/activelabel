@@ -42,10 +42,10 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Classification | timm | 102 networks, by architecture: ResNet, ResNeXt, RegNetY, DenseNet, MobileNetV3/V4, EfficientNet B0–B7 and V2, GhostNet, MobileViT and V2, ConvNeXt and V2, NFNet, ViT, DeiT, Swin, BEiT, EVA-02, CaiT, CoAtNet, MaxViT, FastViT | torch, torchvision, timm |
 | Classification | torchvision | every torchvision classification network (80), by architecture: ResNet 18–152, ResNeXt, Wide ResNet, DenseNet, VGG (with and without BN), MobileNet V2/V3, EfficientNet B0–B7 and V2 S/M/L, RegNetX/RegNetY, ConvNeXt T–L, ViT B/L/H, Swin and Swin V2 T/S/B, MaxViT-T, ShuffleNet V2, SqueezeNet, MNASNet, GoogLeNet, Inception V3, AlexNet | torch, torchvision |
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
-| Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLOv8 / YOLO11 n s m l | ultralytics |
+| Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLO26 (proposed first), YOLO11, YOLOv8; sizes n s m l x | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
-| Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLOv8/11-seg | torch, torchvision / ultralytics |
-| Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
+| Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLO26/11/v8-seg n–x | torch, torchvision / ultralytics |
+| Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLO26/11/v8-pose n–x | torch, torchvision / ultralytics |
 
 **Architecture and variant (#618).** Each model of the catalogue has an `arch` (the architecture or
 generation the dialog groups by: `ResNet`, `EfficientNet`, `Faster R-CNN`...) and a `variant` (its size inside
@@ -400,6 +400,20 @@ Because of this, ActiveLabel does not install or use Ultralytics until the licen
   Models of the other families need no acceptance.
 
 ## YOLO runs
+
+**Generations, sizes and tasks (#632).** YOLO26 (proposed first), YOLO11 and YOLOv8, each in sizes n, s, m, l and
+x, for detection, instance segmentation (`-seg`), pose (`-pose`) and classification (`-cls`): every one of them has
+official pretrained weights in the pinned Ultralytics (release `v8.4.0` of `ultralytics/assets`). YOLO12 is not
+offered. Oriented boxes (`-obb`) exist too but wait for a project type of their own. In the catalogue `arch` is
+the generation and `variant` the size; the task comes from the project type. Each size has its own batch (n and
+s 16, m 8, l and x 4) and the input is 640 pixels (224 for classification). The size proposed first follows the
+computer (`default_size` of `GET /api/training/environment`): `n` without a GPU, `s` on a GPU under 8 GB, `m` from
+8 GB (the GPU memory is read with `nvidia-smi`). `params_m` is given for YOLOv8 and YOLO11 (Ultralytics'
+tables); it is empty for YOLO26.
+
+A classification model gets one folder per class in each part (named by the class index, so Ultralytics numbers
+the classes as the project does) and reports the scores of the classification worker (accuracy, macro F1, per
+class, confusion matrix) from Ultralytics' confusion matrix; `mosaic` has no effect on it.
 
 The worker `workers/yolo.py` runs in the training environment, reads the same `spec.json` and writes the same
 events, metrics, `best.pt`, `last.pt` and `results.json` as the other workers, so the screens, the metrics

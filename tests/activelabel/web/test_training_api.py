@@ -139,7 +139,13 @@ def test_log_tail_metric_and_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(environment.TrainingEnvironment, "gpu_count", lambda self: 0)
     monkeypatch.setattr(environment.TrainingEnvironment, "mps_hint", staticmethod(lambda: False))
     body = client.get("/api/training/environment").json()
-    assert body == {"exists": False, "packages": {}, "gpu": None, "devices": ["auto", "cpu"]}
+    assert body == {
+        "exists": False,
+        "packages": {},
+        "gpu": None,
+        "devices": ["auto", "cpu"],
+        "default_size": "n",
+    }
     first = client.get("/api/training/environment", params={"model": "resnet18"}).json()
     assert first["install_needed"] is True and {"torch", "torchvision", "pillow"} <= set(first["missing"])
     assert client.get("/api/training/environment", params={"model": "nope"}).status_code == 404

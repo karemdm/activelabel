@@ -335,3 +335,33 @@ def test_timm_offers_its_classification_families_under_its_own_ids():
     assert eva.default == eva.min == eva.max == 448  # fixed position embeddings
     fastvit = get_model("fastvit_t8").param("image_size")
     assert fastvit.default == 256 and fastvit.min < 256
+
+
+def test_ultralytics_offers_three_generations_every_size_and_task():
+    """#632: YOLOv8, YOLO11 and YOLO26 (the default; no YOLO12), sizes n to x, for every project type."""
+    yolo = [m for m in catalog.MODELS if m.family == "ultralytics"]
+    assert len(yolo) == 3 * 5 * 4 and not any("yolo12" in m.id for m in yolo)
+    assert {m.arch for m in yolo} == {"YOLOv8", "YOLO11", "YOLO26"} and catalog.DEFAULT_ARCH[
+        "ultralytics"
+    ] == "YOLO26"
+    assert {m.variant for m in yolo} == set("nsmlx")
+    for model_id in ("yolo26x", "yolo26n-seg", "yolo11m-pose", "yolov8l-cls", "yolov8n", "yolo11s-seg"):
+        assert get_model(model_id) is not None, (
+            model_id
+        )  # yolov8n and yolo11s-seg: runs saved before stay valid
+    cls = get_model("yolo26s-cls")
+    assert (cls.types, cls.task_kind, cls.image_size) == (("classification",), "classification", 224)
+    assert (
+        get_model("yolo11n").param("batch_size").default == 16
+        and get_model("yolo11x").param("batch_size").default == 4
+    )
+    assert (
+        get_model("yolo11n").as_dict()["params_m"] == 2.6
+        and get_model("yolo26n").as_dict()["params_m"] is None
+    )
+
+
+def test_the_size_proposed_first_follows_the_device():
+    assert catalog.device_size(None, False) == "n"
+    assert catalog.device_size(None, True) == catalog.device_size(6144, True) == "s"
+    assert catalog.device_size(8192, True) == catalog.device_size(24576, True) == "m"
