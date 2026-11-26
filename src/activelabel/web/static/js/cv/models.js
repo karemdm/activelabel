@@ -24,7 +24,7 @@ export function modelsPanel(page) {
   const archName = (m) => m.label || labels[m.model] || m.model;
   const isPublic = (m) => m.source === 'public';
   const busy = (m) => Object.values(m.exports || {}).some((e) => e && (e.status === 'queued' || e.status === 'running'));
-    const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
+  const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
 
   /* whether the catalogue has public models for this project type (asked once; null = not known yet) */
   let publicAvailable = null;

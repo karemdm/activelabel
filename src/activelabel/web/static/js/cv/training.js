@@ -225,7 +225,7 @@ export function trainingPanel(page) {
     const same = nodes.length === list.children.length && nodes.every((n, i) => list.children[i] === n);
     if (!same) fill(list, ...nodes);
     if (!ul) fill(listBox, list);
-    drawCompare();
+    drawCompare().catch(toastError);
     if (act && ownerNumber != null && cards.has(ownerNumber) && !list.contains(document.activeElement)) {
       const again = cards.get(ownerNumber).node.querySelector(`[data-act="${act}"]`);
       if (again) again.focus();
@@ -253,6 +253,7 @@ export function trainingPanel(page) {
   async function drawCompare() {
     const pool = runs.filter(comparableRun);
     for (const n of [...chosen]) if (!pool.some((r) => r.number === n)) chosen.delete(n);
+    for (const n of [...details.keys()]) if (!pool.some((r) => r.number === n)) details.delete(n);
     const focusedAct = document.activeElement && cmpBarBox.contains(document.activeElement) ? document.activeElement.dataset.act : null;
     fill(cmpBarBox, pool.length >= 2
       ? compareBar({ prefix: 'tr-cmp', chosen: chosen.size, total: pool.length, onAll: (on) => choose(pool.map((r) => r.number), on), onClear: () => choose([...chosen], false) })
@@ -263,7 +264,7 @@ export function trainingPanel(page) {
     if (sig === cmpSig) return;
     cmpSig = sig;
     if (cols.length < 2) { fill(cmpBox); return; }
-    try { await chosenDetails(cols); } catch (err) { toastError(err); return; }
+    try { await chosenDetails(cols); } catch (err) { cmpSig = ''; toastError(err); return; }   // the next redraw tries again
     if (sig !== cmpSig) return;   // the choice changed while reading
     fill(cmpBox, compareTable({
       id: 'tr-compare', title: t('tr.compare'), help: t('tr.compare_help'), cols,
