@@ -920,3 +920,19 @@ def test_the_edit_dialog_says_the_new_name_reaches_cvat():
     assert "'aria-describedby': ctx.links.some((l) => l.tool === 'cvat') ? 'e-name-hint' : null" in project_js
     for lang in ("pt", "en"):
         assert _messages(lang)["project.rename_cvat"].endswith(".")
+
+
+def test_the_start_help_says_only_what_is_true_of_the_model():
+    """#653: the proposal network only for the R-CNN models; the backbone factor not for YOLO; a list written
+    without its separator in Portuguese gets a hint with the right one."""
+    training = (SRC / "web" / "static" / "js" / "cv" / "training.js").read_text(encoding="utf-8")
+    assert "startHelpText(m, st.start)" in training
+    assert "if (/R-CNN/.test(m.arch || m.label || '')) parts.push(t('tr.start_transfer_rcnn'));" in training
+    assert "if (yolo) parts.push(t('tr.start_finetune_yolo'));" in training
+    assert "t('tr.err_list_sep', { v: tok, example: listExample() })" in training
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        general = texts["tr.start_transfer_help"] + texts["tr.start_finetune_help"]
+        assert "propost" not in general and "proposal" not in general  # said only for R-CNN
+        assert "fator" not in general and "factor" not in general  # said only where it applies
+        assert texts["tr.err_list_sep"].count("{example}") == 1

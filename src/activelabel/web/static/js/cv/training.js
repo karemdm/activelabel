@@ -11,6 +11,34 @@ import { LOCALE, decimalSign, fmtDateTime, listSeparator, nf3, nfExact, lower, p
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
+/** Whether a text that is not a number looks like several numbers written without the list separator of the
+ *  language: "0,1,0,2" where the comma is the decimal sign (two commas, digits around them). */
+export const listWithoutSeparator = (text) => decimalSign() === ',' && /^\s*-?\d*,\d+,\d/.test(text);
+
+/** Two values as a list of the interface language: "0,1; 0,2" or "0.1, 0.2". */
+export const listExample = () => [0.1, 0.2].map((v) => String(v).replace('.', decimalSign())).join(listSeparator());
+
+/** What a way of starting does with this model (#653): the general sentence, then only what is true of it. The
+ *  proposal network is in the two-stage R-CNN models only; Ultralytics freezes its first layers for transfer and
+ *  trains the whole network at one rate when fine-tuning (no backbone factor); the trainable-layers setting exists
+ *  only where the catalogue gives it. `m` is a catalogue model, `start` transfer, finetune or scratch. */
+export function startHelpText(m, start) {
+  const yolo = m.family === 'ultralytics';
+  const has = (name) => (m.params || []).some((p) => p.name === name);
+  const parts = [t(`tr.start_${start}_help`)];
+  if (start === 'transfer') {
+    if (/R-CNN/.test(m.arch || m.label || '')) parts.push(t('tr.start_transfer_rcnn'));
+    if (yolo) parts.push(t('tr.start_transfer_yolo'));
+  } else if (start === 'finetune') {
+    if (yolo) parts.push(t('tr.start_finetune_yolo'));
+    else {
+      parts.push(t('tr.start_finetune_factor'));
+      if (has('trainable_backbone_layers')) parts.push(t('tr.start_finetune_layers'));
+    }
+  }
+  return parts.join(' ');
+}
+
 /** The first warmup or patience that cannot fit in the epochs, over every value of the lists (a grid): same rule as the server's
  *  `_check_schedule`. `reads` maps a parameter to its list of numbers. Returns {field, key, value, epochs} or null. */
 export function scheduleClash(reads) {
@@ -535,7 +563,7 @@ export function trainingPanel(page) {
         input.checked = st.start === s;
         startLabels[s].hidden = s !== 'scratch' && !m.supports_pretrained;   // not offered, rather than greyed out
       }
-      startHelp.textContent = m.supports_pretrained ? t(`tr.start_${st.start}_help`) : t('tr.start_scratch_only');
+      startHelp.textContent = m.supports_pretrained ? startHelpText(m, st.start) : t('tr.start_scratch_only');
     }
 
     // mode
@@ -583,7 +611,8 @@ export function trainingPanel(page) {
       const list = [];
       for (const tok of tokens) {
         const n = parseNumber(tok);
-        if (!Number.isFinite(n)) return { error: t('tr.err_number', { v: tok }) };
+        /* "0,1,0,2" in Portuguese: several values without the list separator (#653) */
+        if (!Number.isFinite(n)) return { error: listWithoutSeparator(tok) ? t('tr.err_list_sep', { v: tok, example: listExample() }) : t('tr.err_number', { v: tok }) };
         if (spec.kind === 'int' && !Number.isInteger(n)) return { error: t('tr.err_int', { v: tok }) };
         if ((spec.min != null && n < spec.min) || (spec.max != null && n > spec.max)) return { error: t('tr.err_range', { min: plain(spec.min), max: plain(spec.max) }) };
         if (spec.multiple && n % spec.multiple) return { error: t('tr.err_multiple', { v: tok, n: plain(spec.multiple) }) };   // the same rule as the server (#635)
@@ -770,7 +799,7 @@ export function trainingPanel(page) {
           if (!readParam(spec).error) { kept.push(name); continue; }
           setDefault(spec);
           notes.resets += 1;
-          notes.push(t('tr.chg_reset', { p: name, v: valueText(spec, spec.default), old: before.map((v) => valueText(spec, v)).join(', ') }));
+          notes.push(t('tr.chg_reset', { p: name, v: valueText(spec, spec.default), old: before.map((v) => valueText(spec, v)).join(listSeparator()) }));
           continue;
         }
         setDefault(spec);
@@ -909,7 +938,7 @@ export function trainingPanel(page) {
     /* "epochs 20 · batch size 8": only what is not the default; the grid lists show as they are */
     function changedLine(withErrors = false) {
       const diffs = active.filter((spec) => reads[spec.name] && reads[spec.name].join() !== String([spec.default]))
-        .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => valueText(spec, v)).join(', ')}`);
+        .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => valueText(spec, v)).join(listSeparator())}`);
       if (!diffs.length) return withErrors ? t('tr.params_changed') : t('tr.params_default');
       return diffs.length > 3 ? `${diffs.slice(0, 3).join(' · ')} · ${t('tr.params_more', { n: diffs.length - 3 })}` : diffs.join(' · ');
     }
