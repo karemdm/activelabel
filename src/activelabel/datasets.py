@@ -1490,6 +1490,9 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     analysed = read_json(curation_path(project_dir), {}).get("duplicate_of") is not None
     if not analysed:
         warnings.append({"code": "no_curation"})
+    unused = [c for c in project.classes if c not in found]
+    if unused:  # a class of the project that no image of the split has: the model cannot learn it (#636)
+        warnings.append({"code": "classes_unused", "classes": unused})
     if folds is None:
         stats: dict[str, Any] = {p: _part_stats(parts[p], labels) for p in PARTS}
     else:

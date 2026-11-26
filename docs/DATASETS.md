@@ -90,6 +90,7 @@ warnings. Nothing is saved until the person confirms.
   - `labels_without_geometry`, `keypoints_count_mismatch` and `multiple_classes`: labels left out of the
     version, see *Labels that are left out*;
   - `no_curation`: curation was not analysed, so the near-duplicate rule could not apply;
+  - `classes_unused`: classes of the project that no chosen image has (`classes`): the model cannot learn them;
   - `video_split`: information, not a problem (see above).
 - Excluded images and images of tasks not chosen never enter.
 - **Pre-annotations are ignored**: labels with a `score` (made by a model, docs/PREANNOTATE.md) are

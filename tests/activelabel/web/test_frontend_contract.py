@@ -175,7 +175,8 @@ def test_the_split_preview_ranks_classes_by_rarity_and_marks_zero_cells():
 def test_the_safety_gap_is_a_switch_and_shared_video_parts_are_flagged():
     """The gap is an on-by-default switch (off sends 0 and warns), "new version from this" restores it, and
     the ``video_parts_shared`` warning and the per-video ``gap_seconds`` are shown."""
-    assert "ds-gap-on" in JS and "gapBox.checked ? parseFloat(gapInput.value) : 0" in JS
+    assert "ds-gap-on" in JS
+    assert "gapBox.checked ? parseFloat(String(gapInput.value).replace(',', '.')) : 0" in JS  # "0,5" in pt
     assert "gapBox.checked = gapSeconds > 0" in JS
     assert "video_parts_shared" in JS and "gap_seconds" in JS and "sharedAlert(" in JS
     assert ".ds-shared" in CSS and ".ds-gap-off" in CSS
