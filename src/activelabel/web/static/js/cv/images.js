@@ -1,7 +1,7 @@
 /* Step 1, Images: uploading images and folders, the gallery, the tasks and jobs of the project (with the
  * new-task dialog) and the videos. */
 import { imageGrid, openLightbox } from './grid.js';
-import { CHUNK, SKIP_FILES, partName } from './names.js';
+import { CHUNK, SKIP_FILES, nextTaskNumber, partName } from './names.js';
 import { isHttp, jobMessage, toolName } from '../integrations/tools.js';
 import { api, errorMessage } from '../shell/api.js';
 import { confirmDialog, menuButton } from '../shell/dialogs.js';
@@ -235,7 +235,7 @@ export function imagesPanel(page) {
     if (!current) filter = { task: null, job: null, dataset: filter.dataset };
     else if (filter.job != null && !current.jobs.some((j) => j.n === filter.job)) filter.job = null;
     if (!tasks.some((x) => x.id === renaming)) renaming = null;
-    nameInput.placeholder = t('tasks.name_placeholder', { id: tasks.reduce((m, x) => Math.max(m, x.id), 0) + 1 });
+    nameInput.placeholder = t('tasks.name_placeholder', { id: nextTaskNumber(tasks) });
     drawTasks();
     drawFilter();
     imageTabs.setCount('tasks', tasks.length);

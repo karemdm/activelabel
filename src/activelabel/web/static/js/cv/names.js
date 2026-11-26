@@ -17,6 +17,14 @@ export const issueName = (issue) => tr(`issue.${issue}`, issue);
 /* one image's tag (singular: "Blurry" / "Borrada") */
 export const issueTag = (issue) => tr(`tag.${issue}`, issueName(issue));
 
+/** The number in the automatic name of the next task, as the server gives it (`default_name` in tasks_store.py):
+ *  one more than the highest "Task N" among the names of the tasks, not among their ids. */
+export const nextTaskNumber = (tasks) =>
+  tasks.reduce((highest, x) => {
+    const match = /^task (\d+)$/i.exec(x.name || '');
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0) + 1;
+
 export const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
 /** Four large selectable cards for the task. Returns {node, get, set}. */
