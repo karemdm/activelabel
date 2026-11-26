@@ -377,8 +377,16 @@ def test_ultralytics_offers_three_generations_every_size_and_task():
     )
     assert (
         get_model("yolo11n").as_dict()["params_m"] == 2.6
-        and get_model("yolo26n").as_dict()["params_m"] is None
+        and get_model("yolo26n").as_dict()["params_m"] == 2.4
     )
+
+
+def test_every_yolo_model_shows_its_parameters_and_file_size():
+    yolo = [m for m in catalog.MODELS if m.family == "ultralytics"]
+    assert any(m.id.startswith("yolo26") for m in yolo)
+    for m in yolo:
+        d = m.as_dict()
+        assert d["params_m"] is not None and d["file_mb"] is not None, m.id
 
 
 def test_the_size_proposed_first_follows_the_device():

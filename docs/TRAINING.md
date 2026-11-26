@@ -468,8 +468,8 @@ offered. Oriented boxes (`-obb`) exist too but wait for a project type of their 
 the generation and `variant` the size; the task comes from the project type. Each size has its own batch (n and
 s 16, m 8, l and x 4) and the input is 640 pixels (224 for classification). The size proposed first follows the
 computer (`default_size` of `GET /api/training/environment`): `n` without a GPU, `s` on a GPU under 8 GB, `m` from
-8 GB (the GPU memory is read with `nvidia-smi`). `params_m` is given for YOLOv8 and YOLO11 (Ultralytics'
-tables); it is empty for YOLO26.
+8 GB (the GPU memory is read with `nvidia-smi`). `params_m` is given for YOLO26, YOLO11 and YOLOv8 (Ultralytics'
+tables).
 
 A classification model gets one folder per class in each part (named by the class index, so Ultralytics numbers
 the classes as the project does) and reports the scores of the classification worker (accuracy, macro F1, per

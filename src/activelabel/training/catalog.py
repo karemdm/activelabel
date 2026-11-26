@@ -909,12 +909,17 @@ YOLO_TASKS = (
 )
 #: Batch by size (n/s small, l/x large): what fits a common GPU at the default input size.
 YOLO_BATCH = {"n": 16, "s": 16, "m": 8, "l": 4, "x": 4}
-#: Parameters in millions, from Ultralytics' published tables, by generation and task (sizes n s m l x).
+#: Parameters in millions, from Ultralytics' published tables, by generation and task (sizes n s m l x);
+#: YOLO26 from https://docs.ultralytics.com/models/yolo26/.
 YOLO_PARAMS: dict[tuple[str, str], tuple[float, ...]] = {
     ("yolov8", ""): (3.2, 11.2, 25.9, 43.7, 68.2),
     ("yolov8", "-seg"): (3.4, 11.8, 27.3, 46.0, 71.8),
     ("yolov8", "-pose"): (3.3, 11.6, 26.4, 44.4, 69.4),
     ("yolov8", "-cls"): (2.7, 6.4, 17.0, 37.5, 57.4),
+    ("yolo26", ""): (2.4, 9.5, 20.4, 24.8, 55.7),
+    ("yolo26", "-seg"): (2.7, 10.4, 23.6, 28.0, 62.8),
+    ("yolo26", "-pose"): (2.9, 10.4, 21.5, 25.9, 57.6),
+    ("yolo26", "-cls"): (2.8, 6.7, 11.6, 14.1, 29.6),
     ("yolo11", ""): (2.6, 9.4, 20.1, 25.3, 56.9),
     ("yolo11", "-seg"): (2.9, 10.1, 22.4, 27.6, 62.1),
     ("yolo11", "-pose"): (2.9, 9.9, 20.9, 26.2, 58.8),
