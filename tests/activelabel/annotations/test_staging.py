@@ -1,3 +1,4 @@
+import functools
 import io
 import os
 import time
@@ -5,8 +6,8 @@ import zipfile
 
 import pytest
 
-from activelabel.annotations import discard_staged, load_staged, stage
-from activelabel.annotations.staging import MAX_AGE_SECONDS
+from activelabel.annotations import discard_staged, load_staged, pending_report, set_report, stage
+from activelabel.annotations.staging import MAX_AGE_SECONDS, REPORT_NAME
 from activelabel.errors import CodedError
 
 
@@ -78,3 +79,20 @@ def test_an_invalid_staging_token_has_a_code(tmp_path):
     with pytest.raises(CodedError) as info:
         load_staged(tmp_path / "p", "../..")
     assert info.value.code == "staging_token_invalid"
+
+
+def _stat_of_a_discarded_folder(real_stat, token, path, *args, **kwargs):
+    """``Path.stat``, except that the report of ``token`` is discarded (by another request) just before."""
+    if path.name == REPORT_NAME and path.parent.name == token:
+        discard_staged(path.parent.parent.parent, token)
+    return real_stat(path, *args, **kwargs)
+
+
+def test_pending_report_skips_a_staging_folder_removed_while_it_reads(tmp_path, monkeypatch):
+    old = stage(tmp_path, [("a.json", io.BytesIO(b"{}"))])
+    new = stage(tmp_path, [("b.json", io.BytesIO(b"{}"))])
+    set_report(tmp_path, old, {"token": old})
+    set_report(tmp_path, new, {"token": new})
+    stat = functools.partial(_stat_of_a_discarded_folder, type(tmp_path).stat, new)
+    monkeypatch.setattr(type(tmp_path), "stat", lambda path, *a, **k: stat(path, *a, **k))
+    assert pending_report(tmp_path) == {"token": old}
