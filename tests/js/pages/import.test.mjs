@@ -9,7 +9,10 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { initImport } = await import('../../../src/activelabel/web/static/js/pages/import.js');
 
-setMessages({ 'annotate.tool.cvat': 'CVAT', 'annotate.ready': 'Ready', 'annotate.not_ready': 'Not set up', 'annotate.setup': 'Set up' }, 'en');
+setMessages({
+  'annotate.tool.cvat': 'CVAT', 'annotate.ready': 'Ready', 'annotate.not_ready': 'Not set up', 'annotate.setup': 'Set up',
+  'annotate.not_connected': 'Not connected', 'annotate.checking': 'Checking…', 'import.no_images.project': 'No images in {tool}',
+}, 'en');
 
 /** Runs initImport with the API answering from `routes` (path -> body); returns the root and the paths asked. */
 async function render(routes) {
@@ -50,4 +53,36 @@ test('with a login it lists the remote projects', async () => {
   assert.deepEqual(asked, ['/api/annotation-tools', '/api/import/cvat/projects']);
   assert.equal(root.querySelector('.ready-badge').textContent, 'Ready');
   assert.match(root.querySelector('.import-main').textContent, /Remote cats/);
+});
+
+test('saved settings of a server that does not answer are not shown as ready (#634)', async () => {
+  const { root, asked } = await render({ '/api/annotation-tools': [{ tool: 'cvat', configured: true }] });
+  assert.deepEqual(asked, ['/api/annotation-tools', '/api/import/cvat/projects']);   // the list fails (404 here)
+  const badge = root.querySelector('.ready-badge');
+  assert.equal(badge.textContent, 'Not connected');
+  assert.ok(badge.classList.contains('bad'));
+});
+
+test('a remote project without images cannot be imported and says why (#634)', async () => {
+  const root = document.createElement('div');
+  root.id = 'import-root';
+  document.body.appendChild(root);
+  const routes = {
+    '/api/annotation-tools': [{ tool: 'cvat', configured: true }],
+    '/api/import/cvat/projects': { items: [{ id: 7, name: 'Empty', kind: 'project', images: 0, classes: ['x'] }] },
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: true, status: 200, text: async () => JSON.stringify(routes[url] ?? {}) });
+  try {
+    initImport();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    window.matchMedia = () => ({ matches: false });   // jsdom has none
+    root.querySelector('.import-table tbody input').dispatchEvent(new window.Event('change'));
+    const side = root.querySelector('#import-side');
+    assert.ok(side.querySelector('button[type="submit"]').disabled);
+    assert.match(side.textContent, /No images in CVAT/);
+  } finally {
+    globalThis.fetch = real;
+    root.remove();
+  }
 });

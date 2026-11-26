@@ -10,8 +10,15 @@ import { classList, problemRow, progressBar } from '../shell/widgets.js';
 export function initImport() {
   const root = document.getElementById('import-root');
   const SOURCES = ['cvat'];
-  const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null };
+  const state = { tools: {}, tool: null, items: null, error: null, search: '', selected: null, job: null, timer: null, conn: {} };
   const ready = (tool) => !!(state.tools[tool] && state.tools[tool].configured);
+  /* "Ready" only once the server answered: saved settings alone may point to a server that is down (#634) */
+  function badge(tool) {
+    if (!ready(tool)) return ['todo', 'info', t('annotate.not_ready')];
+    if (state.conn[tool] === 'ok') return ['ok', 'check', t('annotate.ready')];
+    if (state.conn[tool] === 'failed') return ['bad', 'warning', t('annotate.not_connected')];
+    return ['todo', 'info', t('annotate.checking')];
+  }
 
   const sourceBox = el('section', { class: 'card import-source', 'aria-labelledby': 'h-source' });
   const listBox = el('section', { class: 'import-main', 'aria-live': 'polite' });
@@ -34,6 +41,7 @@ export function initImport() {
       el('div', { class: 'task-cards tool-cards', role: 'radiogroup', 'aria-labelledby': 'h-source' }, ...SOURCES.map((tool) => {
         const id = `import-tool-${tool}`;
         const ok = ready(tool);
+        const [kind, mark, label] = badge(tool);
         const input = el('input', { type: 'radio', name: 'import-tool', id, value: tool, class: 'sr-only' });
         input.checked = tool === state.tool;
         input.addEventListener('change', () => choose(tool));
@@ -43,7 +51,7 @@ export function initImport() {
             el('span', { class: 'task-card-title' }, toolName(tool)),
             el('span', { class: 'task-card-help' }, t(`import.tool.${tool}.help`))),
           el('div', { class: 'tool-card-foot' },
-            el('span', { class: `ready-badge ${ok ? 'ok' : 'todo'}` }, icon(ok ? 'check' : 'info', 14), ok ? t('annotate.ready') : t('annotate.not_ready')),
+            el('span', { class: `ready-badge ${kind}` }, icon(mark, 14), label),
             el('button', { type: 'button', class: 'btn small', 'aria-label': t('annotate.setup_for', { tool: toolName(tool) }), onclick: () => setup(tool) },
               ok ? t('annotate.settings') : t('annotate.setup'))));
       })));
@@ -74,14 +82,20 @@ export function initImport() {
       drawMain();
       return;
     }
+    state.conn[tool] = 'checking';
+    drawSource();
     drawMain();
     try {
       const data = await api('GET', `/import/${encodeURIComponent(tool)}/projects`);
+      state.conn[tool] = 'ok';
       if (tool !== state.tool) return;
       state.items = (data && data.items) || [];
     } catch (err) {
+      state.conn[tool] = 'failed';
       if (tool !== state.tool) return;
       state.error = err;
+    } finally {
+      if (tool === state.tool) drawSource();
     }
     drawMain();
   }
@@ -179,12 +193,14 @@ export function initImport() {
     const descInput = el('textarea', { id: 'import-desc', rows: '2', maxlength: '2000', placeholder: t('import.description_ph', { tool, name: item.name }) });
     const needTask = !(item.classes || []).length;
     const picker = needTask ? taskPicker('import-task', 'detection') : null;
-    const go = el('button', { type: 'submit', class: 'btn primary big' }, t('import.start'));
+    const empty = item.images === 0;   // nothing to import: say it before the import fails (#634)
+    const go = el('button', { type: 'submit', class: 'btn primary big', disabled: empty }, t('import.start'));
     const form = el('form', { class: 'form', novalidate: true },
       el('div', { class: 'field' }, el('label', { for: 'import-name' }, t('field.name')), nameInput),
       el('div', { class: 'field' }, el('label', { for: 'import-desc' }, t('field.description')), descInput),
       el('p', { class: 'callout-line' }, icon('info'), el('span', null, t('import.summary', { tool }))),
       picker ? el('fieldset', { class: 'field' }, el('legend', null, t('import.task_title')), el('p', { class: 'hint' }, t('import.task_help')), picker.node) : null,
+      empty ? el('p', { class: 'callout-line', role: 'status' }, icon('warning'), el('span', null, t(`import.no_images.${item.kind || 'project'}`, { tool }))) : null,
       el('div', { class: 'form-actions' }, go));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
