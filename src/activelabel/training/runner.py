@@ -29,7 +29,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -42,6 +42,7 @@ from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, Job, JobFunction, JobManager, Progress
 from activelabel.labels import Label, geometry_problem
 from activelabel.projects import ProjectStore
+from activelabel.scheduler import CPU, Scheduler, device_lane
 from activelabel.storage import now, write_json
 from activelabel.tasks import Task
 from activelabel.training import augmentations
@@ -87,6 +88,12 @@ ONNX_KINDS = ("classification", "semantic")
 RESOLVED_PARAMS = ("augmentation",)
 PACKAGES_RECORDED = ("torch", "torchvision", "timm", "pillow", "numpy")
 COMES_LATER = "comes later"
+#: Kinds of job of the runner (all heavy: each one waits for its device in the global queue).
+RUNNER_KINDS = ("training", "preannotate", "export")
+#: A job of the runner as it is put back in line: ``(kind, project id, number, export format or "")``.
+QueueKey = tuple[str, int, int, str]
+#: Function that queues again a saved job of the rest of the app (``analyze``, ``video_task``...).
+Restorer = Callable[[dict[str, Any]], None]
 #: Status fields of a child that are also shown on the run itself (progress of the current child).
 TOP_FIELDS = ("phase", "epoch", "step", "steps", "message")
 PROGRESS_EVERY = 1.0  # seconds between run.json writes for step progress
@@ -611,6 +618,25 @@ class _PredictionEvents:
             self._progress.update(done=event.get("step"), total=event.get("steps"))
 
 
+def saved_key(entry: dict[str, Any]) -> QueueKey | None:
+    """The runner's key of a job saved in ``queue.json``.
+
+    Args:
+        entry: the saved job (``kind``, ``project_id`` and ``params``).
+
+    Returns:
+        ``(kind, project id, number, format)``; None for a job of another part of the app or a damaged entry.
+    """
+    params = entry.get("params")
+    if entry.get("kind") not in RUNNER_KINDS or not isinstance(params, dict):
+        return None
+    try:
+        number = int(params["number"])
+        return (str(entry["kind"]), int(entry["project_id"]), number, str(params.get("format") or ""))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _describe(entry: dict[str, Any]) -> str:
     """Short text for a child in the log: its grid values and fold (``training`` when it has neither).
 
@@ -688,7 +714,7 @@ _remove_tree = remove_tree
 
 
 class TrainingRunner:
-    """Queue of runs of every project of the app; one runs at a time."""
+    """Training runs, pre-annotations and exports of every project; each waits for its device in the queue."""
 
     def __init__(
         self,
@@ -699,6 +725,8 @@ class TrainingRunner:
         environment: TrainingEnvironment | None = None,
         scripts: Callable[[str], Path] = worker_script,
         poll: float = 0.2,
+        scheduler: Scheduler | None = None,
+        lane: Callable[[str], str] | None = None,
     ) -> None:
         """Create the runner; nothing runs until a run is queued.
 
@@ -710,6 +738,9 @@ class TrainingRunner:
             environment: training environment; by default one inside ``workspace``.
             scripts: function that gives the worker script of a kind of task (or of a family with its own).
             poll: seconds to wait for a line of output before checking for cancellation.
+            scheduler: the app's global queue (shared with the other activities); by default one of its own.
+            lane: function that gives the queue lane of a device choice; by default ``auto`` is the first
+                NVIDIA GPU, else the Apple GPU, else the CPU (looked up once, when first needed).
         """
         self.workspace = Path(workspace)
         self._project_dir = project_dir
@@ -719,14 +750,43 @@ class TrainingRunner:
         self._scripts = scripts
         self._poll = poll
         self.tmp_root = self.workspace / "training" / "tmp"
-        self._jobs = JobManager(workers=1)
-        self._lock = threading.Lock()
+        self._jobs = JobManager(scheduler=scheduler)
+        self._lane = lane or self._auto_lane
+        self._gpus: tuple[int, bool] | None = None
+        self._closing = False
+        self._positions: dict[tuple[int, int], int] = {}
+        self._lock = threading.RLock()  # re-entered by _write_positions when a submit changes the queue
         self._waiting: list[tuple[int, int]] = []
         self._job_ids: dict[tuple[int, int], str] = {}
         self._procs: dict[tuple[int, int], subprocess.Popen[str]] = {}
         self._tmp: dict[tuple[int, int], Path] = {}
         self._export_procs: dict[tuple[int, int, str], subprocess.Popen[str]] = {}
         self._pre_jobs: dict[tuple[int, int], str] = {}
+        self._jobs.scheduler.listen(self._write_positions)
+
+    @property
+    def scheduler(self) -> Scheduler:
+        """The queue the runner's jobs wait in.
+
+        Returns:
+            The scheduler (the app's global one when it was given).
+        """
+        return self._jobs.scheduler
+
+    def _auto_lane(self, device: str) -> str:
+        """Queue lane of a device choice, looking for GPUs once (only when ``auto`` is first met).
+
+        Args:
+            device: ``auto``, ``cpu``, ``cuda:N`` or ``mps``.
+
+        Returns:
+            The lane (:func:`activelabel.scheduler.device_lane`).
+        """
+        if device not in ("", "auto"):
+            return device
+        if self._gpus is None:
+            self._gpus = (self.environment.gpu_count(), self.environment.mps_hint())
+        return device_lane(device, *self._gpus)
 
     def _project(self, project_id: int) -> Any:
         """The project (type and classes), read from its folder when no lookup was given.
@@ -762,10 +822,18 @@ class TrainingRunner:
             number: number of the stored run.
         """
         key = (project_id, number)
+        try:
+            device = str(self.store(project_id).get(number).get("device_choice") or "auto")
+        except RunNotFound:
+            device = "auto"  # deleted meanwhile: the job ends at once
         with self._lock:
             self._waiting.append(key)
             job = self._jobs.submit(
-                project_id, "training", lambda p: self._execute(key, p), {"number": number}
+                project_id,
+                "training",
+                lambda p: self._execute(key, p),
+                {"number": number},
+                device=self._lane(device),
             )
             self._job_ids[key] = job.id
         self._write_positions()
@@ -801,6 +869,8 @@ class TrainingRunner:
         if proc is not None:
             kill_tree(proc)
         if run["status"] == QUEUED and (was_waiting or not job_id):
+            with self._lock:
+                self._positions.pop(key, None)
             run = store.update(number, status=CANCELLED, finished=now(), queue_position=None, phase="")
             self._write_positions()
         elif run["status"] == RUNNING:
@@ -841,13 +911,24 @@ class TrainingRunner:
         if ((card.get("exports") or {}).get(fmt) or {}).get("status") in (QUEUED, RUNNING):
             return card
         card = store.set_export(number, fmt, status=QUEUED, error="", message="", requested=now())
+        self._submit_export(project_id, number, fmt)
+        return card
+
+    def _submit_export(self, project_id: int, number: int, fmt: str) -> None:
+        """Put the job of an export (already marked queued on the model card) in the queue, on the CPU lane.
+
+        Args:
+            project_id: id of the project.
+            number: number of the saved model.
+            fmt: export format.
+        """
         self._jobs.submit(
             project_id,
             "export",
             lambda p: self._export(project_id, number, fmt, p),
             {"number": number, "format": fmt},
+            device=CPU,
         )
-        return card
 
     def enqueue_preannotation(self, project_id: int, number: int) -> None:
         """Queue a stored pre-annotation run (in the same queue as the training runs).
@@ -856,8 +937,17 @@ class TrainingRunner:
             project_id: id of the project.
             number: number of the pre-annotation run.
         """
+        try:
+            run = preannotate.PreannotationStore(self._project_dir(project_id)).get(number)
+            device = str(run.get("device") or "auto")
+        except preannotate.RunNotFound:
+            device = "auto"  # deleted meanwhile: the job ends at once
         job = self._jobs.submit(
-            project_id, "preannotate", lambda p: self._preannotate(project_id, number, p), {"number": number}
+            project_id,
+            "preannotate",
+            lambda p: self._preannotate(project_id, number, p),
+            {"number": number},
+            device=self._lane(device),
         )
         with self._lock:
             self._pre_jobs[(project_id, number)] = job.id
@@ -982,12 +1072,19 @@ class TrainingRunner:
         """
         return bool(self._jobs.active(project_id))
 
-    def recover(self) -> None:
-        """At startup: runs left ``running`` were interrupted (failed); queued ones go back in line.
+    def recover(self, others: Mapping[str, Restorer] | None = None) -> None:
+        """At startup: what was waiting goes back in line in its old order; what was running was interrupted.
 
-        Exports and pre-annotations left queued or running were interrupted too (they can be asked again),
-        and temporary folders left by a process that was killed are removed. A failing step is logged
-        and skipped: it never stops the app from starting.
+        The order is the one ``queue.json`` kept (:meth:`Scheduler.saved`), across projects and kinds of
+        work; runs, pre-annotations and exports whose store says queued but that the file does not list (a
+        lost file, an older version) follow, oldest first. Runs left running fail with ``interrupted`` and
+        can be resumed (#321); pre-annotations and exports left running fail the same way and can be asked
+        again. Temporary folders left by a killed process are removed. A failing step is logged and
+        skipped: it never stops the app from starting.
+
+        Args:
+            others: how to queue again the saved jobs of the rest of the app, by kind (``analyze``,
+                ``video_task``...); saved jobs of other kinds are dropped.
         """
         try:
             if self.tmp_root.exists():
@@ -1000,26 +1097,53 @@ class TrainingRunner:
         except Exception:  # noqa: BLE001 - startup must go on
             LOG.exception("Could not list the projects to recover")
             return
+        pending: list[QueueKey] = []
         for project_id in project_ids:
-            self._recover_tools(project_id)
-        queued: list[tuple[int, int]] = []
+            pending.extend(self._recover_tools(project_id))
         for project_id in project_ids:
             try:
                 store = self.store(project_id)
                 for number in store.numbers():  # oldest first
                     try:
-                        queued.extend(self._recover_run(store, project_id, store.get(number)))
+                        pending.extend(self._recover_run(store, project_id, store.get(number)))
                     except Exception:  # noqa: BLE001 - one broken run must not stop the others
                         LOG.exception("Could not recover run %s of project %s", number, project_id)
             except Exception:  # noqa: BLE001
                 LOG.exception("Could not recover the runs of project %s", project_id)
-        for project_id, number in queued:
+        restorers = dict(others or {})
+        for entry in self._jobs.scheduler.saved():
+            if entry.get("status") != QUEUED:
+                continue
+            key = saved_key(entry)
             try:
-                self.enqueue(project_id, number)
+                if key is not None and key in pending:
+                    pending.remove(key)
+                    self._requeue(key)
+                elif key is None and str(entry.get("kind")) in restorers:
+                    restorers[str(entry.get("kind"))](entry)
+            except Exception:  # noqa: BLE001 - one job must not stop the others
+                LOG.exception("Could not queue the saved job %s again", entry.get("id"))
+        for key in pending:
+            try:
+                self._requeue(key)
             except Exception:  # noqa: BLE001
-                LOG.exception("Could not queue run %s of project %s again", number, project_id)
+                LOG.exception("Could not queue %s again", key)
 
-    def _recover_run(self, store: RunStore, project_id: int, run: dict[str, Any]) -> list[tuple[int, int]]:
+    def _requeue(self, key: QueueKey) -> None:
+        """Queue again a run, pre-annotation or export its store says is queued.
+
+        Args:
+            key: ``(kind, project id, number, format)``.
+        """
+        kind, project_id, number, fmt = key
+        if kind == "training":
+            self.enqueue(project_id, number)
+        elif kind == "preannotate":
+            self.enqueue_preannotation(project_id, number)
+        else:
+            self._submit_export(project_id, number, fmt)
+
+    def _recover_run(self, store: RunStore, project_id: int, run: dict[str, Any]) -> list[QueueKey]:
         """Fail a run left running (and its unfinished children); report a queued one to be queued again.
 
         Args:
@@ -1028,7 +1152,7 @@ class TrainingRunner:
             run: the run as stored.
 
         Returns:
-            ``[(project_id, number)]`` when the run was queued, otherwise an empty list.
+            ``[("training", project_id, number, "")]`` when the run was queued, otherwise an empty list.
         """
         number = run["number"]
         if run["status"] == RUNNING:
@@ -1051,35 +1175,71 @@ class TrainingRunner:
                 **fields,
             )
         elif run["status"] == QUEUED:
-            return [(project_id, number)]
+            return [("training", project_id, number, "")]
         return []
 
-    def _recover_tools(self, project_id: int) -> None:
-        """Pre-annotations and exports left queued or running are marked as interrupted.
+    def _recover_tools(self, project_id: int) -> list[QueueKey]:
+        """Pre-annotations and exports left running were interrupted; the queued ones are reported.
 
         Args:
             project_id: id of the project.
+
+        Returns:
+            The queued pre-annotations and exports, to be queued again (pre-annotations first, oldest first).
         """
+        queued: list[QueueKey] = []
         try:
             pre = preannotate.PreannotationStore(self._project_dir(project_id))
-            for run in pre.list():
-                if run["status"] in (QUEUED, RUNNING):
+            for run in sorted(pre.list(), key=lambda r: int(r["number"])):
+                if run["status"] == RUNNING:
                     pre.update(run["number"], status=FAILED, error="interrupted", finished=now())
+                elif run["status"] == QUEUED:
+                    queued.append(("preannotate", project_id, int(run["number"]), ""))
         except Exception:  # noqa: BLE001
             LOG.exception("Could not recover the pre-annotations of project %s", project_id)
         try:
             models = ModelStore(self._project_dir(project_id))
             for card in models.list():
                 for fmt, export in (card.get("exports") or {}).items():
-                    if (export or {}).get("status") in (QUEUED, RUNNING):
+                    status = (export or {}).get("status")
+                    if status == RUNNING:
                         models.set_export(
                             card["number"], fmt, status=FAILED, error="interrupted", finished=now()
                         )
+                    elif status == QUEUED:
+                        queued.append(("export", project_id, int(card["number"]), str(fmt)))
         except Exception:  # noqa: BLE001
             LOG.exception("Could not recover the exports of project %s", project_id)
+        return queued
+
+    def cancel_job(self, job_id: str) -> bool:
+        """Cancel one of the runner's jobs by its id (the global queue's cancel button).
+
+        A training run or a pre-annotation is cancelled as from its own page (its process is killed and its
+        store updated); an export is asked to stop.
+
+        Args:
+            job_id: id of the job.
+
+        Returns:
+            True when the job is the runner's; False when the runner does not know it.
+        """
+        try:
+            job = self._jobs.get(job_id)
+        except KeyError:
+            return False
+        number = int(job.params.get("number", 0))
+        if job.kind == "training":
+            self.cancel(job.project_id, number)
+        elif job.kind == "preannotate":
+            self.cancel_preannotation(job.project_id, number)
+        else:
+            self._jobs.cancel(job_id)
+        return True
 
     def shutdown(self) -> None:
-        """Stop the running process (if any) and the queue."""
+        """Stop the running processes and the queue; what was running is recorded as interrupted."""
+        self._closing = True
         self._jobs.shutdown()
         with self._lock:
             procs = [*self._procs.values(), *self._export_procs.values()]
@@ -1453,12 +1613,20 @@ class TrainingRunner:
     # -- one run -----------------------------------------------------------
 
     def _write_positions(self) -> None:
-        """Write the queue position (from 1) on every run still waiting."""
+        """Write the queue position (from 1, in the run's device lane) on every run still waiting.
+
+        Called after every change of the global queue; a run whose position did not change is not written.
+        """
         with self._lock:
-            waiting = list(self._waiting)
-        for position, (project_id, number) in enumerate(waiting, start=1):
+            waiting = [(key, self._job_ids.get(key)) for key in self._waiting]
+        for key, job_id in waiting:
+            position = self._jobs.scheduler.position(job_id) if job_id else None
+            with self._lock:
+                if position is None or self._positions.get(key) == position or key not in self._waiting:
+                    continue
+                self._positions[key] = position
             try:
-                self.store(project_id).update(number, queue_position=position)
+                self.store(key[0]).update(key[1], queue_position=position)
             except (RunNotFound, KeyError):
                 continue
 
@@ -1477,7 +1645,7 @@ class TrainingRunner:
         with self._lock:
             if key in self._waiting:
                 self._waiting.remove(key)
-        self._write_positions()
+            self._positions.pop(key, None)
         try:
             waiting = store.get(number)["status"] == QUEUED
         except RunNotFound:
@@ -1490,7 +1658,10 @@ class TrainingRunner:
         try:
             self._run(key, store, progress)
         except Cancelled:
-            store.update(number, status=CANCELLED, finished=now(), phase="")
+            if self._closing:  # the app is stopping: the run was interrupted and can be resumed
+                store.update(number, status=FAILED, error="interrupted", finished=now(), phase="")
+            else:
+                store.update(number, status=CANCELLED, finished=now(), phase="")
         except Exception as exc:  # noqa: BLE001 - shown to the person
             store.update(number, status=FAILED, finished=now(), phase="", **failure_fields(exc))
         else:
