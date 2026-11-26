@@ -867,3 +867,60 @@ def test_cancel_job_of_a_queued_preannotation_and_export(setup):
 def test_cancel_job_of_an_unknown_job_is_false(setup):
     _, _, runner = setup
     assert runner.cancel_job("nothing") is False
+
+
+# -- downloaded pretrained weights are deleted with the run (#643) ------------------------------
+
+
+@pytest.mark.parametrize("fake", ["ok", "fail"])
+def test_downloaded_weights_are_deleted_and_recorded(setup, fake):
+    _, state, runner = setup
+    n = new_run(state, epochs=2, download=64, fake=fake)
+    runner.enqueue(1, n)
+    store = RunStore(state.store.dir(1))
+    wait_for(finished(store, n))
+    run = wait_for(lambda: store.get(n) if store.get(n).get("downloads") else None)
+    assert run["downloads"] == {
+        "files": [
+            {"name": "torch/hub/checkpoints/fake-backbone.pth", "bytes": 64},
+            {"name": "yolo-fake.pt", "bytes": 64},
+        ],
+        "bytes": 128,
+        "deleted": True,
+    }
+    assert tmp_dirs(runner) == []
+    if fake == "ok":  # the trained weights stay in the run's own folder
+        assert (store.path(n) / "best.pt").exists() and (store.path(n) / "last.pt").exists()
+
+
+def test_cancelled_run_deletes_its_downloads(setup):
+    _, state, runner = setup
+    n = new_run(state, download=8, fake="sleep")
+    runner.enqueue(1, n)
+    store = RunStore(state.store.dir(1))
+    wait_for(lambda: store.get(n)["status"] == "running" and store.get(n).get("epoch"))
+    runner.cancel(1, n)
+    run = wait_for(lambda: store.get(n) if store.get(n).get("downloads") else None)
+    assert run["status"] == "cancelled" and run["downloads"]["deleted"] is True
+    assert run["downloads"]["bytes"] == 16 and tmp_dirs(runner) == []
+
+
+def test_download_env_sends_ultralytics_settings_inside(tmp_path):
+    assert download_env(tmp_path)["YOLO_CONFIG_DIR"] == str(tmp_path / "yolo-config")
+
+
+def _deleted_run(**_fields):
+    raise KeyError("gone")
+
+
+def _broken_store(**_fields):
+    raise OSError("disk")
+
+
+def test_record_downloads_survives_a_deleted_run_or_a_failing_write(tmp_path, caplog):
+    for update in (_deleted_run, _broken_store):
+        tmp = tmp_path / update.__name__
+        tmp.mkdir()
+        runner_module.TrainingRunner._record_downloads(update, tmp)
+        assert not tmp.exists()
+    assert "Could not record the downloads" in caplog.text

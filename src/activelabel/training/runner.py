@@ -45,7 +45,7 @@ from activelabel.projects import ProjectStore
 from activelabel.scheduler import CPU, Scheduler, device_lane
 from activelabel.storage import now, write_json
 from activelabel.tasks import Task
-from activelabel.training import augmentations
+from activelabel.training import augmentations, downloads
 from activelabel.training.catalog import ModelSpec, get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
@@ -222,6 +222,7 @@ def download_env(tmp: Path) -> dict[str, str]:
         "HF_HOME": tmp / "hf",
         "XDG_CACHE_HOME": tmp / "cache",
         "PIP_CACHE_DIR": tmp / "pip",
+        "YOLO_CONFIG_DIR": tmp / "yolo-config",  # Ultralytics settings; its weights go to the working folder
         "TMPDIR": tmp,
         "TEMP": tmp,
         "TMP": tmp,
@@ -1510,7 +1511,7 @@ class TrainingRunner:
             with self._lock:
                 self._pre_jobs.pop((project_id, number), None)
             if tmp is not None:
-                _remove_tree(tmp)
+                self._record_downloads(lambda **f: runs.update(number, **f), tmp)
 
     def _run_export(
         self,
@@ -1630,6 +1631,22 @@ class TrainingRunner:
             except (RunNotFound, KeyError):
                 continue
 
+    @staticmethod
+    def _record_downloads(update: Callable[..., Any], tmp: Path) -> None:
+        """Delete a job's temporary folder and record on the job what it had downloaded (``downloads``).
+
+        Args:
+            update: writes fields on the run or pre-annotation run.
+            tmp: the temporary folder of the job.
+        """
+        report = downloads.clean(tmp, _remove_tree)
+        try:
+            update(downloads=report)
+        except (KeyError, RunNotFound, preannotate.RunNotFound):
+            pass  # the run was deleted meanwhile
+        except Exception:  # noqa: BLE001 - the outcome of the job is already recorded
+            LOG.exception("Could not record the downloads of %s", tmp.name)
+
     def _execute(self, key: tuple[int, int], progress: Progress) -> None:
         """Job of a training run: mark it running, call ``_run`` and record done, cancelled or failed.
 
@@ -1677,7 +1694,7 @@ class TrainingRunner:
                 self._job_ids.pop(key, None)
                 tmp = self._tmp.pop(key, None)
             if tmp is not None:
-                _remove_tree(tmp)
+                self._record_downloads(lambda **f: store.update(number, **f), tmp)
 
     def _run(self, key: tuple[int, int], store: RunStore, progress: Progress) -> None:
         """Prepare the environment and the temporary folder, then train (one training or the children).
