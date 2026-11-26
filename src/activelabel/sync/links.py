@@ -289,10 +289,11 @@ def load_links(project_dir: Path) -> dict[str, dict[str, Any]]:
         project_dir: Folder of the project.
 
     Returns:
-        ``{tool: link}``; empty when the file is missing or malformed.
+        ``{tool: link}``; empty when the file is missing or malformed. An entry that is not a link (a value
+        that is not an object, as a newer version might add) is left out.
     """
     data = read_json(_file(project_dir), {})
-    return data if isinstance(data, dict) else {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
 
 
 def get_link(project_dir: Path, tool: str) -> dict[str, Any] | None:

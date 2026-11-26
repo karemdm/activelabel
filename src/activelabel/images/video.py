@@ -18,7 +18,7 @@ import cv2
 
 from activelabel.errors import CodedError
 from activelabel.jobs import Progress
-from activelabel.storage import read_json, write_json
+from activelabel.storage import known_fields, read_json, write_json
 
 VIDEO_EXTENSIONS = frozenset({".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"})
 JPEG_QUALITY = 95
@@ -124,7 +124,7 @@ class VideoStore:
         Returns:
             The metadata of each stored video.
         """
-        return [VideoInfo(**item) for item in read_json(self.path, [])]
+        return [VideoInfo(**known_fields(VideoInfo, item)) for item in read_json(self.path, [])]
 
     def get(self, video_id: str) -> VideoInfo:
         """One video.

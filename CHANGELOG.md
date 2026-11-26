@@ -48,6 +48,9 @@ Everything below goes into the first release, 0.1.0.
   Windows and macOS from a path with accents and spaces; JavaScript and Playwright tests; a nightly run
   against a real CVAT; a wheel check in a clean environment; one version source (the git tag) and a
   release workflow that creates a draft release (RELEASING.md).
+- **Format version of the stored data.** JSON files carry `format_version`; older files are read as they are,
+  and a migration at start-up copies the files first, only adds fields and can run again safely
+  (docs/DESIGN.md, *Format version*).
 
 ### Removed
 

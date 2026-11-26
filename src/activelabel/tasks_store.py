@@ -18,7 +18,7 @@ from typing import Any
 
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
-from activelabel.storage import now, read_json, write_json
+from activelabel.storage import known_fields, now, read_json, write_json
 from activelabel.textcheck import has_control_characters
 
 MAX_NAME = 100
@@ -238,7 +238,10 @@ class TaskStore:
             tasks = [ImageTask(1, "Task 1", now(), None, [r.id for r in records])]
             self._write(2, tasks)
             return 2, tasks
-        next_id, tasks = int(data["next_id"]), [ImageTask(**t) for t in data["tasks"]]
+        next_id, tasks = (
+            int(data["next_id"]),
+            [ImageTask(**known_fields(ImageTask, t)) for t in data["tasks"]],
+        )
         placed = {i for t in tasks for i in t.images} | set(registering)
         orphans = [i for i in Manifest(self.project_dir).load() if i not in placed]
         if orphans:  # images added by code that does not know about tasks
@@ -268,7 +271,7 @@ class TaskStore:
         """
         if not self._lock.acquire(blocking=False):
             data = read_json(self.path)
-            return [ImageTask(**t) for t in data["tasks"]] if data else []
+            return [ImageTask(**known_fields(ImageTask, t)) for t in data["tasks"]] if data else []
         try:
             return self._read()[1]
         finally:

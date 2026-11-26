@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from activelabel.errors import CodedError
-from activelabel.storage import DamagedFile, now, read_json, write_json
+from activelabel.storage import DamagedFile, known_fields, now, read_json, write_json
 from activelabel.tasks import Task
 from activelabel.textcheck import has_control_characters
 
@@ -65,12 +65,12 @@ class Project:
         """Inverse of :meth:`as_dict`.
 
         Args:
-            data: the content of ``project.json``.
+            data: the content of ``project.json`` (fields a newer version added are left out).
 
         Returns:
             The project.
         """
-        return cls(**{**data, "task": Task(data["task"])})
+        return cls(**{**known_fields(cls, data), "task": Task(data["task"])})
 
 
 def check_classes(classes: list[str] | tuple[str, ...]) -> None:

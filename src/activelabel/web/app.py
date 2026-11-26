@@ -18,6 +18,7 @@ from starlette.types import Scope
 from activelabel import __version__
 from activelabel.annotations import cleanup_staging
 from activelabel.config import Settings
+from activelabel.migrations import migrate
 from activelabel.web import (
     annotate_api,
     api,
@@ -74,7 +75,7 @@ class RevalidatedStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(state: AppState, app: FastAPI) -> AsyncIterator[None]:
-    """Start-up and shutdown of the server: recover interrupted runs, clean staging, stop the workers.
+    """Start-up and shutdown: migrate the stored format, recover runs, clean staging, stop the workers.
 
     Args:
         state: The shared state of the application.
@@ -83,6 +84,7 @@ async def lifespan(state: AppState, app: FastAPI) -> AsyncIterator[None]:
     Yields:
         Once, while the server is running.
     """
+    migrate(state.settings.workspace)  # nothing is written when the data needs no change
     state.runner.recover()
     for project in state.store.list():  # staged annotation files nobody applied or discarded
         cleanup_staging(state.store.dir(project.id))

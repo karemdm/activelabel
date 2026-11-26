@@ -81,6 +81,8 @@ flowchart TB
 - A label is `{label, bbox | polygons | keypoints, score?, track?, model?}` with coordinates relative to
   the image (0 to 1). A `score` marks a pre-annotation that nobody reviewed.
 - Numbers (projects, tasks, dataset versions, runs, models) are never reused.
+- Stored files carry a format version (`format_version`); the server migrates older data when it starts, after
+  copying it to `format-backups/`, and a migration only adds fields (see DESIGN.md, *Format version*).
 - The folder layout and the files are listed in [DESIGN.md](DESIGN.md).
 
 ## 3. User workflow
