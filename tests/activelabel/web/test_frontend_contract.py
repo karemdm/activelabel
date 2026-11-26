@@ -856,3 +856,24 @@ def test_the_new_task_placeholder_is_the_name_the_server_gives():
     assert "nextTaskNumber(tasks)" in images
     assert tasks_store._DEFAULT_NAME.pattern == r"task (\d+)"
     assert r"/^task (\d+)$/i" in names
+
+
+def test_numbers_dates_and_run_names_use_the_shared_helpers():
+    """#548: number formats live in ``shell/i18n.js``; versions and models show the time; runs are ``#n``."""
+    js = STATIC / "js"
+    for path in (js / "cv").glob("*.js"):
+        text = path.read_text(encoding="utf-8")
+        assert "maximumFractionDigits: 3" not in text, path.name
+        assert "maximumFractionDigits: 4" not in text, path.name
+    for name in ("training.js", "models.js"):
+        assert "fmtDate(" not in (js / "cv" / name).read_text(encoding="utf-8"), name
+    assert "export const runName" in (js / "shell" / "i18n.js").read_text(encoding="utf-8")
+    assert "new Set(Object.values(m.mapping" in (js / "cv" / "models.js").read_text(encoding="utf-8")
+
+
+def test_the_delete_dialogs_use_the_same_verb_in_portuguese():
+    """#548: "Apagar v1?" is followed by "Apagar ... mesmo assim", not by a second verb."""
+    pt = json.loads((Path(i18n.__file__).parent / "pt.json").read_text(encoding="utf-8"))
+    assert pt["ds.delete_title"].startswith("Apagar") and pt["ds.delete_used_title"].startswith("Apagar")
+    assert pt["ds.delete_used_confirm"].startswith("Apagar")
+    assert "Excluir" not in pt["ds.delete_used_title"] + pt["ds.delete_used_text"]
