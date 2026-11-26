@@ -15,7 +15,14 @@ from activelabel.annotations.parsing import (
     unreadable_file,
 )
 from activelabel.annotations.staging import cleanup as cleanup_staging
-from activelabel.annotations.staging import discard_staged, load_staged, set_target, stage
+from activelabel.annotations.staging import (
+    discard_staged,
+    load_staged,
+    pending_report,
+    set_report,
+    set_target,
+    stage,
+)
 from activelabel.annotations.target import VideoTarget, build_target, video_tasks
 from activelabel.annotations.validation import validate
 
@@ -36,7 +43,9 @@ __all__ = [
     "discard_staged",
     "folder_classes",
     "load_staged",
+    "pending_report",
     "parse",
+    "set_report",
     "set_target",
     "stage",
     "unreadable_file",

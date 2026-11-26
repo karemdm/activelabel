@@ -82,7 +82,7 @@ Principles (from what went wrong in the previous tool):
   videos/<id>.<ext>   original videos; their selected frames become images
   images/<id>.<ext>   original files (never re-encoded)
   thumbs/<id>.jpg     thumbnails (cache)
-  staging/<token>/    annotation files waiting for a decision (+ <token>.target.json: the video task)
+  staging/<token>/    annotation files waiting for a decision (+ .report.json: their report; <token>.target.json: the video task)
 ```
 
 **Format version.** Every JSON object the workspace writes starts with `"format_version": N` (now 1), except
@@ -249,6 +249,7 @@ running.
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
 | POST | `/projects/{id}/annotations` | multipart `files`, optional `task` (video task id), `class_name` | validation report + `token` (+ `task`) |
+| GET | `/projects/{id}/annotations/pending` | | `{report}`: the report of the last check not yet applied or discarded (kept in `staging/<token>/.report.json`), or `null` |
 | POST | `/projects/{id}/annotations/{token}/apply` | `{action, mode}` (`action`: `import`, `change_task_and_import`, `convert_and_import` or `discard`; `mode`: `replace` by default, or `merge`) | import summary |
 | DELETE | `/projects/{id}/annotations/{token}` | | discard staged files |
 | GET | `/projects/{id}/annotations` | | summary of the ground truth |

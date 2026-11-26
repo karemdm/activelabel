@@ -16,6 +16,7 @@ from activelabel.annotations.folders import folder_classes
 from activelabel.errors import CodedError
 
 STAGING = "staging"
+REPORT_NAME = ".report.json"  # the report of the check, inside the staging folder (not an annotation file)
 MAX_AGE_SECONDS = 24 * 3600
 MAX_TOTAL_BYTES = 1024**3
 ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names"}
@@ -194,7 +195,7 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
         token: the staging token.
 
     Returns:
-        The files of the staging folder, sorted.
+        The files of the staging folder, sorted (not the report kept by :func:`set_report`).
 
     Raises:
         CodedError: invalid token.
@@ -204,7 +205,7 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
     folder = project_dir / STAGING / token
     if not folder.is_dir():
         raise FileNotFoundError(f"Staging {token} not found.")
-    return sorted(p for p in folder.rglob("*") if p.is_file())
+    return sorted(p for p in folder.rglob("*") if p.is_file() and p.name != REPORT_NAME)
 
 
 def _target_file(project_dir: Path, token: str) -> Path:
@@ -250,8 +251,44 @@ def get_target(project_dir: Path, token: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def set_report(project_dir: Path, token: str, report: dict[str, Any]) -> None:
+    """Keep the report of a check inside its staging folder, so it can be shown again after a reload.
+
+    It lives as long as the staged files: until they are applied, discarded or expire.
+
+    Args:
+        project_dir: the project's folder.
+        token: the staging token the report belongs to.
+        report: the report, as the check returns it (JSON-serialisable, with its ``token``).
+    """
+    _check_token(token)
+    (project_dir / STAGING / token / REPORT_NAME).write_text(json.dumps(report), encoding="utf-8")
+
+
+def pending_report(project_dir: Path) -> dict[str, Any] | None:
+    """The report of the latest check whose files were neither applied nor discarded, or None.
+
+    Args:
+        project_dir: the project's folder.
+
+    Returns:
+        The report kept by :func:`set_report` in the newest staging folder that has one; None when there
+        is none (or it is unreadable).
+    """
+    root = project_dir / STAGING
+    found = sorted(root.glob(f"*/{REPORT_NAME}"), key=lambda p: p.stat().st_mtime) if root.is_dir() else []
+    for path in reversed(found):
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(report, dict):
+            return report
+    return None
+
+
 def discard_staged(project_dir: Path, token: str) -> None:
-    """Delete a staging folder (no error when it is already gone).
+    """Delete a staging folder (with its report) and its target (no error when it is already gone).
 
     Args:
         project_dir: the project's folder.

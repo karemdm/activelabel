@@ -51,7 +51,8 @@ Annotation files (or a .zip) of an existing project follow a check-then-apply fl
 (`POST /projects/{id}/annotations`, then `POST .../{token}/apply`, docs/DESIGN.md): the files are kept
 aside in `staging/<token>/`, the format is detected, the files are matched with the images, and a report
 says what was found and what was left out and why. Nothing changes until the person chooses an action. While
-that report waits for a decision, leaving the page (a link, the language switch, closing the tab) asks for
+that report waits for a decision it is kept with the files and shown again after a reload (`GET .../annotations/pending`),
+until it is applied or discarded; leaving the page (a link, the language switch, closing the tab) asks for
 confirmation first.
 
 - **Formats** are detected by content (`detect_format`): COCO (`.json` with `images` and `annotations`), YOLO

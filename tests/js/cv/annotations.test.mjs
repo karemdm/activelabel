@@ -32,3 +32,39 @@ test('the Annotations step is a hidden panel with its tabs, and it can open pre-
   panel.preannotateWith(3);
   assert.ok(tabs.includes('selected:preannotate'));
 });
+
+test('the import report comes back after a reload, with one message for the unmatched annotations', async () => {
+  setMessages({ 'ann.report_title': 'Check of the files', 'problem.no_images_matched': 'Nothing matches', 'ann.unmatched_other': '{n} unmatched' }, 'en');
+  const page = {
+    ctx: { project: { id: 1, task: 'detection', classes: [], counts: {} }, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} },
+    projectId: 1, refreshProject: async () => true,
+    tabsView: (key, label, list) => {
+      const node = document.createElement('div');
+      list.forEach((x) => (x.nodes || []).forEach((n) => node.append(n)));
+      return { node, select: () => {}, current: () => list[0].id, setCount: () => {} };
+    },
+    isActive: () => false, jobStarted: async () => {}, startSync: async () => {}, diffView: () => null, issueName: (x) => x,
+    syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+  };
+  const report = {
+    token: 'a'.repeat(16), format: 'coco', inferred_task: 'detection', counts: {}, classes_found: [], options: ['discard'],
+    problems: [{ level: 'error', code: 'no_images_matched', message: 'x', count: 3, examples: ['a.png'] }],
+    unmatched: { count: 3, examples: ['a.png'] },
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const body = String(url).endsWith('/annotations/pending') ? { report } : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    const panel = annotationsPanel(page);
+    document.body.append(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const text = panel.node.querySelector('.ann-report').textContent;
+    assert.ok(text.includes('Check of the files') && text.includes('Nothing matches'));
+    assert.ok(!text.includes('3 unmatched'));  // the problem row already says it
+  } finally {
+    globalThis.fetch = real;
+  }
+});
