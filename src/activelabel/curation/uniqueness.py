@@ -9,14 +9,12 @@ two chunks. The state and the scores are kept in ``uniqueness.json``.
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
-from activelabel.storage import read_json, write_json
+from activelabel.curation.state_store import StateStore
 
 STATE_FILE = "uniqueness.json"
 #: Weights of the distances to the 1st, 2nd and 3rd nearest images (as in FiftyOne Brain).
@@ -25,22 +23,6 @@ WEIGHTS = (0.6, 0.3, 0.1)
 EPSILON = 1e-5
 #: Floats of the distance block computed at once (rows x images), about 16 MB.
 BLOCK = 4_000_000
-
-_locks: dict[Path, threading.RLock] = {}
-_locks_guard = threading.Lock()
-
-
-def _lock(path: Path) -> threading.RLock:
-    """The lock of one state file (shared by every store of the same project).
-
-    Args:
-        path: The state file.
-
-    Returns:
-        Its lock.
-    """
-    with _locks_guard:
-        return _locks.setdefault(path.resolve(), threading.RLock())
 
 
 def scores(vectors: np.ndarray, check: Callable[[int, int], None] | None = None) -> np.ndarray:
@@ -77,8 +59,8 @@ def scores(vectors: np.ndarray, check: Callable[[int, int], None] | None = None)
     return raw / top
 
 
-class UniquenessStore:
-    """The uniqueness file of one project."""
+class UniquenessStore(StateStore):
+    """The uniqueness file of one project (``scores``: image id to score)."""
 
     def __init__(self, project_dir: Path) -> None:
         """Bind the store to a project folder.
@@ -86,32 +68,4 @@ class UniquenessStore:
         Args:
             project_dir: Folder of the project.
         """
-        self.path = Path(project_dir) / STATE_FILE
-        self.lock = _lock(self.path)  # held by whoever reads, changes and writes the state together
-
-    def read(self) -> dict[str, Any]:
-        """The state of the last computation.
-
-        Returns:
-            The saved state (``scores``: image id to score); ``{}`` when it was never computed.
-        """
-        data = read_json(self.path, {})
-        return data if isinstance(data, dict) else {}
-
-    def update(self, **fields: Any) -> dict[str, Any]:
-        """Change some fields of the state and save it.
-
-        Args:
-            **fields: The fields to set.
-
-        Returns:
-            The whole state after the change.
-        """
-        with self.lock:
-            data = {**self.read(), **fields}
-            write_json(self.path, data, indent=None)
-        return data
-
-    def clear(self) -> None:
-        """Delete the scores."""
-        self.path.unlink(missing_ok=True)
+        super().__init__(project_dir, STATE_FILE)

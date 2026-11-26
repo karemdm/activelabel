@@ -1,12 +1,11 @@
 import importlib.util
 import json
-import textwrap
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
-from training_fakes import tmp_dirs, wait_for
+from training_fakes import FAKE_PREDICT, tmp_dirs, wait_for
 
 from activelabel import jobs, preannotate
 from activelabel.annotate.sessions import select_images
@@ -16,25 +15,9 @@ from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 from activelabel.training import runs
 from activelabel.training.config import RunConfig
+from activelabel.training.models import ModelNotFound, ModelStore
+from activelabel.training.runner import Predictor, RunnerError
 from activelabel.training.runs import RunStore
-
-FAKE_PREDICT = textwrap.dedent(
-    """
-    import json, sys
-    from pathlib import Path
-
-    spec = json.loads(Path(sys.argv[1]).read_text())
-    (Path(spec["checkpoint"]).parent / "predict_spec.json").write_text(json.dumps(spec))
-    if spec["threshold"] > 0.95:
-        print(json.dumps({"event": "error", "message": "too strict"}), flush=True)
-        sys.exit(1)
-    for step, item in enumerate(spec["items"], start=1):
-        labels = [] if step == 1 else [{"label": "a", "score": 0.9, "model": spec["model"]}]
-        print(json.dumps({"event": "prediction", "id": item["id"], "labels": labels}), flush=True)
-        print(json.dumps({"event": "progress", "step": step, "steps": len(spec["items"])}), flush=True)
-    print(json.dumps({"event": "done", "results": {"images": len(spec["items"]) - 1}}), flush=True)
-    """
-)
 
 
 @pytest.fixture
@@ -472,3 +455,90 @@ def test_without_settings_the_defaults_of_the_kind_are_used(pre):
         "b",
     ]
     wait_for(lambda: client.get("/api/projects/1/preannotations").json()["runs"][0]["status"] == "done")
+
+
+def predict_items(state, count=3):
+    manifest = state.manifest(1)
+    return [{"id": r.id, "path": str(manifest.file_path(r))} for r in manifest.active()][:count]
+
+
+def test_predictor_checks_a_saved_model_for_the_project(pre):
+    client, state, runner, _ = pre
+    predictor = runner.predictor(1, 1)
+    assert isinstance(predictor, Predictor) and predictor.kind == "classification"
+    assert predictor.card["number"] == 1 and predictor.removed == [] and predictor.public is None
+    assert predictor.model.task_kind == "classification" and "torch" in predictor.packages
+    assert predictor.folder == ModelStore(state.store.dir(1)).path(1)
+    assert predictor.project.id == 1
+    with pytest.raises(ModelNotFound):
+        runner.predictor(1, 9)
+
+
+def test_predictor_refuses_a_model_that_does_not_fit_the_project(pre):
+    client, state, runner, _ = pre
+    project_dir = state.store.dir(1)
+    card_file = ModelStore(project_dir).path(1) / "model.json"
+    card = json.loads(card_file.read_text(encoding="utf-8"))
+    card_file.write_text(json.dumps({**card, "classes": ["x", "y"]}), encoding="utf-8")
+    with pytest.raises(RunnerError, match="None of the classes"):
+        runner.predictor(1, 1)
+    card_file.write_text(json.dumps({**card, "classes": ["a", "y"]}), encoding="utf-8")
+    assert runner.predictor(1, 1).removed == ["y"]
+    state.store.update(1, task="detection")
+    with pytest.raises(RunnerError, match="the project is now"):
+        runner.predictor(1, 1)
+
+
+def test_the_prediction_spec_is_what_the_worker_reads(pre):
+    client, state, runner, _ = pre
+    predictor = runner.predictor(1, 1)
+    items = predict_items(state)
+    spec = runner.prediction_spec(predictor, items, {"confidence": 0.3}, ["a"], "cpu")
+    assert spec["task"] == "classification" and spec["classes"] == ["a", "b"] and spec["threshold"] == 0.3
+    assert spec["keep"] == ["a"] and spec["items"] == items and spec["device"] == "cpu"
+    assert spec["model"] == "m1" and spec["worker"] == "fake_worker" and "logits" not in spec
+    assert spec["checkpoint"].endswith("best.pt") and spec["build"]["classes"] == ["a", "b"]
+    assert "public" not in spec
+
+
+def test_predict_runs_the_worker_and_cleans_its_folder(pre):
+    client, state, runner, _ = pre
+    predictor = runner.predictor(1, 1)
+    items = predict_items(state)
+    seen, told = [], []
+    log = state.store.dir(1) / "logs" / "predict.log"
+
+    def body(progress):
+        runner.predict(
+            1, predictor, items, {"confidence": 0.2}, "auto", progress, seen.append, log, told.append, True
+        )
+
+    job = runner.enqueue_tool(1, "check", body)
+    wait_for(lambda: runner.tool_job(job).status == "done")
+    predictions = [e for e in seen if e["event"] == "prediction"]
+    assert [p["id"] for p in predictions] == [i["id"] for i in items]
+    assert all(p["logits"] == [2.0, 0.0] for p in predictions)  # asked for the logits
+    assert told == ["train_env_install:torch"] and log.exists()
+    spec = json.loads((state.store.dir(1) / "models" / "m1" / "predict_spec.json").read_text())
+    assert spec["logits"] is True and spec["threshold"] == 0.2
+    assert tmp_dirs(runner) == []
+
+
+def test_predict_without_logits_and_a_failing_worker_still_clean_up(pre):
+    client, state, runner, _ = pre
+    predictor = runner.predictor(1, 1)
+    items = predict_items(state)
+    seen = []
+    log = state.store.dir(1) / "logs" / "predict.log"
+
+    def body(progress):
+        runner.predict(1, predictor, items, {"confidence": 0.2}, "auto", progress, seen.append, log, print)
+        with pytest.raises(RunnerError, match="too strict"):
+            runner.predict(
+                1, predictor, items, {"confidence": 0.99}, "auto", progress, seen.append, log, print
+            )
+
+    job = runner.enqueue_tool(1, "check", body)
+    wait_for(lambda: runner.tool_job(job).status == "done")
+    assert [e for e in seen if e["event"] == "prediction"] and all("logits" not in e for e in seen)
+    assert tmp_dirs(runner) == []
