@@ -1208,8 +1208,12 @@ def _queue_analysis(state: AppState, project_id: int, manifest: Manifest, recomp
         recompute: Measure every image again, also those already measured.
 
     Returns:
-        The queued job.
+        The queued job, or the analysis of the project already waiting or running (asking twice does not
+        queue the same work twice, #603).
     """
+    waiting = [j for j in state.jobs.active(project_id) if j.kind == "analyze"]
+    if waiting:
+        return waiting[0]
     job = partial(_analyze_job, manifest, state.store.dir(project_id), recompute)
     return state.jobs.submit(project_id, "analyze", job, {"recompute": recompute}, device=CPU)
 
