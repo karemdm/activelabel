@@ -1775,5 +1775,18 @@
   "cmp.need_one_more": "Marque mais um para comparar",
   "cmp.need_two": "Marque 2 ou mais para comparar",
   "cmp.clear": "Limpar",
-  "tr.compare_help": "Cada coluna é um treino; o melhor valor de cada linha fica em destaque."
+  "tr.compare_help": "Cada coluna é um treino; o melhor valor de cada linha fica em destaque.",
+  "queue.title": "Fila",
+  "queue.shortcut": "Treinos e atividades pesadas rodando e na fila (Alt+Q)",
+  "queue.help": "Treinos, pré-anotações, análises da curadoria e exportações rodam um de cada vez; o resto espera aqui.",
+  "queue.running": "Rodando",
+  "queue.position": "Na fila · {n}º",
+  "queue.waiting": "Na fila",
+  "queue.cancel": "Cancelar",
+  "queue.no_cancel": "Não pode ser cancelada",
+  "queue.empty": "Nada rodando nem na fila.",
+  "queue.button_n_one": "Fila: {n} atividade pesada",
+  "queue.button_n_other": "Fila: {n} atividades pesadas",
+  "queue.cancel_title": "Cancelar esta atividade?",
+  "queue.cancel_text": "{what} do projeto {project} para agora (ou sai da fila). O que já foi feito nela se perde."
 }

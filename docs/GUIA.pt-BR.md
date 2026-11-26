@@ -213,9 +213,11 @@ Os pesos são baixados a cada uso, numa pasta temporária apagada no fim; é pre
 As tarefas demoradas (análise, envio, sincronização, treinamento, exportação, pré-anotação)
 aparecem numa pequena pílula no canto inferior direito da página do projeto; ela abre um cartão com
 progresso, *Parar* e *Ver resultado*. Um sucesso some sozinho; uma falha fica vermelha até ser aberta ou
-dispensada no ×; as atividades concluídas ficam no histórico. Trabalho pesado (treinamento, pré-anotação, exportação, análise de
-curadoria, extração de vídeo) roda um por vez em cada dispositivo (CPU, cada GPU); os outros esperam numa
-fila global, que sobrevive a um reinício.
+dispensada no ×; as atividades concluídas ficam no histórico. Trabalho pesado (treinamento, pré-anotação,
+exportação, análise de curadoria, extração de vídeo) roda um por vez em cada dispositivo (CPU, cada GPU);
+os outros esperam numa fila global, que sobrevive a um reinício. O botão *Fila* na barra superior, em
+qualquer página (atalho Alt+Q), mostra o trabalho pesado de todos os projetos que roda ou espera, com a
+posição na fila, o progresso e *Cancelar*.
 
 Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos, em inglês),
 [DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês),

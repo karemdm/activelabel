@@ -165,7 +165,9 @@ small pill in the bottom-right corner of the project page; it opens a card with 
 (*Parar*) and *See result*. A success fades; a failure stays red until it is opened or dismissed;
 finished activities stay in the history. Heavy work (training, pre-annotation, export, curation
 analysis, video extraction) runs one job at a time per device (CPU, each GPU); the others wait in a
-global queue that survives a restart.
+global queue that survives a restart. *Queue* (*Fila*) in the top bar, on every page (shortcut Alt+Q),
+shows the heavy work of every project that runs or waits, with its place in the queue, progress and
+*Cancel*.
 
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),

@@ -7,6 +7,7 @@ import { nameErrorParams } from './shell/api.js';
 import { statusLabel, toolName } from './integrations/tools.js';
 import { partName, taskName } from './cv/names.js';
 import { initProject } from './cv/project.js';
+import { initQueue } from './cv/queue.js';
 import { initProjects } from './pages/projects.js';
 import { initNew } from './pages/new.js';
 import { initImport } from './pages/import.js';
@@ -27,6 +28,7 @@ nameErrorParams({
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
+  initQueue();
   const page = document.body.dataset.page;
   if (page === 'projects') initProjects();
   else if (page === 'new') initNew();

@@ -1775,5 +1775,18 @@
   "cmp.need_one_more": "Tick one more to compare",
   "cmp.need_two": "Tick 2 or more to compare",
   "cmp.clear": "Clear",
-  "tr.compare_help": "Each column is a run; the best value of each row is highlighted."
+  "tr.compare_help": "Each column is a run; the best value of each row is highlighted.",
+  "queue.title": "Queue",
+  "queue.shortcut": "Trainings and heavy work running and waiting (Alt+Q)",
+  "queue.help": "Trainings, pre-annotations, curation analyses and exports run one at a time; the rest waits here.",
+  "queue.running": "Running",
+  "queue.position": "Waiting · #{n}",
+  "queue.waiting": "Waiting",
+  "queue.cancel": "Cancel",
+  "queue.no_cancel": "Cannot be cancelled",
+  "queue.empty": "Nothing running or waiting.",
+  "queue.button_n_one": "Queue: {n} heavy job",
+  "queue.button_n_other": "Queue: {n} heavy jobs",
+  "queue.cancel_title": "Cancel this work?",
+  "queue.cancel_text": "{what} of project {project} stops now (or leaves the queue). What it has done so far is lost."
 }
