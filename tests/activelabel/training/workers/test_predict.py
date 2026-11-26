@@ -1,7 +1,9 @@
+import json
+
 import numpy as np
 import pytest
 from PIL import Image
-from worker_loader import load_worker
+from worker_loader import WORKERS, load_worker
 
 try:  # torch lives only in the worker environment; tests that need it are skipped without it
     import torch
@@ -133,3 +135,54 @@ def test_instance_masks_follow_the_mask_threshold(module):
     probabilities = torch.full((1, 1, 4, 4), 0.6)
     assert module.instance_masks(probabilities, 4, 4)[0].all()
     assert not module.instance_masks(probabilities, 4, 4, 0.7)[0].any()
+
+
+def classification_spec(tmp_path, logits):
+    """A spec for a small untrained classifier saved to ``tmp_path`` (no download: no pretrained weights)."""
+    checkpoint = tmp_path / "best.pt"
+    images = []
+    for n, colour in enumerate(((255, 0, 0), (0, 0, 255))):
+        path = tmp_path / f"{n}.png"
+        Image.new("RGB", (40, 30), colour).save(path)
+        images.append({"id": f"i{n}", "path": str(path)})
+    build = {
+        "model": "resnet18",
+        "family": "torchvision",
+        "classes": ["a", "b", "c"],
+        "params": {"image_size": 32},
+    }
+    return (
+        checkpoint,
+        build,
+        {
+            "task": "classification",
+            "classes": ["a", "b", "c"],
+            "threshold": 0.0,
+            "model": "m1",
+            "items": images,
+            "device": "cpu",
+            "checkpoint": str(checkpoint),
+            "worker": "classification",
+            "build": build,
+            "logits": logits,
+        },
+    )
+
+
+@pytest.mark.parametrize("logits", [True, False])
+def test_a_classification_sends_its_logits_on_request(module, tmp_path, capsys, monkeypatch, logits):
+    """#612/#662: the label checks read the raw outputs of a classification model."""
+    monkeypatch.syspath_prepend(str(WORKERS))  # predict imports the worker that builds the network
+    checkpoint, build, spec = classification_spec(tmp_path, logits)
+    classifier = load_worker("classification")
+    model, _head = classifier.build_model(build, False)
+    torch.save({"state_dict": model.state_dict(), "image_size": 32}, checkpoint)
+    module.predict(spec)
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    predictions = [e for e in events if e["event"] == "prediction"]
+    assert [e["id"] for e in predictions] == ["i0", "i1"]
+    for event in predictions:
+        if logits:
+            assert len(event["logits"]) == 3 and all(isinstance(x, float) for x in event["logits"])
+        else:
+            assert "logits" not in event
