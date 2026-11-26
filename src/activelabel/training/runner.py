@@ -39,7 +39,7 @@ from activelabel import __version__, preannotate, preannotate_options
 from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
-from activelabel.jobs import Cancelled, JobManager, Progress
+from activelabel.jobs import Cancelled, Job, JobFunction, JobManager, Progress
 from activelabel.labels import Label, geometry_problem
 from activelabel.projects import ProjectStore
 from activelabel.storage import now, write_json
@@ -891,6 +891,85 @@ class TrainingRunner:
             deadline = time.monotonic() + 10
             while runs.get(number)["status"] == RUNNING and time.monotonic() < deadline:
                 time.sleep(0.05)
+
+    def enqueue_tool(
+        self, project_id: int, kind: str, function: JobFunction, params: dict[str, Any] | None = None
+    ) -> str:
+        """Queue other heavy work (such as the embeddings of the similarity map) behind the runs.
+
+        It shares the one-at-a-time queue of the training runs, exports and pre-annotations, so two heavy
+        processes never run together.
+
+        Args:
+            project_id: id of the project.
+            kind: what the job does (listed with it).
+            function: the work; receives the job's progress handle.
+            params: what the job is about.
+
+        Returns:
+            The id of the queued job.
+        """
+        return self._jobs.submit(project_id, kind, function, params).id
+
+    def tool_job(self, job_id: str) -> Job | None:
+        """A job queued with :meth:`enqueue_tool`.
+
+        Args:
+            job_id: id of the job.
+
+        Returns:
+            The job, or None when this runner does not know it (for example after a restart).
+        """
+        try:
+            return self._jobs.get(job_id)
+        except KeyError:
+            return None
+
+    def cancel_tool(self, project_id: int, job_id: str, name: str) -> None:
+        """Cancel a job queued with :meth:`enqueue_tool` and stop its worker process.
+
+        Args:
+            project_id: id of the project.
+            job_id: id of the job.
+            name: name the job gave its worker process (see :meth:`run_worker`).
+        """
+        with self._lock:
+            proc = self._export_procs.get((project_id, 0, name))
+        if self.tool_job(job_id) is not None:
+            self._jobs.cancel(job_id)
+        if proc is not None:
+            kill_tree(proc)
+
+    def run_worker(
+        self,
+        project_id: int,
+        name: str,
+        spec: dict[str, Any],
+        tmp: Path,
+        log_file: Path,
+        progress: Progress,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Run the worker script ``<name>.py`` (a file of ``training/workers``) in the training environment.
+
+        Args:
+            project_id: id of the project.
+            name: file name of the worker without ``.py``; also the key used to cancel it.
+            spec: what the worker reads (written to ``tmp/spec.json``).
+            tmp: temporary folder of the job (working directory and download cache).
+            log_file: file that receives the process output.
+            progress: progress handle of the job (checked for cancellation).
+            on_event: function that receives every JSON event of the process.
+
+        Returns:
+            The ``results`` of the worker's ``done`` event.
+        """
+        spec_file = tmp / "spec.json"
+        spec_file.write_text(json.dumps(spec), encoding="utf-8")
+        script = self._scripts("classification").parent / f"{name}.py"
+        cmd = [str(self.environment.python()), str(script), str(spec_file)]
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        return self._run_export(project_id, 0, name, cmd, tmp, log_file, progress, on_event, name)
 
     def has_active(self, project_id: int) -> bool:
         """Whether a training run, ONNX export or pre-annotation of the project is queued or running.
