@@ -266,7 +266,7 @@ def test_stale_counts_labels_changed_after_the_version(tmp_path):
     pdir, project = build(tmp_path, {**balanced(30), "bg": []}, tasks=None)
     store = DatasetStore(pdir)
     store.create(plan(pdir, project, background=True))
-    fresh = {"changed_images": 0, "added": 0, "removed": 0}
+    fresh = {"changed_images": 0, "added": 0, "removed": 0, "excluded": 0, "restored": 0}
     assert store.get(1)["stale"] == fresh and store.versions()[0]["stale"] == fresh
     annotations = load_annotations(pdir)
     annotations.images["i000"] = [Label("rare", bbox=[0, 0, 1, 1])]  # changed
@@ -274,10 +274,34 @@ def test_stale_counts_labels_changed_after_the_version(tmp_path):
     annotations.images["bg"] = [Label("b", bbox=[0, 0, 1, 1])]  # added
     del annotations.images["i002"]  # removed
     save_annotations(pdir, annotations)
-    expected = {"changed_images": 1, "added": 1, "removed": 1}
+    expected = {"changed_images": 1, "added": 1, "removed": 1, "excluded": 0, "restored": 0}
     assert store.versions()[0]["stale"] == expected and store.get(1)["stale"] == expected
     assert store.create(plan(pdir, project, background=True))["stale"] == fresh
     assert store.get(2)["stale"] == fresh and store.get(1)["stale"] == expected
+
+
+def test_excluding_or_restoring_images_makes_a_version_stale(tmp_path):
+    """Images left out or put back after a version count; a deleted image only makes it incomplete (#636)."""
+    pdir, project = build(tmp_path, balanced(30), tasks=None)
+    manifest = Manifest(pdir)
+    manifest.set_status(["i029"], "excluded")
+    store = DatasetStore(pdir)
+    store.create(plan(pdir, project))
+    assert store.get(1)["stale"] == {
+        "changed_images": 0,
+        "added": 0,
+        "removed": 0,
+        "excluded": 0,
+        "restored": 0,
+    }
+    manifest.set_status(["i000", "i001"], "excluded")
+    manifest.set_status(["i029"], "active")
+    manifest.delete(["i002"])
+    stale = store.versions()[0]["stale"]
+    assert (stale["excluded"], stale["restored"], stale["removed"]) == (2, 1, 0)
+    assert store.get(1)["incomplete"] is True
+    manifest.set_status(["i000", "i001"], "active")
+    assert store.get(1)["stale"]["excluded"] == 0
 
 
 def test_image_ids_parts_and_folds(tmp_path):

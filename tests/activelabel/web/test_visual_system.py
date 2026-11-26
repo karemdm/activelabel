@@ -130,6 +130,11 @@ def test_phone_segmented_controls_stack_and_scrollers_show_their_hidden_side():
     assert re.search(r"\.seg, [^{]*\{ display: flex; flex-direction: column", block)
     assert re.search(r"\.step-tabs, \.tr-table-wrap, [^{]*\{[^}]*no-repeat local", block)
     assert re.search(r"\.tr-table-wrap th:first-child, [^{]*\{ position: sticky; left: 0", block)
+    # #636: the split table scrolls sideways instead of squeezing its first column to one letter per line
+    assert ".ds-table { width: max-content; min-width: 100%; }" in block
+    assert re.search(
+        r'\.ds-table th\[scope="row"\], \.ds-table thead th:first-child \{ min-width: 8rem;', block
+    )
 
 
 def test_long_image_names_keep_their_end():

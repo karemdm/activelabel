@@ -9,7 +9,8 @@ import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
 /* images whose labels changed after the version was made (0 when none); the version keeps the old ones */
-export const staleCount = (v) => { const s = v.stale || {}; return (s.changed_images || 0) + (s.added || 0) + (s.removed || 0); };
+/* images whose labels changed, or that were excluded or put back, since the version was made (#636) */
+export const staleCount = (v) => { const s = v.stale || {}; return ['changed_images', 'added', 'removed', 'excluded', 'restored'].reduce((n, k) => n + (s[k] || 0), 0); };
 
 export function datasetsPanel(page) {
   const { ctx, projectId, renderStepper, showTab } = page;

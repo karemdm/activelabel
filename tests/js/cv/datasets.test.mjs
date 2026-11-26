@@ -16,6 +16,7 @@ setMessages({ 'step.datasets': 'Data split' }, 'en');
 test('staleCount adds the images changed, added and removed since the version was made', () => {
   assert.equal(staleCount({}), 0);
   assert.equal(staleCount({ stale: { changed_images: 2, added: 1, removed: 3 } }), 6);
+  assert.equal(staleCount({ stale: { changed_images: 0, added: 0, removed: 0, excluded: 2, restored: 1 } }), 3);   // #636
 });
 
 test('the Data split step counts the versions for the step bar', async () => {

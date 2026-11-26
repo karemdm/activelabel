@@ -92,7 +92,7 @@ def test_incomplete_after_image_deleted(tmp_path):
 def test_stale_tells_that_labels_changed_after_the_version(tmp_path):
     client, state, ids = _setup(tmp_path)
     client.post(BASE, json={})
-    fresh = {"changed_images": 0, "added": 0, "removed": 0}
+    fresh = {"changed_images": 0, "added": 0, "removed": 0, "excluded": 0, "restored": 0}
     assert client.get(f"{BASE}/1").json()["stale"] == fresh
     images = {i: [Label("a", bbox=[0, 0, 0.5, 0.5])] for i in ids}
     images[ids[0]] = [Label("b", bbox=[0, 0, 1, 1])]
