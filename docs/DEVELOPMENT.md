@@ -123,6 +123,10 @@ Where to start for common changes:
 - **Writes to project data** go through the stores and `storage.write_json` (atomic), under the lock of the
   file being changed (`annotations_lock`, `TaskStore.locked()`, the manifest and the other stores). A
   router that changes a project's data calls `state.busy(project_id)` first.
+- **Changing the stored format.** Raise `FORMAT_VERSION` in `storage.py` and add a `Migration` to
+  `migrations.MIGRATIONS` with the files it touches and a `change` that only adds fields and is idempotent
+  (`migrate` refuses anything else). Keep `tests/fixtures/make_workspace_v0.py` building the old format:
+  `tests/rules/test_legacy_workspace.py` checks that the old workspace still opens unchanged.
 - **A bug fix comes with a test** that fails on the old code and passes on the new one.
 - **Docs travel with the code.** A change to an endpoint, a file on disk, a default or a button name
   updates the document of that area (and the Portuguese guide). The documents are generic: no

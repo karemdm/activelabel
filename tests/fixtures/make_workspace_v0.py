@@ -2,7 +2,8 @@
 
 The workspace stands for what a user already has on disk. ``tests/rules/test_legacy_workspace.py`` opens it
 with the code under test, so a change that stops reading old data fails there. Images are generated here:
-nothing binary is committed.
+nothing binary is committed. The current stores write ``format_version``; it is removed at the end, as
+version 0 had none.
 
 It holds one project per type (names with accents and spaces) with images, tasks and jobs, annotations, a
 curation analysis, a data split version, a finished training run with a tiny fake weights file, a saved
@@ -15,6 +16,7 @@ update it to the new one): that is what the test protects.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -29,7 +31,7 @@ from sample_images import make_image  # noqa: E402
 from activelabel.annotate import sessions  # noqa: E402
 from activelabel.fiftyone_names import record_name  # noqa: E402
 from activelabel.labels import AnnotationSet, Label, save_annotations  # noqa: E402
-from activelabel.storage import write_json  # noqa: E402
+from activelabel.storage import FORMAT_KEY, write_json  # noqa: E402
 from activelabel.sync.links import new_link, save_link  # noqa: E402
 from activelabel.tasks import Task  # noqa: E402
 from activelabel.training.config import RunConfig  # noqa: E402
@@ -137,6 +139,17 @@ def _add_remote_traces(state: Any, project_id: int) -> None:
     )
 
 
+def _as_version_0(workspace: Path) -> None:
+    """Remove ``format_version`` from every file: version 0 had no such field (format.json did not exist)."""
+    for path in workspace.rglob("*.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and FORMAT_KEY in data:
+            del data[FORMAT_KEY]
+            text = json.dumps(data, ensure_ascii=False, indent=1)
+            path.write_text(text, encoding="utf-8", newline="\n")
+    assert not (workspace / "format.json").exists()
+
+
 def build(base: Path) -> Path:
     """Build the workspace in ``base / "ws"`` and return it (``base`` must be empty or new)."""
     client, state = make_client(base)
@@ -146,6 +159,7 @@ def build(base: Path) -> Path:
     _add_public_model(state, ids["detection"])
     _add_remote_traces(state, ids["detection"])
     state.jobs.shutdown()
+    _as_version_0(base / "ws")
     return base / "ws"
 
 

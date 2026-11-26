@@ -11,6 +11,7 @@ When a change to the stored format makes this test fail, the change needs a migr
 
 import hashlib
 import importlib.util
+import json
 import shutil
 from fnmatch import fnmatch
 from pathlib import Path
@@ -19,6 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from activelabel.config import Settings
+from activelabel.migrations import MIGRATIONS, WORKSPACE_FILE, Migration, migrate, removed_or_changed
+from activelabel.storage import FORMAT_KEY
 from activelabel.web.app import create_app
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "make_workspace_v0.py"
@@ -137,3 +140,57 @@ def test_the_snapshot_notices_a_change(workspace):
     before = snapshot(workspace)
     (workspace / "projects" / "1" / "project.json").write_text("{}", encoding="utf-8")
     assert snapshot(workspace) != before
+
+
+def _add_note(data: dict) -> dict:
+    """A change of a future format: one new field, added only once."""
+    data.setdefault("note", "added by format 2")
+    return data
+
+
+FUTURE = (
+    *MIGRATIONS,
+    Migration(
+        2,
+        "a note in every project and task file",
+        ("projects/*/project.json", "projects/*/tasks.json"),
+        _add_note,
+    ),
+)
+
+
+def test_the_old_workspace_has_no_format_version(built):
+    for path in built.rglob("*.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert not (isinstance(data, dict) and FORMAT_KEY in data), path
+    assert not (built / WORKSPACE_FILE).exists()
+
+
+def test_a_migration_backs_up_only_adds_is_idempotent_and_the_workspace_still_opens(workspace):
+    before = snapshot(workspace)
+    backup = migrate(workspace, FUTURE)
+    assert backup is not None and backup.is_relative_to(workspace)
+    touched = sorted(
+        p.relative_to(workspace).as_posix()
+        for p in workspace.glob("projects/*/*.json")
+        if p.name in ("project.json", "tasks.json")
+    )
+    assert len(touched) == 8
+    for name in touched:
+        copy = backup / name
+        assert hashlib.sha256(copy.read_bytes()).hexdigest() == before[name][0], name
+        old = json.loads(copy.read_text(encoding="utf-8"))
+        new = json.loads((workspace / name).read_text(encoding="utf-8"))
+        assert removed_or_changed(old, new) is None, name  # the release before still reads it
+        assert new["note"] == "added by format 2"
+        assert (FORMAT_KEY in new) == name.endswith("tasks.json")  # project.json stays unversioned
+    untouched = {k: v for k, v in before.items() if k not in touched}
+    assert {k: v for k, v in snapshot(workspace).items() if k in untouched} == untouched
+    assert json.loads((workspace / WORKSPACE_FILE).read_text(encoding="utf-8"))[FORMAT_KEY] == 2
+    once = snapshot(workspace)
+    assert migrate(workspace, FUTURE) is None
+    assert snapshot(workspace) == once
+    with TestClient(create_app(Settings(workspace=workspace))) as client:
+        failures = [r for r in ROUTES if client.get(r).status_code != 200]
+        assert [p["name"] for p in client.get("/api/projects").json()][-1] == "Classificação de flores"
+    assert not failures, failures

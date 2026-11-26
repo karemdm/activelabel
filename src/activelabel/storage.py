@@ -1,4 +1,10 @@
-"""Small helpers to keep files consistent on disk."""
+"""Small helpers to keep files consistent on disk.
+
+Every JSON object the workspace writes carries ``format_version`` (:data:`FORMAT_VERSION`), except the files
+in :data:`UNVERSIONED_FILES`, which the code before the field read with strict code (an unknown key broke it);
+their version is the one of the workspace (``activelabel.migrations``). Reading is tolerant: :func:`read_json`
+drops the field, so stores never see it, and a file without it is version 0.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +12,8 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import fields, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -14,6 +21,11 @@ from typing import Any, TypeVar
 T = TypeVar("T")
 RETRIES = 8
 RETRY_DELAY = 0.02  # seconds, growing with each attempt (0.02 + 0.04 + ... + 0.14 = about 0.6 s in all)
+FORMAT_KEY = "format_version"
+FORMAT_VERSION = 1  # version of the stored data this code writes (see activelabel.migrations)
+# Read by older code as ``cls(**data)`` (project.json) or as a map whose every key is data (links.json, the
+# pulled labels of an edit session): one more key would break it, so these carry no format_version.
+UNVERSIONED_FILES = frozenset({"project.json", "links.json", "pulled.json"})
 
 
 class DamagedFile(ValueError):
@@ -72,10 +84,42 @@ def _retry(action: Callable[[], T]) -> T:
     raise AssertionError("unreachable")
 
 
+def stamped(path: Path, data: Any) -> Any:
+    """The data as it is written to ``path``: an object gets ``format_version`` first, unless it has one.
+
+    Args:
+        path: the file the data goes to (a name of :data:`UNVERSIONED_FILES` gets no version).
+        data: JSON-ready data.
+
+    Returns:
+        A new object with :data:`FORMAT_KEY` set to :data:`FORMAT_VERSION` when it had none; ``data`` itself
+        for a list, a number, an object that already says its version or an unversioned file.
+    """
+    if not isinstance(data, dict) or FORMAT_KEY in data or path.name in UNVERSIONED_FILES:
+        return data
+    return {FORMAT_KEY: FORMAT_VERSION, **data}
+
+
+def known_fields(cls: type, data: Mapping[str, Any]) -> dict[str, Any]:
+    """The entries of ``data`` that are fields of the dataclass ``cls`` (tolerant reading of newer files).
+
+    Args:
+        cls: a dataclass.
+        data: a stored object, perhaps with fields a newer version added.
+
+    Returns:
+        The entries whose key is a field of ``cls``; the others are left out.
+    """
+    assert is_dataclass(cls)
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in data.items() if k in names}
+
+
 def write_json(path: Path, data: Any, indent: int | None = 1) -> None:
     """Write JSON atomically: a reader never sees a half-written file, and a power cut keeps the old one.
 
-    The data is flushed to disk before the file replaces the old one.
+    The data is flushed to disk before the file replaces the old one. An object gets ``format_version``
+    (see :func:`stamped`).
 
     Args:
         path: file to write (its folder is created).
@@ -83,6 +127,7 @@ def write_json(path: Path, data: Any, indent: int | None = 1) -> None:
         indent: spaces per level for a readable file; None for a compact one, about five times faster to
             write (used for the long lists of images).
     """
+    data = stamped(path, data)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
@@ -97,14 +142,15 @@ def write_json(path: Path, data: Any, indent: int | None = 1) -> None:
 
 
 def read_json(path: Path, default: Any = None) -> Any:
-    """Read a JSON file, or ``default`` when it does not exist.
+    """Read a JSON file, or ``default`` when it does not exist (``format_version`` left out).
 
     Args:
         path: file to read.
         default: what to return when the file does not exist.
 
     Returns:
-        The parsed JSON, or ``default`` when there is no file.
+        The parsed JSON, or ``default`` when there is no file. An object comes without :data:`FORMAT_KEY`:
+        readers never see it, whatever version wrote the file.
 
     Raises:
         DamagedFile: the file is damaged (the message names the file and is readable).
@@ -112,10 +158,13 @@ def read_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
     try:
-        return json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
+        data = json.loads(_retry(lambda: path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise DamagedFile(
             f"The file {path.name} is damaged and cannot be read ({exc}). "
             f"Restore it from a backup or remove it: {path}",
             path.name,
         ) from exc
+    if isinstance(data, dict):
+        data.pop(FORMAT_KEY, None)
+    return data

@@ -44,6 +44,8 @@ Principles (from what went wrong in the previous tool):
 ```
 <workspace>/                       ACTIVELABEL_WORKSPACE (default ~/.activelabel)
   tools.json                       address and user of CVAT (secrets: system keyring only)
+  format.json                      {"format_version": N}: format of the workspace, written by a migration (absent: 0)
+  format-backups/v<A>-to-v<B>-<time>/   the files a migration changed, as they were before it
   projects/next_id.json            next project id (ids are never reused)
   projects/<id>/...                one folder per project (below)
   training/                        training environment (docs/TRAINING.md)
@@ -76,6 +78,15 @@ Principles (from what went wrong in the previous tool):
   thumbs/<id>.jpg     thumbnails (cache)
   staging/<token>/    annotation files waiting for a decision (+ <token>.target.json: the video task)
 ```
+
+**Format version.** Every JSON object the workspace writes starts with `"format_version": N` (now 1), except
+`project.json`, `links.json` and `pulled.json`, which code from before the field read strictly; those, the
+lists (`images.json`, `videos.json`) and `projects/next_id.json` have the version of the workspace
+(`format.json`). A file without the field is version 0, read the same way; readers drop the field and
+ignore fields they do not know. At start-up, `activelabel.migrations.migrate` runs the steps the workspace
+still needs: it copies the files they touch to `format-backups/` first, a step may only add fields (one that
+would remove or change a value is refused before anything is written, so the release before still reads
+the files), and it is idempotent. When no step changes a file, as from 0 to 1, nothing is written.
 
 `ACTIVELABEL_WORKSPACE` can be any folder (an empty variable counts as not set); the FiftyOne database is
 not inside it (FiftyOne keeps its own, see its documentation).
