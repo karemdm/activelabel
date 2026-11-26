@@ -1199,8 +1199,18 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .field .md-public-choice, .md-public-choice { display: flex; font-weight: 400; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
 .md-public-choice.selected { border-color: var(--primary); background: var(--primary-soft); }
 .md-public-text { display: flex; flex-direction: column; gap: 0.1rem; }
-.md-map-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-2) var(--space-4); }
-.md-map-row { display: grid; grid-template-columns: minmax(6rem, auto) 1fr; gap: var(--space-2); align-items: center; }
+.md-map-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3) var(--space-5); }
+/* a class, then its categories as chips and the list that adds one (#650); on a phone the class goes above */
+.md-map-row { display: grid; grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr); gap: var(--space-2) var(--space-3); align-items: start; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.md-map-row > label { padding-top: 0.55rem; }
+.md-map-cell { display: grid; gap: var(--space-2); min-width: 0; }
+.md-map-chipline { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.md-map-chips { margin: 0; }
+.md-map-none { margin: 0; font-size: var(--font-sm); }
+.md-map-tools { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
+.md-map-tools .md-map-add { flex: 1 1 auto; min-width: 0; }
+.md-map-addbtn, .md-map-clear { flex: none; }
+@media (max-width: 480px) { .md-map-row { grid-template-columns: minmax(0, 1fr); } .md-map-row > label { padding-top: 0; } }
 .md-map-row label { font-weight: 600; overflow-wrap: anywhere; }
 .md-public-choice input { margin-top: var(--space-1); flex: none; }
 

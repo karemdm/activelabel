@@ -55,14 +55,53 @@ test('the public-model dialog lets several categories name one class', async () 
     button.click();
     await new Promise((resolve) => setTimeout(resolve, 20));
     const dlg = document.querySelector('dialog');
-    const select = dlg.querySelector('#md-map-car');
-    assert.equal(select.multiple, true);
-    for (const o of select.options) o.selected = o.value !== 'bus';  // car (suggested) and truck
-    select.dispatchEvent(new window.Event('change'));
+    /* #650: car comes suggested as a chip; truck is added from the list, without Ctrl */
+    const add = dlg.querySelector('#md-map-0');
+    assert.equal(add.multiple, false);
+    assert.deepEqual([...dlg.querySelectorAll('.md-map-row')[0].querySelectorAll('.chip')].map((c) => c.firstChild.textContent), ['car']);
+    add.value = 'truck';
+    add.dispatchEvent(new window.Event('change'));
+    assert.equal(dlg.querySelectorAll('.md-map-row')[0].querySelectorAll('.chip').length, 1, 'choosing in the list adds nothing by itself');
+    dlg.querySelector('.md-map-addbtn').click();
+    assert.equal(document.activeElement.id, 'md-map-0', 'the focus goes back to the list of the class');
+    /* bike: car is taken by car, so it is listed disabled with that class */
+    const taken = [...dlg.querySelector('#md-map-1').options].find((o) => o.value === 'car');
+    assert.equal(taken.disabled, true);
     dlg.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 20));
   } finally {
     globalThis.fetch = real;
   }
   assert.deepEqual(posted[0].mapping, { car: 'car', truck: 'car' });
+});
+
+test('a category is taken out with its own button and a class is cleared at once (#650)', async () => {
+  setMessages({ 'md.mapping_remove': 'Remove {category} from {cls}' }, 'en');
+  const ctx = { project: { id: 9, task: 'detection' }, jobs: [], panels: {}, watchers: [], weightless: new Set() };
+  const panel = modelsPanel({ ctx, projectId: 9, renderStepper: () => {}, showTab: () => {} });
+  const catalog = { models: [{ id: 'm', label: 'M', note: '', box_map: 0.4, size_mb: 10, classes: ['car', 'truck', 'bus'], suggested: { car: 'car', truck: 'car', bus: 'car' } }], project_classes: ['car'] };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const body = String(url).endsWith('public-catalog') ? catalog : { models: [] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    document.body.appendChild(panel.node);
+    [...panel.node.querySelectorAll('button')].find((b) => b.className === 'btn').click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const dlg = document.querySelector('dialog[open]');
+    const names = () => [...dlg.querySelectorAll('.md-map-row .chip')].map((c) => c.firstChild.textContent);
+    assert.deepEqual(names(), ['car', 'truck', 'bus']);
+    dlg.querySelector('.chip-x[aria-label*="truck"]').click();
+    assert.deepEqual(names(), ['car', 'bus']);
+    assert.ok([...dlg.querySelector('#md-map-0').options].some((o) => o.value === 'truck' && !o.disabled), 'truck can be added again');
+    dlg.querySelector('.md-map-clear').click();
+    assert.deepEqual(names(), []);
+    assert.ok(dlg.querySelector('.md-map-none'));
+    assert.equal(dlg.querySelector('.md-map-clear'), null);
+    dlg.close();
+  } finally {
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
 });
