@@ -1,6 +1,7 @@
 /* Step 6, Models: the saved models (from training runs and public ones), comparing the chosen ones, downloading,
  * choosing the current one and pre-annotating with one. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
+import { modelName } from './model_picker.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
@@ -20,7 +21,8 @@ export function modelsPanel(page) {
   let sig = '';
   const metricName = (m) => tr(`tr.metric.${m}`, String(m).replace(/_/g, ' '));
   const startName = (s) => tr(`tr.start_${s}`, s);
-  const archName = (m) => m.label || labels[m.model] || m.model;
+  /* the catalogue's name first, in the one style of every screen (#668); a public model keeps its own */
+  const archName = (m) => labels[m.model] || m.label || m.model;
   const isPublic = (m) => m.source === 'public';
   const busy = (m) => Object.values(m.exports || {}).some((e) => e && (e.status === 'queued' || e.status === 'running'));
   const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
@@ -38,7 +40,7 @@ export function modelsPanel(page) {
     if (Object.keys(labels).length) return;
     try {
       const cat = await api('GET', `/training/catalog?type=${encodeURIComponent(ctx.project.task)}`);
-      (cat.models || []).forEach((x) => { labels[x.id] = x.label; });
+      (cat.models || []).forEach((x) => { labels[x.id] = modelName(x); });
     } catch (err) { /* the catalogue ids are shown instead */ }
   }
 

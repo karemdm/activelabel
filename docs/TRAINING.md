@@ -123,7 +123,10 @@ its default architecture (YOLO26) in the size that suits the computer (`default_
 `/training/environment`: n without a GPU, s on a small GPU, m from 8 GB) until the person picks a model.
 Another size of the same architecture keeps every value the person set and says nothing (unless a value has
 to go back to its default); another architecture or family keeps the values that still apply and says, in
-one line, what went back to its default (#312). Changing the generation keeps the size (YOLO11 m to YOLO26 m). Only the families with a model for the project type are listed (timm, for instance,
+one line, what went back to its default (#312). Changing the generation keeps the size (YOLO11 m to YOLO26 m). Every screen names a catalogue model the same way, its architecture and variant with a
+space ("ResNet 18", "EfficientNet B5", "YOLO26 m"), whatever its family. When the run would train on the CPU (the
+device is CPU, or automatic on a computer without a GPU) and the model has 100 M parameters or more, the dialog
+warns before it starts (#668). Only the families with a model for the project type are listed (timm, for instance,
 has no segmentation model, so a segmentation project does not show it). YOLO/Ultralytics models train with their own worker (`workers/yolo.py`) once the
 AGPL-3.0 licence is accepted (*Licences* below). Until then the family stays disabled in the dialog, and its hint
 offers *Read and accept the AGPL-3.0 licence…*: a window says in plain words what the licence asks, links to its

@@ -264,3 +264,17 @@ test('the summary title is the model id and setFamily shows another family (#632
   assert.equal(p.get().id, 'resnet18');
   done();
 });
+
+test('modelName names every family in one style, and largeForCpu marks networks of 100 M parameters or more (#668)', () => {
+  const { modelName, largeForCpu } = picker;
+  assert.equal(modelName({ id: 'resnet18', label: 'ResNet-18', arch: 'ResNet', variant: '18' }), 'ResNet 18');
+  assert.equal(modelName({ id: 'timm_resnet18', label: 'ResNet 18', arch: 'ResNet', variant: '18' }), 'ResNet 18');
+  assert.equal(modelName({ id: 'tv_efficientnet_b5', label: 'EfficientNet-B5', arch: 'EfficientNet', variant: 'B5' }), 'EfficientNet B5');
+  assert.equal(modelName({ id: 'yolo26m', label: 'YOLO26m', arch: 'YOLO26', variant: 'm' }), 'YOLO26 m');
+  assert.equal(modelName({ id: 'googlenet', label: 'GoogLeNet', arch: 'GoogLeNet', variant: '' }), 'GoogLeNet');
+  assert.equal(modelName({ id: 'x', label: 'Only a label' }), 'Only a label');
+  assert.equal(largeForCpu({ params_m: 644.8 }), true);
+  assert.equal(largeForCpu({ params_m: 100 }), true);
+  assert.equal(largeForCpu({ params_m: 60.2 }), false);
+  assert.equal(largeForCpu({ params_m: null }), false);
+});

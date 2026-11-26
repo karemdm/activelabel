@@ -1132,6 +1132,7 @@
   "tr.variant.smp": "Codificador",
   "tr.variant.transformers": "Tamanho",
   "tr.size_facts": "{params} M parâmetros · ~{mb} MB",
+  "tr.cpu_large": "{model} tem {params} M de parâmetros: treinar na CPU pode levar horas e usar muita memória. Prefira um tamanho menor ou uma GPU.",
   "tr.size_faster": "mais rápido",
   "tr.size_accurate": "mais preciso",
   "tr.size_suggested": "proposto para este computador",

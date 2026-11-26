@@ -51,6 +51,18 @@ export function sizeFacts(m) {
   return t('tr.size_facts', { params: nf1.format(m.params_m), mb: num(Math.round(m.file_mb)) });
 }
 
+/** The name of a catalogue model on every screen, in one style whatever its family (#668): its architecture and
+ *  its variant with a space ("ResNet 18", "EfficientNet B5", "YOLO26 m"); the catalogue label only when the model
+ *  has no architecture. torchvision and timm name the same networks differently ("ResNet-18", "ResNet 18"). */
+export const modelName = (m) => (m.arch ? [m.arch, m.variant].filter(Boolean).join(' ') : m.label || m.id);
+
+/** Parameters (in millions) from which a model is "very large" for a computer without a GPU (#668): ViT-L, the
+ *  largest RegNets and EfficientNets. */
+export const LARGE_ON_CPU_M = 100;
+
+/** Whether `m` is very large for training on the CPU. */
+export const largeForCpu = (m) => m.params_m != null && m.params_m >= LARGE_ON_CPU_M;
+
 /** One line that names the chosen model: "Ultralytics YOLO26 m · Instance". */
 export function modelSummary(m) {
   const name = [tr(`tr.family.${m.family}`, m.family), m.arch || m.label, variantName(m)].filter(Boolean).join(' ');

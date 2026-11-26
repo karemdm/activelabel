@@ -1132,6 +1132,7 @@
   "tr.variant.smp": "Encoder",
   "tr.variant.transformers": "Size",
   "tr.size_facts": "{params} M parameters · ~{mb} MB",
+  "tr.cpu_large": "{model} has {params} M parameters: training on the CPU can take hours and use a lot of memory. Prefer a smaller size or a GPU.",
   "tr.size_faster": "faster",
   "tr.size_accurate": "more accurate",
   "tr.size_suggested": "suggested for this computer",
