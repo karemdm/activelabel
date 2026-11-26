@@ -94,7 +94,7 @@ families can have a network of the same name (timm's and torchvision's Efficient
 first, timm keeps its ids (`efficientnet_b0`) and torchvision's EfficientNet B0–B7 have ids `tv_efficientnet_b0`…
 while the worker still builds them by their torchvision name (`library_name`). The catalogue
 API (`GET /api/training/catalog`) also gives `params_m` (parameters in millions, of the network with its
-original ImageNet or COCO head) and `file_mb` (about four bytes per parameter: the size of the weights file) and
+original ImageNet or COCO head) and `file_mb` (the size of the weights file: the official one when known, else about four bytes per parameter) and
 `experimental`. Each classification network has its own defaults: the input size of its pretrained weights
 (EfficientNet B0 224 up to B7 600, EfficientNetV2 384/480, Inception V3 299, RegNetY-128GF 384, ViT-H/14 518,
 Swin V2 256, the others 224), a fixed size where its weights only take one (ViT, MaxViT), a smallest size where

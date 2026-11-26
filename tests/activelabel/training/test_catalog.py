@@ -387,6 +387,9 @@ def test_every_yolo_model_shows_its_parameters_and_file_size():
     for m in yolo:
         d = m.as_dict()
         assert d["params_m"] is not None and d["file_mb"] is not None, m.id
+    assert get_model("yolo26n").as_dict()["file_mb"] == 5.3
+    assert get_model("yolo26x-pose").as_dict()["file_mb"] == 120.4
+    assert get_model("yolo11n").as_dict()["file_mb"] == 9.9  # no published size: four bytes per parameter
 
 
 def test_the_size_proposed_first_follows_the_device():
