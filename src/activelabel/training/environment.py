@@ -45,6 +45,7 @@ PINNED_VERSIONS: dict[str, str] = {
     "torchvision": "0.29.1",
     "timm": "1.0.31",
     "onnx": "1.23.2",
+    "segmentation-models-pytorch": "0.5.0",
     "ultralytics": "8.4.218",
 }
 

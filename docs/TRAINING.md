@@ -51,8 +51,20 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLO26 (proposed first), YOLO11, YOLOv8; sizes n s m l x | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
+| Segmentation (semantic) | smp (segmentation_models_pytorch, MIT) | U-Net, U-Net++, DeepLabV3+, FPN, PSPNet, LinkNet, MA-Net, PAN, UPerNet on ResNet-34/50 or MobileNetV2; SegFormer on MiT-B0/B1/B2 | torch, torchvision, segmentation-models-pytorch |
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLO26/11/v8-seg n–x | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLO26/11/v8-pose n–x | torch, torchvision / ultralytics |
+
+**segmentation_models_pytorch (#606).** The `smp` family puts a decoder (the architecture: U-Net, U-Net++,
+DeepLabV3+, FPN, PSPNet, LinkNet, MA-Net, PAN, UPerNet, SegFormer) on an ImageNet encoder (the variant:
+ResNet-34, ResNet-50, MobileNetV2; SegFormer on its Mix Transformers MiT-B0 to B2). Ids are
+`smp_<decoder>_<encoder>` and smp builds them as `<decoder>:<encoder>`. The package is installed, at its pinned
+version, by the first run that uses it. The semantic segmentation worker trains them like torchvision's: same
+data, masks, losses (class weights, Dice), metrics, checkpoints, pre-annotation and ONNX; the encoder plays the
+backbone (frozen in `transfer`, `backbone_lr_factor` in `finetune`) and the decoder with its segmentation head
+the classifier. smp refuses sides that are not a multiple of the encoder's output stride (32 for these encoders;
+16 for DeepLabV3+ and PAN, which dilate it), so the worker asks for a multiple of 32, which suits all of them;
+the dialog keeps at least 128 pixels (an old limit of PAN, not checked by smp itself); 512 by default.
 
 **Architecture and variant (#618).** Each model of the catalogue has an `arch` (the architecture or
 generation the dialog groups by: `ResNet`, `EfficientNet`, `Faster R-CNN`...) and a `variant` (its size inside
@@ -467,7 +479,7 @@ from scratch and checks the events and files.
 
 A new release of PyTorch or timm must not change results or break a first install (#160), so the training
 packages are installed at fixed, tested versions: `PINNED_VERSIONS` in
-`src/activelabel/training/environment.py` (torch, torchvision, timm, onnx and ultralytics). A package that
+`src/activelabel/training/environment.py` (torch, torchvision, timm, segmentation-models-pytorch, onnx and ultralytics). A package that
 is already in the training environment at another version is installed again at the pinned one, as the
 same visible step of the run. A requirement written with its own specifier (`timm>=1.0`) is left as it is.
 The versions actually used are recorded in each run's `run.json`.

@@ -365,3 +365,15 @@ def test_the_size_proposed_first_follows_the_device():
     assert catalog.device_size(None, False) == "n"
     assert catalog.device_size(None, True) == catalog.device_size(6144, True) == "s"
     assert catalog.device_size(8192, True) == catalog.device_size(24576, True) == "m"
+
+
+def test_smp_offers_decoders_on_encoders_for_semantic_segmentation():
+    """#606: the smp family, decoder as architecture and encoder as variant, installed only when used."""
+    smp_models = [m for m in catalog.MODELS if m.family == "smp"]
+    assert len(smp_models) == 9 * 3 + 3 and all(m.task_kind == "semantic" for m in smp_models)
+    unet = get_model("smp_unet_resnet34")
+    assert (unet.arch, unet.variant, unet.library_name) == ("U-Net", "ResNet-34", "Unet:resnet34")
+    assert "segmentation-models-pytorch" in unet.packages and unet.image_size % 32 == 0
+    assert unet.param("image_size").min == 128
+    assert get_model("smp_segformer_mit_b2").library_name == "Segformer:mit_b2"
+    assert "smp" in catalog.FAMILIES

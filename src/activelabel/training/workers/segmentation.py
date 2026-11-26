@@ -4,9 +4,14 @@ Same protocol as the classification worker: one JSON object per line on stdout (
 ``warning``, ``setup``, ``progress``, ``epoch``, ``done``, ``error``), and ``best.pt``, ``last.pt`` and
 ``results.json`` in ``output_dir``.
 
-Standalone: it imports only the standard library, torch, torchvision, numpy and PIL (at the top of the
-module), so it runs in the training environment (which has no ActiveLabel) and its pure helpers
-(rasterization, augmentation, metrics, spec parsing) can be tested without torch.
+Standalone: besides the standard library it imports torch, torchvision, numpy, PIL and its sibling modules
+(and ``segmentation_models_pytorch`` when installed), so it runs in the training environment, which has no
+ActiveLabel.
+
+It trains torchvision's models (``family`` ``torchvision``: DeepLabV3, FCN, LR-ASPP) and those of
+segmentation_models_pytorch (``family`` ``smp``, #606: ``model`` is ``<decoder>:<encoder>``, for example
+``Unet:resnet34``; the decoder, its segmentation head and the encoder play the parts of torchvision's
+classifier and backbone).
 
 Spec data (``parts[name]`` items)::
 
@@ -41,6 +46,11 @@ except ImportError:  # run as a script in the training environment (no ActiveLab
     import augment  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
+try:
+    import segmentation_models_pytorch as smp
+except ImportError:  # optional: only the smp family needs it (installed with its first run)
+    smp = None
+
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
 METRICS = ("miou", "dice", "pixel_accuracy")
@@ -49,6 +59,33 @@ AUX_WEIGHT = 0.5
 PIXEL_COUNT_SIDE = 256  # longest side of the masks drawn to count the pixels of each class
 BACKGROUND = "background"
 ProgressFn = Any
+#: smp refuses sides that are not a multiple of the encoder's output stride (32 for the offered encoders,
+#: 16 for DeepLabV3+ and PAN): a multiple of 32 suits every model.
+SMP_STRIDE = 32
+
+
+class SmpNet(torch.nn.Module):
+    """A segmentation_models_pytorch model that answers like torchvision's: ``{"out": logits}``."""
+
+    def __init__(self, net: Any) -> None:
+        """Wrap the smp model.
+
+        Args:
+            net: the smp model (``encoder``, ``decoder`` and ``segmentation_head``).
+        """
+        super().__init__()
+        self.net = net
+
+    def forward(self, x: Any) -> dict[str, Any]:
+        """The logits of a batch.
+
+        Args:
+            x: images, ``(N, 3, H, W)`` with sides that are a multiple of ``SMP_STRIDE``.
+
+        Returns:
+            ``{"out": logits}``, ``(N, classes + 1, H, W)``.
+        """
+        return {"out": self.net(x)}
 
 
 class SpecError(ValueError):
@@ -89,7 +126,12 @@ def load_spec(path: str | Path) -> dict[str, Any]:
         raise SpecError(f"This worker trains semantic segmentation, not {spec['task']}.")
     if spec.get("fold") == "all":
         raise SpecError("Training all folds comes later: choose one fold.")
-    if spec["family"] != "torchvision" or spec["model"] not in MODELS:
+    if spec["family"] == "smp":
+        if str(spec["model"]).count(":") != 1:
+            raise SpecError(f"Unknown segmentation_models_pytorch model '{spec['model']}'.")
+        if int(spec["params"]["image_size"]) % SMP_STRIDE:
+            raise SpecError(f"These models take image sizes that are a multiple of {SMP_STRIDE}.")
+    elif spec["family"] != "torchvision" or spec["model"] not in MODELS:
         raise SpecError(f"Unknown semantic segmentation model '{spec['model']}'.")
     if spec["start"] not in ("transfer", "finetune", "scratch"):
         raise SpecError(f"Unknown start '{spec['start']}'.")
@@ -443,16 +485,27 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
     """The model with a new final layer for the classes + background (also in the aux classifier).
 
     Args:
-        spec: The job spec (``model`` and ``classes``).
+        spec: The job spec (``model``, ``family`` and ``classes``).
         pretrained: Start from pretrained weights (downloads them when needed) instead of random ones.
 
     Returns:
-        The model.
+        The model (an :class:`SmpNet` for the ``smp`` family).
 
     Raises:
-        SpecError: unknown model.
+        SpecError: unknown model, or segmentation_models_pytorch is not installed.
     """
     model_id = spec["model"]
+    if spec.get("family") == "smp":
+        if smp is None:
+            raise SpecError("segmentation_models_pytorch is not installed in the training environment.")
+        decoder, encoder = str(model_id).split(":")
+        net = smp.create_model(
+            decoder,
+            encoder_name=encoder,
+            encoder_weights="imagenet" if pretrained else None,
+            classes=len(spec["classes"]) + 1,
+        )
+        return SmpNet(net)
     builder = getattr(torchvision.models.segmentation, model_id, None)
     if builder is None or model_id not in MODELS:
         raise SpecError(f"torchvision has no segmentation model '{model_id}'.")
@@ -479,8 +532,10 @@ def head_modules(model: Any) -> list[Any]:
         model: The segmentation model.
 
     Returns:
-        The head modules.
+        The head modules (for an smp model, its decoder and segmentation head).
     """
+    if isinstance(model, SmpNet):
+        return [model.net.decoder, model.net.segmentation_head]
     aux = getattr(model, "aux_classifier", None)
     return [model.classifier] + ([aux] if aux is not None else [])
 
