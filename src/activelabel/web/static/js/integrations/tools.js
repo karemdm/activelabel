@@ -110,6 +110,9 @@ export function openCvatAudit() {
 }
 
 /** Dialog to set up, test or forget a tool login. `entry` is the tool entry (or {}); `onChange` runs after a save or forget. */
+/** Whether an error is about the address typed (it is then shown under the field, not in a toast, #634). */
+export const isUrlError = (err) => !!err && (err.urlField === true || ['url_invalid', 'url_has_credentials', 'url_required', 'cvat_url_invalid'].includes(err.code));
+
 export function openToolSetup(tool, entry, onChange) {
   entry = entry || {};
   const secretLabel = tool === 'cvat' ? t('annotate.field_password') : t('annotate.field_token');
@@ -117,6 +120,8 @@ export function openToolSetup(tool, entry, onChange) {
   const userInput = tool === 'cvat' ? el('input', { id: 'tool-user', type: 'text', autocomplete: 'off', value: entry.username || '' }) : null;
   const secretInput = el('input', { id: 'tool-secret', type: 'password', autocomplete: 'off', placeholder: entry.configured ? '••••••••' : null, 'aria-describedby': 'tool-secret-help' });
   const message = el('p', { class: 'test-result', role: 'status', 'aria-live': 'polite' });
+  const closeBtn = el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'));
+  const secretHelp = el('p', { id: 'tool-secret-help', class: 'hint' }, entry.configured ? t('annotate.secret_saved') : t('annotate.secret_help'));
   const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, t('common.save'));
   const testBtn = el('button', { type: 'button', class: 'btn' }, t('annotate.test'));
   const forgetBtn = el('button', { type: 'button', class: 'btn danger-outline' }, t('annotate.forget'));
@@ -128,11 +133,9 @@ export function openToolSetup(tool, entry, onChange) {
       el('div', { class: 'field' }, el('label', { for: 'tool-url' }, t('annotate.field_url')), urlInput,
         el('p', { id: 'tool-url-help', class: 'hint' }, t('annotate.url_help'))),
       userInput ? el('div', { class: 'field' }, el('label', { for: 'tool-user' }, t('annotate.field_username')), userInput) : null,
-      el('div', { class: 'field' }, el('label', { for: 'tool-secret' }, secretLabel), secretInput,
-        el('p', { id: 'tool-secret-help', class: 'hint' }, entry.configured ? t('annotate.secret_saved') : t('annotate.secret_help'))),
+      el('div', { class: 'field' }, el('label', { for: 'tool-secret' }, secretLabel), secretInput, secretHelp),
       message,
-      el('div', { class: 'form-actions' }, saveBtn, testBtn, forgetBtn,
-        el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel')))));
+      el('div', { class: 'form-actions' }, saveBtn, testBtn, forgetBtn, closeBtn)));
 
   const values = () => {
     const body = { url: urlInput.value.trim() };
@@ -142,12 +145,22 @@ export function openToolSetup(tool, entry, onChange) {
   };
   const store = async () => {
     const body = values();
-    if (!body.url) { urlInput.focus(); throw new Error(t('annotate.url_required')); }
+    if (!body.url) { const err = new Error(t('annotate.url_required')); err.urlField = true; throw err; }
     const saved = await api('PUT', `/annotation-tools/${tool}`, { json: body });
+    /* the secret is in the keyring now: the empty field says so instead of looking lost */
     secretInput.value = '';
+    secretInput.placeholder = '••••••••';
+    secretHelp.textContent = t('annotate.secret_saved');
     return saved;
   };
-  const clearMessage = () => { message.className = 'test-result'; message.textContent = ''; };
+  /* a problem of the dialog stays in the dialog: under the address when it is about the address */
+  const showError = (err) => {
+    message.className = 'test-result bad';
+    fill(message, icon('error'), err.message);
+    if (isUrlError(err)) { urlInput.setAttribute('aria-invalid', 'true'); urlInput.setAttribute('aria-describedby', 'tool-url-help tool-result'); urlInput.focus(); }
+  };
+  message.id = 'tool-result';
+  const clearMessage = () => { message.className = 'test-result'; message.textContent = ''; urlInput.removeAttribute('aria-invalid'); };
   for (const input of [urlInput, userInput, secretInput]) if (input) input.addEventListener('input', clearMessage);   // a message about the old value must not stay
   const busy = (on) => { [saveBtn, testBtn, forgetBtn].forEach((b) => { b.disabled = on; }); };
   dlg.querySelector('form').addEventListener('submit', async (e) => {
@@ -158,7 +171,7 @@ export function openToolSetup(tool, entry, onChange) {
       if (onChange) await onChange();
       dlg.close();
       toast(t('annotate.saved', { tool: toolName(tool) }), 'success', 3000);
-    } catch (err) { toastError(err); } finally { busy(false); }
+    } catch (err) { showError(err); } finally { busy(false); }
   });
   /* the connection test's answer in the interface language (by its code), else the server's own words */
   const testText = (r) => {
@@ -177,9 +190,9 @@ export function openToolSetup(tool, entry, onChange) {
       fill(message, icon(r && r.ok ? 'check' : 'error'), testText(r));
       if (onChange) await onChange();
       forgetBtn.hidden = false;
+      closeBtn.textContent = t('common.close');   // saved already: nothing to cancel
     } catch (err) {
-      message.className = 'test-result bad';
-      fill(message, icon('error'), err.message);
+      showError(err);
     } finally { busy(false); }
   });
   forgetBtn.addEventListener('click', async () => {

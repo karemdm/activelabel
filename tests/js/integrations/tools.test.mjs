@@ -9,7 +9,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const tools = await import('../../../src/activelabel/web/static/js/integrations/tools.js');
 
-const { toolName, statusText, jobMessage, statusLabel, isHttp, serverName, imagesOf, originBadge, linkBadge } = tools;
+const { toolName, statusText, jobMessage, statusLabel, isHttp, serverName, imagesOf, originBadge, linkBadge, isUrlError } = tools;
 
 setMessages({
   'annotate.tool.cvat': 'CVAT', 'annotate.tool.fiftyone': 'FiftyOne', 'annotate.tool_removed': 'a discontinued tool',
@@ -57,4 +57,11 @@ test('origin and link badges name the tool, and a removed one generically', () =
   assert.equal(originBadge({ tool: 'labelstudio' }).textContent, 'Imported');
   assert.equal(linkBadge({ tool: 'cvat' }).textContent, 'Linked to CVAT');
   assert.equal(linkBadge({ tool: 'gone', remote_name: 'x' }).textContent, 'Linked to a discontinued tool');
+});
+
+test('errors about the address are told apart, so they stay under the field (#634)', () => {
+  for (const code of ['url_invalid', 'url_has_credentials', 'url_required', 'cvat_url_invalid']) assert.equal(isUrlError({ code }), true);
+  assert.equal(isUrlError(Object.assign(new Error('x'), { urlField: true })), true);
+  assert.equal(isUrlError({ code: 'cvat_login_failed' }), false);
+  assert.equal(isUrlError(null), false);
 });
