@@ -161,7 +161,7 @@ class TaskPlan:
     problems: list[Problem] = field(default_factory=list)
 
 
-def _problem(code: str, message: str, counts: Counter[str]) -> Problem:
+def counted_problem(code: str, message: str, counts: Counter[str]) -> Problem:
     """A warning with the total of ``counts`` and one detail line per key.
 
     Args:
@@ -220,11 +220,11 @@ def plan_task(labels: dict[str, list[Label]], hint: Task = Task.DETECTION) -> Ta
     problems: list[Problem] = []
     if converted:
         problems.append(
-            _problem("converted_to_box", "Polygons or keypoints were converted to boxes.", converted)
+            counted_problem("converted_to_box", "Polygons or keypoints were converted to boxes.", converted)
         )
     if dropped:
         problems.append(
-            _problem(
+            counted_problem(
                 "dropped_other_kind", f"Annotations that do not fit {task.value} were left out.", dropped
             )
         )

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import shutil
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,7 @@ from activelabel.labels import Label, load_annotations
 from activelabel.projects import ProjectStore, clean_classes
 from activelabel.storage import write_json
 from activelabel.sync import engine as sync_engine
+from activelabel.sync import links
 from activelabel.sync.registry import get_remote
 from activelabel.sync.remote import RemoteProject
 from activelabel.tasks import Task
@@ -421,6 +423,31 @@ def _read_labels(
     return labels
 
 
+def _left_behind(project_dir: Path, plan: common.TaskPlan, skipped: dict[str, int]) -> list[Problem]:
+    """What a project import could not bring, so the report says it instead of losing it silently.
+
+    Args:
+        project_dir: Folder of the new project (its CVAT link says which remote items got an image).
+        plan: The labels per remote item key, converted to the task of the project.
+        skipped: Shapes CVAT has that are not converted, by kind (``ellipse``, ``mask``, ``tracks``...).
+
+    Returns:
+        ``shapes_not_converted`` (one detail line per kind) and ``duplicate_labels_dropped`` (labels of
+        items whose image was identical to another one, or unreadable, so it was not added), when any.
+    """
+    out: list[Problem] = []
+    if skipped:
+        message = "Some CVAT shapes cannot be converted (ellipses, masks, tracks...) and were left out."
+        out.append(common.counted_problem("shapes_not_converted", message, Counter(skipped)))
+    link = links.get_link(project_dir, "cvat") or {}
+    linked = {str(entry.get("key")) for entry in (link.get("items") or {}).values()}
+    lost = sum(len(items) for key, items in plan.labels.items() if key not in linked)
+    if lost:
+        message = "Annotations of identical or unreadable images were not imported."
+        out.append(Problem("warning", "duplicate_labels_dropped", message, lost))
+    return out
+
+
 def _import_with_tasks(
     store: ProjectStore,
     settings: ToolSettings,
@@ -492,7 +519,7 @@ def _import_with_tasks(
         done = store.get(project.id)
         saved = load_annotations(project_dir)
         added = len(Manifest(project_dir).all())
-        problems = list(plan.problems)
+        problems = list(plan.problems) + _left_behind(project_dir, plan, summary.get("not_converted") or {})
         if added < len(labels):
             message = "Identical or unreadable images were not added."
             problems.append(Problem("info", "images_missing", message, len(labels) - added))

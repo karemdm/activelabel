@@ -548,3 +548,18 @@ def test_import_project_keeps_the_typed_name_and_description(tasks_remote, tmp_p
     )
     project = store.get(result["project_id"])
     assert (result["name"], project.name, project.description) == ("meu_dataset_round_1",) * 2 + ("Minha",)
+
+
+def test_import_project_reports_what_it_could_not_bring(tasks_remote, tmp_path):
+    """Shapes that are not converted and the labels of identical images are counted, never lost silently."""
+    items = tasks_remote.projects["1"]["items"]
+    items["10:2"].not_converted = {"ellipse": 1}
+    items["10:3"].not_converted = {"ellipse": 1, "tracks": 2}
+    tasks_remote.frame_bytes[("11", 0)] = tasks_remote.frame_bytes[("10", 0)]  # b0 is the same picture as a0
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="project", remote_id="1")
+    problems = {p["code"]: p for p in result["problems"]}
+    assert problems["shapes_not_converted"]["count"] == 4
+    assert problems["shapes_not_converted"]["examples"] == ["ellipse: 2", "tracks: 2"]
+    assert result["images_added"] == 4 and result["labels"] == 2
+    assert problems["duplicate_labels_dropped"]["count"] == 1  # the bus box of b0
