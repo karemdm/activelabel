@@ -39,15 +39,28 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 
 | Type (project) | Family | Models | Packages |
 | --- | --- | --- | --- |
-| Classification | timm / torchvision | ResNet-18/50, EfficientNet-B0/B3, ConvNeXt-T, ViT-B/16, Swin-T, MobileNetV3 | torch, torchvision, timm |
+| Classification | timm | EfficientNet-B0/B3 | torch, torchvision, timm |
+| Classification | torchvision | every torchvision classification network (80), by architecture: ResNet 18–152, ResNeXt, Wide ResNet, DenseNet, VGG (with and without BN), MobileNet V2/V3, EfficientNet B0–B7 and V2 S/M/L, RegNetX/RegNetY, ConvNeXt T–L, ViT B/L/H, Swin and Swin V2 T/S/B, MaxViT-T, ShuffleNet V2, SqueezeNet, MNASNet, GoogLeNet, Inception V3, AlexNet | torch, torchvision |
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLOv8 / YOLO11 n s m l | ultralytics |
 | Segmentation (semantic) | torchvision | DeepLabV3 (ResNet-50, MobileNetV3), FCN, LR-ASPP | torch, torchvision |
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLOv8/11-seg | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
-**Note on timm.** The classification models that use `timm` are being moved off it (issue #617); until that
-lands, this page and the pinned versions still mention it.
+**Architecture and variant (#618).** Each model of the catalogue has an `arch` (the architecture or
+generation the dialog groups by: `ResNet`, `EfficientNet`, `Faster R-CNN`...) and a `variant` (its size inside
+the architecture: `18`, `B3`, `ResNet-50 FPN`...); the ids do not change, so older runs stay valid. Two
+families can have a network of the same name (timm's and torchvision's EfficientNet-B0): the family is shown
+first, timm keeps its ids (`efficientnet_b0`) and torchvision's EfficientNet B0–B7 have ids `tv_efficientnet_b0`…
+while the worker still builds them by their torchvision name (`library_name`). The catalogue
+API (`GET /api/training/catalog`) also gives `params_m` (parameters in millions, of the network with its
+original ImageNet or COCO head) and `file_mb` (about four bytes per parameter: the size of the weights file) and
+`experimental`. Each classification network has its own defaults: the input size of its pretrained weights
+(EfficientNet B0 224 up to B7 600, EfficientNetV2 384/480, Inception V3 299, RegNetY-128GF 384, ViT-H/14 518,
+Swin V2 256, the others 224), a fixed size where its weights only take one (ViT, MaxViT), a smallest size where
+its pooling needs it (Inception V3 75, AlexNet 64), a lower learning rate for transformers and ConvNeXt, and a
+smaller batch for the largest networks (4 above 100 M parameters, 2 above 300 M). The dialog lists the models of
+a family grouped by architecture.
 
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
 model of that family. Only the families with a model for the project type are listed (timm, for instance,

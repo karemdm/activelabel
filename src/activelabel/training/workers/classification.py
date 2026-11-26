@@ -43,13 +43,33 @@ MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
 METRICS = ("accuracy", "macro_f1")
 #: Head (the layer that is replaced and trained alone in transfer learning) of torchvision models.
+#: Dotted path of the classifier layer of each torchvision architecture, by model id prefix (the first
+#: prefix that matches wins: ``mobilenet_v2`` before ``mobilenet``).
 TV_HEADS = {
     "resnet": "fc",
+    "resnext": "fc",
+    "wide_resnet": "fc",
+    "regnet": "fc",
+    "googlenet": "fc",
+    "inception": "fc",
+    "shufflenet": "fc",
+    "densenet": "classifier",
+    "vgg": "classifier.6",
+    "alexnet": "classifier.6",
+    "mobilenet_v2": "classifier.1",
+    "mobilenet_v3": "classifier.3",
+    "efficientnet": "classifier.1",
+    "mnasnet": "classifier.1",
+    "squeezenet": "classifier.1",
     "convnext": "classifier.2",
+    "maxvit": "classifier.5",
     "vit": "heads.head",
     "swin": "head",
-    "mobilenet": "classifier.3",
 }
+#: Networks that only take one input size with their pretrained weights (position embeddings, windows).
+FIXED_SIZES = {"vit_h_14": 518, "vit_": 224, "maxvit": 224}
+#: Networks with auxiliary classifiers in training mode: built without them, so they give plain logits.
+NO_AUX = ("googlenet", "inception_v3")
 ProgressFn = Any
 
 
@@ -384,15 +404,22 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> tuple[Any, Any]:
         model = timm.create_model(model_id, pretrained=pretrained, num_classes=n)
         return model, model.get_classifier()
 
-    if model_id.startswith("vit") and size != 224:
-        raise SpecError("ViT-B/16 only takes 224 pixel images.")
+    fixed = next((side for prefix, side in FIXED_SIZES.items() if model_id.startswith(prefix)), None)
+    if fixed is not None and size != fixed:
+        raise SpecError(f"{model_id} only takes {fixed} pixel images.")
     builder = getattr(torchvision.models, model_id, None)
     if builder is None:
         raise SpecError(f"torchvision has no model '{model_id}'.")
-    model = builder(weights="DEFAULT" if pretrained else None)
+    kwargs: dict[str, Any] = {"aux_logits": False} if model_id in NO_AUX else {}
+    if model_id in NO_AUX and not pretrained:
+        kwargs["init_weights"] = True  # the default torchvision warns about when it is not given
+    model = builder(weights="DEFAULT" if pretrained else None, **kwargs)
     path = head_path(model_id)
     old = _get(model, path)
-    _set(model, path, torch.nn.Linear(old.in_features, n))
+    if isinstance(old, torch.nn.Conv2d):  # SqueezeNet classifies with a 1x1 convolution
+        _set(model, path, torch.nn.Conv2d(old.in_channels, n, kernel_size=1))
+    else:
+        _set(model, path, torch.nn.Linear(old.in_features, n))
     return model, _get(model, path)
 
 

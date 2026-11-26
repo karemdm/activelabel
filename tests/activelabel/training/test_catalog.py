@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from activelabel import i18n
+from activelabel.training import catalog
 from activelabel.training.catalog import (
     COMMON_PARAMS,
     MODELS,
@@ -224,3 +225,79 @@ def test_every_hyperparameter_has_its_name_help_and_choices_in_both_languages():
                 ]
                 missing += [f"{lang}: {key}" for key in keys if key not in texts]
     assert not sorted(set(missing))
+
+
+def test_every_torchvision_classifier_is_offered_grouped_by_architecture():
+    """#618: all the torchvision classification networks, each with its architecture, variant and size."""
+    classifiers = [m for m in catalog.MODELS if m.task_kind == "classification" and m.family == "torchvision"]
+    assert len(classifiers) == 80 and len({m.id for m in catalog.MODELS}) == len(catalog.MODELS)
+    archs = {m.arch for m in classifiers}
+    for arch in (
+        "ResNet",
+        "ResNeXt",
+        "Wide ResNet",
+        "DenseNet",
+        "VGG",
+        "MobileNet",
+        "EfficientNet",
+        "EfficientNetV2",
+        "RegNetX",
+        "RegNetY",
+        "ConvNeXt",
+        "ViT",
+        "Swin",
+        "Swin V2",
+        "MaxViT",
+        "ShuffleNet V2",
+        "SqueezeNet",
+        "MNASNet",
+        "GoogLeNet",
+        "Inception",
+        "AlexNet",
+    ):
+        assert arch in archs, arch
+    sizes = {m.id: m.image_size for m in classifiers}
+    assert (
+        sizes["tv_efficientnet_b7"],
+        sizes["efficientnet_v2_s"],
+        sizes["inception_v3"],
+        sizes["vit_h_14"],
+    ) == (
+        600,
+        384,
+        299,
+        518,
+    )
+    assert (
+        get_model("vit_h_14").param("image_size").min == 518 == get_model("vit_h_14").param("image_size").max
+    )
+    assert get_model("inception_v3").param("image_size").min == 75
+    assert (
+        get_model("vit_l_16").param("batch_size").default == 2
+        and get_model("vgg16").param("batch_size").default == 4
+    )
+    assert get_model("resnet18").param("batch_size").default == 8
+
+
+def test_the_catalogue_describes_architecture_variant_and_size_of_each_model():
+    """The dialog builds family, architecture and variant fields from these (#632)."""
+    for model in catalog.MODELS:
+        data = model.as_dict()
+        assert data["arch"] and isinstance(data["variant"], str) and data["experimental"] is False
+    resnet = get_model("resnet50").as_dict()
+    assert (resnet["arch"], resnet["variant"], resnet["params_m"]) == ("ResNet", "50", 25.6)
+    assert resnet["file_mb"] == pytest.approx(25.6 * 4e6 / 2**20, abs=0.1)
+    assert get_model("maskrcnn_resnet50_fpn").as_dict()["arch"] == "Mask R-CNN"
+
+
+def test_torchvision_and_timm_networks_of_the_same_name_have_their_own_ids():
+    """timm's EfficientNet-B0 keeps its id (older runs); torchvision's is built by its own name."""
+    timm_b0, tv_b0 = get_model("efficientnet_b0"), get_model("tv_efficientnet_b0")
+    assert (timm_b0.family, timm_b0.library_name) == ("timm", "efficientnet_b0")
+    assert (tv_b0.family, tv_b0.library_name, tv_b0.arch, tv_b0.variant) == (
+        "torchvision",
+        "efficientnet_b0",
+        "EfficientNet",
+        "B0",
+    )
+    assert get_model("resnet18").library_name == "resnet18"
