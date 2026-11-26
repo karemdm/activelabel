@@ -42,6 +42,9 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLOv8/11-seg | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
+**Note on timm.** The classification models that use `timm` are being moved off it (issue #618); until that
+lands, this page and the pinned versions still mention it.
+
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
 model of that family. A family with no model for the project type stays in the list, disabled, and the
 hint under it says why. YOLO/Ultralytics models train with their own worker (`workers/yolo.py`) once the
@@ -403,7 +406,7 @@ To update the versions:
 | GET | `/api/projects/{id}/runs/{n}` | config, status, metrics per epoch (of the child training now, while a grid runs), results |
 | GET | `/api/projects/{id}/runs/{n}/children/{c}` | one child of a grid / all-folds run |
 | GET | `/api/projects/{id}/runs/{n}/log?lines=200` | last lines of the log |
-| POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce` | cancel (a queued or running run) / new run with the same configuration |
+| POST | `/api/projects/{id}/runs/{n}/cancel`, `/reproduce`, `/resume` | cancel (a queued or running run) / new run with the same configuration / resume a failed or cancelled single run from its checkpoint |
 | DELETE | `/api/projects/{id}/runs/{n}` | after confirmation |
 | GET/POST | `/api/projects/{id}/models` | list (with results and the current model) / save a run (`{run, note}`) |
 | GET | `/api/projects/{id}/models/public-catalog` | public pretrained models for the project type, with a suggested mapping |
@@ -414,15 +417,14 @@ To update the versions:
 
 ## Status
 
-Done: catalogue, training environment, runner, classification, detection, semantic segmentation,
+Done: catalogue, training environment, runner, YOLO models in the training dialog after the licence is accepted, resume of a run, classification, detection, semantic segmentation,
 instance segmentation (Mask R-CNN) and keypoints (torchvision), grid search and all folds, the step 5 screen (Treinamento), and step 6
 (Modelos) with save, current model, comparison, download and ONNX export.
 
 Pre-annotation works with classification, detection, keypoint, instance segmentation and semantic
 segmentation models (docs/PREANNOTATE.md).
 
-Not yet: the YOLO models in the training dialog (the API trains them after the licence is accepted),
-pre-annotation and ONNX export of YOLO models, ONNX for instance, detection and keypoint models, and
+Not yet: pre-annotation and ONNX export of YOLO models, ONNX for instance, detection and keypoint models, and
 regression.
 
 ## Image orientation
