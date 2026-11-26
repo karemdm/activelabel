@@ -13,6 +13,8 @@ def test_replace_retried_while_windows_reports_file_in_use(tmp_path, monkeypatch
     real, calls = _os.replace, []
 
     def flaky(src, dst):
+        if not str(dst).endswith("a.json"):  # the work queue may write its own files
+            return real(src, dst)
         calls.append(1)
         if len(calls) < 3:
             raise PermissionError("in use")
