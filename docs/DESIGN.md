@@ -194,7 +194,7 @@ codes, `error.<code>` in the language files); its `result` is empty: tracebacks 
 interface. Failures of CVAT (`cvat_unreachable`, `cvat_login_failed`, `cvat_refused`, `cvat_plan_limit`,
 `cvat_rate_limited`, `cvat_error`, `cvat_not_found`, `cvat_not_api`, `cvat_download_failed`,
 `cvat_frames_mismatch`, `cvat_order_changed`, `cvat_image_not_registered`, `cvat_processing_failed`,
-`cvat_processing_timeout`, `cvat_backup_failed`, `cvat_backup_timeout`, `cvat_backup_invalid`...), of the
+`cvat_processing_timeout`, `cvat_backup_failed`, `cvat_backup_timeout`, `cvat_backup_invalid`, `cvat_audit_unavailable`...), of the
 synchronisation (`remote_gone`, `sync_remote_changed`, `sync_local_changed`, `sync_link_changed`,
 `sync_task_has_new_images`, `sync_no_remote`, `plan_not_found`) and of the import (`cvat_config_missing`,
 `cvat_url_invalid`, `cvat_no_images`, `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
