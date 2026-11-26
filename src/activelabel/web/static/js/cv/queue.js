@@ -65,12 +65,18 @@ function order(a, b) {
   return (a.position ?? 0) - (b.position ?? 0);
 }
 
+/* the server answered that it has no global queue yet: the activity lists are read from then on */
+let noGlobalQueue = false;
+
 /** Reads the heavy work of every project: the global queue when the server has it, else the activity lists. */
 export async function loadQueue() {
-  try {
-    return rowsFromQueue(await api('GET', '/queue'));
-  } catch (err) {
-    if (err.status !== 404 && err.status !== 405) throw err;
+  if (!noGlobalQueue) {
+    try {
+      return rowsFromQueue(await api('GET', '/queue'));
+    } catch (err) {
+      if (err.status !== 404 && err.status !== 405) throw err;
+      noGlobalQueue = true;
+    }
   }
   const projects = (await api('GET', '/projects')) || [];
   const lists = await Promise.all(projects.map((p) => api('GET', `/projects/${p.id}/jobs`).catch(() => [])));
@@ -114,21 +120,43 @@ export function initQueue() {
   button.after(panel);
   let rows = [];
   let timer = null;
+  let shown = null;     // the rows the list shows (it is drawn again only when they change)
+  let reads = 0;        // the latest read wins over a slower older one
+  let lastError = '';   // a failing read is said once, not at every poll
 
   function draw() {
     const n = rows.length;
     count.hidden = !n;
     count.textContent = num(n);
     button.setAttribute('aria-label', n ? tn('queue.button_n', n) : t('queue.title'));
-    if (panel.hidden) return;
+    const sig = JSON.stringify(rows);
+    if (panel.hidden || sig === shown) return;
+    shown = sig;
+    /* the keyboard stays on the same button of the same job */
+    const focused = document.activeElement && list.contains(document.activeElement) ? document.activeElement : null;
+    const job = focused && focused.closest('[data-job]') ? focused.closest('[data-job]').dataset.job : null;
     fill(list, n
       ? el('ul', { class: 'plain queue-rows' }, ...rows.map((r) => queueRow(r, cancel)))
       : el('p', { class: 'muted queue-empty' }, icon('check', 16), t('queue.empty')));
+    if (focused) {
+      const again = (job && list.querySelector(`[data-job="${CSS.escape(job)}"] [data-act="cancel"]`)) || panel.querySelector('.icon-btn');
+      again.focus();
+    }
   }
   async function refresh() {
     clearTimeout(timer);
     if (!document.hidden) {
-      try { rows = await loadQueue(); } catch (err) { if (!panel.hidden) toastError(err); }
+      const mine = ++reads;
+      try {
+        const found = await loadQueue();
+        if (mine !== reads) return;
+        rows = found;
+        lastError = '';
+      } catch (err) {
+        if (mine !== reads) return;
+        if (!panel.hidden && err.message !== lastError) toastError(err);
+        lastError = err.message;
+      }
       draw();
     }
     timer = setTimeout(refresh, panel.hidden ? 15000 : 3000);
@@ -141,6 +169,7 @@ export function initQueue() {
   }
   function open() {
     panel.hidden = false;
+    shown = null;
     button.setAttribute('aria-expanded', 'true');
     draw();
     refresh();
@@ -155,11 +184,18 @@ export function initQueue() {
   const toggle = () => (panel.hidden ? open() : close(true));
   button.addEventListener('click', toggle);
   document.addEventListener('keydown', (e) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'q' || e.key === 'Q')) { e.preventDefault(); toggle(); }
+    /* by the key's place (KeyQ): Option+Q on a Mac types another character */
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyQ') {
+      if (document.querySelector('dialog[open]')) return;   // a window is open on top: it keeps the keyboard
+      e.preventDefault();
+      toggle();
+    }
     else if (e.key === 'Escape' && !panel.hidden && !document.querySelector('dialog[open]')) close(true);
   });
   document.addEventListener('click', (e) => {
-    if (!panel.hidden && !panel.contains(e.target) && !button.contains(e.target) && !document.querySelector('dialog[open]')) close(false);
+    /* a click in a window (Cancel of the confirmation closes it at once) or on a node a redraw removed is not outside */
+    const inside = !e.target.isConnected || e.target.closest('dialog') || panel.contains(e.target) || button.contains(e.target);
+    if (!panel.hidden && !inside && !document.querySelector('dialog[open]')) close(false);
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   refresh();
