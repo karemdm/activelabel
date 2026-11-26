@@ -1,18 +1,25 @@
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
 from training_fakes import FakeEnv, finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
+from activelabel.jobs import CANCELLED, QUEUED
 from activelabel.labels import Label
+from activelabel.preannotate import PreannotationStore
+from activelabel.scheduler import Scheduler
 from activelabel.training import runner as runner_module
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig, validate
 from activelabel.training.licences import LICENCES, LicenceNotAccepted, LicenceStore, licences_of_packages
+from activelabel.training.models import ModelStore
 from activelabel.training.runner import (
     RunnerError,
+    TrainingRunner,
     _objects,
     build_spec,
     download_env,
@@ -549,3 +556,302 @@ def test_tool_jobs_share_the_queue_and_unknown_ones_are_ignored(setup):
     assert job.kind == "tool" and job.result == {"ok": True} and job.params == {"what": "x"}
     assert runner.tool_job("unknown") is None
     runner.cancel_tool(1, "unknown", "embed")  # nothing queued, no process: nothing happens
+
+
+# -- the global queue: lanes, order and restart (#604) --------------------------------------
+
+
+def new_run_on(state, device, project=1, **params):
+    config = RunConfig(dataset=1, model="resnet18", params=params, metric="accuracy")
+    return RunStore(state.store.dir(project)).create(config, device=device)["number"]
+
+
+class Hold:
+    """A job function that holds its lane until released."""
+
+    def __init__(self) -> None:
+        self.started, self.release = threading.Event(), threading.Event()
+
+    def __call__(self, progress):
+        self.started.set()
+        self.release.wait(10)
+
+
+class Recorder:
+    """Stands in for a runner method and records what it was asked to queue (and may fail after that)."""
+
+    def __init__(self, calls: list, kind: str, fail: bool = False) -> None:
+        self.calls, self.kind, self.fail = calls, kind, fail
+
+    def __call__(self, *args):
+        self.calls.append((self.kind, *args))
+        if self.fail:
+            raise RuntimeError("cannot queue")
+
+
+class RunnerFactory:
+    """Builds fresh runners on the workspace of a test and shuts them all down at the end."""
+
+    def __init__(self, workspace: Path, project_dir, ids: list[int]) -> None:
+        self.workspace, self.project_dir, self.ids, self.runners = workspace, project_dir, ids, []
+
+    def __call__(self, scheduler: Scheduler | None = None) -> TrainingRunner:
+        runner = TrainingRunner(
+            self.workspace,
+            self.project_dir,
+            lambda: self.ids,
+            environment=FakeEnv(self.workspace),
+            scheduler=scheduler,
+        )
+        self.runners.append(runner)
+        return runner
+
+
+@pytest.fixture
+def fresh(setup):
+    _, state, runner = setup
+    factory = RunnerFactory(runner.workspace, state.store.dir, [1, 2])
+    yield factory
+    for each in factory.runners:
+        each.shutdown()
+
+
+def times_of(store, n):
+    return json.loads((store.path(n) / "times.json").read_text())
+
+
+def test_two_runs_on_the_same_lane_never_overlap(setup, tmp_path):
+    _, state, runner = setup
+    runner._lane = lambda device: device
+    gate = tmp_path / "gate"
+    first, second = (new_run_on(state, "cuda:0", gate=str(gate)) for _ in range(2))
+    for n in (first, second):
+        runner.enqueue(1, n)
+    store = RunStore(state.store.dir(1))
+    wait_for(lambda: store.get(first)["status"] == "running" and store.metrics(first))
+    time.sleep(0.2)
+    assert store.get(second)["status"] == "queued"
+    gate.write_text("go")
+    wait_for(finished(store, second))
+    assert times_of(store, first)[1] <= times_of(store, second)[0]
+
+
+def test_runs_on_different_lanes_overlap(setup, tmp_path):
+    _, state, runner = setup
+    runner._lane = lambda device: device
+    gate = tmp_path / "gate"
+    gpu, cpu = new_run_on(state, "cuda:0", gate=str(gate)), new_run_on(state, "cpu", gate=str(gate))
+    for n in (gpu, cpu):
+        runner.enqueue(1, n)
+    store = RunStore(state.store.dir(1))
+    wait_for(lambda: all(store.get(n)["status"] == "running" and store.metrics(n) for n in (gpu, cpu)))
+    gate.write_text("go")
+    wait_for(finished(store, gpu))
+    wait_for(finished(store, cpu))
+    a, b = times_of(store, gpu), times_of(store, cpu)
+    assert a[0] < b[1] and b[0] < a[1]  # each started before the other ended
+
+
+def test_the_queue_position_is_counted_inside_the_lane_of_the_run(setup, tmp_path):
+    _, state, runner = setup
+    runner._lane = lambda device: device
+    gate = tmp_path / "gate"
+    store = RunStore(state.store.dir(1))
+    g1, c1 = new_run_on(state, "cuda:0", gate=str(gate)), new_run_on(state, "cpu", gate=str(gate))
+    for n in (g1, c1):
+        runner.enqueue(1, n)
+    wait_for(lambda: all(store.get(n)["status"] == "running" for n in (g1, c1)))
+    g2, c2, g3 = (new_run_on(state, d, gate=str(gate)) for d in ("cuda:0", "cpu", "cuda:0"))
+    for n in (g2, c2, g3):
+        runner.enqueue(1, n)
+    assert [store.get(n)["queue_position"] for n in (g2, c2, g3)] == [1, 1, 2]
+    runner.cancel(1, g2)  # the one behind it moves up
+    wait_for(lambda: store.get(g3)["queue_position"] == 1)
+    gate.write_text("go")
+    for n in (g1, c1, c2, g3):
+        wait_for(finished(store, n))
+    assert store.get(g3)["queue_position"] is None
+
+
+def test_auto_is_the_lane_of_the_first_gpu_else_the_cpu(fresh):
+    runner = fresh()
+    runner.environment.gpu_count = lambda: 2
+    assert runner._auto_lane("auto") == "cuda:0" and runner._auto_lane("cuda:1") == "cuda:1"
+    runner.environment.gpu_count = lambda: 0  # looked up only once
+    assert runner._auto_lane("") == "cuda:0"
+    other = fresh()
+    other.environment.gpu_count = lambda: 0
+    other.environment.mps_hint = lambda: False
+    assert other._auto_lane("auto") == "cpu" and other._auto_lane("cpu") == "cpu"
+
+
+def test_the_job_of_a_run_waits_on_the_lane_of_its_device(setup, tmp_path):
+    _, state, runner = setup
+    runner._lane = lambda device: device
+    gate = tmp_path / "gate"
+    n = new_run_on(state, "cuda:1", gate=str(gate))
+    runner.enqueue(1, n)
+    (job,) = [j for j in runner._jobs.list(1) if j.kind == "training"]
+    assert job.device == "cuda:1"
+    gate.write_text("go")
+    wait_for(finished(RunStore(state.store.dir(1)), n))
+
+
+def test_recover_queues_again_in_the_saved_order_across_projects(setup, fresh, tmp_path):
+    client, state, _ = setup
+    created = client.post("/api/projects", json={"name": "Q", "task": "classification", "classes": ["a"]})
+    assert created.status_code < 300
+    a1, a2, a3 = (new_run_on(state, "auto") for _ in range(3))
+    b1 = new_run_on(state, "auto", project=2)
+    done = new_run_on(state, "auto")
+    RunStore(state.store.dir(1)).update(done, status="done")
+    saved = [
+        {"id": "x1", "project_id": 2, "kind": "training", "status": "queued", "params": {"number": b1}},
+        {"id": "x2", "project_id": 1, "kind": "analyze", "status": "queued", "params": {"k": 1}},
+        {"id": "x3", "project_id": 1, "kind": "training", "status": "running", "params": {"number": a1}},
+        {"id": "x4", "project_id": 1, "kind": "training", "status": "queued", "params": {"number": a2}},
+        {"id": "x5", "project_id": 1, "kind": "training", "status": "queued", "params": {"number": done}},
+        {"id": "x6", "project_id": 1, "kind": "training", "status": "queued", "params": {"number": 999}},
+        {"id": "x7", "project_id": 1, "kind": "training", "status": "queued", "params": {}},
+    ]
+    queue = tmp_path / "queue.json"
+    queue.write_text(json.dumps({"jobs": saved}), encoding="utf-8")
+    runner = fresh(Scheduler(queue))
+    calls: list = []
+    restored: list = []
+    runner.enqueue = Recorder(calls, "training")
+    runner.recover({"analyze": restored.append})
+    # file order first (b1, then a2), then what the file does not list, oldest first (a1, a3)
+    assert calls == [("training", 2, b1), ("training", 1, a2), ("training", 1, a1), ("training", 1, a3)]
+    assert [e["id"] for e in restored] == ["x2"]  # the rest of the app queues its own jobs again
+    assert [e["id"] for e in runner.scheduler.snapshot()["interrupted"]] == ["x3"]
+
+
+def test_recover_without_a_queue_file_queues_every_queued_run_oldest_first(setup, fresh):
+    _, state, _ = setup
+    runs = [new_run_on(state, "auto") for _ in range(3)]
+    runner = fresh()
+    calls: list = []
+    runner.enqueue = Recorder(calls, "training")
+    runner.recover()
+    assert calls == [("training", 1, n) for n in runs]
+
+
+def test_a_failing_requeue_does_not_stop_the_others(setup, fresh):
+    _, state, _ = setup
+    first, second = new_run_on(state, "auto"), new_run_on(state, "auto")
+    runner = fresh()
+    calls: list = []
+    runner.enqueue = Recorder(calls, "training", fail=True)
+    runner.recover()
+    assert calls == [("training", 1, first), ("training", 1, second)]
+
+
+def finished_model(client, state, runner):
+    store = RunStore(state.store.dir(1))
+    n = new_run(state, epochs=2)
+    runner.enqueue(1, n)
+    wait_for(finished(store, n))
+    assert client.post("/api/projects/1/models", json={"run": n}).status_code == 200
+    return n
+
+
+def test_queued_preannotations_and_exports_are_queued_again_and_running_ones_are_interrupted(setup, fresh):
+    client, state, runner = setup
+    model = finished_model(client, state, runner)
+    pre = PreannotationStore(state.store.dir(1))
+    queued_pre = pre.create(model=model, task=1, device="cpu")["number"]
+    running_pre = pre.create(model=model, task=1, device="cpu", status="running")["number"]
+    models = ModelStore(state.store.dir(1))
+    models.set_export(model, "onnx", status="queued")
+    models.set_export(model, "other", status="running")
+    again = fresh()
+    calls: list = []
+    again.enqueue_preannotation = Recorder(calls, "preannotate")
+    again._submit_export = Recorder(calls, "export")
+    again.recover()
+    assert calls == [("preannotate", 1, queued_pre), ("export", 1, model, "onnx")]
+    assert pre.get(queued_pre)["status"] == "queued"  # not failed: it goes back in line
+    assert pre.get(running_pre)["status"] == "failed" and pre.get(running_pre)["error"] == "interrupted"
+    exports = models.get(model)["exports"]
+    assert exports["onnx"]["status"] == "queued" and exports["other"]["status"] == "failed"
+    assert exports["other"]["error"] == "interrupted"
+
+
+def test_a_queued_preannotation_and_export_submit_their_jobs_on_the_right_lane(setup, fresh):
+    client, state, runner = setup
+    model = finished_model(client, state, runner)
+    pre = PreannotationStore(state.store.dir(1))
+    number = pre.create(model=model, task=1, device="cpu")["number"]
+    ModelStore(state.store.dir(1)).set_export(model, "onnx", status="queued")
+    again = fresh()
+    hold = Hold()
+    again._jobs.submit(1, "hold", hold, device="cpu")  # keeps the cpu lane busy: nothing below starts
+    assert hold.started.wait(2)
+    again.recover()
+    kinds = {j.kind: j for j in again._jobs.list(1)}
+    assert kinds["preannotate"].device == "cpu" and kinds["preannotate"].params == {"number": number}
+    assert kinds["export"].device == "cpu" and kinds["export"].params == {"number": model, "format": "onnx"}
+    assert kinds["preannotate"].status == QUEUED and kinds["export"].status == QUEUED
+    hold.release.set()
+
+
+def test_a_run_interrupted_with_a_checkpoint_can_be_resumed(resumable):
+    client, state, runner = resumable
+    store, n = crashed_run(state, runner)
+    store.update(n, status="running", error="", checkpoint_epoch=2)
+    runner.recover()
+    run = store.get(n)
+    assert run["status"] == "failed" and run["error"] == "interrupted"
+    answer = client.post(f"/api/projects/1/runs/{n}/resume")
+    assert answer.status_code == 200, answer.text
+    assert wait_for(finished(store, n))["status"] == "done"
+
+
+def test_shutdown_during_a_training_records_it_as_interrupted(setup):
+    _, state, runner = setup
+    store = RunStore(state.store.dir(1))
+    n = new_run(state, fake="sleep")
+    runner.enqueue(1, n)
+    wait_for(lambda: store.metrics(n))
+    runner.shutdown()
+    run = wait_for(finished(store, n))
+    assert run["status"] == "failed" and run["error"] == "interrupted"
+    wait_for(lambda: tmp_dirs(runner) == [])
+
+
+def test_cancel_job_of_a_running_and_of_a_queued_training(setup, tmp_path):
+    _, state, runner = setup
+    gate = tmp_path / "gate"
+    store = RunStore(state.store.dir(1))
+    first, second = (new_run(state, gate=str(gate)) for _ in range(2))
+    for n in (first, second):
+        runner.enqueue(1, n)
+    wait_for(lambda: store.get(first)["status"] == "running" and store.metrics(first))
+    assert runner.cancel_job(runner._job_ids[(1, second)]) is True
+    assert store.get(second)["status"] == "cancelled"
+    assert runner.cancel_job(runner._job_ids[(1, first)]) is True
+    assert wait_for(finished(store, first))["status"] == "cancelled"
+
+
+def test_cancel_job_of_a_queued_preannotation_and_export(setup):
+    _, state, runner = setup
+    hold = Hold()
+    runner._jobs.submit(1, "hold", hold, device="cpu")
+    assert hold.started.wait(2)
+    pre = PreannotationStore(state.store.dir(1))
+    number = pre.create(model=1, task=1, device="cpu")["number"]
+    runner.enqueue_preannotation(1, number)
+    (pre_job,) = [j for j in runner._jobs.list(1) if j.kind == "preannotate"]
+    assert runner.cancel_job(pre_job.id) is True
+    assert pre.get(number)["status"] == "cancelled"
+    runner._submit_export(1, 5, "onnx")
+    (export_job,) = [j for j in runner._jobs.list(1) if j.kind == "export"]
+    assert runner.cancel_job(export_job.id) is True
+    assert export_job.status == CANCELLED
+    hold.release.set()
+
+
+def test_cancel_job_of_an_unknown_job_is_false(setup):
+    _, _, runner = setup
+    assert runner.cancel_job("nothing") is False
