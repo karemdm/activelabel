@@ -66,7 +66,8 @@ version, by the first run that uses it. The semantic segmentation worker trains 
 data, masks, losses (class weights, Dice), metrics, checkpoints, pre-annotation and ONNX; the encoder plays the
 backbone (frozen in `transfer`, `backbone_lr_factor` in `finetune`) and the decoder with its segmentation head
 the classifier. smp refuses sides that are not a multiple of the encoder's output stride (32 for these encoders;
-16 for DeepLabV3+ and PAN, which dilate it), so the worker asks for a multiple of 32, which suits all of them;
+16 for DeepLabV3+ and PAN, which dilate it), so the form and the server ask for a multiple of 32 (`multiples`,
+#671), which suits all of them, and the worker checks it again;
 the dialog keeps at least 128 pixels (an old limit of PAN, not checked by smp itself); 512 by default.
 The dialog calls the family *Segmentation Models (smp)*, and its SegFormers *SegFormer (smp)*, apart from the
 *SegFormer (transformers)* of the Hugging Face family (#671). Their size (`params_m`) is unknown: smp publishes
