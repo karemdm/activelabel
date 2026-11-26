@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from activelabel.annotate.base import ToolError
 from activelabel.errors import CodedError
 from activelabel.jobs import database_failure
+from activelabel.optional import FeatureMissing, require_fiftyone
 from activelabel.storage import DamagedFile
 from activelabel.textcheck import message_of
 
@@ -202,6 +203,18 @@ def tool_failure(exc: ToolError, tool: str, status: int = 400) -> ApiError:
     if exc.code:
         return ApiError(status, exc.code, str(exc), **exc.params)
     return ApiError(status, "tool_error", str(exc), tool=tool, reason=str(exc))
+
+
+def need_fiftyone() -> None:
+    """HTTP 501 ``fiftyone_not_installed`` when FiftyOne is not installed (the light install).
+
+    Raises:
+        ApiError: 501, with the install command as ``install``.
+    """
+    try:
+        require_fiftyone()
+    except FeatureMissing as exc:
+        raise ApiError(501, exc.code, str(exc), **exc.params) from None
 
 
 def install_error_handlers(app: FastAPI) -> None:

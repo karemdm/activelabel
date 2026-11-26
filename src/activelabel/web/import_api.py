@@ -17,7 +17,7 @@ from activelabel.jobs import Progress
 from activelabel.sync import engine as sync_engine
 from activelabel.sync.registry import get_remote
 from activelabel.tasks import Task
-from activelabel.web.errors import ApiError, tool_failure
+from activelabel.web.errors import ApiError, need_fiftyone, tool_failure
 from activelabel.web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
@@ -143,6 +143,7 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
         The queued job (id and state); its result is read from the job when it finishes.
     """
     importer = _importer(body.tool)
+    need_fiftyone()  # the annotations are read with FiftyOne's CVAT reader
     if body.kind not in KINDS[body.tool]:
         raise ApiError(
             400,

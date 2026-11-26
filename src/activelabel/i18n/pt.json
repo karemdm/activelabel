@@ -1530,6 +1530,7 @@
   "error.curation_threshold_range": "Limite \"{threshold}\": informe um valor de {min} a {max}.",
   "error.curation_threshold_not_whole": "Limite \"{threshold}\": informe um número inteiro.",
   "error.fiftyone_not_opened": "Abra o projeto no FiftyOne primeiro, marque imagens com 'exclude' e tente de novo.",
+  "error.fiftyone_not_installed": "O FiftyOne não está instalado. Adicione com: {install}",
   "error.fiftyone_unavailable": "O banco de dados do FiftyOne não respondeu. Tente de novo; se continuar falhando, reinicie o ActiveLabel (outro programa que usa o FiftyOne pode estar ocupando o banco).",
   "error.internal_error": "Algo deu errado no servidor. Tente de novo; se continuar falhando, o log do servidor tem os detalhes.",
   "error.http_status": "O servidor respondeu com um erro (código {status}). Tente de novo.",

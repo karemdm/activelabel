@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from activelabel import fiftyone_bridge
+from activelabel import fiftyone_bridge, optional
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
 from activelabel.curation import similarity, similarity_fiftyone
 from activelabel.images.manifest import Manifest
@@ -244,6 +244,10 @@ def _publish(project: Project, manifest: Manifest, project_dir: Path, result: di
     Returns:
         ``""`` when it worked, else the readable error (the map itself is kept either way).
     """
+    if not optional.FIFTYONE:  # the light install: the map is shown by ActiveLabel only
+        return (
+            f"FiftyOne is not installed (the map is not in its App). Add it with: {optional.FIFTYONE_INSTALL}"
+        )
     try:
         dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
         similarity_fiftyone.publish(dataset, result)

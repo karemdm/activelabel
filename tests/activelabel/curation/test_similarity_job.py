@@ -5,6 +5,7 @@ from api_client import make_client, upload
 from sample_images import make_image
 from training_fakes import FAKE_EMBED, FakeEnv, wait_for
 
+from activelabel import optional
 from activelabel.curation import similarity, similarity_job
 from activelabel.training.runner import TrainingRunner
 
@@ -161,3 +162,10 @@ def test_the_queue_cancel_button_on_a_waiting_map(setup):
     assert runner.tool_job(data["job"]).status == "cancelled"
     gate.append(True)
     wait_for(lambda: runner.tool_job(blocker).status == "done")
+
+
+def test_publish_without_fiftyone_gives_a_readable_message(monkeypatch, tmp_path):
+    monkeypatch.setattr(similarity_job.optional, "FIFTYONE", False)
+    monkeypatch.setattr(similarity_job.fiftyone_bridge, "sync_dataset", database_down)  # must not be called
+    message = similarity_job._publish(SimpleNamespace(id=1), None, tmp_path, {})
+    assert "FiftyOne is not installed" in message and optional.FIFTYONE_INSTALL in message

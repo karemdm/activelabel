@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from pymongo.errors import ServerSelectionTimeoutError
 from sample_images import make_corrupt, make_image
 
-from activelabel import fiftyone_bridge
+from activelabel import fiftyone_bridge, optional
 from activelabel.fiftyone_names import record_name
 from activelabel.web import api
 
@@ -141,3 +141,29 @@ def test_pull_exclusions_when_the_fiftyone_database_does_not_answer(tmp_path, mo
     answer = quiet.post("/api/projects/1/fiftyone/pull-exclusions")
     assert answer.status_code == 503
     assert answer.json()["code"] == "fiftyone_unavailable"
+
+
+def _assert_not_installed(response):
+    assert response.status_code == 501, response.text
+    body = response.json()
+    assert body["code"] == "fiftyone_not_installed"
+    assert body["params"] == {"install": optional.FIFTYONE_INSTALL}
+
+
+def test_open_fiftyone_and_pull_exclusions_answer_501_without_fiftyone(tmp_path, monkeypatch):
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection"})
+    monkeypatch.setattr(optional, "FIFTYONE", False)
+    _assert_not_installed(client.post("/api/projects/1/fiftyone", json={}))
+    _assert_not_installed(client.post("/api/projects/1/fiftyone/pull-exclusions"))
+
+
+def test_deleting_a_project_without_fiftyone_does_not_start_its_database(tmp_path, monkeypatch):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "Cats", "task": "detection"})
+    record_name(state.store.dir(1), "activelabel-1-abc12345")
+    dropped = []
+    monkeypatch.setattr(api, "FIFTYONE", False)
+    monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args))
+    assert client.request("DELETE", "/api/projects/1", json={"confirm_name": "Cats"}).status_code == 200
+    assert dropped == []

@@ -122,7 +122,7 @@ jobs:
           fi
       - name: Check that the wheel has every file of the package
         run: python tests/package/check_wheel.py dist/*.whl src/activelabel
-      - name: Install the wheel (not editable) in a new environment
+      - name: Install the wheel (not editable, no extras, so the light install without FiftyOne) in a new environment
         run: |
           python -m venv "$RUNNER_TEMP/clean"
           "$RUNNER_TEMP/clean/bin/python" -m pip install dist/*.whl

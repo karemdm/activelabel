@@ -6,6 +6,7 @@ import requests
 from api_client import make_client
 from import_fakes import FakeKeyring, FakeResp, FakeSession
 
+from activelabel import optional
 from activelabel.annotate import credentials
 from activelabel.annotate.base import ToolError
 from activelabel.importing import cvat_import
@@ -207,3 +208,13 @@ def test_a_failed_import_job_carries_the_code_and_no_traceback(env, monkeypatch)
     done = wait(client, job["id"])
     assert (done["error_code"], done["error_params"]) == ("cvat_no_images", {"what": "project"})
     assert done["result"] == {}
+
+
+def test_starting_an_import_without_fiftyone_answers_501(env, monkeypatch):
+    client, _, _ = env
+    configure_cvat(client)
+    monkeypatch.setattr(optional, "FIFTYONE", False)
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7})
+    assert r.status_code == 501
+    assert r.json()["code"] == "fiftyone_not_installed"
+    assert r.json()["params"] == {"install": optional.FIFTYONE_INSTALL}
