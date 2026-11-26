@@ -248,7 +248,8 @@ def quality_alerts(
     single = _single_class(val)
     alerts.append({"code": "single_class", "params": single} if single else None)
     found = [a for a in alerts if a]
-    found.extend(_class_alerts(_class_scores(val)))
+    if not single:  # one predicted class already explains why every other class scores 0 (#148 QA)
+        found.extend(_class_alerts(_class_scores(val)))
     gap = _loss_gap(results, metrics or [])
     if gap:
         found.append({"code": "val_worse_than_train", "params": gap})
