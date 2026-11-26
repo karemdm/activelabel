@@ -13,7 +13,7 @@ from typing import Any
 
 from activelabel.errors import CodedError
 
-FAMILIES = ("torchvision", "timm", "ultralytics")
+FAMILIES = ("torchvision", "timm", "smp", "ultralytics")
 TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints")
 STARTS = ("transfer", "finetune", "scratch")
 #: How a photo becomes the square input of the network (see ``workers/options.py``).
@@ -134,7 +134,7 @@ class ModelSpec:
         id: stable identifier (also the weights name where there is one).
         label: name shown to people.
         types: project types that offer it.
-        family: ``torchvision``, ``timm`` or ``ultralytics``.
+        family: ``torchvision``, ``timm``, ``smp`` (segmentation_models_pytorch) or ``ultralytics``.
         task_kind: classification, detection, semantic, instance or keypoints.
         packages: pip requirement names the training environment needs.
         image_size: default input size (pixels, square).
@@ -371,6 +371,7 @@ _CLOSE_MOSAIC = ParamSpec(
 _TV = ("torch", "torchvision")
 _TIMM = ("torch", "torchvision", "timm")
 _ULTRA = ("ultralytics",)
+_SMP = ("torch", "torchvision", "segmentation-models-pytorch")
 _TRANSFORMER = {"lr": 0.0001}
 #: Detectors keep the proportions of the photo by default (torchvision's own resize did too).
 _TV_DET = {
@@ -950,7 +951,68 @@ def _yolo_models() -> list[ModelSpec]:
     return out
 
 
-MODELS: tuple[ModelSpec, ...] = tuple(_classification() + _torchvision_models() + _yolo_models())
+#: segmentation_models_pytorch decoders (#606): ``(class name, label)``; each is offered with every encoder of
+#: :data:`SMP_ENCODERS` (Segformer with its own Mix Transformer encoders).
+SMP_DECODERS = (
+    ("Unet", "U-Net"),
+    ("UnetPlusPlus", "U-Net++"),
+    ("DeepLabV3Plus", "DeepLabV3+"),
+    ("FPN", "FPN"),
+    ("PSPNet", "PSPNet"),
+    ("Linknet", "LinkNet"),
+    ("MAnet", "MA-Net"),
+    ("PAN", "PAN"),
+    ("UPerNet", "UPerNet"),
+)
+#: Encoders with ImageNet weights in segmentation_models_pytorch: ``(encoder name, label)``.
+SMP_ENCODERS = (("resnet34", "ResNet-34"), ("resnet50", "ResNet-50"), ("mobilenet_v2", "MobileNetV2"))
+SMP_SEGFORMER_ENCODERS = (("mit_b0", "MiT-B0"), ("mit_b1", "MiT-B1"), ("mit_b2", "MiT-B2"))
+#: Sides must be a multiple of 32 (the worker checks it); at least 128 pixels (an old limit of PAN, kept).
+_SMP_LIMITS: dict[str, tuple[float, float]] = {"image_size": (128, 2048)}
+
+
+def _smp(decoder: str, decoder_label: str, encoder: str, encoder_label: str) -> ModelSpec:
+    """A semantic segmentation model of segmentation_models_pytorch: a decoder on an encoder.
+
+    Args:
+        decoder: the smp class name (``Unet``...).
+        decoder_label: the decoder's name shown to people (``U-Net``...).
+        encoder: the smp encoder name (``resnet34``...).
+        encoder_label: the encoder's name shown to people.
+
+    Returns:
+        The model spec: id ``smp_<decoder>_<encoder>``, built by smp as ``<decoder>:<encoder>``.
+    """
+    return ModelSpec(
+        f"smp_{decoder.lower()}_{encoder}",
+        f"{decoder_label} {encoder_label}",
+        ("segmentation",),
+        "smp",
+        "semantic",
+        _SMP,
+        512,
+        params=(_CLASS_WEIGHTS, _SEG_LOSS),
+        defaults=_TV_SEG,
+        limits=_SMP_LIMITS,
+        arch=decoder_label,
+        variant=encoder_label,
+        builder=f"{decoder}:{encoder}",
+    )
+
+
+def _smp_models() -> list[ModelSpec]:
+    """The segmentation_models_pytorch models (trained by the segmentation worker).
+
+    Returns:
+        One spec per decoder and encoder.
+    """
+    out = [_smp(d, dl, e, el) for d, dl in SMP_DECODERS for e, el in SMP_ENCODERS]
+    return out + [_smp("Segformer", "SegFormer", e, el) for e, el in SMP_SEGFORMER_ENCODERS]
+
+
+MODELS: tuple[ModelSpec, ...] = tuple(
+    _classification() + _torchvision_models() + _smp_models() + _yolo_models()
+)
 _BY_ID = {m.id: m for m in MODELS}
 
 

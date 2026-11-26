@@ -224,3 +224,103 @@ def test_training_with_weights_and_dice_loss(worker, tmp_path, monkeypatch):
     )
     assert results["epochs_run"] == 1
     assert any(e == "log" and "Class weights" in f["message"] for e, f in seen)
+
+
+class FakeSmpNet:
+    """Builds a tiny network shaped like a segmentation_models_pytorch model (encoder, decoder, head)."""
+
+    @staticmethod
+    def build(torch, classes):
+        net = torch.nn.Module()
+        net.encoder = torch.nn.Conv2d(3, 4, 3, padding=1)
+        net.decoder = torch.nn.Conv2d(4, 4, 3, padding=1)
+        net.segmentation_head = torch.nn.Conv2d(4, classes, 1)
+        net.forward = lambda x: net.segmentation_head(net.decoder(net.encoder(x)))
+        return net
+
+
+class FakeSmp:
+    """Stands for the segmentation_models_pytorch package: records what it builds."""
+
+    def __init__(self, torch):
+        self.torch, self.calls = torch, []
+
+    def create_model(self, arch, encoder_name, encoder_weights, classes):
+        self.calls.append((arch, encoder_name, encoder_weights, classes))
+        return FakeSmpNet.build(self.torch, classes)
+
+
+def smp_spec(tmp_path, image_size=32, start="transfer"):
+    Image.new("RGB", (32, 32), (200, 10, 10)).save(tmp_path / "a.png")
+    items = [
+        {"path": str(tmp_path / "a.png"), "objects": [{"label": 0, "polygons": [SQUARE]}]} for _ in range(4)
+    ]
+    params = {
+        "epochs": 1,
+        "batch_size": 2,
+        "lr": 0.001,
+        "optimizer": "adamw",
+        "weight_decay": 0.0,
+        "scheduler": "none",
+        "warmup_epochs": 0,
+        "image_size": image_size,
+        "resize": "stretch",
+        "augmentation": "none",
+        "patience": 0,
+        "seed": 1,
+        "start": start,
+        "backbone_lr_factor": 0.1,
+        "amp": "auto",
+        "class_weights": "none",
+        "loss": "cross_entropy",
+    }
+    return {
+        "task": "semantic",
+        "model": "Unet:resnet34",
+        "family": "smp",
+        "classes": CLASSES,
+        "start": start,
+        "params": params,
+        "seed": 1,
+        "metric": "miou",
+        "fold": None,
+        "parts": {"train": items, "val": items[:2]},
+        "output_dir": str(tmp_path / "out"),
+        "device": "cpu",
+        "augmentations": [],
+        "digest": "d",
+    }
+
+
+def test_an_smp_model_is_built_by_decoder_and_encoder_and_answers_like_torchvision(worker, monkeypatch):
+    """#606: ``Unet:resnet34`` becomes smp's Unet on resnet34; the output is ``{"out": logits}``."""
+    fake = FakeSmp(worker.torch)
+    monkeypatch.setattr(worker, "smp", fake)
+    model = worker.build_model({"model": "Unet:resnet34", "family": "smp", "classes": CLASSES}, True)
+    assert fake.calls == [("Unet", "resnet34", "imagenet", 3)]
+    assert tuple(model(worker.torch.zeros(1, 3, 32, 32))["out"].shape) == (1, 3, 32, 32)
+    assert worker.head_modules(model) == [model.net.decoder, model.net.segmentation_head]
+    worker.build_model({"model": "FPN:mobilenet_v2", "family": "smp", "classes": CLASSES}, False)
+    assert fake.calls[-1] == ("FPN", "mobilenet_v2", None, 3)
+
+
+def test_smp_needs_its_package_and_sides_that_are_a_multiple_of_32(worker, monkeypatch, tmp_path):
+    monkeypatch.setattr(worker, "smp", None)
+    with pytest.raises(worker.SpecError, match="not installed"):
+        worker.build_model({"model": "Unet:resnet34", "family": "smp", "classes": CLASSES}, True)
+    file = tmp_path / "spec.json"
+    file.write_text(json.dumps(smp_spec(tmp_path, image_size=100)))
+    with pytest.raises(worker.SpecError, match="multiple of 32"):
+        worker.load_spec(file)
+    file.write_text(json.dumps({**smp_spec(tmp_path), "model": "Unet"}))
+    with pytest.raises(worker.SpecError, match="Unknown segmentation_models_pytorch"):
+        worker.load_spec(file)
+
+
+def test_an_smp_model_trains_with_the_segmentation_worker(worker, tmp_path, monkeypatch):
+    """A short real training (CPU) of an smp-shaped network: transfer trains the decoder and head only."""
+    monkeypatch.setattr(worker, "smp", FakeSmp(worker.torch))
+    monkeypatch.setattr(worker, "emit", lambda event, **fields: None)
+    results = worker.train(smp_spec(tmp_path))
+    assert results["epochs_run"] == 1 and "miou" in results["val"]
+    assert (tmp_path / "out" / "best.pt").exists()
