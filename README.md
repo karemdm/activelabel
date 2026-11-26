@@ -139,7 +139,9 @@ project is its *type*.)
    training refuses such images with `dataset_images_missing` / `dataset_images_changed`.) The *Similarity map* groups similar images: *Compute map* reads every
    active image with a small ImageNet network in the training environment (installed on first use,
    queued with the trainings), places them on a 2-D map (t-SNE, or PCA for very small or large sets)
-   and splits them into groups (k-means), each shown with its size and most typical image. The same
+   and splits them into groups (k-means), each shown with its size and most typical image. Regrouping (API for now; a CPU job of the
+   global queue) groups the same map again without recomputing it: k-means with the number of groups you choose, or
+   HDBSCAN with groups of free size, where images that fit no group are noise (no group). The same
    map opens in the FiftyOne App (Embeddings panel, run `activelabel_similarity`, coloured by the
    field `similarity_group`).
    *Uniqueness* scores each active image from 0 (it has a near twin) to 1 (the most unique) from the
