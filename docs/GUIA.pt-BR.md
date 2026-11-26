@@ -176,7 +176,8 @@ diz o que mudou. Se a GPU ficar sem memória, o lote é reduzido à metade até 
 necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último ponto de controle com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, lote, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
-**6. Modelos.** Use *Salvar como modelo* num treino concluído, compare os modelos, escolha o
+**6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou
+*Selecionar todos*; os treinos concluídos se comparam do mesmo jeito em Treinamento), escolha o
 modelo atual (*Tornar atual*), baixe os pesos e exporte para ONNX (classificação e segmentação
 semântica). *Adicionar modelo público* inclui um modelo já treinado no COCO, sem treinar nada (projetos
 de detecção e de pontos-chave; nos outros tipos o botão não aparece).

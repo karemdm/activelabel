@@ -1,5 +1,6 @@
 /* Step 5, Training: the runs of the project (list, progress, charts, detail), the new-run dialog (family,
- * model, hyperparameters, grid search) and saving a run as a model. */
+ * model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
+import { compareBar, compareCheck, compareTable } from './compare.js';
 import { staleCount } from './datasets.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
@@ -14,6 +15,8 @@ export function trainingPanel(page) {
   const node = el('section', { class: 'panel', id: 'panel-training', 'aria-labelledby': 'h-training' });
   const panel = { node, mounted: false };
   const listBox = el('div', { class: 'tr-list' });
+  const cmpBarBox = el('div', { class: 'cmp-bar-box' });
+  const cmpBox = el('div', { class: 'cmp-box' });
   const announcer = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   const nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   const MAX_GRID = 50;
@@ -165,6 +168,7 @@ export function trainingPanel(page) {
     }
     return el('li', { class: `tr-run card st-${r.status}`, id, 'aria-labelledby': `${id}-t` },
       el('div', { class: 'tr-run-head' },
+        comparableRun(r) ? compareCheck({ id: `${id}-cmp`, label: `#${r.number}`, checked: chosen.has(r.number), onChange: (on) => choose([r.number], on) }) : null,
         el('h3', { id: `${id}-t` }, `#${r.number}`),
         el('span', { class: 'tr-model' }, m ? m.label : r.model),
         badge(r)),
@@ -196,6 +200,8 @@ export function trainingPanel(page) {
     newBtn.hidden = !runs.length;
     if (!runs.length) {
       cards.clear();
+      fill(cmpBarBox);
+      fill(cmpBox);
       fill(listBox, emptyState('chart', t('tr.empty'),
         el('button', { type: 'button', class: 'btn primary', onclick: once(() => openNew(newBtn)) }, icon('plus', 16), t('tr.new'))));
       return;
@@ -208,7 +214,7 @@ export function trainingPanel(page) {
     const keep = new Set();
     const nodes = runs.map((r) => {
       keep.add(r.number);
-      const sig = JSON.stringify(r) + (catalog ? '1' : '0') + (ctx.weightless.has(r.number) ? 'w' : '');
+      const sig = JSON.stringify(r) + (catalog ? '1' : '0') + (ctx.weightless.has(r.number) ? 'w' : '') + (chosen.has(r.number) ? 'c' : '');
       const old = cards.get(r.number);
       if (old && old.sig === sig) return old.node;
       const fresh = runCard(r);
@@ -219,10 +225,51 @@ export function trainingPanel(page) {
     const same = nodes.length === list.children.length && nodes.every((n, i) => list.children[i] === n);
     if (!same) fill(list, ...nodes);
     if (!ul) fill(listBox, list);
+    drawCompare();
     if (act && ownerNumber != null && cards.has(ownerNumber) && !list.contains(document.activeElement)) {
       const again = cards.get(ownerNumber).node.querySelector(`[data-act="${act}"]`);
       if (again) again.focus();
     }
+  }
+
+  // ---------------------------------------------------------------- comparing the chosen runs (#214)
+  const chosen = new Set();     // run numbers chosen for the comparison
+  const details = new Map();    // run number -> {sig, data}: the results read for the comparison
+  const comparableRun = (r) => r.status === 'done' && !r.config_error;
+  function choose(numbers, on) {
+    numbers.forEach((n) => (on ? chosen.add(n) : chosen.delete(n)));
+    draw();
+  }
+  /* the results of the chosen runs are read from each run's detail, once per state of the run */
+  async function chosenDetails(cols) {
+    await Promise.all(cols.map(async (r) => {
+      const sig = JSON.stringify([r.status, r.best, r.finished]);
+      if (details.has(r.number) && details.get(r.number).sig === sig) return;
+      const data = await api('GET', `/projects/${projectId}/runs/${r.number}`);
+      details.set(r.number, { sig, data });
+    }));
+  }
+  let cmpSig = '';
+  async function drawCompare() {
+    const pool = runs.filter(comparableRun);
+    for (const n of [...chosen]) if (!pool.some((r) => r.number === n)) chosen.delete(n);
+    const focusedAct = document.activeElement && cmpBarBox.contains(document.activeElement) ? document.activeElement.dataset.act : null;
+    fill(cmpBarBox, pool.length >= 2
+      ? compareBar({ prefix: 'tr-cmp', chosen: chosen.size, total: pool.length, onAll: (on) => choose(pool.map((r) => r.number), on), onClear: () => choose([...chosen], false) })
+      : null);
+    if (focusedAct) { const again = cmpBarBox.querySelector(`[data-act="${focusedAct}"]`) || cmpBarBox.querySelector('[data-act]'); if (again) again.focus(); }
+    const cols = pool.filter((r) => chosen.has(r.number)).sort((a, b) => a.number - b.number);
+    const sig = JSON.stringify(cols);
+    if (sig === cmpSig) return;
+    cmpSig = sig;
+    if (cols.length < 2) { fill(cmpBox); return; }
+    try { await chosenDetails(cols); } catch (err) { toastError(err); return; }
+    if (sig !== cmpSig) return;   // the choice changed while reading
+    fill(cmpBox, compareTable({
+      id: 'tr-compare', title: t('tr.compare'), help: t('tr.compare_help'), cols,
+      resultsOf: (r) => (details.get(r.number) || {}).data && details.get(r.number).data.results,
+      head: (r) => { const m = modelOf(r.model); return [`#${r.number}`, el('span', { class: 'md-arch' }, m ? m.label : r.model)]; },
+    }));
   }
 
   function schedule() {
@@ -1233,7 +1280,9 @@ export function trainingPanel(page) {
       el('div', null, el('h2', { id: 'h-training' }, t('step.training')), el('p', { class: 'muted' }, t('tr.intro'))),
       newBtn),
     announcer,
-    listBox);
+    cmpBarBox,
+    listBox,
+    cmpBox);
 
   panel.mount = () => load();
   panel.show = () => load(true);

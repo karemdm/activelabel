@@ -1071,6 +1071,17 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .md-table td.best { font-weight: 700; background: var(--area-soft); }
 .md-table th .md-arch { display: block; font-weight: 400; font-size: var(--font-xs); color: var(--muted); }
 .md-table tr.sub th { font-weight: 400; color: var(--muted); }
+.md-compare .md-table { width: 100%; }
+.md-table tr.cmp-group th { text-align: left; background: var(--surface-2); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+/* choosing what to compare (#214): the checkbox of a card and the bar above the list */
+.cmp-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--font-xs); color: var(--muted); cursor: pointer; }
+.cmp-check input { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--area); cursor: pointer; }
+.tr-run-head .cmp-check { order: -1; }
+.cmp-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.cmp-bar .cmp-check { font-size: inherit; color: inherit; }
+.cmp-count { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); }
+.cmp-zero { margin-top: var(--space-2); }
+.cmp-zero summary { cursor: pointer; color: var(--muted); }
 .md-star { color: var(--area); margin-left: var(--space-1); vertical-align: middle; }
 .md-mapping > summary, .md-map > summary { cursor: pointer; min-height: var(--touch); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
 .md-mapping > summary:focus-visible, .md-map > summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
