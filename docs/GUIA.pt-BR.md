@@ -179,7 +179,7 @@ Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade (valores
-separados por ponto e vírgula, com vírgula decimal: `0,01; 0,001`) ou todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo começa pela família do modelo. Estão disponíveis
+separados por ponto e vírgula, com vírgula decimal: `0,01; 0,001`) ou todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo escolhe o modelo em três campos: a família, a arquitetura (ou a geração, no YOLO: YOLO26, YOLO11, YOLOv8) e o tamanho ou a variante (n, s, m, l, x; ResNet 18 a 152...); o que o modelo aprende vem do tipo do projeto. Trocar só o tamanho mantém os valores que você mudou. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
 pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) aparecem quando você lê e aceita a
 licença no próprio diálogo (*Ler e aceitar a licença…*; veja *Licences* em TRAINING.md, em inglês). No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,

@@ -154,7 +154,8 @@ project is its *type*.)
    see [docs/DATASETS.md](docs/DATASETS.md).
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
    fine-tuning or from scratch; single run, grid search or all folds) with live curves (loss, metrics and
-   the learning rate) and evaluation on the test part. The dialog starts by the model family:
+   the learning rate) and evaluation on the test part. The dialog chooses the family, then the architecture
+   (or YOLO generation) and the size; the task comes from the project type. The families:
    classification, detection, semantic segmentation, instance segmentation (Mask R-CNN) and keypoints
    (torchvision) are available; the YOLO models of Ultralytics (AGPL-3.0) are offered once the licence is
    read and accepted in the same dialog (docs/TRAINING.md, *Licences*). A run chooses its device

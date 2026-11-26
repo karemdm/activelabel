@@ -106,8 +106,19 @@ normalised with the mean and standard deviation the weights expect (timm's `pret
 Inception or CLIP values; ImageNet for torchvision), and the saved model records them for pre-annotation and
 ONNX.
 
-The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
-model of that family. Only the families with a model for the project type are listed (timm, for instance,
+The new-run dialog chooses the model in three fields (#632): the **family** (*Model family* / *Família do
+modelo*), then its **architecture** and then its **variant**, named in the family's own words: Ultralytics
+*Generation* and *Size* (YOLO26, YOLO11, YOLOv8; n, s, m, l, x), torchvision and timm *Architecture* and
+*Variant* (ResNet 18-152, EfficientNet B0-B7...). The task is not a choice: it comes from the project type and
+is said in the line that names the model (*Ultralytics YOLO26 m · Detection*, with the model id as its
+tooltip). A short list of variants (up to eight, short names) is a row of buttons, a radio group moved with
+the arrow keys (two rows of up to four on a phone), with the parameters and file size of the chosen one and
+"faster ... more accurate" at its ends when the variants grow; a longer list is a select. The family proposes
+its default architecture (YOLO26) in the size that suits the computer (`default_size` of
+`/training/environment`: n without a GPU, s on a small GPU, m from 8 GB) until the person picks a model.
+Another size of the same architecture keeps every value the person set and says nothing (unless a value has
+to go back to its default); another architecture or family keeps the values that still apply and says, in
+one line, what went back to its default (#312). Changing the generation keeps the size (YOLO11 m to YOLO26 m). Only the families with a model for the project type are listed (timm, for instance,
 has no segmentation model, so a segmentation project does not show it). YOLO/Ultralytics models train with their own worker (`workers/yolo.py`) once the
 AGPL-3.0 licence is accepted (*Licences* below). Until then the family stays disabled in the dialog, and its hint
 offers *Read and accept the AGPL-3.0 licence…*: a window says in plain words what the licence asks, links to its
