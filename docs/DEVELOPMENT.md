@@ -41,20 +41,22 @@ Never point a development server at a workspace that holds data you care about.
 | FiftyOne tests | `python -m pytest -q -m integration` (starts a database of the tests' own; slow) |
 | One file | `python -m pytest tests/activelabel/test_datasets.py -q` |
 
-`pre-commit` runs ruff, mypy and the fast tests on every commit. Run the checks that cover what you changed
+`pre-commit` runs the file hygiene hooks, ruff, mypy and the fast tests on every commit. Run the checks that cover what you changed
 before you commit, and the whole suite before you open a pull request.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on `main`:
 
 | Job | What | Required to merge |
 | --- | --- | --- |
-| `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12, Linux with 3.10 (the oldest supported), macOS (Apple silicon) with 3.12 | yes, except macOS |
+| `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12, Linux with 3.10 (the oldest supported); macOS (Apple silicon) with 3.12 only after a merge to `main` (and by hand) | yes, except macOS |
 | `FiftyOne tests` | the tests marked `integration`, against a MongoDB service of the job | yes |
 | `package` | builds the wheel, checks its version and files, installs it in a clean environment and fetches the pages of the installed server | yes |
 | `training workers (torch CPU)` | the worker and metric tests with the pinned CPU build of PyTorch; fails if one of them is skipped | yes |
 | `ui (node + playwright)` | the JavaScript unit tests and the Playwright smoke tests (see below) | yes |
 
-The macOS job runs on every pull request, but a failure there does not block the merge.
+The macOS job does not run on pull requests (the machines are scarce), so a failure there shows after the merge and
+is not a required check. Every job installs with the pip cache, and a new push to a pull request cancels the
+check that is still running for it.
 
 The CVAT synchronisation is tested against a strict in-memory fake of CVAT's REST API
 (`tests/helpers/cvat_fake.py`). A separate workflow, `.github/workflows/cvat-live.yml`, runs nightly (and
@@ -73,7 +75,10 @@ run them. Do not start real trainings from tests.
 src/activelabel/
   cli.py                 `activelabel serve`
   config.py              Settings from environment variables
-  storage.py             atomic JSON read/write helpers
+  storage.py             atomic JSON read/write helpers, FORMAT_VERSION
+  migrations.py          start-up migration of stored data to the current format version
+  backups.py             safety copies of annotations before bulk changes
+  errors.py              CodedError: an error with a stable code and params
   labels.py              the internal label format, annotations.json, the annotations lock
   projects.py            ProjectStore (project.json, ids)
   tasks.py, tasks_store.py   project types; tasks and jobs (tasks.json)
@@ -88,9 +93,10 @@ src/activelabel/
   annotate/              edit sessions: tools (fiftyone), credentials, diff
   sync/                  three-way sync engine, links, remote adapter (cvat)
   importing/             import a whole project from CVAT
-  training/              catalog, config, runs, models, public_models, environment, runner, workers/
+  training/              catalog, config, runs, models, public_models, environment, devices, licences,
+                         augmentations, runner, workers/
   i18n/                  en.json, pt.json
-  web/                   app.py, state.py, one *_api.py router per area, pages.py,
+  web/                   app.py, state.py, guard.py (LocalOnly), errors.py, one *_api.py router per area, pages.py,
                          templates/*.html, static/js/ (ES modules) and app.css
 tests/activelabel/       mirrors src/activelabel; tests/helpers has shared fakes and builders
 docs/                    this documentation
@@ -109,12 +115,18 @@ Where to start for common changes:
 
 ## Conventions
 
+- **Rules the tests and the linter enforce.** Imports only at the top of the module (ruff `PLC0415`; an optional
+  package goes in an adapter module with `try: import x / except ImportError: x = None`); docstrings with `Args:`
+  for every parameter, `Returns:` for a value and `Yields:` for a generator (ruff `DOC201`, `DOC402` and the `D`
+  rules, in `src` only); no `def` or `class` inside a function (`tests/rules/test_no_nested.py`); a test file for
+  every module, `src/activelabel/x/y.py` tested by `tests/activelabel/x/test_y.py` (`tests/rules/test_layout.py`);
+  the last two keep a `BASELINE` of old exceptions that may only shrink. Coverage must stay at or above 80 %.
 - **Style.** Type hints everywhere (mypy `disallow_untyped_defs`), Google-style docstrings that tell the
   truth (ruff checks their presence and form), line length 110, readable names, small functions, no dead
   code, no duplicated helpers (look in `storage.py`, `labels.py` and the stores before writing a new one).
 - **User-facing text goes through i18n.** Add the key to **both** `en.json` and `pt.json` with the same
-  placeholders (`tests/activelabel/i18n` fails otherwise, and checks that every key the screen uses
-  exists). Server error messages are in English. The Portuguese must have correct accents and natural
+  placeholders (`tests/activelabel/i18n` fails otherwise, checks that every key the screen uses exists, and
+  `test_keys_used.py` fails on a text that no module or template uses). Server error messages are in English. The Portuguese must have correct accents and natural
   wording.
 - **Names.** The project's kind is its *type* (`Project.task` in the code); *task* and *job* are packages of
   images and their chunks; *Activities* is the card of background jobs (`activelabel.jobs`).
@@ -138,7 +150,8 @@ Where to start for common changes:
 
 ## The training environment and the workers
 
-Training uses packages (PyTorch, torchvision, timm, ...) that ActiveLabel itself does not depend on.
+Training uses packages (PyTorch, torchvision, timm, ...) that ActiveLabel itself does not depend on. (timm is
+being removed, issue #618; this page still mentions it until then.)
 
 ```mermaid
 flowchart TB
@@ -168,12 +181,13 @@ flowchart TB
   to them and are imported by file name when ActiveLabel is not installed. Their pure helpers are tested
   through `tests/helpers/worker_loader.py`, and the job *training workers* runs them with a real CPU
   PyTorch: `classification.py`, `detection.py` (detection, instance segmentation and keypoints),
-  `segmentation.py` (semantic), `predict.py` (pre-annotation) and `export_onnx.py`. `WORKER_FILES` in
+  `segmentation.py` (semantic), `yolo.py` (Ultralytics, only after its licence is accepted), `predict.py`
+  (pre-annotation) and `export_onnx.py`. `WORKER_FILES` in
   `runner.py` maps a kind of task to its script.
 - **Protocol.** The runner writes `spec.json` (image paths, class indexes, labels of each part, model,
   hyperparameters) and starts `<env python> <worker> spec.json` with every cache and temporary folder
   pointed to the run's temporary folder. The worker prints one JSON object per line on stdout: `log`,
-  `warning`, `setup` (the device, mixed precision and batch size really used), `progress`, `epoch` (metrics of an epoch, `best` when it is the best so far), `done` (with the
+  `warning` (with a `code` and `params`, so the interface can translate it), `setup` (the device, mixed precision and batch size really used), `progress`, `epoch` (metrics of an epoch, `best` when it is the best so far), `done` (with the
   results) or `error`; `predict.py` also prints one `prediction` per image. Lines that are not JSON go to
   the log. The runner turns events into `run.json`, `metrics.jsonl` and `results.json`.
 - **Cancel** kills the whole process tree (`kill_tree`, using `psutil`). A run that was running when the
