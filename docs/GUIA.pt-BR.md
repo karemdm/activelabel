@@ -41,8 +41,24 @@ Python 3.10 ou mais novo.
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .              # o núcleo
+python -m pip install -e ".[fiftyone]"  # o núcleo mais o FiftyOne (".[all]" é igual; ".[dev]" o inclui)
+python -m pip install -e ".[dev]"       # para desenvolver: FiftyOne mais as ferramentas de teste e lint
 ```
+
+O núcleo é uma instalação leve: projetos, imagens, medidas de curadoria e o mapa de similaridade,
+anotações, tasks, vídeos, sincronização com o CVAT, datasets, treinamento e pré-anotação. O extra
+acrescenta o FiftyOne:
+
+| Instalação | O que traz |
+| --- | --- |
+| `pip install activelabel` | tudo o que está acima; os pacotes de treino não fazem parte dela, vão para um ambiente de treino separado, instalado no primeiro uso (docs/TRAINING.md) |
+| `pip install "activelabel[fiftyone]"` (ou `[all]`) | também o App do FiftyOne, a ferramenta de anotação do FiftyOne, a importação de projetos do CVAT (lidos com o leitor de CVAT do FiftyOne) e o mapa de similaridade no App |
+
+Sem o FiftyOne, o que depende do extra responde HTTP 501 `fiftyone_not_installed` com o comando de
+instalação, e o resto funciona. *GET /api/features* mostra o que está instalado e quanto espaço o ambiente
+de treino ocupa; *DELETE /api/training/environment* remove esse ambiente (o próximo treino instala de novo o
+que precisar).
 
 ## Rodar
 
