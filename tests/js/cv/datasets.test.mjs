@@ -9,7 +9,7 @@ for (const [name, value] of Object.entries({
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { datasetsPanel, staleCount } = await import('../../../src/activelabel/web/static/js/cv/datasets.js');
+const { datasetsPanel, staleCount, sharesOf } = await import('../../../src/activelabel/web/static/js/cv/datasets.js');
 
 setMessages({ 'step.datasets': 'Data split' }, 'en');
 
@@ -38,4 +38,14 @@ test('the Data split step counts the versions for the step bar', async () => {
   assert.deepEqual(asked, ['/api/projects/3/datasets']);
   assert.equal(ctx.datasetCount, 1);
   assert.equal(stepper, 1);
+});
+
+test('the shares of the parts are whole percentages that add up to 100 (#636)', () => {
+  assert.deepEqual(sharesOf([1, 0, 99]), [1, 0, 99]);
+  assert.deepEqual(sharesOf([2, 1, 0]), [67, 33, 0]);
+  const five = sharesOf([18, 18, 18, 18, 18, 10]);
+  assert.equal(five.reduce((a, n) => a + n, 0), 100);
+  assert.deepEqual(sharesOf([0, 0]), [0, 0]);
+  const folds = sharesOf([2, 2, 2, 2, 2, 110]);
+  assert.equal(new Set(folds.slice(0, 5)).size, 1, 'equal parts show the same percentage');
 });

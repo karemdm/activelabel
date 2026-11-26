@@ -10,6 +10,24 @@ import { emptyState } from '../shell/widgets.js';
 
 /* images whose labels changed after the version was made (0 when none); the version keeps the old ones */
 /* images whose labels changed, or that were excluded or put back, since the version was made (#636) */
+/** Whole percentages of some counts that add up to 100 (largest remainder); equal counts always show the same
+    percentage (rounded as usual when the leftover points cannot go to all of them, so ties can leave the sum a
+    little off); all zeros when the total is 0. */
+export function sharesOf(counts) {
+  const total = counts.reduce((a, n) => a + n, 0);
+  if (!(total > 0)) return counts.map(() => 0);
+  const exact = counts.map((n) => (n / total) * 100);
+  const out = exact.map(Math.floor);
+  let left = 100 - out.reduce((a, n) => a + n, 0);
+  /* the remainders, largest first; equal counts form one group that gets the extra point together or not at all */
+  const groups = [...new Set(counts)].map((n) => ({ n, rest: (n / total) * 100 - Math.floor((n / total) * 100), at: counts.map((c, i) => (c === n ? i : -1)).filter((i) => i >= 0) }))
+    .sort((a, b) => b.rest - a.rest || b.n - a.n);
+  for (const g of groups) {
+    const up = g.rest > 0 && (g.at.length <= left || g.rest >= 0.5);   // a group too big for what is left rounds as usual
+    if (up) { g.at.forEach((i) => { out[i] += 1; }); left -= g.at.length; }
+  }
+  return out;
+}
 export const staleCount = (v) => { const s = v.stale || {}; return ['changed_images', 'added', 'removed', 'excluded', 'restored'].reduce((n, k) => n + (s[k] || 0), 0); };
 
 export function datasetsPanel(page) {
@@ -46,6 +64,8 @@ export function datasetsPanel(page) {
   }
   const totalOf = (items) => items.reduce((a, x) => a + x.n, 0);
   const pctOf = (n, total) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  /* the shares of the parts, rounded so that they add up to 100 (largest remainder, #636) */
+  const pctsOf = (items) => sharesOf(items.map((x) => x.n));
 
   function partsBar(items, label) {
     return el('div', { class: 'ds-bar', role: 'img', 'aria-label': label },
@@ -53,7 +73,7 @@ export function datasetsPanel(page) {
   }
   const legend = (items) => el('ul', { class: 'ds-legend' }, ...items.map((x) => el('li', null,
     el('span', { class: `ds-dot ds-${x.cls}`, 'aria-hidden': 'true' }), `${x.label}: `, el('strong', null, num(x.n)),
-    el('span', { class: 'muted' }, ` · ${pctOf(x.n, totalOf(items))}%`))));
+    el('span', { class: 'muted' }, ` · ${pctsOf(items)[items.indexOf(x)]}%`))));
   const barLabel = (items) => items.map((x) => `${x.label} ${num(x.n)}`).join(', ');
 
   /* background images of a stats object {part: {images, background, objects}} */
@@ -94,6 +114,13 @@ export function datasetsPanel(page) {
       group.classes.push(w.class);
       group.available.push(w.available);
       group.avoidable.push(w.avoidable);
+    }
+    const fewFolds = grouped.filter((w) => w.code === 'few_images' && w.fold != null);
+    if (fewFolds.length > 1) {
+      const at = grouped.indexOf(fewFolds[0]);
+      const rest = grouped.filter((w) => !fewFolds.includes(w));
+      rest.splice(at, 0, { code: 'few_images_folds', folds: fewFolds.map((w) => w.fold) });
+      grouped.splice(0, grouped.length, ...rest);
     }
     return grouped.map((w) => (w.code === 'classes_missing' && w.classes.length === 1
       ? { code: 'class_missing', part: w.part, fold: w.fold, class: w.classes[0], available: w.available[0], avoidable: w.avoidable[0] } : w));
@@ -146,13 +173,21 @@ export function datasetsPanel(page) {
     }
     if (code === 'part_empty') return short ? t('ds.b_part_empty', { part }) : t('ds.w_part_empty', { part });
     if (code === 'few_images') return short ? t('ds.b_few_images', { part }) : t('ds.w_few_images', { part });
+    if (code === 'few_images_folds') {   // the same fact for several folds: said once (#636)
+      const folds = w.folds.map((f) => num(f + 1)).join(', ');
+      return short ? t('ds.b_few_images_folds', { n: num(w.folds.length) }) : t('ds.w_few_images_folds', { folds });
+    }
+    if (code === 'classes_unused') {
+      const list = (w.classes || []).slice(0, 6).join(', ') + ((w.classes || []).length > 6 ? ` (+${w.classes.length - 6})` : '');
+      return short ? tn('ds.b_classes_unused', (w.classes || []).length) : tn('ds.w_classes_unused', (w.classes || []).length, { list });
+    }
     if (code === 'labels_without_geometry' || code === 'multiple_classes' || code === 'keypoints_count_mismatch') {
       const vars = { n: num(w.count || 0), expected: num(w.expected || 0) };
       return short ? tn(`ds.b_${code}`, w.count || 0, vars) : tn(`ds.w_${code}`, w.count || 0, vars);
     }
     if (/drift|group/.test(code)) {
       const total = totalOf(items);
-      const real = items.map((x) => pctOf(x.n, total)).join('/');
+      const real = total > 0 ? pctsOf(items).join('/') : items.map(() => 0).join('/');
       const why = w.cause === 'video' ? '' : w.cause === 'duplicates' ? '_duplicates' : '_generic';  // only frames of a video talk about videos
       return short ? t('ds.b_group_drift', { real }) : t(`ds.w_group_drift${why}`, { real });
     }
@@ -163,16 +198,17 @@ export function datasetsPanel(page) {
   // ---------------------------------------------------------------- list
   function splitText(v) {
     const o = v.options || {};
-    if (o.kfold) return t('ds.kfold_short', { k: o.kfold });
+    if (o.kfold) return t(o.split && Number(o.split.test) > 0 ? 'ds.kfold_short' : 'ds.kfold_only', { k: o.kfold });
     const s = o.split || {};
     /* what was asked for; the real sizes are in the bar and the legend below (groups can make them differ) */
-    return t('ds.split_asked', { split: [s.train, s.val, s.test].filter((x) => x != null).join(' / ') });
+    return t('ds.split_asked', { split: [s.train, s.val, s.test].filter((x) => x != null).map((x) => `${x}%`).join(' / ') });
   }
 
   /* warnings go into a few groups: one line says how many, the list opens on demand */
   const WARN_GROUP = {
     class_missing: 'classes', classes_missing: 'classes', part_empty: 'size', few_images: 'size',
     labels_without_geometry: 'labels', multiple_classes: 'labels', keypoints_count_mismatch: 'labels',
+    classes_unused: 'classes', few_images_folds: 'size', no_curation: 'curation',
   };
   const warnGroup = (w) => WARN_GROUP[w.code] || (/drift|group/.test(String(w.code)) ? 'balance' : 'other');
   function warnSummary(list) {
@@ -296,7 +332,7 @@ export function datasetsPanel(page) {
     const note = el('input', { type: 'text', id: 'ds-note', maxlength: '500', autocomplete: 'off' });
     const bgBox = el('input', { type: 'checkbox', id: 'ds-bg', role: 'switch' });
     const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
-    const gapInput = el('input', { type: 'number', id: 'ds-gap', inputmode: 'decimal', min: '0', max: '3600', step: '0.1', value: '0.5' });
+    const gapInput = el('input', { type: 'text', id: 'ds-gap', inputmode: 'decimal', autocomplete: 'off', value: num(0.5) });   // text: "0,5" in pt
     /* the safety gap is a choice: on by default, off sends 0 seconds (frames of one video may then sit on both sides) */
     const gapBox = el('input', { type: 'checkbox', id: 'ds-gap-on', role: 'switch', checked: true });
     const gapField = el('div', { class: 'ds-gap-field' }, el('div', { class: 'field ds-num' }, el('label', { for: 'ds-gap' }, t('ds.gap')), gapInput),
@@ -315,7 +351,7 @@ export function datasetsPanel(page) {
       videosSel.value = o.videos || 'auto';
       const gapSeconds = o.gap_seconds != null ? Number(o.gap_seconds) : 0.5;
       gapBox.checked = gapSeconds > 0;
-      gapInput.value = String(gapSeconds > 0 ? gapSeconds : 0.5);
+      gapInput.value = num(gapSeconds > 0 ? gapSeconds : 0.5);
       const sp = o.split || {};
       if (o.kfold) {
         st.mode = 'kfold';
@@ -342,6 +378,11 @@ export function datasetsPanel(page) {
     const int = (inp) => { const n = raw(inp); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : NaN; };
     const validPct = (inp) => Number.isFinite(raw(inp)) && raw(inp) >= 0 && raw(inp) <= 100;
     const field = (label, input) => el('div', { class: 'field ds-num' }, el('label', { for: input.id }, label), input);
+    /* the video options, shown once a preview says the chosen tasks have videos (#636) */
+    const videoOpts = el('div', { class: 'ds-video-opts', hidden: true },
+      field(t('ds.videos'), videosSel), el('p', { class: 'muted ds-help' }, t('ds.videos_help')),
+      el('div', { class: 'field ds-switch' }, el('label', { for: 'ds-gap-on', class: 'ds-check' }, gapBox, el('span', null, t('ds.gap_switch')))),
+      gapField, gapOff);
 
     function drawRatios() {
       const parts = st.mode === 'split'
@@ -394,8 +435,10 @@ export function datasetsPanel(page) {
       if (!st.tasks.size) return { error: t('ds.err_tasks') };
       const sd = parseInt(seed.value, 10);
       if (!Number.isFinite(sd)) return { error: t('ds.err_seed') };
-      const gap = gapBox.checked ? parseFloat(gapInput.value) : 0;
-      if (!(gap >= 0 && gap <= 3600) || (gapBox.checked && gap === 0)) return { error: t('ds.err_gap') };
+      const gap = gapBox.checked ? parseFloat(String(gapInput.value).replace(',', '.')) : 0;
+      const badGap = !(gap >= 0 && gap <= 3600) || (gapBox.checked && gap === 0);
+      if (badGap) gapInput.setAttribute('aria-invalid', 'true'); else gapInput.removeAttribute('aria-invalid');
+      if (badGap) return { error: t('ds.err_gap') };
       const body = { tasks: [...st.tasks], background: cls ? false : st.bg, seed: sd, videos: videosSel.value, gap_seconds: gap };
       if (st.mode === 'split') {
         const s = { train: raw(train), val: raw(val), test: raw(test) };
@@ -435,6 +478,7 @@ export function datasetsPanel(page) {
       const sizes = normSizes(d);
       const items = partItems(sizes, d.options);
       limitK(d.max_kfold);
+      videoOpts.hidden = !(Array.isArray(d.videos) && d.videos.length);
       const blocked = (d.empty_parts || []).filter((p) => p === 'train' || p === 'val');
       st.blocked = blocked.length > 0;
       const reason = trainBlockReason(sizes);
@@ -472,7 +516,7 @@ export function datasetsPanel(page) {
       const more = el('button', { type: 'button', class: 'btn small', 'aria-expanded': 'false', onclick: () => { all = !all; paint(); } });
       function paint() {
         fill(body,
-          row(t('ds.images'), items.map((x, i) => (per[i].images != null ? per[i].images : x.n)), 'strong'),
+          row(bgTotal > 0 ? t('ds.images_with_bg') : t('ds.images'), items.map((x, i) => (per[i].images != null ? per[i].images : x.n)), 'strong'),
           bgTotal > 0 ? row(t('ds.background'), per.map((s) => s.background || 0)) : null,
           classRows.length ? el('tr', { class: 'sub' }, el('th', { scope: 'colgroup', colspan: String(items.length + 1) }, cls ? t('ds.images_per_class') : t('ds.objects_per_class'))) : null,
           ...(all ? classRows : classRows.slice(0, SHOWN)));
@@ -547,15 +591,15 @@ export function datasetsPanel(page) {
           bgRow,
           el('details', { class: 'ds-adv field' }, el('summary', null, t('ds.advanced')),
             field(t('ds.seed'), seed), el('p', { class: 'muted ds-help' }, t('ds.seed_help')),
-            field(t('ds.videos'), videosSel), el('p', { class: 'muted ds-help' }, t('ds.videos_help')),
-            el('div', { class: 'field ds-switch' }, el('label', { for: 'ds-gap-on', class: 'ds-check' }, gapBox, el('span', null, t('ds.gap_switch')))),
-            gapField, gapOff),
+            videoOpts),
           el('div', { class: 'field' }, el('label', { for: 'ds-note' }, `${t('ds.note')} `, el('span', { class: 'muted' }, `(${t('step.optional')})`)), note)),
         el('aside', { class: 'ds-side', 'aria-label': t('ds.preview') }, previewBox)),
       el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
     const dlg = el('dialog', { class: 'dialog wide ds-dialog', 'aria-label': t('ds.new_title') }, form);
     [seed, kInput, ktestInput, train, val, test, gapInput].forEach((i) => i.addEventListener('input', changed));
     videosSel.addEventListener('change', changed);
+    /* the most folds depends on the test share: an older preview's limit must not clamp the new K (#636) */
+    ktestInput.addEventListener('input', () => { st.maxK = null; kInput.max = '10'; });
     kInput.addEventListener('change', () => {
       const k = parseInt(kInput.value, 10);
       if (st.maxK >= 2 && k > st.maxK) { kInput.value = String(st.maxK); changed(); }

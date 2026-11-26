@@ -981,3 +981,10 @@ def test_the_seed_stays_in_a_range_every_generator_takes():
         with pytest.raises(CodedError) as info:
             parse_options({"seed": bad}, [1])
         assert info.value.code == "seed_range" and info.value.params["max"] == MAX_SEED
+
+
+def test_a_class_of_the_project_without_any_label_is_warned(tmp_path):
+    """The project declares a, b, c and rare; a split that has none of "c" and "rare" says so (#636)."""
+    pdir, project = build(tmp_path, {f"i{n:03d}": ["a" if n % 2 else "b"] for n in range(30)})
+    found = [w for w in plan(pdir, project).warnings if w["code"] == "classes_unused"]
+    assert found == [{"code": "classes_unused", "classes": ["c", "rare"]}]
