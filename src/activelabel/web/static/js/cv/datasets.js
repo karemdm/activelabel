@@ -2,7 +2,7 @@
  * with its checks, and what changed in the labels since a version was made. */
 import { partName, taskBadge } from './names.js';
 import { api, errorParams } from '../shell/api.js';
-import { confirmDialog, once, openModal } from '../shell/dialogs.js';
+import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
 import { add, el, fill, icon } from '../shell/dom.js';
 import { fmtDateTime, lower, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
@@ -270,6 +270,7 @@ export function datasetsPanel(page) {
   // ---------------------------------------------------------------- new version form
   /* `from`: a version whose options fill the form ("new version from this one") */
   async function openNew(trigger, from = null) {
+    const opener = document.activeElement;   // the empty state's own button when the header one is hidden
     let tasks;
     try {
       tasks = ((await api('GET', `/projects/${projectId}/tasks`)).tasks || []).filter((x) => x.active > 0);
@@ -577,7 +578,7 @@ export function datasetsPanel(page) {
         toastError(err);
       }
     });
-    dlg.addEventListener('close', () => { clearTimeout(timer); token += 1; dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
+    dlg.addEventListener('close', () => { clearTimeout(timer); token += 1; dlg.remove(); returnFocus(trigger, opener, node.querySelector('.ds-empty-actions .btn')); });
     drawMode();
     syncGap();
     document.body.appendChild(dlg);

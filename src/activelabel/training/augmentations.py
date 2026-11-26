@@ -236,8 +236,10 @@ _OBJECT_PRESETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
     "standard": [("hflip", {}), ("color_jitter", {"brightness": 0.2, "contrast": 0.2, "saturation": 0.0})],
     "strong": [("hflip", {}), ("color_jitter", {"brightness": 0.4, "contrast": 0.4, "saturation": 0.0})],
 }
-#: Keypoints have no flip in the presets: which points swap places is only known from ``flip_pairs``.
+#: Keypoints have no flip in the presets: which points swap places is only known from ``flip_pairs``. Without
+#: the flip, "light" would be empty (the same as "none"), so it varies the light a little instead (#635).
 _KEYPOINT_PRESETS = {k: [e for e in v if e[0] != "hflip"] for k, v in _OBJECT_PRESETS.items()}
+_KEYPOINT_PRESETS["light"] = [("color_jitter", {"brightness": 0.1, "contrast": 0.1, "saturation": 0.0})]
 _SEMANTIC_PRESETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
     "none": [],
     "light": [("random_resized_crop", {"scale_min": 0.8}), ("hflip", {})],
