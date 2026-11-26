@@ -532,7 +532,7 @@
   "import.kind.task": "task",
   "import.select_hint": "Select a project in the list to continue.",
   "import.panel_title": "What will be imported",
-  "import.description_ph": "Imported from {tool} ({name})",
+  "import.description_ph": "Imported from {tool}: {name}",
   "import.summary": "Images and annotations are downloaded and a new project is created. The type is detected from the annotations. Nothing changes in {tool}.",
   "import.task_title": "Type of the new project",
   "import.task_help": "No annotations were announced for this project, so choose the type to use if it turns out to have none.",
