@@ -3,6 +3,7 @@ import threading
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 from sample_images import make_corrupt, make_image
@@ -312,3 +313,41 @@ def test_an_empty_file_and_an_archive_inside_an_archive_get_their_own_reasons(ma
         ("zero.jpg", "empty"),
         ("inner.zip", "nested archive"),
     }
+
+
+def _encoded(image: Image.Image, fmt: str, **kw) -> io.BytesIO:
+    out = io.BytesIO()
+    image.save(out, format=fmt, **kw)
+    out.seek(0)
+    return out
+
+
+def test_colour_modes_wrong_extensions_and_damaged_files(manifest):
+    """#620: CMYK, alpha and palette images are kept and look right; 16-bit grey is refused (it would turn
+    white in RGB); a truncated file is corrupt; a PNG named .jpg is stored as .png."""
+    cmyk = Image.new("CMYK", (40, 30), (255, 0, 255, 0))  # pure green in CMYK
+    rgba = Image.new("RGBA", (40, 30), (200, 10, 10, 128))
+    palette = Image.new("RGB", (40, 30), (10, 10, 200)).convert("P")
+    grey16 = Image.fromarray(np.linspace(0, 65535, 40 * 30).reshape(30, 40).astype(np.uint16))
+    full = _encoded(Image.new("RGB", (80, 60), (90, 90, 90)), "JPEG").getvalue()
+    report = ingest_files(
+        manifest,
+        [
+            ("cmyk.jpg", _encoded(cmyk, "JPEG")),
+            ("alpha.png", _encoded(rgba, "PNG")),
+            ("palette.png", _encoded(palette, "PNG")),
+            ("deep.png", _encoded(grey16, "PNG")),
+            ("cut.jpg", io.BytesIO(full[: len(full) // 2])),
+            ("named.jpg", _encoded(Image.new("RGB", (40, 30), (1, 2, 3)), "PNG")),
+        ],
+    )
+    assert {(r["name"], r["reason"]) for r in report.rejected} == {
+        ("deep.png", "high bit depth"),
+        ("cut.jpg", "corrupt"),
+    }
+    records = {r.name: r for r in manifest.all()}
+    assert set(records) == {"cmyk.jpg", "alpha.png", "palette.png", "named.jpg"}
+    assert records["named.jpg"].file.endswith(".png")
+    with Image.open(thumbnail(manifest, records["cmyk.jpg"])) as thumb:
+        r, g, b = thumb.convert("RGB").getpixel((20, 15))
+        assert g > 200 and r < 60 and b < 60

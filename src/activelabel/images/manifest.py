@@ -8,6 +8,7 @@ removes the file.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -235,6 +236,38 @@ class Manifest:
             The file in the project folder.
         """
         return self.project_dir / record.file
+
+    def file_problem(self, record: ImageRecord, deep: bool = False) -> str | None:
+        """Whether the stored file of an image is still the one that was imported (#620).
+
+        The quick check compares the size with the one recorded at import; the deep one also hashes the
+        content, which is the image id for every image but a video frame (whose id is salted).
+
+        Args:
+            record: the image.
+            deep: hash the content too (reads the whole file).
+
+        Returns:
+            ``missing`` (no file), ``changed`` (another size, or another content), or None when it is fine.
+        """
+        path = self.file_path(record)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return "missing"
+        if record.size_bytes and size != record.size_bytes:
+            return "changed"
+        if deep and not record.video:
+            digest = hashlib.sha256()
+            try:
+                with path.open("rb") as handle:
+                    while chunk := handle.read(1 << 20):
+                        digest.update(chunk)
+            except OSError:
+                return "missing"
+            if digest.hexdigest()[: len(record.id)] != record.id:
+                return "changed"
+        return None
 
     def add(self, records: list[ImageRecord]) -> list[ImageRecord]:
         """Add images; ids already present are skipped.

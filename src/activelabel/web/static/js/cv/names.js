@@ -4,7 +4,7 @@ import { t, tn, tr } from '../shell/i18n.js';
 
 export const TASKS = ['classification', 'detection', 'segmentation', 'keypoints'];
 
-export const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate'];
+export const ISSUES = ['blurry', 'dark', 'bright', 'low_contrast', 'small', 'odd_aspect', 'grayscale', 'near_duplicate', 'file_missing', 'file_changed'];
 
 export const CHUNK = 25;
 

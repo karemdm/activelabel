@@ -1163,7 +1163,7 @@ def _curation(state: AppState, project_id: int) -> dict[str, Any]:
 def _analyze_job(
     manifest: Manifest, project_dir: Path, recompute: bool, progress: Progress
 ) -> dict[str, Any]:
-    """Body of the ``analyze`` job: measure the images, then flag the issues.
+    """Body of the ``analyze`` job: check the files, measure the images, then flag the issues.
 
     Args:
         manifest: The image manifest of the project.
@@ -1172,8 +1172,10 @@ def _analyze_job(
         progress: Where the job reports its progress.
 
     Returns:
-        ``{measured, issues, step}``: how many images were measured and the count per issue.
+        ``{measured, issues, step}``: how many images were measured and the count per issue (with the
+        images whose file is missing or changed on disk, #620).
     """
+    issues.flag_files(manifest, progress)
     measured = quality.measure_images(manifest, progress, recompute=recompute)
     progress.update(message="Flagging issues")
     counts = issues.flag_issues(manifest, issues.load_thresholds(project_dir))

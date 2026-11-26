@@ -1,12 +1,15 @@
+import io
 import random
 
 import pytest
 from curation_images import LIMITS, add, build
 from PIL import Image
+from sample_images import make_image
 
 from activelabel.curation.issues import (
     Thresholds,
     _group_duplicates,
+    flag_files,
     flag_issues,
     load_duplicate_of,
     load_thresholds,
@@ -15,6 +18,7 @@ from activelabel.curation.issues import (
 from activelabel.curation.quality import hamming, measure_images
 from activelabel.curation.summary import suggest_exclusions, summary
 from activelabel.errors import CodedError
+from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 
 
@@ -123,3 +127,30 @@ def test_a_threshold_out_of_its_limits_is_a_coded_error():
     with pytest.raises(CodedError) as caught:
         Thresholds(bright="x")  # type: ignore[arg-type]
     assert caught.value.code == "curation_threshold_not_number"
+
+
+def test_files_deleted_or_changed_on_disk_are_flagged_and_kept_by_the_thresholds(tmp_path):
+    """#620: Curation finds a deleted file and a replaced one (even of the same size); the flags survive a new
+    flagging with other thresholds and go away when the file is back."""
+    manifest = Manifest(tmp_path / "p")
+    sources = [make_image(tmp_path / "src" / f"{n}.png", seed=n) for n in range(4)]
+    ingest_files(manifest, [(p.name, io.BytesIO(p.read_bytes())) for p in sources])
+    gone, edited, swapped, fine = sorted(manifest.all(), key=lambda r: r.name)
+    files = {r.id: manifest.file_path(r) for r in (gone, edited, swapped)}
+    backup = {i: p.read_bytes() for i, p in files.items()}
+    files[gone.id].unlink()
+    files[edited.id].write_bytes(backup[edited.id] + b"x")
+    same_size = bytearray(backup[swapped.id])
+    same_size[-20] ^= 0xFF  # one byte flipped: same size, other content
+    files[swapped.id].write_bytes(bytes(same_size))
+    assert flag_files(manifest) == {"file_missing": 1, "file_changed": 2}
+    assert manifest.get(gone.id).issues == ["file_missing"] and manifest.get(fine.id).issues == []
+    assert manifest.file_problem(manifest.get(swapped.id)) is None  # the quick check only sees the size
+    measure_images(manifest)
+    counts = flag_issues(manifest, LIMITS)
+    assert counts["file_missing"] == 1 and counts["file_changed"] == 2
+    assert "file_changed" in manifest.get(edited.id).issues
+    for image_id, data in backup.items():
+        files[image_id].write_bytes(data)
+    assert flag_files(manifest) == {"file_missing": 0, "file_changed": 0}
+    assert all("file_" not in " ".join(r.issues) for r in manifest.all())

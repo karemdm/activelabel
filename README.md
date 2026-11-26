@@ -135,7 +135,9 @@ project is its *type*.)
    measures, flags and near-duplicate groups (images, exclusions and annotations stay).
    *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
    be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
-   rejected when uploaded.) The *Similarity map* groups similar images: *Compute map* reads every
+   rejected when uploaded. *Analyze images* also checks that each stored file is still the imported one:
+   a file deleted or replaced outside ActiveLabel is flagged *File missing* or *File changed*, and a
+   training refuses such images with `dataset_images_missing` / `dataset_images_changed`.) The *Similarity map* groups similar images: *Compute map* reads every
    active image with a small ImageNet network in the training environment (installed on first use,
    queued with the trainings), places them on a 2-D map (t-SNE, or PCA for very small or large sets)
    and splits them into groups (k-means), each shown with its size and most typical image. The same
