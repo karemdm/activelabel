@@ -195,3 +195,20 @@ def test_fold_is_not_translated_in_portuguese():
 def test_no_text_names_label_studio_any_more():
     """Label Studio support was removed; the list of accepted formats still named "Label Studio JSON"."""
     assert not [k for lang in ("pt", "en") for k, v in load(lang).items() if "label studio" in v.lower()]
+
+
+def test_help_texts_state_what_the_code_does():
+    """Issue #545: split, transfer/finetune, rotation and mAP texts follow the code and the dataset guide."""
+    for lang in ("en", "pt"):
+        texts = load(lang)
+        assert "backbone" in texts["tr.start_transfer_help"].lower()
+        assert "only the last layer" not in texts["tr.start_transfer_help"]
+        assert "só a última camada" not in texts["tr.start_transfer_help"]
+        assert "every layer" not in texts["tr.start_finetune_help"]
+        assert "todas as camadas" not in texts["tr.start_finetune_help"]
+        assert "50-95" in texts["md.public_stats"]
+        assert "accuracy" not in texts["md.public_stats"].lower()
+        assert "precisão" not in texts["md.public_stats"].lower()
+        assert "variedade" not in texts["ds.videos_help"] and "variety" not in texts["ds.videos_help"]
+    assert "enclosing box" in load("en")["tr.augh.rotation"]
+    assert "envolvente" in load("pt")["tr.augh.rotation"]
