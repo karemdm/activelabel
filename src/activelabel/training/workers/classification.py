@@ -1,8 +1,8 @@
 """Image classification worker (docs/TRAINING.md): ``python classification.py spec.json``.
 
-Standalone: it imports only the standard library and, inside the functions that need them, torch,
-torchvision, timm, PIL and numpy, so it runs in the training environment (which has no
-ActiveLabel) and its pure helpers (metrics, spec parsing) can be tested without torch.
+Standalone: it imports only the standard library, numpy, torch, torchvision, PIL and (optional) timm, all at
+the top of the module, so it runs in the training environment (which has no ActiveLabel) and its pure
+helpers (metrics, spec parsing) can be tested without torch.
 
 Output: one JSON object per line on stdout (``log``, ``warning``, ``setup``, ``progress``, ``epoch``,
 ``done``, ``error``).
