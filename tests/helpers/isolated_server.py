@@ -23,12 +23,21 @@ import fiftyone_isolation as isolation
 REFUSED_PORTS = {8090, 8091}  # the person's own servers
 
 
+#: Per-user folders a server may write to, each pointed inside the workspace (``profile/<name>``): with a long
+#: workspace path the training environment falls back to ``%LOCALAPPDATA%\activelabel``, and the download
+#: caches default to the home folder, which would put test files in the person's real profile.
+PROFILE_VARIABLES = ("LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TORCH_HOME", "HF_HOME")
+
+
 def server_env(base: dict[str, str], workspace: Path, port: int) -> dict[str, str]:
-    """The environment of the test server.
+    """The environment of the test server: its workspace, its own FiftyOne database and profile folders.
+
+    A real training needs a short workspace path on Windows: its environment then lives in
+    ``profile/localappdata`` under the workspace instead of the person's ``%LOCALAPPDATA%``.
 
     Args:
         base: The current environment.
-        workspace: The workspace folder of this server (its FiftyOne folders go under it).
+        workspace: The workspace folder of this server (its FiftyOne and profile folders go under it).
         port: Port of the server's own mongod.
 
     Returns:
@@ -37,6 +46,8 @@ def server_env(base: dict[str, str], workspace: Path, port: int) -> dict[str, st
     env = dict(base)
     env["ACTIVELABEL_WORKSPACE"] = str(workspace)
     isolation.apply(env, workspace / "fiftyone", port)
+    for name in PROFILE_VARIABLES:  # never the person's own: always under the workspace
+        env[name] = str(workspace / "profile" / name.lower())
     return env
 
 

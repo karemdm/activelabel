@@ -12,6 +12,8 @@ import isolated_server
 import pytest
 from fiftyone.service import util as service_util
 
+from activelabel.training.environment import TrainingEnvironment
+
 SERVICE_ARGS = ["--51-service", "db", "--multi"]  # how FiftyOne finds a database service to attach to
 
 # Runs in a child process with the tests' environment: where does FiftyOne really connect?
@@ -128,6 +130,39 @@ def test_a_test_server_gets_its_own_database_and_workspace(tmp_path: Path) -> No
     assert isolation.problem(env, "mongodb://127.0.0.1:40003", ci=False) is None
 
 
+def test_every_folder_a_test_server_resolves_is_inside_its_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test server must not write to the person's profile: with a long workspace path the training
+    environment used to fall back to the real ``%LOCALAPPDATA%\activelabel\train-<hash>``."""
+    real = {
+        "LOCALAPPDATA": str(Path.home() / "AppData" / "Local"),
+        "HF_HOME": str(Path.home() / ".cache" / "hf"),
+    }
+    workspace = tmp_path / ("a-long-folder-name-" * 12) / "ws"  # longer than the Windows path limit allows
+    env = isolated_server.server_env(real, workspace, 40004)
+    root = workspace.resolve()
+    paths = {name: env[name] for name in isolated_server.PROFILE_VARIABLES}
+    paths |= {
+        name: env[name] for name in ("ACTIVELABEL_WORKSPACE", "FIFTYONE_DATABASE_DIR", "FIFTYONE_CONFIG_PATH")
+    }
+    for name in isolated_server.PROFILE_VARIABLES:  # what the server process sees
+        monkeypatch.setenv(name, env[name])
+    paths["training environment"] = str(TrainingEnvironment(workspace).path)
+    for name, path in paths.items():
+        assert Path(path).resolve().is_relative_to(root), f"{name} -> {path} is outside {root}"
+
+
 @pytest.mark.parametrize("port", [8090, 8091])
 def test_a_test_server_refuses_the_persons_ports(tmp_path: Path, port: int) -> None:
     assert isolated_server.main(["--port", str(port), "--workspace", str(tmp_path)]) == 2
+
+
+def test_no_test_writes_to_the_persons_local_app_data(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The training environment of a long test workspace stays in the run's temporary folder (conftest)."""
+    workspace = tmp_path / ("a-long-folder-name-" * 12) / "ws"
+    run = tmp_path_factory.getbasetemp().resolve()
+    assert Path(os.environ["LOCALAPPDATA"]).resolve().is_relative_to(run)
+    assert Path(TrainingEnvironment(workspace).path).resolve().is_relative_to(run)
