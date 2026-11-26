@@ -39,7 +39,7 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 
 | Type (project) | Family | Models | Packages |
 | --- | --- | --- | --- |
-| Classification | timm | EfficientNet-B0/B3 | torch, torchvision, timm |
+| Classification | timm | 102 networks, by architecture: ResNet, ResNeXt, RegNetY, DenseNet, MobileNetV3/V4, EfficientNet B0–B7 and V2, GhostNet, MobileViT and V2, ConvNeXt and V2, NFNet, ViT, DeiT, Swin, BEiT, EVA-02, CaiT, CoAtNet, MaxViT, FastViT | torch, torchvision, timm |
 | Classification | torchvision | every torchvision classification network (80), by architecture: ResNet 18–152, ResNeXt, Wide ResNet, DenseNet, VGG (with and without BN), MobileNet V2/V3, EfficientNet B0–B7 and V2 S/M/L, RegNetX/RegNetY, ConvNeXt T–L, ViT B/L/H, Swin and Swin V2 T/S/B, MaxViT-T, ShuffleNet V2, SqueezeNet, MNASNet, GoogLeNet, Inception V3, AlexNet | torch, torchvision |
 | Detection | torchvision | Faster R-CNN (ResNet-50 FPN, MobileNetV3), RetinaNet, SSDlite, FCOS | torch, torchvision |
 | Detection | ultralytics (AGPL-3.0, after accepting the licence) | YOLOv8 / YOLO11 n s m l | ultralytics |
@@ -61,6 +61,15 @@ Swin V2 256, the others 224), a fixed size where its weights only take one (ViT,
 its pooling needs it (Inception V3 75, AlexNet 64), a lower learning rate for transformers and ConvNeXt, and a
 smaller batch for the largest networks (4 above 100 M parameters, 2 above 300 M). The dialog lists the models of
 a family grouped by architecture.
+
+**timm (#617).** The timm classifiers come from the default pretrained configuration of each network in the
+pinned timm (`_TIMM_CLASSIFIERS` in `catalog.py`): the weights are the first pretrained tag of the name, the
+default input size is the one of those weights, and transformers (ViT, DeiT, Swin, BEiT, EVA-02, CaiT, CoAtNet,
+MaxViT) keep it fixed. A network both libraries have keeps its torchvision id and gets `timm_<name>` in timm
+(`timm_resnet50`); `efficientnet_b0` and `efficientnet_b3` stay timm's, as older runs used them. Images are
+normalised with the mean and standard deviation the weights expect (timm's `pretrained_cfg`: ImageNet,
+Inception or CLIP values; ImageNet for torchvision), and the saved model records them for pre-annotation and
+ONNX.
 
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
 model of that family. Only the families with a model for the project type are listed (timm, for instance,

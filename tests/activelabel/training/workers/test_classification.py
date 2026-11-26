@@ -236,3 +236,28 @@ def test_networks_with_a_fixed_input_refuse_another_size(worker):
         }
         with pytest.raises(worker.SpecError, match=f"only takes {side} pixel"):
             worker.build_model(spec, False)
+
+
+class FakeTimm:
+    """Stands for the timm package: records what it builds."""
+
+    def __init__(self, torch) -> None:
+        self.torch, self.calls = torch, []
+
+    def create_model(self, name, pretrained, num_classes):
+        self.calls.append((name, pretrained, num_classes))
+        model = self.torch.nn.Sequential(self.torch.nn.Flatten(), self.torch.nn.Linear(12, num_classes))
+        model.pretrained_cfg = {"mean": (0.5, 0.5, 0.5), "std": (0.5, 0.5, 0.5)}
+        model.get_classifier = lambda: model[1]
+        return model
+
+
+def test_a_timm_model_is_built_by_its_timm_name_with_its_own_normalisation(worker, monkeypatch):
+    """#617: the worker asks timm for the network and reads the mean and std its weights expect."""
+    fake = FakeTimm(worker.torch)
+    monkeypatch.setattr(worker, "timm", fake)
+    spec = {"classes": ["a", "b"], "model": "resnet50", "family": "timm", "params": {"image_size": 224}}
+    model, head = worker.build_model(spec, True)
+    assert fake.calls == [("resnet50", True, 2)] and head is model[1]
+    assert worker.normalisation(model) == ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    assert worker.normalisation(worker.torch.nn.Linear(2, 2)) == (worker.MEAN, worker.STD)

@@ -9,7 +9,7 @@ and, for keypoints, ``num_keypoints``).
 The network is rebuilt without downloading anything and the weights are loaded into it. Inputs and
 outputs of the ONNX graph:
 
-- classification: ``images`` (N×3×S×S, normalised with the ImageNet mean and std) → ``logits``;
+- classification: ``images`` (N×3×S×S, normalised with the mean and std of the metadata) → ``logits``;
 - semantic segmentation: ``images`` → ``logits`` (N×(classes+1)×S×S, class 0 is the background).
 
 The photo becomes the S×S input outside the graph, by the resize policy the model was trained with

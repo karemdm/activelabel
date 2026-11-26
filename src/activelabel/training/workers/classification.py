@@ -336,19 +336,38 @@ def seed_everything(seed: int, torch: Any) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def eval_transform(size: int, policy: str) -> Any:
+def eval_transform(size: int, policy: str, mean: Any = MEAN, std: Any = STD) -> Any:
     """Transform of validation, test and pre-annotated images: the resize policy, then normalisation.
 
     Args:
         size: Side of the square input.
         policy: The resize policy (one of ``options.RESIZE_POLICIES``).
+        mean: Per-channel mean the network's weights were trained with.
+        std: Per-channel standard deviation the network's weights were trained with.
 
     Returns:
         The composed transform (PIL image in, normalised tensor out).
     """
     return transforms.Compose(
-        [options.Fit(size, policy), transforms.ToTensor(), transforms.Normalize(MEAN, STD)]
+        [options.Fit(size, policy), transforms.ToTensor(), transforms.Normalize(tuple(mean), tuple(std))]
     )
+
+
+def normalisation(model: Any) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Mean and standard deviation the pretrained weights of a network expect.
+
+    A timm model says it in its ``pretrained_cfg`` (CLIP, Inception or ImageNet values); torchvision
+    models all use ImageNet's.
+
+    Args:
+        model: The network.
+
+    Returns:
+        ``(mean, std)``, three values each.
+    """
+    cfg = getattr(model, "pretrained_cfg", None) or {}
+    mean, std = cfg.get("mean") or MEAN, cfg.get("std") or STD
+    return tuple(float(v) for v in mean), tuple(float(v) for v in std)
 
 
 def _get(module: Any, path: str) -> Any:
@@ -624,9 +643,11 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
     techniques = spec["augmentations"]
     emit("log", message=f"Augmentation: {augment.describe(techniques)}. Resize: {policy}.")
-    train_tf = augment.classification_transform(techniques, size, MEAN, STD, options.Fit(size, policy))
+    model, head = build_model(spec, pretrained=spec["start"] != "scratch")
+    mean, std = normalisation(model)
+    train_tf = augment.classification_transform(techniques, size, mean, std, options.Fit(size, policy))
     mixes = augment.mix_settings(techniques)
-    eval_tf = eval_transform(size, policy)
+    eval_tf = eval_transform(size, policy, mean, std)
     generator = torch.Generator().manual_seed(int(p["seed"]))
     workers = 4 if device.startswith("cuda") else 0
     parts = spec["parts"]
@@ -639,7 +660,6 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
 
     loader = partial(make_loader, batch_size=batch, workers=workers, generator=generator)
     train_loader, val_loader = loader(parts["train"], train_tf, True), loader(parts["val"], eval_tf, False)
-    model, head = build_model(spec, pretrained=spec["start"] != "scratch")
     model.to(device)
     optimizer = make_optimizer(spec, model, head, torch)
     counts = label_counts(parts["train"], len(classes))
@@ -689,8 +709,8 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         "family": spec["family"],
         "image_size": size,
         "resize": policy,
-        "mean": MEAN,
-        "std": STD,
+        "mean": mean,
+        "std": std,
     }
 
     for epoch in range(ran + 1, epochs + 1):

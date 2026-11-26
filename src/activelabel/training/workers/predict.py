@@ -489,7 +489,9 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         size = int(checkpoint.get("image_size") or spec["build"]["params"]["image_size"])
         policy = policy or options.LEGACY_RESIZE
         if task == "classification":
-            transform = worker.eval_transform(size, policy)
+            transform = worker.eval_transform(
+                size, policy, checkpoint.get("mean") or worker.MEAN, checkpoint.get("std") or worker.STD
+            )
     items = spec["items"]
     totals = {"images": 0, "objects": 0, "unreadable": 0}
     with torch.no_grad():
