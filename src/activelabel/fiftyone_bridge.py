@@ -611,6 +611,32 @@ def restore_project_labels(
     return count
 
 
+def show_project_labels(dataset: fo.Dataset, image_id: str, task: Task, labels: list[Label]) -> bool:
+    """Write the project labels of one image into its sample (they were edited in ActiveLabel).
+
+    A sample that holds edits made in FiftyOne and not brought back yet (:func:`is_edited`) is left as it
+    is: those edits and the project's are then both seen by the next comparison of an edit session.
+
+    Args:
+        dataset: the project's dataset.
+        image_id: the image edited.
+        task: task of the project.
+        labels: the labels of the image in the project now.
+
+    Returns:
+        Whether the sample was rewritten (False also when the image has no sample).
+    """
+    found = list(dataset.match(F("image_id") == image_id).limit(1))
+    sample = found[0] if found else None
+    if sample is None or is_edited(sample, task):
+        return False
+    sample[GROUND_TRUTH] = _ground_truth(task, labels)
+    sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+    sample[WRITTEN_LABELS] = label_hash(labels)
+    sample.save()
+    return True
+
+
 def _placement(project_dir: Any, tasks: list[ImageTask]) -> dict[str, dict[str, Any]]:
     """Task, job, position and video name of every image that is in a task.
 

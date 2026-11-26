@@ -343,3 +343,32 @@ def test_a_class_renamed_in_the_tool_is_neither_new_nor_edited_in_the_comparison
     assert p["diff_pull"]["edited"] == 0
     assert p["diff_pull"]["images_changed"] == 0
     assert "kitten" not in p["diff_pull"]["per_class"]
+
+
+TINY = [box("cat", 0.1005)]  # within the tolerance of CAT
+
+
+def mark(env, index, labels):
+    set_local(env, index, labels)
+    assert links.mark_edited(env.dir, env.ids[index], labels) == ["cvat"]
+
+
+def test_a_tiny_local_edit_is_not_seen_without_the_mark(env):
+    set_local(env, 0, TINY)
+    assert (plan(env)["push"], plan(env)["unchanged"]) == (0, 3)
+
+
+def test_a_tiny_edit_made_in_activelabel_is_pushed(env):
+    mark(env, 0, TINY)
+    p = plan(env)
+    assert (p["pull"], p["push"], p["conflicts"], p["unchanged"]) == (0, 1, [], 2)
+    apply(env, p["plan_id"])
+    assert env.remote.labels(env.rid, "img0.png")[0].bbox == TINY[0].bbox
+    assert plan(env)["unchanged"] == 3  # the new base is the edited labels
+
+
+def test_a_tiny_edit_with_a_remote_change_is_a_conflict(env):
+    mark(env, 0, TINY)
+    set_remote(env, "img0.png", CAT3)
+    p = plan(env)
+    assert (p["push"], p["pull"], len(p["conflicts"])) == (0, 0, 1)

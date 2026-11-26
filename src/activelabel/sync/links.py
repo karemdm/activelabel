@@ -5,12 +5,15 @@ Format (docs/SYNC.md)::
     {"<tool>": {"url", "remote_id", "remote_name", "created", "last_sync", "revision", "tasks"?,
                 "items": {"<image_id>": {"key": "<remote item key>", "base": "<label hash>",
                                          "labels": [<labels at the last synchronisation>],
-                                         "removed"?: true}}}}
+                                         "removed"?: true, "edited"?: "<label hash>"}}}}
 
 The ``base`` of an image is the :func:`label_hash` of its labels at the last synchronisation; ``labels``
 are those labels themselves (what a three-way merge needs). An entry with ``base`` alone is the legacy
-form. ``removed`` marks an image removed on both sides. ``revision`` goes up with every new link, so a
-comparison made before it is recognised as old. ``tasks`` (optional) maps local tasks to remote ones.
+form. ``removed`` marks an image removed on both sides. ``edited`` is the hash of the labels an edit made
+inside ActiveLabel saved (see :func:`mark_edited`): while the image still has them, they count as a local
+change even when they are within the comparison's tolerance of ``labels``. ``revision`` goes up with every
+new link, so a comparison made before it is recognised as old. ``tasks`` (optional) maps local tasks to
+remote ones.
 """
 
 from __future__ import annotations
@@ -347,6 +350,52 @@ def remove_link(project_dir: Path, tool: str) -> bool:
         del data[tool]
         write_json(_file(project_dir), data)
         return True
+
+
+def mark_edited(project_dir: Path, image_id: str, labels: list[Label]) -> list[str]:
+    """Record that the labels of an image were edited in ActiveLabel, in every link that holds the image.
+
+    The next comparison then takes the image as changed here (it is sent to the tool) and not as unchanged
+    or as a conflict, even when the edit moved a shape by less than :data:`TOLERANCE`. The ``revision`` of
+    the link does not change: a comparison made before stays valid for the other images, and its own check of
+    the local labels refuses this one.
+
+    Args:
+        project_dir: Folder of the project.
+        image_id: The image edited.
+        labels: Its labels after the edit.
+
+    Returns:
+        The tools whose link was marked (none when no link holds the image).
+    """
+    marked: list[str] = []
+    with _lock:
+        data = load_links(project_dir)
+        for tool, link in data.items():
+            entry = (link.get("items") or {}).get(image_id)
+            if isinstance(entry, dict) and entry.get("key"):
+                entry["edited"] = label_hash(labels)
+                marked.append(tool)
+        if marked:
+            write_json(_file(project_dir), data)
+    return marked
+
+
+def edited_here(entry: dict[str, Any] | None, labels: list[Label]) -> bool:
+    """Whether an image still has the labels an edit in ActiveLabel saved, and they differ from the base.
+
+    Args:
+        entry: The link entry of the image, or None.
+        labels: The labels of the image in the project now.
+
+    Returns:
+        True when :func:`mark_edited` recorded these labels and they are not the labels of the last
+        synchronisation.
+    """
+    if not entry or not entry.get("edited"):
+        return False
+    now_hash = label_hash(labels)
+    return bool(entry["edited"] == now_hash and entry.get("base") != now_hash)
 
 
 def new_link(

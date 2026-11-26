@@ -76,6 +76,10 @@ Everything below goes into the first release, 0.1.0.
 - **Format version of the stored data.** JSON files carry `format_version`; older files are read as they are,
   and a migration at start-up copies the files first, only adds fields and can run again safely
   (docs/DESIGN.md, *Format version*).
+- **Editing the labels of one image.** `GET` and `PUT /projects/{id}/images/{image_id}/labels` read and
+  replace the labels of an image with a revision check (409 `labels_changed`), the checks of an import
+  (400 `labels_invalid`) and new classes added only on request (409 `classes_new`); the edit is sent to CVAT
+  at the next comparison and shown in FiftyOne (#588, docs/ANNOTATION.md).
 
 ### Changed
 

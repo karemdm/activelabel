@@ -169,6 +169,44 @@ the same way on `{target: value}`: the fingerprint, the images edited in FiftyOn
 discard. A target removed from the project loses its field; a project that changes type loses the fields of
 the old one.
 
+## Editing the labels of one image in ActiveLabel
+
+`GET /api/projects/{id}/images/{image_id}/labels` gives `{labels, classes, revision}`: the labels of the image
+in the internal format (`label`, and `bbox`, `polygons`, `keypoints`, `track`, `score`, `model` when present),
+the project's classes and the revision of those labels (16 hex digits that change whenever any field of any
+label changes). `PUT` on the same path takes `{labels, revision, add_classes?}`, the whole new list of the
+image (an empty list leaves the image listed with no labels: reviewed, nothing in it), and returns
+`{labels, revision, classes}`. A label sent back with `track`, `score` and `model` keeps them, so a tracked
+object keeps its identity; a label sent without `model` counts as made by a person.
+
+The save is refused, and nothing changes, when:
+
+- the revision is not the current one (409 `labels_changed`, `params.revision` is the current one): another
+  edit, a synchronisation, an import, a session apply or a pre-annotation changed the image meanwhile;
+- a label does not pass the checks of an import (400 `labels_invalid`, with `count`, the first `index`
+  counted from 1, its `problem` and up to 20 `problems: [{index, problem}]` counted from 0): `shape_invalid`
+  (an empty class, a box that is not 4 numbers, a polygon point that is not 2, a keypoint that is not
+  `[x, y, visibility]` with visibility 0, 1 or 2, a number that is not finite), `geometry_not_for_task` (a
+  shape the project type does not use: any shape in classification, polygons or keypoints in detection,
+  keypoints in segmentation, polygons in keypoints), `no_geometry`, `box_invalid`,
+  `polygon_too_few_points`, `keypoints_count_mismatch` (another number of points than the other images
+  of the class have), `outside_image` (a box, polygon point or labelled keypoint past the border of the image)
+  and `multiple_classes` (more than one label in classification);
+- a class is not in the project and `add_classes` is not true (409 `classes_new`, with `classes` and
+  `count`); with `add_classes: true` they are added at the end of the class list. Class names are matched
+  ignoring case and saved with the project's spelling.
+
+It waits for the project's running activities like any change (409 `busy`). No safety copy is made for one
+image. The edit is a local change for the other ways of editing:
+
+- **CVAT**: every link that holds the image marks it as edited here (docs/SYNC.md, *Link*), so the next
+  comparison sends it even when the change is smaller than the comparison's tolerance.
+- **FiftyOne**: when the project has a FiftyOne dataset, its sample is rewritten with the new labels after
+  the answer is sent, unless it holds edits made in the App that were not brought back yet. An open edit
+  session then brings back the project's labels for that image (it was not edited in the App); an image
+  edited on both sides is listed as `edited_on_both_sides` in the review. A session already brought back
+  answers 409 `annotations_changed` on apply: bring it back again.
+
 ## Safety copies
 
 Before anything that removes or rewrites annotations in bulk, `annotations.json` is copied next to itself as
@@ -216,6 +254,8 @@ a result message about an old value is cleared as soon as a field is edited.
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; puts the session images in FiftyOne back to the project labels; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
 | DELETE | `/api/projects/{id}/annotate/{session}` | | `{closed: true}` (a session of a discontinued tool is only forgotten) |
+| GET | `/api/projects/{id}/images/{image_id}/labels` | | `{labels, classes, revision}`; 404 `image_not_found` |
+| PUT | `/api/projects/{id}/images/{image_id}/labels` | `{labels: [{label, bbox?, polygons?, keypoints?, track?, score?, model?}], revision, add_classes?}` | `{labels, revision, classes}`; 409 `labels_changed`, 409 `classes_new`, 400 `labels_invalid`, 409 `busy` (see *Editing the labels of one image in ActiveLabel*) |
 
 `diff` = `{images_changed, added, removed, edited, per_class: {name: {added, removed, edited}},
 unknown_classes: [...], problems: [{level, code, message, count, examples}], examples:
