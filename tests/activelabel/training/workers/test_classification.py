@@ -261,3 +261,26 @@ def test_a_timm_model_is_built_by_its_timm_name_with_its_own_normalisation(worke
     assert fake.calls == [("resnet50", True, 2)] and head is model[1]
     assert worker.normalisation(model) == ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     assert worker.normalisation(worker.torch.nn.Linear(2, 2)) == (worker.MEAN, worker.STD)
+
+
+# -- metrics where lower is better (#619) -----------------------------------------------
+
+
+class Scripted:
+    """Stands for ``evaluation``: gives the selection metric of each epoch from a list."""
+
+    def __init__(self, values):
+        self.values = list(values)
+
+    def __call__(self, truth, predicted, classes):
+        value = self.values.pop(0)
+        return {"accuracy": value, "macro_f1": value, "per_class": {}, "confusion_matrix": []}
+
+
+@pytest.mark.parametrize(("lower", "best"), [(True, 2), (False, 1)])
+def test_the_best_epoch_follows_the_direction_of_the_metric(worker, tmp_path, monkeypatch, lower, best):
+    pytest.importorskip("torch")
+    monkeypatch.setattr(worker, "emit", Events())
+    monkeypatch.setattr(worker, "evaluation", Scripted([0.5, 0.2, 0.4]))
+    spec = {**small_spec(tmp_path, f"dir{lower}"), "lower_is_better": lower}
+    assert worker.train(spec)["best_epoch"] == best

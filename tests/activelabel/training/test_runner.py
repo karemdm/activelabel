@@ -277,7 +277,7 @@ def test_build_spec_parts_and_folds(setup):
     spec = build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, store.read(1))
     assert spec["classes"] == ["a", "b"] and spec["start"] == "transfer" and spec["params"]["epochs"] == 10
     assert all(Path(i["path"]).is_absolute() and i["label"] in (0, 1) for i in spec["parts"]["train"])
-    assert spec["fold"] is None and spec["metric"] == "accuracy"
+    assert spec["fold"] is None and spec["metric"] == "accuracy" and spec["lower_is_better"] is False
     folded = store.read(2)
     config = RunConfig(dataset=2, model="resnet18", fold=1)
     spec = build_spec(project_dir, config, model, run_dir, folded)

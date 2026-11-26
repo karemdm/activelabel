@@ -1111,8 +1111,9 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         train_loader, val_loader = loader(parts["train"], True), loader(parts["val"], False)
     emit("setup", batch_size=batch)
     epochs, patience = int(p["epochs"]), int(p["patience"])
+    lower = bool(spec.get("lower_is_better"))  # an error metric (#619)
     schedule = options.LrSchedule(
-        optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"])
+        optimizer, str(p["scheduler"]), epochs, len(train_loader), int(p["warmup_epochs"]), lower=lower
     )
     best: dict[str, Any] = {}
     since_best, ran = 0, 0
@@ -1142,7 +1143,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         scores = evaluate(model, val_loader, spec, device, torch)
         schedule.end_epoch(scores[metric])
         ran = epoch
-        improved = not best or scores[metric] > best["scores"][metric]
+        improved = options.improves(scores[metric], best["scores"][metric] if best else None, lower)
         if improved:
             best = {"epoch": epoch, "scores": scores}
             since_best = 0

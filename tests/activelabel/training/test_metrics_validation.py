@@ -495,3 +495,21 @@ def test_rank_children_mean_and_population_std():
     assert out["best_value"] == pytest.approx(0.7)
     assert out["best_fold_value"] == pytest.approx(0.8)
     assert out["folds"] == 3
+
+
+def test_rank_children_puts_the_lowest_error_first():
+    """#619: RMSE and MAE are better lower, for the ranking and for the best fold."""
+    entries = [
+        {"id": f"c{combo}f{fold}", "combo": combo, "fold": fold, "values": {"lr": combo}}
+        for combo in (1, 2)
+        for fold in (0, 1)
+    ]
+    results = {"c1f0": {"val": {"rmse": 3.0}}, "c1f1": {"val": {"rmse": 5.0}}}
+    results |= {"c2f0": {"val": {"rmse": 2.0}}, "c2f1": {"val": {"rmse": 1.0}}}
+    out = rank_children(entries, results, "rmse", 2)
+    assert [r["combo"] for r in out["ranking"]] == [2, 1]
+    assert (out["best_child"], out["best_value"], out["best_fold_value"]) == ("c2f1", 1.5, 1.0)
+    higher = rank_children(
+        entries, {k: {"val": {"r2": -v["val"]["rmse"]}} for k, v in results.items()}, "r2", 2
+    )
+    assert higher["best_child"] == "c2f1" and higher["ranking"][0]["combo"] == 2

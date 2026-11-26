@@ -371,11 +371,33 @@ def lr_factor(
     return warm * base
 
 
+def improves(score: float, best: float | None, lower: bool = False) -> bool:
+    """Whether an epoch's value of the selection metric beats the best so far.
+
+    Args:
+        score: the value of this epoch.
+        best: the best value so far, or None before the first epoch.
+        lower: the metric is an error, where lower is better (the spec's ``lower_is_better``, #619).
+
+    Returns:
+        True when there is no best yet, or ``score`` is strictly better than it.
+    """
+    if best is None:
+        return True
+    return score < best if lower else score > best
+
+
 class LrSchedule:
     """Sets the learning rate of an optimizer before every training step (warmup and schedule)."""
 
     def __init__(
-        self, optimizer: Any, name: str, epochs: int, steps_per_epoch: int, warmup_epochs: float = 0
+        self,
+        optimizer: Any,
+        name: str,
+        epochs: int,
+        steps_per_epoch: int,
+        warmup_epochs: float = 0,
+        lower: bool = False,
     ) -> None:
         """Remember the starting rates of the optimizer (the 100 % of the schedule).
 
@@ -385,6 +407,7 @@ class LrSchedule:
             epochs: epochs of the training.
             steps_per_epoch: batches in an epoch.
             warmup_epochs: epochs of the linear warmup (0 = none).
+            lower: the selection metric is better lower (an error), see :func:`improves`.
 
         Raises:
             ValueError: an unknown schedule.
@@ -402,6 +425,7 @@ class LrSchedule:
         self.plateau = 1.0
         self.best: float | None = None
         self.waited = 0
+        self.lower = lower
 
     def state_dict(self) -> dict[str, Any]:
         """Where the schedule is (to resume a training).
@@ -437,14 +461,14 @@ class LrSchedule:
         self.step_index += 1
 
     def end_epoch(self, score: float) -> None:
-        """Take the selection metric of an epoch (higher is better): ``plateau`` lowers the rate if it stalls.
+        """Take the selection metric of an epoch: ``plateau`` lowers the rate when it stalls.
 
         Args:
             score: the validation value of the selection metric.
         """
         if self.name != "plateau":
             return
-        if self.best is None or score > self.best:
+        if improves(score, self.best, self.lower):
             self.best, self.waited = score, 0
             return
         self.waited += 1

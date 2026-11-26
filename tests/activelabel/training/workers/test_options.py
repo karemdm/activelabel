@@ -361,3 +361,20 @@ def test_build_loss_gives_each_kind(o, torch):
     assert float(both) > float(o.build_loss("dice")(logits, target))
     with pytest.raises(ValueError, match="Unknown loss"):
         o.build_loss("hinge")
+
+
+def test_improves_follows_the_direction_of_the_metric(o):
+    """#619: an error metric (RMSE, MAE) is better lower."""
+    assert o.improves(0.5, None) and o.improves(0.5, None, lower=True)
+    assert o.improves(0.6, 0.5) and not o.improves(0.4, 0.5) and not o.improves(0.5, 0.5)
+    assert o.improves(0.4, 0.5, lower=True) and not o.improves(0.6, 0.5, lower=True)
+
+
+def test_plateau_waits_on_an_error_metric_that_stops_falling(o):
+    schedule = o.LrSchedule(_Optimizer(), "plateau", epochs=10, steps_per_epoch=1, lower=True)
+    schedule.end_epoch(1.0)
+    schedule.end_epoch(0.5)  # lower error: a new best
+    assert schedule.best == 0.5 and schedule.waited == 0
+    for _ in range(o.PLATEAU_PATIENCE):
+        schedule.end_epoch(0.6)  # higher error: no improvement
+    assert schedule.plateau == o.PLATEAU_FACTOR
