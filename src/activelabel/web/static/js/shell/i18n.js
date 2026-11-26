@@ -46,12 +46,17 @@ export const fmtDateTime = (iso) => {
 export const runName = (n) => `#${n}`;
 /** The decimal sign of the interface language ("," in Portuguese, "." in English). */
 export const decimalSign = () => nfExact.format(1.5).charAt(1);
-/** A number the person typed in a field: the decimal comma counts as the decimal point where the language uses it.
+/** A number the person typed in a field: the decimal comma counts as the decimal point where the language uses it,
+ *  and thousands written with the language's grouping sign are read as such (#653: "1.000" is a thousand in
+ *  Portuguese, "1,000" in English). A group starts with 1-9, so "0.001" stays a decimal in either language.
  *  Returns NaN for anything that is not a plain number. */
 export const parseNumber = (text) => {
-  const token = String(text).trim();
+  let token = String(text).trim();
   if (!token) return NaN;
-  return Number(decimalSign() === ',' && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(token) ? token.replace(',', '.') : token);
+  const comma = decimalSign() === ',';
+  const grouped = comma ? /^[+-]?[1-9]\d{0,2}(\.\d{3})+(,\d+)?$/ : /^[+-]?[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/;
+  if (grouped.test(token)) token = token.replace(comma ? /\./g : /,/g, '');
+  return Number(comma && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(token) ? token.replace(',', '.') : token);
 };
 /** The tokens of a list of numbers ("0,01; 0,001" in Portuguese, "0.01, 0.001" in English). Where the comma is the decimal sign
  *  the items are separated by ";" or by a comma followed by a space, so "0,01, 0,001" is two values; elsewhere by "," or ";".

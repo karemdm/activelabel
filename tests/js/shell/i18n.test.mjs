@@ -69,3 +69,23 @@ test('decimal comma: numbers and lists are read the way the language writes them
   assert.deepEqual(i18n.splitNumbers('0.01, 0.001'), ['0.01', '0.001']);
   assert.equal(i18n.listSeparator(), ', ');
 });
+
+test('parseNumber reads thousands grouping in Portuguese (#653)', () => {
+  setMessages({}, 'pt-BR');
+  assert.equal(i18n.parseNumber('1.000'), 1000);
+  assert.equal(i18n.parseNumber('10.000,5'), 10000.5);
+  assert.equal(i18n.parseNumber('1.000.000'), 1e6);
+  assert.equal(i18n.parseNumber('-1.000'), -1000);
+  assert.equal(i18n.parseNumber('0.001'), 0.001);
+  assert.equal(i18n.parseNumber('1.5'), 1.5);
+  assert.equal(i18n.parseNumber('0,01'), 0.01);
+  assert.ok(Number.isNaN(i18n.parseNumber('0,1,0,2')));
+});
+
+test('parseNumber reads thousands grouping in English (#653)', () => {
+  setMessages({}, 'en');
+  assert.equal(i18n.parseNumber('1,000'), 1000);
+  assert.equal(i18n.parseNumber('10,000.5'), 10000.5);
+  assert.equal(i18n.parseNumber('0.001'), 0.001);
+  assert.ok(Number.isNaN(i18n.parseNumber('0,01')));
+});

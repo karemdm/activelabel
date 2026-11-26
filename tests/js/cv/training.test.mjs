@@ -12,7 +12,7 @@ const proto = window.HTMLDialogElement.prototype;
 if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
 if (!proto.close) proto.close = function close() { this.removeAttribute('open'); this.dispatchEvent(new window.Event('close')); };
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { trainingPanel, scheduleClash } = await import('../../../src/activelabel/web/static/js/cv/training.js');
+const { trainingPanel, scheduleClash, startHelpText, listWithoutSeparator, listExample } = await import('../../../src/activelabel/web/static/js/cv/training.js');
 
 setMessages({
   'task.detection': 'Detection', 'tr.family_licence': 'needs its {name} licence', 'tr.licence_open': 'Accept {name}…',
@@ -212,4 +212,33 @@ test('scheduleClash refuses a warmup or a patience longer than the training, ove
   assert.equal(scheduleClash({ epochs: [3], patience: [3] }).key, 'error.patience_exceeds_epochs');
   assert.equal(scheduleClash({ epochs: [10], warmup_epochs: [10], patience: [0] }), null);
   assert.equal(scheduleClash({ warmup_epochs: [5] }), null);
+});
+
+test('startHelpText says only what is true of the model for each way of starting (#653)', () => {
+  setMessages({
+    'tr.start_transfer_help': 'T', 'tr.start_transfer_rcnn': 'R', 'tr.start_transfer_yolo': 'Y',
+    'tr.start_finetune_help': 'F', 'tr.start_finetune_factor': 'B', 'tr.start_finetune_layers': 'L', 'tr.start_finetune_yolo': 'FY',
+    'tr.start_scratch_help': 'S',
+  }, 'en');
+  const rcnn = { family: 'torchvision', arch: 'Faster R-CNN', params: [{ name: 'trainable_backbone_layers' }] };
+  const classifier = { family: 'torchvision', arch: 'ResNet', params: [] };
+  const yolo = { family: 'ultralytics', arch: 'YOLO', params: [] };
+  assert.equal(startHelpText(rcnn, 'transfer'), 'T R');
+  assert.equal(startHelpText(rcnn, 'finetune'), 'F B L');
+  assert.equal(startHelpText(classifier, 'finetune'), 'F B');
+  assert.equal(startHelpText(classifier, 'transfer'), 'T');
+  assert.equal(startHelpText(yolo, 'transfer'), 'T Y');
+  assert.equal(startHelpText(yolo, 'finetune'), 'F FY');
+  assert.equal(startHelpText(rcnn, 'scratch'), 'S');
+});
+
+test('listWithoutSeparator and listExample follow the decimal sign of the language (#653)', () => {
+  setMessages({}, 'pt-BR');
+  assert.equal(listWithoutSeparator('0,1,0,2'), true);
+  assert.equal(listWithoutSeparator('0,1'), false);
+  assert.equal(listWithoutSeparator('0,1; 0,2'), false);
+  assert.equal(listExample(), '0,1; 0,2');
+  setMessages({}, 'en');
+  assert.equal(listWithoutSeparator('0,1,0,2'), false);
+  assert.equal(listExample(), '0.1, 0.2');
 });

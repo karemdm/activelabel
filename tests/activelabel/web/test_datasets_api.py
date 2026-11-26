@@ -3,7 +3,8 @@ from sample_images import make_image
 
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.tasks import Task
-from activelabel.web import datasets_api
+from activelabel.training.config import RunConfig
+from activelabel.training.runs import RunStore
 
 BASE = "/api/projects/1/datasets"
 
@@ -185,6 +186,15 @@ def test_preview_tells_the_largest_kfold(tmp_path):
     assert few.post(BASE + "/preview", json={"kfold": 5}).status_code == 400
 
 
-def test_runs_in_the_messages_are_named_like_on_the_screens():
-    """#548: the screens call a run ``#1``, so the error text does too."""
-    assert datasets_api._numbers([1, 2, 4]) == "#1, #2, #4"
+def test_runs_in_the_messages_are_named_like_on_the_screens(tmp_path):
+    """#548: the screens call a run ``#1``, so the error text does too (#653: through the API, not the private
+    helper)."""
+    client, state, _ = _setup(tmp_path)
+    assert client.post(BASE, json={"seed": 1}).status_code == 200
+    runs = RunStore(state.store.dir(1))
+    for _ in range(2):
+        runs.create(RunConfig(dataset=1, model="resnet18", params={"epochs": 2}, metric="accuracy"))
+    reply = client.request("DELETE", BASE + "/1", json={"confirm": True})
+    assert reply.status_code == 409 and reply.json()["code"] == "dataset_in_use"
+    assert "Training run(s) #1, #2 use this version" in reply.json()["detail"]
+    assert reply.json()["params"]["runs"] == [1, 2]
