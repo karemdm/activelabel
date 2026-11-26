@@ -267,6 +267,7 @@ running.
 | GET | `/projects/{id}/curation` | | summary (counts, ids per issue, histograms, thresholds) |
 | DELETE | `/projects/{id}/curation` | | `{reset}`: forgets measures, issues, hashes and duplicate groups; thresholds stay (409 while a job runs) |
 | PUT | `/projects/{id}/curation/thresholds` | thresholds | summary (re-flagged) |
+| GET | `/projects/{id}/curation/similarity/requirements` | | what the map needs before it is asked for (#664): `packages`, `missing` (what the training environment lacks), `install_needed`, `devices`, `images` (active) and `min_images`; the interface confirms the install with the training dialog's text. POST of the map answers 400 `similarity_too_few_images` below `min_images` and 400 for a device this computer does not have |
 | GET | `/projects/{id}/curation/similarity/clustering` | | the regrouping of the map (`{}` before the first one): `status`, `method`, `groups`, `min_size`, `noise` (HDBSCAN images of no group), `fiftyone_error` |
 | POST | `/projects/{id}/curation/similarity/clustering` | `{method: auto\|kmeans\|hdbscan, groups?, min_size?}` | the entry, queued (CPU lane; the points stay, the groups change); 409 `clustering_running` while one is queued or running, 409 `similarity_running` while the map is, 409 `similarity_map_needed` without a map, 400 `cluster_invalid` |
 | POST | `/projects/{id}/curation/similarity/clustering/cancel` | | the entry (the groups stay as they were) |
