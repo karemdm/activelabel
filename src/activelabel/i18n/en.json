@@ -43,6 +43,7 @@
   "project.created": "Created",
   "project.coverage": "{done} of {total} images annotated",
   "project.edit": "Edit",
+  "project.rename_cvat": "The new name reaches CVAT on the next comparison.",
   "project.delete": "Delete",
   "project.saved": "Project saved.",
   "project.steps": "Project steps",

@@ -911,3 +911,12 @@ def test_a_plan_with_only_renames_can_be_applied():
     block = project_js[project_js.index("const planIsEmpty") :][:600]
     for key in ("'tasks_rename'", "'renamed_classes'", "'project_rename'"):
         assert key in block, key
+
+
+def test_the_edit_dialog_says_the_new_name_reaches_cvat():
+    """#587 (renaming is not blocked): a linked project says the name goes on the next comparison."""
+    project_js = (SRC / "web" / "static" / "js" / "cv" / "project.js").read_text(encoding="utf-8")
+    assert "el('p', { class: 'hint', id: 'e-name-hint' }, t('project.rename_cvat'))" in project_js
+    assert "'aria-describedby': ctx.links.some((l) => l.tool === 'cvat') ? 'e-name-hint' : null" in project_js
+    for lang in ("pt", "en"):
+        assert _messages(lang)["project.rename_cvat"].endswith(".")

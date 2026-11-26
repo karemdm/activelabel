@@ -165,7 +165,8 @@ export function initProject() {
   // ---- edit & delete
   function openEdit() {
     const p = ctx.project;
-    const nameInput = el('input', { id: 'e-name', type: 'text', value: p.name, maxlength: '100', required: true });
+    const nameInput = el('input', { id: 'e-name', type: 'text', value: p.name, maxlength: '100', required: true,
+      'aria-describedby': ctx.links.some((l) => l.tool === 'cvat') ? 'e-name-hint' : null });
     const descInput = el('textarea', { id: 'e-desc', rows: '3', maxlength: '2000' }, p.description || '');
     const picker = taskPicker('e-task', p.task);
     const chips = chipsInput('e-classes', p.classes || []);
@@ -175,7 +176,9 @@ export function initProject() {
         el('h2', null, t('project.edit')),
         el('div', { class: 'form-cols' },
           el('div', null,
-            el('div', { class: 'field' }, el('label', { for: 'e-name' }, t('field.name')), nameInput),
+            /* a project linked to CVAT: the new name goes there on the next comparison, like a task name (#587) */
+            el('div', { class: 'field' }, el('label', { for: 'e-name' }, t('field.name')), nameInput,
+              ctx.links.some((l) => l.tool === 'cvat') ? el('p', { class: 'hint', id: 'e-name-hint' }, t('project.rename_cvat')) : null),
             el('div', { class: 'field' }, el('label', { for: 'e-desc' }, t('field.description')), descInput),
             el('div', { class: 'field' }, el('label', { for: 'e-classes' }, t('field.classes')), chips.node)),
           el('fieldset', { class: 'field' }, el('legend', null, t('field.task')), picker.node)),
