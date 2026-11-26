@@ -385,6 +385,13 @@ def test_gap_frames_are_left_out_and_counted(tmp_path):
     )  # 0 = off: no frame dropped
 
 
+def test_gap_seconds_is_zero_when_frames_have_no_time(tmp_path):
+    pdir, project = video_case(tmp_path, fps=None)  # frames without time: no gap can be measured
+    p = plan(pdir, project, gap_seconds=1.0)
+    (video,) = p.videos
+    assert video["split"] and video["gap"] == 0 and video["gap_seconds"] == 0.0
+
+
 def test_whole_mode_keeps_the_video_together(tmp_path):
     pdir, project = video_case(tmp_path)
     p = plan(pdir, project, videos="whole")

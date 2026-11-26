@@ -997,13 +997,13 @@ def _video_gaps(
         seconds: the requested gap.
 
     Returns:
-        Video id -> its gap (videos with a frame of unknown time get the requested gap).
+        Video id -> its gap (0 for a video with a frame of unknown time: no frame is dropped there).
     """
     out: dict[str, float] = {}
     for video, ids in frames_of.items():
         at = [times.get(i) for i in ids]
         if seconds <= 0 or any(t is None for t in at):
-            out[video] = seconds
+            out[video] = 0.0 if seconds > 0 else seconds  # no time for a frame: no gap is applied
             continue
         known = [float(t) for t in at if t is not None]
         steps = sorted(b - a for a, b in zip(known, known[1:], strict=False) if b > a)
