@@ -25,6 +25,10 @@ gradient scaler, random generators, the best epoch so far and the batch size. A 
 (:func:`load_resume`, :func:`restore`) continues from the next epoch as if it had never stopped, provided
 the run's spec is the same (its ``digest``).
 
+Against class imbalance (classification and semantic segmentation) the loss can weigh the classes by the
+inverse of their frequency in the training part (:func:`class_weights`, capped) and can be a focal loss, a
+soft Dice loss or cross-entropy plus Dice (:func:`build_loss`).
+
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel.
 """
 
@@ -60,6 +64,9 @@ ONECYCLE_END = 1 / 25e4  # ...and ends at this one (the PyTorch defaults)
 PLATEAU_PATIENCE = 2  # epochs without improvement before plateau lowers the rate
 PLATEAU_FACTOR = 0.1
 AMP_CHOICES = ("auto", "on", "off")
+CLASS_WEIGHT_CHOICES = ("none", "inverse")
+WEIGHT_CAP = 10.0  # the heaviest class weighs at most this many times the lightest one
+DICE_SMOOTH = 1.0
 
 
 class CodedFailure(Exception):
@@ -742,3 +749,164 @@ def restore(
     if state.get("cuda") is not None and torch.cuda.is_available():
         torch.cuda.set_rng_state_all(state["cuda"])
     return {k: state[k] for k in ("epoch", "best", "since_best", "batch")}
+
+
+# -- class imbalance (#147) ---------------------------------------------------
+
+
+def class_weights(counts: list[int], mode: str = "none", cap: float = WEIGHT_CAP) -> list[float] | None:
+    """Weight of each class from how often it appears in the training part.
+
+    ``inverse`` gives each class the inverse of its count, so rare classes count more in the loss. The
+    heaviest weight is at most ``cap`` times the lightest one (a very rare class must not dominate), a class
+    with no example takes the heaviest weight, and the weights are scaled to a mean of 1.
+
+    Args:
+        counts: examples (images or pixels) of each class in the training part, in class order.
+        mode: ``none`` (no weights) or ``inverse``.
+        cap: the largest ratio between two weights.
+
+    Returns:
+        One weight per class, or ``None`` for ``none`` and when no class has an example.
+
+    Raises:
+        ValueError: An unknown mode.
+    """
+    if mode not in CLASS_WEIGHT_CHOICES:
+        raise ValueError(f"Unknown class weights '{mode}'.")
+    present = [c for c in counts if c > 0]
+    if mode == "none" or not present:
+        return None
+    top = max(present)  # the most frequent class is the lightest: weight 1 before the scale
+    ratios = [min(cap, top / c) if c > 0 else cap for c in counts]
+    mean = sum(ratios) / len(ratios)
+    return [r / mean for r in ratios]
+
+
+class FocalLoss(torch.nn.Module):
+    """Focal loss: cross-entropy that counts easy examples less, ``(1 - p) ** gamma`` times the loss."""
+
+    def __init__(self, gamma: float = 2.0, weight: Array = None, label_smoothing: float = 0.0) -> None:
+        """Keep the settings.
+
+        Args:
+            gamma: focusing strength (0 is plain cross-entropy).
+            weight: optional per-class weights (a tensor), as in ``CrossEntropyLoss``.
+            label_smoothing: label smoothing of the underlying cross-entropy.
+        """
+        super().__init__()
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+        self.register_buffer("weight", weight)
+
+    def forward(self, logits: Array, target: Array) -> Array:
+        """The loss of a batch.
+
+        Args:
+            logits: ``(N, C)`` or ``(N, C, ...)`` scores.
+            target: ``(N, ...)`` class indices.
+
+        Returns:
+            The scalar loss (the mean, divided by the sum of the weights of the targets when weighted).
+        """
+        plain = torch.nn.functional.cross_entropy(
+            logits, target, reduction="none", label_smoothing=self.label_smoothing
+        )
+        weighted = torch.nn.functional.cross_entropy(
+            logits, target, weight=self.weight, reduction="none", label_smoothing=self.label_smoothing
+        )
+        loss = (1.0 - torch.exp(-plain)).clamp(min=0.0) ** self.gamma * weighted
+        if self.weight is None:
+            return loss.mean()
+        return loss.sum() / self.weight[target].sum().clamp(min=1e-8)
+
+
+class DiceLoss(torch.nn.Module):
+    """Soft multi-class Dice loss: one minus the mean Dice of the classes over the batch."""
+
+    def __init__(self, weight: Array = None) -> None:
+        """Keep the class weights.
+
+        Args:
+            weight: optional per-class weights (a tensor) for the mean over the classes.
+        """
+        super().__init__()
+        self.register_buffer("weight", weight)
+
+    def forward(self, logits: Array, target: Array) -> Array:
+        """The loss of a batch.
+
+        Args:
+            logits: ``(N, C, H, W)`` scores.
+            target: ``(N, H, W)`` class indices.
+
+        Returns:
+            The scalar loss.
+        """
+        n = logits.shape[1]
+        probs = logits.float().softmax(dim=1)
+        onehot = torch.nn.functional.one_hot(target, n).permute(0, 3, 1, 2).to(probs.dtype)
+        inter = (probs * onehot).sum(dim=(0, 2, 3))
+        total = probs.sum(dim=(0, 2, 3)) + onehot.sum(dim=(0, 2, 3))
+        dice = (2.0 * inter + DICE_SMOOTH) / (total + DICE_SMOOTH)
+        if self.weight is None:
+            return 1.0 - dice.mean()
+        return 1.0 - (dice * self.weight).sum() / self.weight.sum()
+
+
+class CrossEntropyDiceLoss(torch.nn.Module):
+    """Cross-entropy plus soft Dice loss."""
+
+    def __init__(self, weight: Array = None) -> None:
+        """Build the two terms.
+
+        Args:
+            weight: optional per-class weights (a tensor) for both terms.
+        """
+        super().__init__()
+        self.ce = torch.nn.CrossEntropyLoss(weight=weight)
+        self.dice = DiceLoss(weight)
+
+    def forward(self, logits: Array, target: Array) -> Array:
+        """The loss of a batch.
+
+        Args:
+            logits: ``(N, C, H, W)`` scores.
+            target: ``(N, H, W)`` class indices.
+
+        Returns:
+            The scalar loss.
+        """
+        return self.ce(logits, target) + self.dice(logits, target)
+
+
+def build_loss(
+    name: str,
+    weights: list[float] | None = None,
+    label_smoothing: float = 0.0,
+    gamma: float = 2.0,
+) -> Any:
+    """The loss function of a training.
+
+    Args:
+        name: ``cross_entropy``, ``focal``, ``dice`` or ``cross_entropy_dice``.
+        weights: per-class weights from :func:`class_weights` (``None`` for none).
+        label_smoothing: label smoothing (cross-entropy and focal).
+        gamma: focal loss focusing strength.
+
+    Returns:
+        A ``torch.nn.Module`` ``(logits, target)``; move it to the device (its weights are buffers).
+
+    Raises:
+        ValueError: An unknown loss.
+    """
+    weight = None if weights is None else torch.tensor(weights, dtype=torch.float32)
+    if name == "cross_entropy":
+        return torch.nn.CrossEntropyLoss(weight=weight, label_smoothing=label_smoothing)
+    if name == "focal":
+        return FocalLoss(gamma, weight, label_smoothing)
+    if name == "dice":
+        return DiceLoss(weight)
+    if name == "cross_entropy_dice":
+        return CrossEntropyDiceLoss(weight)
+    raise ValueError(f"Unknown loss '{name}'.")

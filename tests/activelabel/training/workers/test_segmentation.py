@@ -163,3 +163,64 @@ def test_letterbox_bands_are_background_in_the_mask(worker, tmp_path):
     assert mask[0, 8] == 0 and mask[8, 8] == 1 and mask[15, 8] == 0
     _, stretched = worker.SegmentationDataset(items, CLASSES, 16, None)[0]
     assert stretched[0, 8] == 1
+
+
+# -- class imbalance (#147) ----------------------------------------------------
+
+
+def test_pixel_counts_include_the_background_and_the_bands(worker, tmp_path):
+    Image.new("RGB", (32, 16), (200, 10, 10)).save(tmp_path / "wide.png")
+    full = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    items = [{"path": str(tmp_path / "wide.png"), "objects": [{"label": 1, "polygons": [full]}]}]
+    stretched = worker.pixel_counts(items, CLASSES, 16, "stretch")
+    assert stretched == [0, 0, 256]
+    boxed = worker.pixel_counts(items, CLASSES, 16, "letterbox")
+    assert boxed[0] > 0 and boxed[2] > 0 and sum(boxed) == 256 and boxed[1] == 0
+
+
+def test_training_with_weights_and_dice_loss(worker, tmp_path, monkeypatch):
+    pytest.importorskip("torchvision")
+    Image.new("RGB", (32, 32), (200, 10, 10)).save(tmp_path / "a.png")
+    obj = {"label": 0, "polygons": [SQUARE]}
+    items = [{"path": str(tmp_path / "a.png"), "objects": [obj]} for _ in range(4)]
+    params = {
+        "epochs": 1,
+        "batch_size": 2,
+        "lr": 0.001,
+        "optimizer": "adamw",
+        "weight_decay": 0.0,
+        "scheduler": "none",
+        "warmup_epochs": 0,
+        "image_size": 32,
+        "resize": "stretch",
+        "augmentation": "none",
+        "patience": 0,
+        "seed": 1,
+        "start": "scratch",
+        "backbone_lr_factor": 0.1,
+        "amp": "auto",
+        "class_weights": "inverse",
+        "loss": "cross_entropy_dice",
+    }
+    seen = []
+    monkeypatch.setattr(worker, "emit", lambda event, **fields: seen.append((event, fields)))
+    results = worker.train(
+        {
+            "task": "semantic",
+            "model": "lraspp_mobilenet_v3_large",
+            "family": "torchvision",
+            "classes": CLASSES,
+            "start": "scratch",
+            "params": params,
+            "seed": 1,
+            "metric": "miou",
+            "fold": None,
+            "parts": {"train": items, "val": items[:2]},
+            "output_dir": str(tmp_path / "out"),
+            "device": "cpu",
+            "augmentations": [],
+            "digest": "d",
+        }
+    )
+    assert results["epochs_run"] == 1
+    assert any(e == "log" and "Class weights" in f["message"] for e, f in seen)

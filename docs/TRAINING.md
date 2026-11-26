@@ -75,7 +75,7 @@ Options chosen on the screen and saved in `config.yaml`:
 | Data | dataset version; for K-fold versions, all folds or one fold |
 | Model | model; start: **transfer learning** (pretrained, backbone frozen, only the head trains) / **fine-tuning** (pretrained, everything trains; backbone learning rate × factor) / **from scratch** |
 | Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50) |
-| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer (SGD, Adam, AdamW), weight decay, scheduler and warmup epochs, image size, resize policy, augmentation level (see below), early stopping patience, mixed precision, seed, the backbone rate factor (fine-tuning only), and model-specific ones (label smoothing, trainable backbone layers, score threshold) |
+| Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer (SGD, Adam, AdamW), weight decay, scheduler and warmup epochs, image size, resize policy, augmentation level (see below), early stopping patience, mixed precision, seed, the backbone rate factor (fine-tuning only), and model-specific ones (label smoothing, class weights, loss and focal gamma, trainable backbone layers, score threshold) |
 | Device | *Automatic*, *CPU*, *GPU n* or *Apple GPU (MPS)*: where this run trains (see *Principles*); not part of the saved configuration |
 | Selection | metric that chooses the best epoch / best run, per type: classification accuracy (default) or macro F1; detection, instance segmentation and keypoints mAP50-95 (default) or mAP50; semantic segmentation mIoU (default) or pixel accuracy |
 
@@ -101,6 +101,24 @@ the torchvision detectors) raises the rate linearly from almost 0 to the full va
 steadies fine-tuning and detectors started from COCO weights. All workers (classification, detection,
 instance segmentation, keypoints, semantic segmentation) apply the same schedule, set step by step; the rate at
 the end of each epoch is kept as `lr` in `metrics.jsonl`.
+
+**Class imbalance.** When one class has far more examples (or pixels) than the others, a plain cross-entropy can
+settle for the common class: a semantic model that only predicts the background shows an mIoU of 0 and a high pixel
+accuracy. Two model-specific hyperparameters, both off by default, counter it:
+
+- `class_weights`: `none` (default) or `inverse`. With `inverse` each class weighs the inverse of its frequency in
+  the **training** part (images per class in classification, pixels per class in semantic segmentation, the
+  background included), scaled to a mean of 1 and capped so that the heaviest class weighs at most 10 times the
+  lightest. The weights used are written to the training log.
+- `loss`: classification takes `cross_entropy` (default) or `focal` (cross-entropy that counts easy examples less;
+  `focal_gamma`, 0 to 5, default 2, sets how much, and is read only with `focal`); semantic segmentation takes
+  `cross_entropy` (default), `dice` (one minus the mean Dice overlap of the classes) or `cross_entropy_dice` (the
+  two added). The class weights also apply to the focal and Dice terms.
+
+When a semantic model only predicts the background, try `class_weights=inverse` and `loss=cross_entropy_dice`;
+when a classifier ignores its rare classes, try `class_weights=inverse` (and `focal` if the rare classes are also
+the hard ones). Both change the loss values, so compare runs by the selection metric, not by the loss. Instance
+segmentation, detection, keypoint and YOLO models do not have these options.
 
 **Mixed precision and batch size.** `amp` (`auto`, `on`, `off`; default `auto`) trains in float16 with a gradient
 scaler on a CUDA GPU, which is faster and lighter; `auto` and `on` use it on CUDA only, and the CPU and Apple

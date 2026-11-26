@@ -306,3 +306,58 @@ def test_failures_carry_a_code_and_params(o):
     assert o.coded(bad.value)["code"] == "device_invalid"
     assert o.coded(ValueError("plain")) == {}
     assert o.CodedFailure("x").code == "training_failed"
+
+
+# -- class imbalance (#147) ----------------------------------------------------
+
+
+def test_class_weights_none_and_empty_give_no_weights(o):
+    assert o.class_weights([5, 1], "none") is None
+    assert o.class_weights([0, 0], "inverse") is None
+    with pytest.raises(ValueError, match="Unknown class weights"):
+        o.class_weights([1, 1], "median")
+
+
+def test_inverse_class_weights_are_capped_and_have_mean_one(o):
+    weights = o.class_weights([100, 50, 1], "inverse")
+    assert sum(weights) / 3 == pytest.approx(1.0)
+    assert weights[0] < weights[1] < weights[2]
+    assert max(weights) / min(weights) == pytest.approx(o.WEIGHT_CAP)  # 100x rarer, capped at 10x
+    assert o.class_weights([10, 10], "inverse") == pytest.approx([1.0, 1.0])
+    absent = o.class_weights([10, 0, 5], "inverse")
+    assert absent[1] == max(absent)  # a class with no example takes the heaviest weight
+
+
+def test_focal_loss_discounts_easy_examples(o, torch):
+    logits = torch.tensor([[4.0, 0.0], [0.0, 0.5]])
+    target = torch.tensor([0, 0])
+    plain = torch.nn.functional.cross_entropy(logits, target)
+    assert float(o.FocalLoss(0.0)(logits, target)) == pytest.approx(float(plain))
+    assert 0 < float(o.FocalLoss(2.0)(logits, target)) < float(plain)
+    weighted = o.build_loss("focal", [1.0, 3.0], 0.1, 2.0)(logits, target)
+    assert float(weighted) > 0
+
+
+def test_dice_loss_is_near_zero_for_a_perfect_prediction(o, torch):
+    target = torch.zeros(1, 4, 4, dtype=torch.long)
+    target[0, :2] = 1
+    perfect = torch.nn.functional.one_hot(target, 2).permute(0, 3, 1, 2).float() * 40.0
+    assert float(o.DiceLoss()(perfect, target)) < 0.05
+    background_only = torch.zeros(1, 2, 4, 4)
+    background_only[:, 0] = 40.0
+    assert float(o.DiceLoss()(background_only, target)) > 0.3
+    assert float(o.DiceLoss(torch.tensor([1.0, 3.0]))(background_only, target)) > float(
+        o.DiceLoss()(background_only, target)
+    )
+
+
+def test_build_loss_gives_each_kind(o, torch):
+    logits = torch.randn(2, 3, 4, 4)
+    target = torch.randint(0, 3, (2, 4, 4))
+    for name in ("cross_entropy", "focal", "dice", "cross_entropy_dice"):
+        loss = o.build_loss(name, [1.0, 2.0, 0.5])(logits, target)
+        assert loss.ndim == 0 and float(loss) > 0
+    both = o.build_loss("cross_entropy_dice")(logits, target)
+    assert float(both) > float(o.build_loss("dice")(logits, target))
+    with pytest.raises(ValueError, match="Unknown loss"):
+        o.build_loss("hinge")
