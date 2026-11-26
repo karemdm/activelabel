@@ -6,9 +6,22 @@ import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
-import { LOCALE, fmtDateTime, nf3, lower, runName, num, t, tn, tr } from '../shell/i18n.js';
+import { LOCALE, decimalSign, fmtDateTime, listSeparator, nf3, nfExact, lower, parseNumber, runName, splitNumbers, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
+
+/** The first warmup or patience that cannot fit in the epochs, over every value of the lists (a grid): same rule as the server's
+ *  `_check_schedule`. `reads` maps a parameter to its list of numbers. Returns {field, key, value, epochs} or null. */
+export function scheduleClash(reads) {
+  const epochs = reads.epochs || [];
+  if (!epochs.length) return null;
+  const shortest = Math.min(...epochs);
+  const warmup = reads.warmup_epochs || [];
+  if (warmup.length && Math.max(...warmup) > shortest) return { field: 'warmup_epochs', key: 'error.warmup_exceeds_epochs', value: Math.max(...warmup), epochs: shortest };
+  const patience = reads.patience || [];
+  if (patience.length && Math.max(...patience) >= shortest && Math.max(...patience) > 0) return { field: 'patience', key: 'error.patience_exceeds_epochs', value: Math.max(...patience), epochs: shortest };
+  return null;
+}
 
 export function trainingPanel(page) {
   const { ctx, projectId, renderStepper } = page;
@@ -38,7 +51,7 @@ export function trainingPanel(page) {
   const paramName = (n) => tr(`tr.p.${n}`, String(n).replace(/_/g, ' '));
   const choiceName = (c) => tr(`tr.opt.${c}`, String(c));
   const fmtVal = (v) => (typeof v === 'number' ? nf3.format(v) : String(v));
-  const plain = (v) => String(v);   // hyperparameters are shown exactly (no rounding of 0.0001)
+  const plain = (v) => nfExact.format(Number(v));   // hyperparameters are shown exactly (no rounding of 0.0001), with the decimal sign of the language
   const foldCount = (v) => Number((v.options || {}).kfold) || (Array.isArray(v.folds) ? v.folds.length : 0) || (v.sizes && Array.isArray(v.sizes.folds) ? v.sizes.folds.length : 0);
   const foldText = (f) => (f == null ? '' : f === 'all' ? t('tr.fold_all') : t('ds.fold', { n: Number(f) + 1 }));
   const datasetText = (r) => (r.dataset == null ? '' : [t('tr.dataset_short', { n: r.dataset }), foldText(r.fold)].filter(Boolean).join(' · '));
@@ -562,11 +575,12 @@ export function trainingPanel(page) {
         const list = grid ? st.sel[name] : st.sel[name].slice(0, 1);
         return list.length ? { list } : { error: t('tr.err_required') };
       }
-      const tokens = String(st.vals[name] == null ? '' : st.vals[name]).split(grid ? ',' : '\u0000').map((s) => s.trim()).filter(Boolean);
+      const text = String(st.vals[name] == null ? '' : st.vals[name]);
+      const tokens = grid ? splitNumbers(text) : [text.trim()].filter(Boolean);
       if (!tokens.length) return { error: t('tr.err_required') };
       const list = [];
       for (const tok of tokens) {
-        const n = Number(tok);
+        const n = parseNumber(tok);
         if (!Number.isFinite(n)) return { error: t('tr.err_number', { v: tok }) };
         if (spec.kind === 'int' && !Number.isInteger(n)) return { error: t('tr.err_int', { v: tok }) };
         if ((spec.min != null && n < spec.min) || (spec.max != null && n > spec.max)) return { error: t('tr.err_range', { min: plain(spec.min), max: plain(spec.max) }) };
@@ -574,6 +588,12 @@ export function trainingPanel(page) {
       }
       if (new Set(list).size !== list.length) return { error: t('tr.err_dup') };
       return { list };
+    }
+
+    /* a stored value as the field shows it: a text field of a grid writes a plain number with the language's decimal sign */
+    function fieldText(value, grid) {
+      const text = String(value == null ? '' : value);
+      return grid && /^-?\d+\.\d+$/.test(text) ? text.replace('.', decimalSign()) : text;
     }
 
     function paramField(spec) {
@@ -605,9 +625,9 @@ export function trainingPanel(page) {
         return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), select, hint, err);
       }
       const input = el('input', {
-        id, type: grid ? 'text' : 'number', inputmode: spec.kind === 'int' ? 'numeric' : 'decimal', autocomplete: 'off', value: String(st.vals[name] == null ? '' : st.vals[name]),
+        id, type: grid ? 'text' : 'number', inputmode: spec.kind === 'int' ? 'numeric' : 'decimal', autocomplete: 'off', value: fieldText(st.vals[name], grid),
         min: !grid && spec.min != null ? String(spec.min) : null, max: !grid && spec.max != null ? String(spec.max) : null, step: !grid ? (spec.kind === 'int' ? '1' : 'any') : null,
-        placeholder: grid ? `${spec.default}, …` : null, 'aria-describedby': describedby,
+        placeholder: grid ? `${plain(spec.default)}${listSeparator()}…` : null, 'aria-describedby': describedby,
       });
       input.addEventListener('input', () => { st.vals[name] = input.value; changed(); });
       return el('div', { class: 'field tr-param' }, el('label', { for: id }, paramName(name)), input, hint, err);
@@ -775,7 +795,10 @@ export function trainingPanel(page) {
       st.mode = mode;
       if (mode === 'single') {
         for (const spec of active) {
-          if (spec.kind === 'int' || spec.kind === 'float') st.vals[spec.name] = String(st.vals[spec.name]).split(',')[0].trim();
+          if (spec.kind === 'int' || spec.kind === 'float') {
+            const first = splitNumbers(st.vals[spec.name])[0] || '';
+            st.vals[spec.name] = Number.isFinite(parseNumber(first)) ? String(parseNumber(first)) : first;
+          }
           if (spec.kind === 'choice') st.sel[spec.name] = st.sel[spec.name].slice(0, 1);
         }
       }
@@ -832,6 +855,14 @@ export function trainingPanel(page) {
         reads[spec.name] = r.list;
         combos *= r.list.length;
       }
+      const clash = scheduleClash(reads);   // a warmup or a patience longer than the training (the server refuses it too)
+      if (clash) {
+        const box = errEls[clash.field];
+        if (box) box.textContent = t(clash.key, { [clash.field === 'patience' ? 'patience' : 'warmup']: num(clash.value), epochs: num(clash.epochs) });
+        const input = document.getElementById(`tr-p-${clash.field}`);
+        if (input) input.setAttribute('aria-invalid', 'true');
+        bad += 1;
+      }
       const levels = reads.augmentation || [];
       if (levels.length > 1 && levels.includes('custom')) {   // a custom list cannot be one value of a grid
         if (errEls.augmentation) errEls.augmentation.textContent = t('tr.aug_custom_alone');
@@ -864,12 +895,10 @@ export function trainingPanel(page) {
       advLine.textContent = bad ? `${changedLine(true)} · ${tn('tr.params_invalid', bad, { n: bad })}` : changedLine();
     }
 
-    /* one value of a parameter as the person reads it: exact, with the decimal sign of the fields (0,0001) */
-    const exact = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 20, useGrouping: false });
     function valueText(spec, v) {
       if (spec.kind === 'choice') return choiceName(v);
       if (typeof v === 'boolean') return v ? '✓' : '✗';
-      return exact.format(Number(v));
+      return plain(v);
     }
     /* "epochs 20 · batch size 8": only what is not the default; the grid lists show as they are */
     function changedLine(withErrors = false) {

@@ -49,3 +49,21 @@ test('runName, nf3 and fmtDateTime are the shared formats (#548)', () => {
   assert.equal(i18n.fmtDateTime('2026-11-25T12:28:00'), i18n.fmtDate('2026-11-25T12:28:00') + ', 12:28');
   assert.equal(i18n.fmtDateTime('nope'), '');
 });
+
+test('decimal comma: numbers and lists are read the way the language writes them (#546)', () => {
+  setMessages({}, 'pt');
+  assert.equal(i18n.decimalSign(), ',');
+  assert.equal(i18n.parseNumber('0,01'), 0.01);
+  assert.equal(i18n.parseNumber('0.01'), 0.01);
+  assert.ok(Number.isNaN(i18n.parseNumber('0,0,1')));
+  assert.ok(Number.isNaN(i18n.parseNumber('')));
+  assert.deepEqual(i18n.splitNumbers('0,01, 0,001'), ['0,01', '0,001']);
+  assert.deepEqual(i18n.splitNumbers('0,01; 0,001'), ['0,01', '0,001']);
+  assert.deepEqual(i18n.splitNumbers('0.01, 0.001'), ['0.01', '0.001']);
+  assert.equal(i18n.nfExact.format(0.0001), '0,0001');
+  assert.equal(i18n.listSeparator(), '; ');
+  setMessages({}, 'en');
+  assert.equal(i18n.parseNumber('0,01'), NaN);
+  assert.deepEqual(i18n.splitNumbers('0.01, 0.001'), ['0.01', '0.001']);
+  assert.equal(i18n.listSeparator(), ', ');
+});

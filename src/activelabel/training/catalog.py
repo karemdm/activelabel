@@ -99,9 +99,13 @@ class ParamSpec:
         if isinstance(value, float) and not math.isfinite(value):
             raise CodedError("param_not_finite", f"'{name}' must be a finite number.", name=name)
         if self.min is not None and value < self.min:
-            raise CodedError("param_min", f"'{name}' must be at least {self.min:g}.", name=name, min=self.min)
+            raise CodedError(
+                "param_min", f"'{name}' must be at least {self.min:.12g}.", name=name, min=self.min
+            )
         if self.max is not None and value > self.max:
-            raise CodedError("param_max", f"'{name}' must be at most {self.max:g}.", name=name, max=self.max)
+            raise CodedError(
+                "param_max", f"'{name}' must be at most {self.max:.12g}.", name=name, max=self.max
+            )
         return value
 
     def as_dict(self) -> dict[str, Any]:

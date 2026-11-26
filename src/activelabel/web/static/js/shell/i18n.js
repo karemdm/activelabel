@@ -8,6 +8,8 @@ export let nf = new Intl.NumberFormat(LOCALE);
 export let nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
 export let nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
 export let nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
+/** A number exactly as it is (no rounding, no thousands separator): a learning rate of 0.0001 stays 0.0001 (0,0001 in pt). */
+export let nfExact = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 20, useGrouping: false });
 
 /** Sets the texts (as the server writes them in `window.I18N`) and the locale of the formats. */
 export function setMessages(messages, locale) {
@@ -17,6 +19,7 @@ export function setMessages(messages, locale) {
   nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
   nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
+  nfExact = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 20, useGrouping: false });
 }
 
 export const fmt = (text, vars) =>
@@ -41,6 +44,21 @@ export const fmtDateTime = (iso) => {
 };
 /** How a training run is named on every screen: `#3` (the same as the run's title). */
 export const runName = (n) => `#${n}`;
+/** The decimal sign of the interface language ("," in Portuguese, "." in English). */
+export const decimalSign = () => nfExact.format(1.5).charAt(1);
+/** A number the person typed in a field: the decimal comma counts as the decimal point where the language uses it.
+ *  Returns NaN for anything that is not a plain number. */
+export const parseNumber = (text) => {
+  const token = String(text).trim();
+  if (!token) return NaN;
+  return Number(decimalSign() === ',' && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(token) ? token.replace(',', '.') : token);
+};
+/** The tokens of a list of numbers ("0,01; 0,001" in Portuguese, "0.01, 0.001" in English). Where the comma is the decimal sign
+ *  the items are separated by ";" or by a comma followed by a space, so "0,01, 0,001" is two values; elsewhere by "," or ";". */
+export const splitNumbers = (text) =>
+  String(text).split(decimalSign() === ',' ? /;|,\s+/ : /[,;]/).map((s) => s.trim()).filter(Boolean);
+/** The separator the interface language writes between the items of a list of numbers. */
+export const listSeparator = () => (decimalSign() === ',' ? '; ' : ', ');
 export const fmtBytes = (n) => {
   if (n < 1024) return `${num(n)} B`;
   if (n < 1024 * 1024) return `${nf1.format(n / 1024)} KB`;
