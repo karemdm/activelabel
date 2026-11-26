@@ -125,7 +125,7 @@ def _check(spec: OptionSpec, value: Any) -> float | int | bool:
         value: the value sent.
 
     Returns:
-        The value with the parameter's type (floats rounded to 6 decimals).
+        The value with the parameter's type (floats rounded to 6 decimals after the range check).
 
     Raises:
         CodedError: ``option_not_bool``, ``option_not_number``, ``option_not_whole`` or ``option_range``.
@@ -138,9 +138,10 @@ def _check(spec: OptionSpec, value: Any) -> float | int | bool:
         raise CodedError("option_not_number", f"'{spec.name}' must be a number.", option=spec.name)
     if spec.type == "int" and value != int(value):
         raise CodedError("option_not_whole", f"'{spec.name}' must be a whole number.", option=spec.name)
-    number: float | int = int(value) if spec.type == "int" else round(float(value), 6)
     assert spec.minimum is not None and spec.maximum is not None
-    if not spec.minimum <= number <= spec.maximum:
+    if (
+        not spec.minimum <= value <= spec.maximum
+    ):  # the value sent, before rounding: as the form checks it (#663)
         raise CodedError(
             "option_range",
             f"'{spec.name}' must be between {spec.minimum} and {spec.maximum}.",
@@ -148,7 +149,7 @@ def _check(spec: OptionSpec, value: Any) -> float | int | bool:
             min=spec.minimum,
             max=spec.maximum,
         )
-    return number
+    return int(value) if spec.type == "int" else round(float(value), 6)
 
 
 def resolve(kind: str, given: dict[str, Any] | None) -> dict[str, Any]:

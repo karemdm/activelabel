@@ -116,3 +116,13 @@ def test_resolve_classes() -> None:
         with pytest.raises(CodedError) as error:
             po.resolve_classes(available, chosen)
         assert error.value.code == code
+
+
+def test_the_range_is_checked_on_the_value_sent_like_the_form_does() -> None:
+    """#663: 0.9990004 was rounded to 0.999 first and accepted, while the form refused it."""
+    with pytest.raises(CodedError) as info:
+        po.resolve("detection", {"confidence": 0.9990004})
+    assert info.value.code == "option_range"
+    assert (
+        po.resolve("detection", {"confidence": 0.1234567})["confidence"] == 0.123457
+    )  # still rounded when kept
