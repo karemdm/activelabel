@@ -162,6 +162,8 @@ class ModelSpec:
         variant: size or variant inside the architecture (``50``, ``n``...); empty when it has only one.
         experimental: offered, but not as reliable as the others (the dialog says so).
         params_m: parameters of the network, in millions (``None`` when not known).
+        file_mb: size of the pretrained weights file in MiB, when published (``None``: estimated from the
+            parameters, four bytes each).
         builder: the name the library builds it by, when it differs from ``id`` (two families have a
             network of the same name: torchvision's EfficientNet-B0 is ``tv_efficientnet_b0`` here).
         multiples: what a common parameter must be a multiple of for this model (``{"image_size": 32}``).
@@ -185,6 +187,7 @@ class ModelSpec:
     variant: str = ""
     experimental: bool = False
     params_m: float | None = None
+    file_mb: float | None = None
     builder: str = ""
     multiples: dict[str, int] = field(default_factory=dict)
     without: tuple[str, ...] = ()
@@ -260,9 +263,18 @@ class ModelSpec:
             "variant": self.variant,
             "experimental": self.experimental,
             "params_m": self.params_m,
-            # float32 weights: four bytes per parameter (the file of a trained model is about this size)
-            "file_mb": None if self.params_m is None else round(self.params_m * 4 * 1e6 / 2**20, 1),
+            "file_mb": self._file_mb(),
         }
+
+    def _file_mb(self) -> float | None:
+        """The size of the weights file: the published one, else float32 weights (four bytes per parameter).
+
+        Returns:
+            Size in MiB, or ``None`` when neither the file size nor the parameters are known.
+        """
+        if self.file_mb is not None:
+            return round(self.file_mb, 1)
+        return None if self.params_m is None else round(self.params_m * 4 * 1e6 / 2**20, 1)
 
 
 COMMON_PARAMS: tuple[ParamSpec, ...] = (
@@ -925,6 +937,14 @@ YOLO_PARAMS: dict[tuple[str, str], tuple[float, ...]] = {
     ("yolo11", "-pose"): (2.9, 9.9, 20.9, 26.2, 58.8),
     ("yolo11", "-cls"): (1.6, 5.5, 10.4, 12.9, 28.4),
 }
+#: Size in MiB of the official ``.pt`` files (fp16 checkpoints, release v8.4.0 of ``ultralytics/assets``), by
+#: generation and task (sizes n s m l x). The other generations use the estimate from their parameters.
+YOLO_FILE_MB: dict[tuple[str, str], tuple[float, ...]] = {
+    ("yolo26", ""): (5.29, 19.48, 42.21, 50.75, 113.17),
+    ("yolo26", "-seg"): (6.41, 22.38, 52.21, 60.75, 135.55),
+    ("yolo26", "-pose"): (7.51, 23.03, 46.77, 55.31, 120.39),
+    ("yolo26", "-cls"): (5.52, 12.99, 22.39, 27.21, 56.85),
+}
 #: The architecture each family proposes first (the dialog's default).
 DEFAULT_ARCH = {"ultralytics": "YOLO26"}
 #: GPU memory from which the dialog proposes a medium model rather than a small one.
@@ -956,6 +976,7 @@ def _yolo_models() -> list[ModelSpec]:
     for suffix, ptype, kind in YOLO_TASKS:
         for gen, name in YOLO_GENERATIONS:
             params = YOLO_PARAMS.get((gen, suffix))
+            files = YOLO_FILE_MB.get((gen, suffix))
             for k, size in enumerate(YOLO_SIZES):
                 out.append(
                     ModelSpec(
@@ -972,6 +993,7 @@ def _yolo_models() -> list[ModelSpec]:
                         arch=name,
                         variant=size,
                         params_m=params[k] if params else None,
+                        file_mb=files[k] if files else None,
                         choices=_YOLO_CHOICES,
                         without=_YOLO_WITHOUT,
                     )
