@@ -1,11 +1,11 @@
 /* Step 5, Training: the runs of the project (list, progress, charts, detail), the new-run dialog (family,
  * model, hyperparameters, grid search) and saving a run as a model. */
 import { staleCount } from './datasets.js';
-import { deviceName, taskName } from './names.js';
+import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
-import { LOCALE, fmtDate, fmtDateTime, lower, num, t, tn, tr } from '../shell/i18n.js';
+import { LOCALE, fmtDate, fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { emptyState } from '../shell/widgets.js';
 
@@ -405,12 +405,11 @@ export function trainingPanel(page) {
     datasetSel.addEventListener('change', () => { st.dataset = Number(datasetSel.value); drawFolds(); drawStale(); changed(); });
     foldSel.addEventListener('change', () => { st.fold = foldSel.value; changed(); });
 
-    // family, then model (#537): a family without a model for this project type stays in the list, disabled, with the reason
-    const FAMILIES = ['torchvision', 'timm', 'ultralytics'];
-    const familyReason = (f) => {
-      if (!models.some((m) => m.family === f)) return t('tr.family_none', { type: lower(taskName(ctx.project.task)) });
-      return blocked(f) ? t('tr.family_licence', { name: licenceOf(f).name }) : null;
-    };
+    // family, then model (#537): only the families with a model for this project type are listed (#601); one whose
+    // licence waits to be accepted (Ultralytics, AGPL-3.0) stays in the list, disabled, with the reason
+    const FAMILIES = [...new Set(['torchvision', 'timm', 'ultralytics', ...models.map((m) => m.family)])]
+      .filter((f) => models.some((m) => m.family === f));
+    const familyReason = (f) => (blocked(f) ? t('tr.family_licence', { name: licenceOf(f).name }) : null);
     const familySel = sel('tr-family');
     const familyNote = el('div', { class: 'hint tr-family-note', id: 'tr-family-note' });
     /* the list and its hint; drawn again when a licence is accepted. The reasons stay in view, not only inside the
@@ -422,7 +421,7 @@ export function trainingPanel(page) {
       }));
       familySel.value = st.family;
       const unavailable = FAMILIES.filter(familyReason).map((f) => `${tr(`tr.family.${f}`, f)} (${familyReason(f)})`);
-      const waiting = FAMILIES.filter((f) => models.some((m) => m.family === f) && blocked(f));
+      const waiting = FAMILIES.filter(blocked);
       fill(familyNote,
         el('p', null, [t('tr.family_help'), unavailable.length ? t('tr.family_unavailable', { list: unavailable.join(' · ') }) : null].filter(Boolean).join(' ')),
         ...waiting.map((f) => el('button', { type: 'button', class: 'btn small', 'data-act': `licence-${f}`, onclick: () => openLicence(licenceOf(f), (accepted) => {
