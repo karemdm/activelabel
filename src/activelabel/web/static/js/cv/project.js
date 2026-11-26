@@ -257,10 +257,12 @@ export function initProject() {
 
   // ---- what the steps share
   /* whether a comparison found nothing to review: nothing to bring, send, rename or decide */
+  /* a plan with only renames (a task, a class or the project renamed on one side) is not empty: Apply sends
+     or takes the names (#587) */
   const planIsEmpty = (plan) => {
-    const n = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
+    const n = (x) => (Array.isArray(x) ? x.length : x && typeof x === 'object' ? 1 : Number(x) || 0);
     return !['pull', 'push', 'add', 'conflicts', 'remove_remote', 'remove_local', 'restore_remote', 'restore_local',
-      'tasks_create', 'tasks_new', 'tasks_delete'].some((k) => n(plan[k]));
+      'tasks_create', 'tasks_new', 'tasks_delete', 'tasks_rename', 'renamed_classes', 'project_rename'].some((k) => n(plan[k]));
   };
 
   /* The page object, built here and only here: the activity strip and the sync read it when they are made and

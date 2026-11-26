@@ -134,6 +134,14 @@ export function createSync(page) {
       const tCreate = plan.tasks_create || [];
       const tNew = plan.tasks_new || [];
       const tDelete = plan.tasks_delete || [];
+      /* names (#587): the tasks renamed on one side go to the other; classes renamed in the tool come here; the
+         project's own name follows the same rule when the plan carries it */
+      const renames = plan.tasks_rename || [];
+      const tRenamePush = renames.filter((x) => x.direction === 'push');
+      const tRenamePull = renames.filter((x) => x.direction === 'pull');
+      const cRename = plan.renamed_classes || [];
+      const pRename = plan.project_rename || null;
+      const renameConflicts = plan.tasks_rename_conflicts || [];
       const nothing = planIsEmpty(plan);
       const radios = [];
 
@@ -147,6 +155,7 @@ export function createSync(page) {
             el('div', { class: 'dir-row' }, el('span', null, label), el('strong', null, num(n))),
             extra || null)
         : null);
+      const renameText = (x) => t('sync.rename_item', { old: x.old || x.from, new: x.new || x.to });
       const taskText = (x) => [x.name, tn('sync.n_images', Number(x.images) || 0), x.job_size ? t('sync.per_job', { n: num(x.job_size) }) : null].filter(Boolean).join(' · ');
       const deleteBox = el('label', { class: 'dir-check' },
         el('input', { type: 'checkbox', id: 'sync-delete-tasks', onchange: (e) => { st.del = e.target.checked; } }),
@@ -163,6 +172,8 @@ export function createSync(page) {
         dir(t('sync.push', { tool: name }), [
           line(t('sync.row_tasks_create'), tCreate.length, sub(tCreate, taskText)),
           line(t('sync.row_tasks_delete'), tDelete.length, el('div', null, sub(tDelete, (x) => x.name || `#${x.task}`), deleteBox)),
+          pRename && pRename.direction === 'push' ? line(t('sync.row_project_rename'), 1, sub([pRename], renameText)) : null,
+          line(t('sync.row_tasks_rename'), tRenamePush.length, sub(tRenamePush, renameText)),
           line(t('sync.row_add'), plan.add),
           line(t('sync.row_new_annot'), plan.labels_new, el('p', { class: 'muted dir-sub' }, tn('sync.n_images', Number(plan.images_new) || 0))),
           line(t('sync.row_annot'), plan.push),
@@ -170,6 +181,9 @@ export function createSync(page) {
           line(t('sync.row_restore'), plan.restore_remote)]),
         dir(t('sync.pull', { tool: name }), [
           line(t('sync.row_tasks_new'), tNew.length, sub(tNew, taskText)),
+          pRename && pRename.direction === 'pull' ? line(t('sync.row_project_rename'), 1, sub([pRename], renameText)) : null,
+          line(t('sync.row_tasks_rename'), tRenamePull.length, sub(tRenamePull, renameText)),
+          line(t('sync.row_classes_rename'), cRename.length, sub(cRename, renameText)),
           line(t('sync.row_annot'), plan.pull),
           line(t('sync.row_remove'), plan.remove_local),
           line(t('sync.row_restore'), plan.restore_local)]));
@@ -301,6 +315,10 @@ export function createSync(page) {
           el('span', { class: 'sync-direction' }, t(`sync.dir_${direction}`, { tool: name }))),
         dirs,
         nothing ? el('p', { class: 'report-line ok' }, icon('check'), t('sync.in_sync')) : null,
+        renameConflicts.length
+          ? el('div', { class: 'report-line' }, icon('info'), el('div', null, t('sync.rename_conflicts', { tool: name }),
+              sub(renameConflicts, (x) => t('sync.rename_conflict_item', { here: x.local, there: x.remote, tool: name }))))
+          : null,
         diffBlock(t('sync.diff_pull', { tool: name }), plan.pull, plan.diff_pull),
         diffBlock(t('sync.diff_push', { tool: name }), plan.push, plan.diff_push),
         hereBox,
