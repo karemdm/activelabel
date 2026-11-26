@@ -8,6 +8,7 @@ import pytest
 from api_client import make_client
 from fastapi.testclient import TestClient
 
+from activelabel.annotate import registry
 from activelabel.labels import AnnotationSet, Label, annotations_lock, save_annotations
 from activelabel.web import annotate_api
 from activelabel.web.errors import ApiError
@@ -62,3 +63,16 @@ def test_local_hashes_follow_the_labels(tmp_path: Path) -> None:
         save_annotations(project_dir, AnnotationSet(project.task, ["cat"], {"a": [Label("cat")]}, {}))
     first = annotate_api._local_hashes(project_dir, ["a", "b"])
     assert set(first) == {"a", "b"} and first["a"] != first["b"]
+
+
+def test_sending_to_fiftyone_without_it_installed_has_the_code_the_interface_translates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Light install (#218): "Send to FiftyOne" answered an English 400 without a code, so the Portuguese
+    interface showed English; now it is the 501 ``fiftyone_not_installed`` of the other FiftyOne parts."""
+    monkeypatch.setattr(registry, "FIFTYONE", False)
+    client, _ = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["a"]})
+    response = client.post("/api/projects/1/annotate", json={"tool": "fiftyone", "scope": "all"})
+    assert response.status_code == 501
+    assert response.json()["code"] == "fiftyone_not_installed" and "install" in response.json()["params"]

@@ -115,17 +115,24 @@ def _settings(state: AppState, tool: str) -> ToolSettings:
 
 
 def _tool(name: str) -> Any:
-    """The adapter of a tool, or HTTP 400 when it cannot be created.
+    """The adapter of a tool, or an HTTP error when it cannot be created.
 
     Args:
         name: Name of the tool.
 
     Returns:
         The tool adapter.
+
+    Raises:
+        ApiError: 501 ``fiftyone_not_installed`` (the light install, #218), or 400 with the tool's code.
+        HTTPException: 400 for a problem without a code.
     """
     try:
         return get_tool(name)
     except ToolError as exc:
+        if exc.code:  # keep the code: the interface says it in its own language (it was English before)
+            status = 501 if exc.code == "fiftyone_not_installed" else 400
+            raise ApiError(status, exc.code, str(exc), **exc.params) from exc
         raise HTTPException(400, str(exc)) from exc
 
 
