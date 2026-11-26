@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from activelabel.curation import clustering_job, similarity_job
 from activelabel.errors import CodedError
+from activelabel.training import devices
+from activelabel.training.environment import TrainingEnvironment
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
@@ -43,6 +45,35 @@ def _active_ids(state: AppState, project_id: int) -> set[str]:
     return {r.id for r in state.manifest(project_id).active()}
 
 
+@router.get("/projects/{project_id}/curation/similarity/requirements")
+def similarity_requirements(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+    """What the map needs before it is asked for (#664): packages to install, devices and images.
+
+    The interface reads it before starting a map: it confirms the first install of PyTorch with the same text
+    as the training dialog, offers the devices and refuses a project with too few images.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{packages, missing, install_needed, devices, images, min_images}``: ``missing`` are the packages
+        the training environment lacks (all of them before it exists); ``devices`` the device choices of
+        this computer; ``images`` the active images.
+    """
+    images = len(_active_ids(state, project_id))
+    env = TrainingEnvironment(state.settings.workspace)
+    missing = env.missing(similarity_job.PACKAGES) if env.exists() else list(similarity_job.PACKAGES)
+    return {
+        "packages": list(similarity_job.PACKAGES),
+        "missing": missing,
+        "install_needed": bool(missing),
+        "devices": devices.available(env),
+        "images": images,
+        "min_images": similarity_job.MIN_IMAGES,
+    }
+
+
 @router.get("/projects/{project_id}/curation/similarity")
 def similarity_state(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """The similarity map of a project: state of the computation and, once done, the map and its groups.
@@ -62,7 +93,7 @@ def similarity_state(project_id: int, state: AppState = STATE) -> dict[str, Any]
 def start_similarity(
     project_id: int, body: StartBody | None = None, state: AppState = STATE
 ) -> dict[str, Any]:
-    """Queue the computation of the map (behind any training run: one heavy job at a time).
+    """Queue the computation of the map (global queue, in the lane of its device).
 
     Args:
         project_id: Id of the project.
@@ -74,17 +105,31 @@ def start_similarity(
 
     Raises:
         ApiError: 409 ``similarity_running`` when the map is queued or running, 409 ``clustering_running``
-            while a regrouping is.
+            while a regrouping is, 400 ``similarity_too_few_images`` below ``MIN_IMAGES`` active images and
+            400 for a device this computer does not have.
     """
     project = state.project(project_id)
     manifest = state.manifest_with_images(project_id)
     project_dir = state.store.dir(project_id)
     if clustering_job.state(state.runner, project_dir).get("status") in clustering_job.ACTIVE:
         raise ApiError(409, "clustering_running", "The map is being regrouped.")
-    current = similarity_job.state(state.runner, project_dir, {r.id for r in manifest.active()})
+    active = {r.id for r in manifest.active()}
+    current = similarity_job.state(state.runner, project_dir, active)
     if current.get("status") in similarity_job.ACTIVE:
         raise ApiError(409, "similarity_running", "The similarity map is already being computed.")
-    return similarity_job.start(state.runner, project, project_dir, body.device if body else "auto")
+    if len(active) < similarity_job.MIN_IMAGES:
+        raise ApiError(
+            400,
+            "similarity_too_few_images",
+            f"A map needs at least {similarity_job.MIN_IMAGES} images.",
+            min=similarity_job.MIN_IMAGES,
+            images=len(active),
+        )
+    try:
+        device = devices.check_here(body.device if body else "auto", state.settings.workspace)
+    except devices.DeviceError as exc:
+        raise bad_request(exc) from None
+    return similarity_job.start(state.runner, project, project_dir, device)
 
 
 @router.post("/projects/{project_id}/curation/similarity/cancel")

@@ -33,6 +33,8 @@ LOG = logging.getLogger(__name__)
 WORKER = "embed"
 KIND = "similarity"
 PACKAGES = ("torch", "torchvision", "pillow", "numpy")
+#: Fewest active images for a map (t-SNE needs 5; fewer images are easier to look at one by one).
+MIN_IMAGES = 5
 BACKBONE = "mobilenet_v3_small"
 PROGRESS_EVERY = 1.0  # seconds between writes of the progress to similarity.json
 ACTIVE = (QUEUED, RUNNING)

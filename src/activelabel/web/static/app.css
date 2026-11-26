@@ -410,6 +410,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .sim { margin: var(--space-5) 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .sim h3 { margin: 0 0 var(--space-2); }
 .sim .cur-actions { margin: var(--space-3) 0; }
+.sim-device { display: inline-flex; gap: var(--space-2); align-items: center; }
 .sim-note { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--warn); }
 .sim-body { display: grid; grid-template-columns: minmax(240px, 460px) 1fr; gap: var(--space-5); align-items: start; margin: var(--space-3) 0; }
 .sim-map { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); aspect-ratio: 1; }

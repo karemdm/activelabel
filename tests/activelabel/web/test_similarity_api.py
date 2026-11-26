@@ -9,6 +9,7 @@ from training_fakes import FAKE_EMBED, FakeEnv, wait_for
 from activelabel import fiftyone_bridge
 from activelabel.curation import clustering_job, similarity_fiftyone, similarity_job
 from activelabel.training.runner import TrainingRunner
+from activelabel.web import similarity_api
 
 URL = "/api/projects/1/curation/similarity"
 FINISHED = ("done", "failed", "cancelled")
@@ -41,6 +42,15 @@ def finished(test_client):
     return lambda: (s := test_client.get(URL).json()).get("status") in FINISHED and s
 
 
+def keep_device(choice, workspace):
+    return choice
+
+
+def fake_devices(monkeypatch):
+    """Accept the fake worker's devices (``slow``...), which no computer has."""
+    monkeypatch.setattr(similarity_api.devices, "check_here", keep_device)
+
+
 def test_no_map_yet_and_no_images(client):
     test_client, _ = client
     assert test_client.get(URL).json() == {}
@@ -49,8 +59,9 @@ def test_no_map_yet_and_no_images(client):
     assert test_client.get("/api/projects/9/curation/similarity").status_code == 404
 
 
-def test_one_computation_at_a_time_and_cancel(client):
+def test_one_computation_at_a_time_and_cancel(client, monkeypatch):
     test_client, tmp_path = client
+    fake_devices(monkeypatch)
     add_images(test_client, tmp_path)
     assert test_client.post(URL, json={"device": "slow"}).json()["status"] == "queued"
     second = test_client.post(URL, json={})
@@ -155,11 +166,39 @@ def test_one_regrouping_at_a_time_and_cancel(mapped):
     assert test_client.post(URL, json={}).status_code == 200  # nothing regroups any more
 
 
-def test_no_regrouping_while_the_map_is_computed(client):
+def test_no_regrouping_while_the_map_is_computed(client, monkeypatch):
     test_client, tmp_path = client
+    fake_devices(monkeypatch)
     add_images(test_client, tmp_path)
     assert test_client.post(URL, json={"device": "slow"}).json()["status"] == "queued"
     response = test_client.post(CLUSTERING, json={"method": "kmeans", "groups": 2})
     assert response.status_code == 409 and response.json()["code"] == "similarity_running"
     test_client.post(f"{URL}/cancel")
     assert wait_for(finished(test_client))["status"] == "cancelled"
+
+
+# -- what the map needs before it is asked for (#664) ---------------------------------------------
+
+
+def test_requirements_say_what_to_install_the_devices_and_the_images(client):
+    test_client, tmp_path = client
+    need = test_client.get(f"{URL}/requirements").json()
+    assert need["packages"] == list(similarity_job.PACKAGES) and need["missing"] == list(
+        similarity_job.PACKAGES
+    )
+    assert need["install_needed"] is True and need["images"] == 0
+    assert need["min_images"] == similarity_job.MIN_IMAGES and need["devices"][:2] == ["auto", "cpu"]
+    add_images(test_client, tmp_path, 3)
+    assert test_client.get(f"{URL}/requirements").json()["images"] == 3
+    assert test_client.get("/api/projects/9/curation/similarity/requirements").status_code == 404
+
+
+def test_too_few_images_or_an_unknown_device_are_refused(client):
+    test_client, tmp_path = client
+    add_images(test_client, tmp_path, similarity_job.MIN_IMAGES - 1)
+    few = test_client.post(URL, json={})
+    assert few.status_code == 400 and few.json()["code"] == "similarity_too_few_images"
+    assert few.json()["params"] == {"min": similarity_job.MIN_IMAGES, "images": similarity_job.MIN_IMAGES - 1}
+    add_images(test_client, tmp_path / "more", similarity_job.MIN_IMAGES)
+    wrong = test_client.post(URL, json={"device": "tpu"})
+    assert wrong.status_code == 400 and wrong.json()["code"] == "device_invalid"
