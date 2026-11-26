@@ -4,6 +4,9 @@ The loop that improves a model with new data: a saved model (step 6) suggests la
 a person reviews them in CVAT or FiftyOne, the reviewed images go into a new version of the data split
 and a new training.
 
+The label check of the curation (possible label errors and hard images, README) reuses this prediction worker on
+the images that have labels, with the raw outputs (`logits`) for a classification model.
+
 Everything happens in one place: **Annotations → Pre-annotate** (*Anotações → Pré-anotar*), in the order
 of the work. The model must
 be one of the project's models (step 6, docs/TRAINING.md): a training saved as a model, or a
