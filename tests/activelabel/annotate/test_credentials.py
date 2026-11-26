@@ -83,3 +83,12 @@ def test_tool_urls_must_be_http(tmp_path, monkeypatch):
     assert not (tmp_path / "tools.json").exists()
     saved = credentials.save_settings(tmp_path, "cvat", "  https://cvat.local:8080/  ", "u", None)
     assert saved.url == "https://cvat.local:8080"  # surrounding spaces and the last slash are dropped
+
+
+def test_tool_url_with_user_or_password_is_refused_without_echo(tmp_path):
+    for bad in ("http://ana:s3cret@cvat.local", "https://ana@cvat.local:8080/"):
+        with pytest.raises(CodedError) as info:
+            credentials.save_settings(tmp_path, "cvat", bad, "u", None)
+        assert info.value.code == "url_has_credentials"
+        assert "s3cret" not in str(info.value) and "s3cret" not in str(info.value.params)
+    assert not (tmp_path / "tools.json").exists()

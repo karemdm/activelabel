@@ -102,17 +102,23 @@ def load_settings(workspace: Path, tool: str) -> ToolSettings:
 def check_url(url: str) -> None:
     """Refuse a tool URL that is not ``http://`` or ``https://`` with a server name, or has spaces in it.
 
-    Empty is allowed. Spaces around the URL are the caller's to trim (see :func:`save_settings`).
+    Empty is allowed. Spaces around the URL are the caller's to trim (see :func:`save_settings`). A user or
+    password inside the URL (``http://user:pw@host``) is refused: the URL is saved in plain text and shown
+    back, while the secret belongs in the keyring.
 
     Args:
         url: the URL typed by the user.
 
     Raises:
-        CodedError: ``url_invalid``.
+        CodedError: ``url_invalid``, or ``url_has_credentials`` (the URL is not echoed back).
     """
     if not url:
         return
     parts = urlsplit(url)
+    if "@" in parts.netloc:
+        raise CodedError(
+            "url_has_credentials", "Put the user and the password in their own fields, not in the URL."
+        )
     if parts.scheme not in ("http", "https") or not parts.hostname or any(ch.isspace() for ch in url):
         raise CodedError(
             "url_invalid", "The URL must start with http:// or https:// and name a server.", url=url[:100]

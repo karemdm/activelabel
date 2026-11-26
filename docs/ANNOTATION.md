@@ -135,7 +135,7 @@ already saved the field says so and leaving it empty keeps it. Once CVAT is set 
 `<workspace>/tools.json`; the password / token **only** in the system keyring (service
 `activelabel`, key `<tool>:<url>`). They are never written to a file, never returned by the API
 and never logged. The URL is trimmed and must start with `http://` or `https://`, name a server and have no
-spaces (400 `url_invalid`). *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login;
+spaces (400 `url_invalid`), and one with a user or password in it (400 `url_has_credentials`: they go in their own fields). *Save and test connection* (*Salvar e testar conexão*) saves them and checks the login;
 a result message about an old value is cleared as soon as a field is edited.
 
 ## HTTP API

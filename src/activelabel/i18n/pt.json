@@ -1592,6 +1592,7 @@
   "error.annotation_zip_invalid": "O arquivo zip não é válido ou está danificado.",
   "error.annotation_files_missing": "Nenhum arquivo de anotações foi encontrado no envio.",
   "error.url_invalid": "O endereço deve começar com http:// ou https:// e indicar um servidor.",
+  "error.url_has_credentials": "Informe o usuário e a senha nos campos próprios, não no endereço.",
   "error.url_required": "Informe o endereço da ferramenta.",
   "error.remote_gone": "O projeto vinculado no CVAT não existe mais (foi apagado lá). Use “Desvincular” e compare de novo: um novo projeto é criado no CVAT.",
   "error.sync_remote_changed": "O projeto no CVAT mudou depois da comparação. Compare de novo.",
