@@ -151,7 +151,7 @@ Where to start for common changes:
 ## The training environment and the workers
 
 Training uses packages (PyTorch, torchvision, timm, ...) that ActiveLabel itself does not depend on. (timm is
-being removed, issue #618; this page still mentions it until then.)
+being removed, issue #617; this page still mentions it until then.)
 
 ```mermaid
 flowchart TB
