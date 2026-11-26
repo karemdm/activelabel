@@ -7,7 +7,7 @@ from sample_images import make_image
 from training_fakes import FAKE_EMBED, FakeEnv, wait_for
 
 from activelabel import fiftyone_bridge
-from activelabel.curation import similarity_fiftyone, similarity_job
+from activelabel.curation import clustering_job, similarity_fiftyone, similarity_job
 from activelabel.training.runner import TrainingRunner
 
 URL = "/api/projects/1/curation/similarity"
@@ -100,6 +100,7 @@ def mapped(client, monkeypatch):
     """The client with 9 images and a finished map (FiftyOne is not touched)."""
     test_client, tmp_path = client
     monkeypatch.setattr(similarity_job, "_publish", lambda *args: "")
+    monkeypatch.setattr(clustering_job, "_record", lambda *args: None)  # no FiftyOne run either
     add_images(test_client, tmp_path, 9)
     wait_map(test_client)
     return test_client, tmp_path

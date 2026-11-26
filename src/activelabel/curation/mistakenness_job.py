@@ -19,7 +19,7 @@ from typing import Any
 
 from activelabel import fiftyone_bridge, preannotate, preannotate_options
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
-from activelabel.curation import mistakenness_fiftyone
+from activelabel.curation import fiftyone_runs, mistakenness_fiftyone
 from activelabel.curation.state_store import StateStore
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
@@ -235,6 +235,7 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, progress: P
         result = mistakenness_fiftyone.score(
             dataset, project.task, events.predictions, events.logits or None, classes
         )
+        _record(dataset, data, bool(events.logits), len(result))
         state.update(
             status=DONE,
             finished=now(),
@@ -248,6 +249,34 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, progress: P
     except Exception as exc:  # noqa: BLE001 - shown to the person
         LOG.exception("The label check of project %s failed", project.id)
         state.update(status=FAILED, error=readable_error(exc), finished=now(), phase="")
+
+
+def _record(dataset: Any, data: dict[str, Any], logits: bool, images: int) -> None:
+    """Record the check as a run of the dataset (#629); a failure there is only logged.
+
+    Args:
+        dataset: The project's FiftyOne dataset.
+        data: The state of the check (``model``, ``device``).
+        logits: Whether the model sent its logits (then ``hardness`` was computed too).
+        images: How many images were checked.
+    """
+    fields = [mistakenness_fiftyone.PRED_FIELD, mistakenness_fiftyone.MISTAKENNESS]
+    fields += (
+        [mistakenness_fiftyone.HARDNESS]
+        if logits
+        else [mistakenness_fiftyone.MISSING, mistakenness_fiftyone.SPURIOUS]
+    )
+    try:
+        fiftyone_runs.record(
+            dataset,
+            "mistakenness",
+            model=data.get("model"),
+            device=data.get("device"),
+            fields=fields,
+            images=images,
+        )
+    except Exception:  # noqa: BLE001 - the results are kept without the run
+        LOG.exception("Could not record the label check as a FiftyOne run")
 
 
 def _phase_then(state: StateStore, events: _Events, event: dict[str, Any]) -> None:

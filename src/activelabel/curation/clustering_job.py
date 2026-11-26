@@ -15,8 +15,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+from activelabel import fiftyone_bridge, optional
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
-from activelabel.curation import similarity, similarity_job
+from activelabel.curation import fiftyone_runs, similarity, similarity_job
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, Progress, readable_error
@@ -174,6 +175,33 @@ def cancel(runner: TrainingRunner, project_id: int, project_dir: Path) -> dict[s
     return entry
 
 
+def _record(project: Project, project_dir: Path, entry: dict[str, Any], images: int) -> None:
+    """Record the regrouping as a run of the dataset (#629); a failure there is only logged.
+
+    Args:
+        project: The project.
+        project_dir: Folder of the project.
+        entry: The ``clustering`` entry (``method``, ``groups``, ``min_size``).
+        images: How many images were grouped.
+    """
+    if not optional.FIFTYONE:  # the light install: no dataset to record on
+        return
+    try:
+        dataset = fiftyone_bridge.existing_dataset(project_dir, project.id)
+        if dataset is not None:
+            fiftyone_runs.record(
+                dataset,
+                "clustering",
+                method=entry.get("method"),
+                groups=entry.get("groups"),
+                min_size=entry.get("min_size"),
+                field="similarity_group",
+                images=images,
+            )
+    except Exception:  # noqa: BLE001 - the groups are kept without the run
+        LOG.exception("Could not record the regrouping of project %s as a FiftyOne run", project.id)
+
+
 def run(project: Project, project_dir: Path, progress: Progress) -> None:
     """Body of the job: group the map's images again, save the groups, write them to FiftyOne.
 
@@ -218,6 +246,8 @@ def run(project: Project, project_dir: Path, progress: Progress) -> None:
         store.update(groups=result["groups"], points=result["points"])
         progress.update(message="Writing to FiftyOne")
         fiftyone_error = similarity_job._publish(project, Manifest(project_dir), project_dir, result)
+        if not fiftyone_error:
+            _record(project, project_dir, entry, len(map_ids))
         _set(
             store,
             status=DONE,

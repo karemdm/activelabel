@@ -16,7 +16,7 @@ from typing import Any
 
 from activelabel import fiftyone_bridge, optional
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
-from activelabel.curation import similarity, uniqueness
+from activelabel.curation import fiftyone_runs, similarity, uniqueness
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, Progress, readable_error
@@ -173,6 +173,7 @@ def _publish(project: Project, manifest: Manifest, project_dir: Path, result: di
     try:
         dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
         dataset.set_values(FIELD, result, key_field="image_id")
+        fiftyone_runs.record(dataset, "uniqueness", field=FIELD, images=len(result))
     except Exception as exc:  # noqa: BLE001 - the scores are useful without FiftyOne
         LOG.exception("Could not write the uniqueness of project %s to FiftyOne", project.id)
         return readable_error(exc)

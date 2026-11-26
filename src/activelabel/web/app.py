@@ -25,6 +25,7 @@ from activelabel.web import (
     backups_api,
     datasets_api,
     features_api,
+    fiftyone_runs_api,
     import_api,
     mistakenness_api,
     models_api,
@@ -133,6 +134,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.include_router(preannotate_api.router)
     app.include_router(similarity_api.router)
     app.include_router(mistakenness_api.router)
+    app.include_router(fiftyone_runs_api.router)
     app.include_router(uniqueness_api.router)
     app.include_router(video_api.router)
     app.include_router(queue_api.router)
