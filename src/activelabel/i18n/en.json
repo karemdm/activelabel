@@ -504,6 +504,7 @@
   "annotate.secret_help": "It is stored only in the system keychain of this computer.",
   "annotate.secret_saved": "One is already saved. Leave this empty to keep it.",
   "annotate.connected_as": "Connected to {server} as {user}.",
+  "annotate.connected_down": "Set up for {server} as {user}, but CVAT did not answer just now.",
   "annotate.test": "Save and test connection",
   "annotate.testing": "Testing… (the values are saved first)",
   "annotate.test_ok": "The connection works.",

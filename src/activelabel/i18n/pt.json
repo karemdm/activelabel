@@ -504,6 +504,7 @@
   "annotate.secret_help": "Fica guardada só no chaveiro do sistema deste computador.",
   "annotate.secret_saved": "Já existe uma guardada. Deixe em branco para mantê-la.",
   "annotate.connected_as": "Conectado a {server} como {user}.",
+  "annotate.connected_down": "Configurado para {server} como {user}, mas o CVAT não respondeu agora.",
   "annotate.test": "Salvar e testar conexão",
   "annotate.testing": "Testando… (os valores são salvos antes)",
   "annotate.test_ok": "A conexão funciona.",

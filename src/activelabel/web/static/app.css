@@ -151,6 +151,8 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 /* the queue of heavy work (#603): the top bar button with its count and the panel under it */
 .topbar-tools { position: relative; }
 .queue-btn { gap: 0.4rem; }
+/* a button that is not available yet but still says why when pressed (a title is never seen on touch, #602) */
+.btn.is-unavailable { opacity: 0.6; cursor: help; }
 .queue-count { min-width: 1.4rem; padding: 0 0.35rem; border-radius: var(--radius-pill); background: var(--area); color: var(--on-accent); font-size: var(--font-xs); font-weight: 700; text-align: center; }
 .queue-count[hidden] { display: none; }
 .queue-panel { position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 50; width: min(34rem, calc(100vw - 2rem)); max-height: 70vh; overflow: auto; padding: var(--space-3) var(--space-4); box-shadow: 0 12px 32px rgb(0 0 0 / 0.18); }

@@ -9,7 +9,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const open = await import('../../../src/activelabel/web/static/js/integrations/open.js');
 
-const { cvatTarget, fiftyoneReason, cvatOpenRow, fiftyoneOpenRow, headerCvatButton, headerFiftyoneButton } = open;
+const { cvatTarget, fiftyoneReason, cvatOpenRow, fiftyoneOpenRow, headerCvatButton, headerFiftyoneButton, sentence } = open;
 
 setMessages({
   'annotate.tool.cvat': 'CVAT', 'annotate.tool.fiftyone': 'FiftyOne', 'annotate.open_in': 'Open in {tool}',
@@ -37,7 +37,7 @@ test('CVAT opens the linked project, task or job, or says why it cannot yet', ()
   assert.deepEqual(cvatTarget({ link: LINK, configured: true, task: { id: 2, cvat: 'unreachable' } }), { reason: 'tasks.cvat_unreachable' });
 });
 
-test('the CVAT row is a link to the chosen scope, or the reason, and always says how the edits come back', () => {
+test('the CVAT row is a link to the chosen scope and how the edits come back, or only the reason, as a sentence (#602)', () => {
   const row = cvatOpenRow({ link: LINK, configured: true, task: TASK, job: 2 });
   const a = row.querySelector('a#cvat-open');
   assert.equal(a.getAttribute('href'), TASK.remote.jobs[0].url);
@@ -47,6 +47,9 @@ test('the CVAT row is a link to the chosen scope, or the reason, and always says
   const none = cvatOpenRow({ link: null, configured: true });
   assert.equal(none.querySelector('a'), null);
   assert.match(none.querySelector('#cvat-open-reason').textContent, /Not in CVAT yet\./);
+  assert.doesNotMatch(none.textContent, /Edits come back/, 'nothing to open: the way back is not said');
+  assert.equal(sentence('CVAT did not answer: try again in a moment'), 'CVAT did not answer: try again in a moment.');
+  assert.equal(sentence('Done.'), 'Done.');
 });
 
 test('FiftyOne opens only with images; a keypoints project says FiftyOne shows its points without editing them', () => {
@@ -78,7 +81,10 @@ test('the header opens the linked CVAT project, or takes the person to Annotatio
   assert.equal(button.title, 'Set it up and compare in Annotations → CVAT.');
   button.click();
   assert.deepEqual(calls, ['annotations', 'sync']);
+  /* #602: not disabled, so a tap on a touch screen still says why */
   const fo = headerFiftyoneButton(page);
-  assert.equal(fo.disabled, true);
+  assert.equal(fo.disabled, false);
+  assert.equal(fo.getAttribute('aria-disabled'), 'true');
   assert.equal(fo.title, 'Add images first.');
+  assert.ok(fo.classList.contains('is-unavailable'));
 });
