@@ -638,6 +638,31 @@ class _PredictionEvents:
             self._progress.update(done=event.get("step"), total=event.get("steps"))
 
 
+@dataclass(frozen=True)
+class Predictor:
+    """A saved model checked for predicting on a project's images (:meth:`TrainingRunner.predictor`).
+
+    Attributes:
+        card: the model card.
+        folder: the model's folder.
+        public: the catalogue entry of a public model; None for a model trained here.
+        model: the catalogue model of a model trained here; None for a public model.
+        kind: kind of task of the model (``classification``, ``detection``...).
+        project: the project, as it is now.
+        removed: classes of the model the project does not have.
+        packages: packages the worker needs in the training environment.
+    """
+
+    card: dict[str, Any]
+    folder: Path
+    public: Any
+    model: ModelSpec | None
+    kind: str
+    project: Any
+    removed: list[str]
+    packages: tuple[str, ...]
+
+
 def saved_key(entry: dict[str, Any]) -> QueueKey | None:
     """The runner's key of a job saved in ``queue.json``.
 
@@ -1425,39 +1450,8 @@ class TrainingRunner:
         runs.update(number, status=RUNNING, started=now(), phase="environment")
         tmp: Path | None = None
         try:
-            models = ModelStore(project_dir)
-            card = models.get(int(run["model"]))
-            folder = models.path(int(run["model"]))
-            public = get_public(str(card.get("public") or "")) if card.get("source") == "public" else None
-            if card.get("source") == "public" and public is None:
-                raise RunnerError("This public model is no longer in the catalogue.")
-            model = None if public else get_model(card["model"])
-            if public is None and model is None:
-                raise RunnerError(f"Unknown model '{card['model']}'.")
-            kind = public.task_kind if public else model.task_kind  # type: ignore[union-attr]
-            if model is not None and (model.family == "ultralytics" or kind not in preannotate.KINDS):
-                raise RunnerError(f"Pre-annotation with {kind} models {COMES_LATER}.")
-            project = self._project(project_id)
-            if not preannotate.fits(kind, project.task):
-                raise RunnerError(
-                    f"This model makes {kind} labels, but the project is now {project.task.value}."
-                )
-            model_classes = list(card.get("classes") or [])
-            removed = [c for c in model_classes if c not in project.classes]
-            if model_classes and len(removed) == len(model_classes):
-                raise RunnerError(
-                    "None of the classes of this model is in the project (any more): "
-                    f"{', '.join(removed[:5])}."
-                )
-            expected_points, have_points = (
-                card.get("num_keypoints"),
-                preannotate.project_keypoints(project_dir),
-            )
-            if kind == "keypoints" and expected_points and have_points and expected_points != have_points:
-                raise RunnerError(
-                    f"This model finds {expected_points} keypoints per object, but the labels of the "
-                    f"project have {have_points}: use a model trained on this skeleton."
-                )
+            predictor = self.predictor(project_id, int(run["model"]))
+            project, kind, removed = predictor.project, predictor.kind, predictor.removed
             image_ids = preannotate.targets(project_dir, int(run["task"]), str(run["scope"]))
             if not image_ids:
                 raise RunnerError("No image of this task needs pre-annotation now.")
@@ -1471,9 +1465,8 @@ class TrainingRunner:
             if not items:
                 raise RunnerError("None of the images of this task could be read.")
 
-            packages = PUBLIC_PACKAGES if public else model.packages  # type: ignore[union-attr]
             update = partial(_send_message, partial(runs.update, number))
-            self.environment.ensure([*packages, *EXTRA_PACKAGES], progress.check, update)
+            self.environment.ensure([*predictor.packages, *EXTRA_PACKAGES], progress.check, update)
             progress.check()
             runs.update(number, phase="predicting", message="", total=len(items), done=0)
             self.tmp_root.mkdir(parents=True, exist_ok=True)
@@ -1483,35 +1476,7 @@ class TrainingRunner:
                 kind, run.get("options") or {"confidence": float(run["threshold"])}
             )
             keep = run.get("classes")
-            spec: dict[str, Any] = {
-                "task": kind,
-                "classes": list(card.get("classes") or []),
-                "threshold": float(options["confidence"]),
-                "options": options,
-                "keep": keep,
-                "model": f"m{card['number']}",
-                "items": items,
-                "device": str(run.get("device") or "auto"),
-            }
-            if public:
-                spec["public"] = {
-                    "builder": public.builder,
-                    "categories": list(public.categories),
-                    "mapping": dict(card.get("mapping") or {}),
-                    "task": public.task_kind,
-                }
-            else:
-                assert model is not None
-                config = RunConfig.from_yaml((folder / "config.yaml").read_text(encoding="utf-8"))
-                spec["checkpoint"] = str((folder / "best.pt").resolve())
-                spec["worker"] = self._scripts(model.task_kind).stem
-                spec["build"] = {
-                    "model": model.library_name,
-                    "family": model.family,
-                    "classes": list(card.get("classes") or []),
-                    "params": config.effective_params(model),
-                    "start": config.start,
-                }
+            spec = self.prediction_spec(predictor, items, options, keep, str(run.get("device") or "auto"))
             spec_file = tmp / "spec.json"
             spec_file.write_text(json.dumps(spec), encoding="utf-8")
             events = _PredictionEvents(
@@ -1557,6 +1522,147 @@ class TrainingRunner:
                 self._pre_jobs.pop((project_id, number), None)
             if tmp is not None:
                 self._record_downloads(lambda **f: runs.update(number, **f), tmp)
+
+    def predictor(self, project_id: int, model_number: int) -> Predictor:
+        """A saved model of a project, checked for making predictions on the project's images now.
+
+        Args:
+            project_id: id of the project.
+            model_number: number of the saved model.
+
+        Returns:
+            The model, its kind of task and the classes of the model the project no longer has.
+
+        Raises:
+            ModelNotFound: unknown model.
+            RunnerError: a public model gone from the catalogue, an unknown model, a kind not supported,
+                a model whose labels do not fit the project, no class in common or another skeleton.
+        """
+        project_dir = self._project_dir(project_id)
+        models = ModelStore(project_dir)
+        card = models.get(model_number)
+        folder = models.path(model_number)
+        public = get_public(str(card.get("public") or "")) if card.get("source") == "public" else None
+        if card.get("source") == "public" and public is None:
+            raise RunnerError("This public model is no longer in the catalogue.")
+        model = None if public else get_model(card["model"])
+        if public is None and model is None:
+            raise RunnerError(f"Unknown model '{card['model']}'.")
+        kind = public.task_kind if public else model.task_kind  # type: ignore[union-attr]
+        if model is not None and (model.family == "ultralytics" or kind not in preannotate.KINDS):
+            raise RunnerError(f"Pre-annotation with {kind} models {COMES_LATER}.")
+        project = self._project(project_id)
+        if not preannotate.fits(kind, project.task):
+            raise RunnerError(f"This model makes {kind} labels, but the project is now {project.task.value}.")
+        model_classes = list(card.get("classes") or [])
+        removed = [c for c in model_classes if c not in project.classes]
+        if model_classes and len(removed) == len(model_classes):
+            raise RunnerError(
+                f"None of the classes of this model is in the project (any more): {', '.join(removed[:5])}."
+            )
+        expected_points, have_points = card.get("num_keypoints"), preannotate.project_keypoints(project_dir)
+        if kind == "keypoints" and expected_points and have_points and expected_points != have_points:
+            raise RunnerError(
+                f"This model finds {expected_points} keypoints per object, but the labels of the "
+                f"project have {have_points}: use a model trained on this skeleton."
+            )
+        packages = PUBLIC_PACKAGES if public else model.packages  # type: ignore[union-attr]
+        return Predictor(card, folder, public, model, kind, project, removed, tuple(packages))
+
+    def prediction_spec(
+        self,
+        predictor: Predictor,
+        items: list[dict[str, str]],
+        options: dict[str, Any],
+        keep: Any,
+        device: str,
+    ) -> dict[str, Any]:
+        """What the prediction worker (``predict.py``) reads.
+
+        Args:
+            predictor: the checked model (:meth:`predictor`).
+            items: ``[{"id", "path"}]`` of the images to predict.
+            options: inference settings (``preannotate_options.resolve``; ``confidence`` is the threshold).
+            keep: the classes to keep (None: every class).
+            device: ``auto``, ``cpu``, ``cuda:N`` or ``mps``.
+
+        Returns:
+            The spec (``spec.json``).
+        """
+        card = predictor.card
+        spec: dict[str, Any] = {
+            "task": predictor.kind,
+            "classes": list(card.get("classes") or []),
+            "threshold": float(options["confidence"]),
+            "options": options,
+            "keep": keep,
+            "model": f"m{card['number']}",
+            "items": items,
+            "device": device,
+        }
+        if predictor.public is not None:
+            spec["public"] = {
+                "builder": predictor.public.builder,
+                "categories": list(predictor.public.categories),
+                "mapping": dict(card.get("mapping") or {}),
+                "task": predictor.public.task_kind,
+            }
+        else:
+            model = predictor.model
+            assert model is not None
+            config = RunConfig.from_yaml((predictor.folder / "config.yaml").read_text(encoding="utf-8"))
+            spec["checkpoint"] = str((predictor.folder / "best.pt").resolve())
+            spec["worker"] = self._scripts(model.task_kind).stem
+            spec["build"] = {
+                "model": model.library_name,
+                "family": model.family,
+                "classes": list(card.get("classes") or []),
+                "params": config.effective_params(model),
+                "start": config.start,
+            }
+        return spec
+
+    def predict(
+        self,
+        project_id: int,
+        predictor: Predictor,
+        items: list[dict[str, str]],
+        options: dict[str, Any],
+        device: str,
+        progress: Progress,
+        events: Callable[[dict[str, Any]], None],
+        log_file: Path,
+        tell: Callable[[str], None],
+        logits: bool = False,
+    ) -> None:
+        """Run a saved model on images in the training environment (label checks, #612; inside a job).
+
+        Args:
+            project_id: id of the project.
+            predictor: the checked model (:meth:`predictor`).
+            items: ``[{"id", "path"}]`` of the images.
+            options: inference settings (``confidence`` is the lowest score kept).
+            device: ``auto``, ``cpu``, ``cuda:N`` or ``mps``.
+            progress: progress handle of the job (checked for cancellation; its process is killed).
+            events: receives every JSON event of the worker (``prediction``, ``skipped``, ``progress``).
+            log_file: file that receives the worker's output.
+            tell: shows what the environment set-up is doing.
+            logits: a classification model also sends its raw outputs (``logits`` of each prediction).
+        """
+        self.environment.ensure([*predictor.packages, *EXTRA_PACKAGES], progress.check, tell)
+        progress.check()
+        self.tmp_root.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=f"q{project_id}-", dir=self.tmp_root))
+        try:
+            spec = {**self.prediction_spec(predictor, items, options, None, device), "logits": logits}
+            spec_file = tmp / "spec.json"
+            spec_file.write_text(json.dumps(spec), encoding="utf-8")
+            script = self._scripts(predictor.kind).parent / PREDICT_SCRIPT.name
+            cmd = [str(self.environment.python()), str(script), str(spec_file)]
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            self._run_export(project_id, 0, "predict", cmd, tmp, log_file, progress, events, "prediction")
+        finally:
+            _remove_tree(tmp)
 
     def _run_export(
         self,

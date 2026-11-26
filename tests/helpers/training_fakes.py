@@ -5,7 +5,15 @@ import textwrap
 import time
 from pathlib import Path
 
+from api_client import make_client, upload
+from sample_images import make_image
+
+from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.tasks import Task
+from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment
+from activelabel.training.runner import TrainingRunner
+from activelabel.training.runs import RunStore
 
 FAKE_WORKER = textwrap.dedent(
     """
@@ -86,6 +94,34 @@ FAKE_EMBED = textwrap.dedent(
     """
 )
 
+# the prediction worker (workers/predict.py) without torch: the first image gets no label, the others "a" at
+# 0.9 (and the logits [2, 0] when the spec asks for them). A threshold above 0.95 reports an error. The device
+# of the spec drives it as in FAKE_EMBED: "fail" reports an error, "skip" skips the first image, "slow" waits
+FAKE_PREDICT = textwrap.dedent(
+    """
+    import json, sys, time
+    from pathlib import Path
+
+    spec = json.loads(Path(sys.argv[1]).read_text())
+    (Path(spec["checkpoint"]).parent / "predict_spec.json").write_text(json.dumps(spec))
+    if spec["threshold"] > 0.95 or spec["device"] == "fail":
+        print(json.dumps({"event": "error", "message": "too strict"}), flush=True)
+        sys.exit(1)
+    for step, item in enumerate(spec["items"], start=1):
+        if spec["device"] == "skip" and step == 1:
+            print(json.dumps({"event": "skipped", "id": item["id"], "message": "unreadable"}), flush=True)
+        else:
+            labels = [] if step == 1 else [{"label": "a", "score": 0.9, "model": spec["model"]}]
+            extra = {"logits": [2.0, 0.0]} if spec.get("logits") else {}
+            event = {"event": "prediction", "id": item["id"], "labels": labels, **extra}
+            print(json.dumps(event), flush=True)
+        print(json.dumps({"event": "progress", "step": step, "steps": len(spec["items"])}), flush=True)
+        if spec["device"] == "slow":
+            time.sleep(60)
+    print(json.dumps({"event": "done", "results": {"images": len(spec["items"]) - 1}}), flush=True)
+    """
+)
+
 
 class FakeEnv(TrainingEnvironment):
     ensured: list[list[str]]
@@ -127,3 +163,44 @@ def settled(store, n):
     records ``downloads`` on the run (#643). A test that edits ``run.json`` must wait for it, or that late
     write puts back what the test removed."""
     return lambda: (r := store.get(n))["status"] in ("done", "failed", "cancelled") and "downloads" in r and r
+
+
+def saved_model_project(tmp_path, images=8):
+    """A classification project (classes a, b; every image labelled) with a saved model m1 and fake workers.
+
+    Args:
+        tmp_path: A folder of the test.
+        images: How many images the project has.
+
+    Returns:
+        ``(client, state, runner)``; the runner trains and predicts with the fake workers. Call
+        ``runner.shutdown()`` at the end.
+    """
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["a", "b"]})
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(images)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = [r.id for r in state.manifest(1).all()]
+    labels = {i: [Label("a" if k % 2 else "b")] for k, i in enumerate(ids)}
+    save_annotations(state.store.dir(1), AnnotationSet(Task.CLASSIFICATION, ["a", "b"], labels, {}))
+    assert client.post("/api/projects/1/datasets", json={}).status_code == 200
+    script = tmp_path / "fake_worker.py"
+    script.write_text(FAKE_WORKER)
+    (tmp_path / "predict.py").write_text(FAKE_PREDICT)
+    runner = TrainingRunner(
+        tmp_path / "ws",
+        state.store.dir,
+        lambda: [1],
+        environment=FakeEnv(tmp_path / "ws"),
+        scripts=lambda kind: script,
+        poll=0.05,
+    )
+    state.runner = runner
+    store = RunStore(state.store.dir(1))
+    number = store.create(RunConfig(dataset=1, model="resnet18", params={"epochs": 2}, metric="accuracy"))[
+        "number"
+    ]
+    runner.enqueue(1, number)
+    wait_for(lambda: store.get(number)["status"] == "done")
+    assert client.post("/api/projects/1/models", json={"run": number}).status_code == 200
+    return client, state, runner
