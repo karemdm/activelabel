@@ -144,7 +144,7 @@ a result message about an old value is cleared as soon as a field is edited.
 | --- | --- | --- | --- |
 | GET | `/api/annotation-tools` | | `[{tool, configured, url, username, needs}]` for `fiftyone` and `cvat` (no secrets) |
 | PUT | `/api/annotation-tools/{tool}` | `{url, username?, secret?}` | the tool entry (secret kept in keyring when given) |
-| POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}` |
+| POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}`; a failed test also has `code` and `params` |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
 | POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool; 400 `fiftyone_keypoints_not_editable` for a keypoints project (the App cannot edit keypoints) |
