@@ -3,6 +3,7 @@
  * through the CVAT comparison and the FiftyOne edit sessions, as before. */
 import { isHttp, toolName } from './tools.js';
 import { api } from '../shell/api.js';
+import { fiftyoneError, fiftyoneMissing, fiftyoneMissingNote, sayFiftyoneMissing } from '../shell/features.js';
 import { el, icon } from '../shell/dom.js';
 import { t } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
@@ -31,8 +32,12 @@ export function cvatTarget({ link = null, configured = false, task = null, job =
   return { reason: TASK_REASONS[task.cvat] || 'tasks.cvat_not_synced' };
 }
 
-/** Why the project cannot be opened in FiftyOne (`null` when it can): it needs images. */
-export const fiftyoneReason = (project) => ((project && project.counts && project.counts.active) ? null : 'open.fo_no_images');
+/** Why the project cannot be opened in FiftyOne (`null` when it can): FiftyOne must be installed (#658) and the
+ *  project needs images. */
+export const fiftyoneReason = (project) => {
+  if (fiftyoneMissing()) return 'open.fo_not_installed';
+  return (project && project.counts && project.counts.active) ? null : 'open.fo_no_images';
+};
 
 /** Prepares the project's FiftyOne dataset (its labels and label schema) and opens the App in a new tab when
  *  the job ends. `page` is the project page (projectId, ctx, jobStarted). */
@@ -42,7 +47,7 @@ export async function openInFiftyOne(page) {
     if (job && job.id) page.ctx.openWhenDone.add(job.id);
     toast(t('cur.fo_starting'), 'info', 4000);
     await page.jobStarted(job);
-  } catch (err) { toastError(err); }
+  } catch (err) { if (!fiftyoneError(err)) toastError(err); }
 }
 
 /** A reason as a sentence of a paragraph: the task-list texts (also used as short titles) end without a stop. */
@@ -66,14 +71,14 @@ export function headerCvatButton(page) {
   } }, icon('cvat', 18), text);
 }
 
-/** The "Open in FiftyOne" button of the project header. While the project has no images it is marked as not
- *  available (aria-disabled, dimmed) but still answers a tap with why, since a title is never seen on a touch
- *  screen (#602). */
+/** The "Open in FiftyOne" button of the project header. While it cannot open (FiftyOne not installed, or no
+ *  images) it is marked as not available (aria-disabled, dimmed) but still answers a tap with why, since a title is
+ *  never seen on a touch screen (#602, #675); without FiftyOne the answer has the command that installs it. */
 export function headerFiftyoneButton(page) {
   const reason = fiftyoneReason(page.ctx.project);
   return el('button', {
     type: 'button', class: `btn${reason ? ' is-unavailable' : ''}`, id: 'head-open-fiftyone', 'aria-disabled': reason ? 'true' : null, title: reason ? t(reason) : null,
-    onclick: () => (reason ? toast(t(reason), 'info', 5000) : openInFiftyOne(page)),
+    onclick: () => (sayFiftyoneMissing() ? null : reason ? toast(t(reason), 'info', 5000) : openInFiftyOne(page)),
   }, icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') }));
 }
 
@@ -93,7 +98,11 @@ export function fiftyoneOpenRow(page) {
   const reason = fiftyoneReason(page.ctx.project);
   const keypoints = page.ctx.project && page.ctx.project.task === 'keypoints';
   return el('div', { class: 'open-row' },
-    el('button', { type: 'button', class: 'btn', id: 'fo-open', disabled: !!reason, 'aria-describedby': 'fo-open-help', onclick: () => openInFiftyOne(page) },
+    /* without FiftyOne: dimmed, not disabled, so a tap says how to install it (#675); without images: disabled */
+    el('button', { type: 'button', class: `btn${reason === 'open.fo_not_installed' ? ' is-unavailable' : ''}`, id: 'fo-open', disabled: !!reason && reason !== 'open.fo_not_installed',
+      'aria-disabled': reason === 'open.fo_not_installed' ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: () => (sayFiftyoneMissing() ? null : openInFiftyOne(page)) },
       icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') })),
-    el('p', { class: 'muted small', id: 'fo-open-help' }, t(reason || (keypoints ? 'tasks.fo_no_keypoints' : 'open.fo_back'))));
+    reason === 'open.fo_not_installed'
+      ? el('div', { id: 'fo-open-help' }, fiftyoneMissingNote())
+      : el('p', { class: 'muted small', id: 'fo-open-help' }, t(reason || (keypoints ? 'tasks.fo_no_keypoints' : 'open.fo_back'))));
 }

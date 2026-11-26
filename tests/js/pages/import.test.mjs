@@ -38,7 +38,8 @@ async function render(routes) {
 
 test('without a CVAT login the page offers the setup and does not ask CVAT for projects', async () => {
   const { root, asked } = await render({ '/api/annotation-tools': [{ tool: 'cvat', configured: false }] });
-  assert.deepEqual(asked, ['/api/annotation-tools']);
+  // what is installed is read once per page (#658); CVAT itself is not asked
+  assert.deepEqual(asked.filter((url) => url !== '/api/features'), ['/api/annotation-tools']);
   const card = root.querySelector('.tool-card[data-tool="cvat"]');
   assert.ok(card.classList.contains('selected'));
   assert.equal(card.querySelector('.ready-badge').textContent, 'Not set up');

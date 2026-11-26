@@ -11,6 +11,7 @@ import { issueName, taskBadge, taskName, taskPicker } from './names.js';
 import { createStepper } from './stepper.js';
 import { trainingPanel } from './training.js';
 import { headerCvatButton, headerFiftyoneButton } from '../integrations/open.js';
+import { loadFeatures } from '../shell/features.js';
 import { createSync } from '../integrations/sync.js';
 import { linkBadge, originBadge } from '../integrations/tools.js';
 import { api } from '../shell/api.js';
@@ -286,6 +287,8 @@ export function initProject() {
   renderJobs();
   const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
   ctx.tab = STEPS.includes(startHash) ? startHash : 'images';
+  /* FiftyOne may not be installed (#218): its buttons say so once the server answered (#658) */
+  loadFeatures().then(() => { if (ctx.project && !ctx.gone) renderHeader(); });
   refreshProject().then((ok) => {
     if (!ok) return;
     pollJobs();

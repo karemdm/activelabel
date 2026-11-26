@@ -153,6 +153,19 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 .queue-btn { gap: 0.4rem; }
 /* a button that is not available yet but still says why when pressed (a title is never seen on touch, #602) */
 .btn.is-unavailable { opacity: 0.6; cursor: help; }
+/* the installed parts (#658): two cards side by side, a command in a box with Copy */
+.feature-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.feature-card h3 { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; }
+.feature-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.feature-list { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
+.feature-list li { display: flex; align-items: center; gap: var(--space-2); }
+.mono-list li { font-family: var(--mono); font-size: var(--font-sm); }
+.feature-packages { margin: var(--space-2) 0; }
+.cmd-box { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); margin: var(--space-1) 0 var(--space-2); }
+.cmd-box code { flex: 1 1 14rem; word-break: break-all; }
+.fo-missing { margin: var(--space-2) 0; }
+.link-btn { margin-top: var(--space-1); }
+.feature-head .sbadge { display: inline-flex; align-items: center; gap: 0.3rem; }
 .queue-count { min-width: 1.4rem; padding: 0 0.35rem; border-radius: var(--radius-pill); background: var(--area); color: var(--on-accent); font-size: var(--font-xs); font-weight: 700; text-align: center; }
 .queue-count[hidden] { display: none; }
 .queue-panel { position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 50; width: min(34rem, calc(100vw - 2rem)); max-height: 70vh; overflow: auto; padding: var(--space-3) var(--space-4); box-shadow: 0 12px 32px rgb(0 0 0 / 0.18); }

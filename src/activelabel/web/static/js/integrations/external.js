@@ -1,6 +1,7 @@
 /* Annotating in an external tool from the Annotations step: CVAT tasks and FiftyOne edit sessions, their
  * setup, and bringing the annotations back. */
 import { cvatOpenRow, fiftyoneOpenRow } from './open.js';
+import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import {
   SESSION_TOOLS, TOOLS, imagesOf, isHttp, openCvatAudit, openToolSetup, serverName, statusLabel, toolName,
 } from './tools.js';
@@ -268,12 +269,13 @@ export function annotateBlock(page) {
     const tool = 'fiftyone';
     const n = scopeCount(state.scope);
     fill(sendBox,
-      el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
-        icon(tool, 20), t('annotate.send', { tool: toolName(tool) })),
+      fiftyoneButton(el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
+        icon(tool, 20), t('annotate.send', { tool: toolName(tool) }))),
       el('p', { class: 'muted', 'aria-live': 'polite' }, n ? tn('annotate.will_send', n, { tool: toolName(tool) }) : t('annotate.nothing_to_send')));
   }
 
   async function send(button) {
+    if (sayFiftyoneMissing()) return;   // #658
     const tool = 'fiftyone';
     const body = { tool, scope: state.scope };
     if (state.scope === 'selected') body.ids = selectedIds();
@@ -284,7 +286,7 @@ export function annotateBlock(page) {
       toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
       await jobStarted(job);
     } catch (err) {
-      toastError(err);
+      if (!fiftyoneError(err)) toastError(err);
     } finally {
       drawSend();
     }
