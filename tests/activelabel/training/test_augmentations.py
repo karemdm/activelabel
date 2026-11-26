@@ -167,3 +167,11 @@ def test_needs_flip_pairs_only_for_keypoint_hflip():
         (kind, t["name"]): t["needs_flip_pairs"] for kind in KINDS for t in aug.catalogue(kind)["techniques"]
     }
     assert [k for k, v in flags.items() if v] == [("keypoints", "hflip")]
+
+
+def test_every_preset_above_none_does_something_for_every_kind():
+    """A level the person can pick is never the same as "none" (keypoints "light" was empty, #635)."""
+    for kind in ("classification", "detection", "instance", "keypoints", "semantic"):
+        for level in ("light", "standard", "strong"):
+            assert aug.preset(level, kind), (kind, level)
+    assert all(e["name"] != "hflip" for e in aug.preset("light", "keypoints"))

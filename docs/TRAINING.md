@@ -155,7 +155,7 @@ segmentation — flips, rotation, zoom (scale jitter), shift, colour jitter, blu
 same without the vertical flip; semantic segmentation — the same as detection plus random resized crop.
 Geometric techniques move boxes, masks and keypoints with the image; a horizontal flip of keypoints needs the
 left/right `flip_pairs` (an empty list when no point has a mirror twin), which is why the keypoint presets do
-not include it. The runner resolves the level into `spec.json` (`augmentations`) and records it in `run.json`;
+not include it (their `light` varies brightness and contrast slightly instead, so it is not the same as `none`). The runner resolves the level into `spec.json` (`augmentations`) and records it in `run.json`;
 the worker applies exactly that list, in catalogue order, to the training images only, and writes it to the log.
 Configurations made before techniques could be chosen have no list and keep their preset.
 

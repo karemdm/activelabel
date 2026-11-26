@@ -83,6 +83,14 @@ export function menuButton(iconName, label, getItems, extraClass = '') {
 
 /* Every dialog has the same head, its title and an X, and the same foot (the main action and Cancel, kept
    in view while the body scrolls). The X is added here so no dialog forgets it. */
+/** Give the keyboard back when a dialog closes: to the first of `candidates` still shown (the button that opened
+    it, what had the focus then, the button that replaced it...), so it never falls on the page body. */
+export function returnFocus(...candidates) {
+  const shown = (node) => !!node && node.isConnected && !node.closest('[hidden]') && typeof node.focus === 'function';
+  const target = candidates.find(shown);
+  if (target) target.focus();
+}
+
 export function openModal(dlg) {
   const title = dlg.querySelector('h2');
   if (title && !dlg.querySelector('.dlg-head')) {

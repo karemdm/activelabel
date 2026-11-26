@@ -17,7 +17,7 @@ if (!proto.close) {
   };
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { once, menuButton, choiceDialog, confirmDialog, closeOpenDialogs } = await import(
+const { once, menuButton, choiceDialog, confirmDialog, closeOpenDialogs, returnFocus } = await import(
   '../../../src/activelabel/web/static/js/shell/dialogs.js'
 );
 
@@ -88,4 +88,24 @@ test('confirmDialog with requireText enables its button only for the exact text'
   assert.equal(ok.disabled, false);
   [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click();
   assert.equal(await pending, false);
+});
+
+test('closing a dialog gives the focus back to its button, or to what opened it when that button is hidden', () => {
+  const header = document.createElement('button');
+  const empty = document.createElement('button');
+  document.body.append(header, empty);
+  header.hidden = true;   // the header button is hidden while the list is empty
+  returnFocus(header, empty);
+  assert.equal(document.activeElement, empty);
+  header.hidden = false;
+  returnFocus(header, empty);
+  assert.equal(document.activeElement, header);
+  header.remove();
+  empty.remove();
+  returnFocus(header, empty);   // both gone: nothing to do, no error
+  const redrawn = document.createElement('button');   // the empty state drawn again while the dialog was open
+  document.body.append(redrawn);
+  returnFocus(header, empty, redrawn);
+  assert.equal(document.activeElement, redrawn);
+  redrawn.remove();
 });

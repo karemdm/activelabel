@@ -4,7 +4,7 @@ import { compareBar, compareCheck, compareTable } from './compare.js';
 import { staleCount } from './datasets.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
-import { confirmDialog, once, openModal } from '../shell/dialogs.js';
+import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
 import { LOCALE, fmtDate, fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
@@ -402,6 +402,7 @@ export function trainingPanel(page) {
   }
 
   async function openNew(trigger, version = null) {
+    const opener = document.activeElement;   // the empty state's own button when the header one is hidden
     let cat;
     let versions;
     let augCat;
@@ -419,7 +420,7 @@ export function trainingPanel(page) {
     const first = models.find((m) => !blocked(m.family));
     if (!versions.length || !first) { toast(t('tr.no_options'), 'error'); return; }
 
-    const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: first.family, model: first.id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set() };
+    const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: first.family, model: first.id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set(), augRange: {}, env: null };
     const versionOf = () => versions.find((v) => v.version === st.dataset);
     const modelNow = () => models.find((m) => m.id === st.model);
     let active = [];       // parameter specs shown now
@@ -539,7 +540,11 @@ export function trainingPanel(page) {
 
     // device (#320): not part of the configuration; the list comes from the training environment
     const deviceSel = sel('tr-device', ...['auto', 'cpu'].map((d) => el('option', { value: d }, deviceName(d))));
-    api('GET', '/training/environment').then((env) => fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))))).catch(() => {});
+    api('GET', '/training/environment').then((env) => {
+      st.env = env;
+      fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))));
+      if (shownModel) drawModelNote(modelNow());
+    }).catch(() => {});
 
     // parameters
     const paramsBox = el('div', { class: 'tr-params' });
@@ -650,6 +655,7 @@ export function trainingPanel(page) {
     function augParam(tq, spec) {
       const id = `tr-aug-${tq.name}-${spec.name}`;
       const key = `${tq.name}.${spec.name}`;
+      st.augRange[key] = `${num(spec.min)}–${num(spec.max)}`;
       const input = el('input', { id, type: 'number', inputmode: 'decimal', autocomplete: 'off', class: 'tr-aug-num', value: String(st.aug[tq.name][spec.name]),
         min: String(spec.min), max: String(spec.max), step: spec.kind === 'int' ? '1' : 'any', title: tr(`tr.augph.${spec.name}`, spec.help), 'aria-invalid': st.augBad.has(key) ? 'true' : null });
       input.addEventListener('input', () => {
@@ -778,10 +784,19 @@ export function trainingPanel(page) {
       if (mode === 'grid') advBox.open = true;  // a grid search is about the values: show them
       drawParams();
     }
+    /* the packages a model needs, said as what this computer has or lacks once the environment answered (#635) */
+    function drawModelNote(m) {
+      const need = m.packages || [];
+      const have = st.env && st.env.exists ? Object.keys(st.env.packages || {}).map((n) => n.toLowerCase().replace(/[-_.]+/g, '-')) : null;
+      const missing = have ? need.filter((p) => !have.includes(p.toLowerCase().replace(/[-_.]+/g, '-'))) : need;
+      const pkgs = !need.length ? '' : have && !missing.length ? t('tr.packages_ready', { list: need.join(', ') })
+        : t('tr.packages_note', { list: missing.join(', ') });
+      modelNote.textContent = [tr(`tr.note.${m.family}`, ''), pkgs].filter(Boolean).join(' ');
+    }
     function drawModel() {
       const m = modelNow();
       /* the catalogue's own note is English: the screen says it by family, in the interface language */
-      modelNote.textContent = [tr(`tr.note.${m.family}`, ''), m.packages && m.packages.length ? t('tr.packages_note', { list: m.packages.join(', ') }) : ''].filter(Boolean).join(' ');
+      drawModelNote(m);
       const notes = carryValues(shownModel);
       if (!m.metrics.includes(st.metric)) {   // a metric the person chose stays while the new model has it
         if (shownModel && st.metric) notes.push(t('tr.chg_default', { p: t('tr.select_metric'), v: metricName(m.default_metric) }));
@@ -827,7 +842,7 @@ export function trainingPanel(page) {
       if ((levels.length === 1 ? levels[0] : null) !== st.augLevel) syncAug();
       if (levels.length === 1 && levels[0] === 'custom') {
         bad += st.augBad.size;
-        st.augBad.forEach((key) => { const [tech, param] = key.split('.'); wrong.push(`${tr(`tr.aug.${tech}`, tech)}: ${param === 'flip_pairs' ? t('tr.aug_pairs') : tr(`tr.augp.${param}`, param)}`); });
+        st.augBad.forEach((key) => { const [tech, param] = key.split('.'); wrong.push(`${tr(`tr.aug.${tech}`, tech)}: ${param === 'flip_pairs' ? t('tr.aug_pairs') : `${tr(`tr.augp.${param}`, param)} (${st.augRange[key] || ''})`}`); });
       }
       const grid = st.mode === 'grid';
       const folds = st.fold === 'all' ? Math.max(1, foldCount(versionOf())) : 1;   // a hold-out version has 0 folds: one run per combination
@@ -841,12 +856,13 @@ export function trainingPanel(page) {
         else { summary.textContent = folds > 1 ? t('tr.combos_folds', { c: tn('tr.combos', combos), k: folds, total }) : tn('tr.combos', combos); summary.classList.add('ok'); }
       } else if (grid) summary.textContent = '';
       else if (folds > 1) { summary.textContent = t('tr.folds_runs', { k: folds }); summary.classList.add('ok'); }
+      if (!grid) modeHelp.textContent = folds > 1 ? t('tr.mode_single_folds_help') : t('tr.mode_single_help');   // one run per fold, not one run
       create.disabled = blocked;
       blockedWhy.hidden = !wrong.length;
       blockedWhy.textContent = wrong.length ? t('tr.blocked_fields', { fields: wrong.join(', ') }) : '';
       formError.hidden = true;
       if (bad) advBox.open = true;  // the field with the problem must be in view
-      advLine.textContent = changedLine();
+      advLine.textContent = bad ? `${changedLine(true)} · ${tn('tr.params_invalid', bad, { n: bad })}` : changedLine();
     }
 
     /* one value of a parameter as the person reads it: exact, with the decimal sign of the fields (0,0001) */
@@ -857,10 +873,10 @@ export function trainingPanel(page) {
       return exact.format(Number(v));
     }
     /* "epochs 20 · batch size 8": only what is not the default; the grid lists show as they are */
-    function changedLine() {
+    function changedLine(withErrors = false) {
       const diffs = active.filter((spec) => reads[spec.name] && reads[spec.name].join() !== String([spec.default]))
         .map((spec) => `${paramName(spec.name)} ${reads[spec.name].map((v) => valueText(spec, v)).join(', ')}`);
-      if (!diffs.length) return t('tr.params_default');
+      if (!diffs.length) return withErrors ? t('tr.params_changed') : t('tr.params_default');
       return diffs.length > 3 ? `${diffs.slice(0, 3).join(' · ')} · ${t('tr.params_more', { n: diffs.length - 3 })}` : diffs.join(' · ');
     }
 
@@ -913,7 +929,7 @@ export function trainingPanel(page) {
         formError.scrollIntoView({ block: 'nearest' });
       }
     });
-    dlg.addEventListener('close', () => { dlg.remove(); if (trigger && trigger.isConnected) trigger.focus(); });
+    dlg.addEventListener('close', () => { dlg.remove(); returnFocus(trigger, opener, node.querySelector('.ds-empty-actions .btn')); });
     drawFolds();
     drawStale();
     drawModel();
@@ -1080,7 +1096,7 @@ export function trainingPanel(page) {
           row(t('tr.start'), startName(c.start || r.start)),
           row(t('tr.mode'), c.mode === 'grid' ? t('tr.mode_grid') : t('tr.mode_single')),
           row(t('tr.select_metric'), metricName(c.metric || (m && m.default_metric) || '')),
-          row(t('tr.device'), deviceOf(r)),
+          row(t('tr.device'), r.setup && r.setup.device ? '' : deviceOf(r)),   // else in "what the training used"
           row(t('tr.duration'), durationOf(r)),
           row(t('tr.started'), r.started ? fmtDateTime(r.started) : ''),
           pkgs ? el('div', { class: 'tr-kv wide' }, el('dt', null, t('tr.packages')), el('dd', { class: 'tr-pkgs' }, pkgs)) : null),
@@ -1218,7 +1234,7 @@ export function trainingPanel(page) {
       /* the learning rate of each epoch, as the schedule and the warmup set it (#529) */
       /* learning rates are small numbers: scientific notation keeps the axis labels short (1,5E-4) */
       const sig = new Intl.NumberFormat(LOCALE, { notation: 'scientific', maximumSignificantDigits: 2 });
-      const lr = pts('lr').length ? lineChart(paramName('lr'), [{ name: paramName('lr'), points: pts('lr') }], best, (v) => sig.format(v)) : null;
+      const lr = pts('lr').length ? lineChart(paramName('lr'), [{ name: paramName('lr'), points: pts('lr') }], null, (v) => (v === 0 ? '0' : sig.format(v))) : null;
       return el('section', { class: 'tr-section', 'aria-labelledby': 'trd-curves' },
         el('h3', { id: 'trd-curves', class: 'section-title' }, t('tr.curves')),
         el('div', { class: 'tr-charts' }, loss, score, lr));
