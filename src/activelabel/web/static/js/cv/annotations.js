@@ -72,6 +72,15 @@ export function annotationsPanel(page) {
     }
   }
 
+  /* the report of a check not yet applied or discarded comes back after a reload of the page */
+  async function loadPending() {
+    if (busy || reportBox.childNodes.length) return;
+    try {
+      const { report } = await api('GET', `/projects/${projectId}/annotations/pending`);
+      if (report && !busy && !reportBox.childNodes.length) renderValidation(report);
+    } catch (err) { /* no report to show */ }
+  }
+
   function renderValidation(report) {
     drop.hidden = true;  // the report takes its place; "choose other files" is in the report
     const found = report.inferred_task;
@@ -124,7 +133,8 @@ export function annotationsPanel(page) {
           el('div', null, el('dt', null, t('ann.matched')), el('dd', null, num(counts.images_matched || 0))),
           el('div', null, el('dt', null, t('ann.unlabeled')), el('dd', null, num(counts.images_without_labels || 0))),
           el('div', null, el('dt', null, t('ann.labels')), el('dd', null, num(counts.labels_total || 0)))),
-        report.unmatched && report.unmatched.count
+        /* the problems below already say it when a problem row covers the unmatched entries */
+        report.unmatched && report.unmatched.count && !(report.problems || []).some((p) => p.code === 'unmatched_entries' || p.code === 'no_images_matched')
           ? el('p', { class: 'muted' }, tn('ann.unmatched', report.unmatched.count))
           : null,
         nothing ? null : el('h4', null, t('ann.classes_found')),
@@ -293,7 +303,7 @@ export function annotationsPanel(page) {
   add(node,
     el('h2', { id: 'h-annotations' }, t('step.annotations')),
     annTabs.node);
-  panel.mount = () => { loadGt(); loadVideoTasks(); annotate.mount(); };
+  panel.mount = () => { loadGt(); loadVideoTasks(); loadPending(); annotate.mount(); };
   panel.refresh = () => { loadGt(); loadVideoTasks(); annotate.refresh(); };
   panel.show = annotate.show;
   /* a finished activity opens the tab it belongs to, then its card */

@@ -40,6 +40,8 @@ def validate(result: ParseResult, project: Project) -> ValidationReport:
     inferred = task_of(labels)
     problems = [Problem(p.level, p.code, p.message, p.count, list(p.examples)) for p in result.problems]
     if result.images_matched == 0:
+        # one message: "no_images_matched" carries the same count and examples as "unmatched_entries"
+        problems = [p for p in problems if p.code != "unmatched_entries"]
         level, message = PROBLEMS["no_images_matched"]
         problems.insert(
             0, Problem(level, "no_images_matched", message, result.unmatched_count, result.unmatched[:5])

@@ -61,3 +61,17 @@ def test_validate_problems_block_import(proj):
     assert not report.can_import and report.options == ["discard"]
     assert {p.code for p in report.problems} >= {"invalid_file", "no_images_matched"}
     assert all(len(p.examples) <= 5 for p in report.problems)
+
+
+def test_nothing_matched_is_one_problem_not_two(proj):
+    store, project, manifest = proj
+    data = {
+        "images": [{"id": 1, "file_name": "nope.png", "width": 100, "height": 50}],
+        "categories": [{"id": 1, "name": "Cat"}],
+        "annotations": [{"image_id": 1, "category_id": 1, "bbox": [0, 0, 10, 10]}],
+    }
+    token = stage(store.dir(project.id), [("labels.json", io.BytesIO(json.dumps(data).encode()))])
+    report = validate(parse(load_staged(store.dir(project.id), token), "coco", manifest.all()), project)
+    codes = [p.code for p in report.problems]
+    assert codes.count("no_images_matched") == 1 and "unmatched_entries" not in codes
+    assert report.unmatched["count"] == 1

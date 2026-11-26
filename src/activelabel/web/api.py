@@ -1013,12 +1013,30 @@ def check_annotations(
         raise _unreadable(str(exc)) from exc
     if not report.can_import:  # the only option left is to discard: nothing to keep aside
         ann.discard_staged(project_dir, token)
-    return {
+    out = {
         **report.as_dict(),
         "token": token,
         "has_annotations": load_annotations(project_dir) is not None,
         "task": target.task if target else None,
     }
+    if report.can_import:  # the files are kept aside: the report stays until they are applied or discarded
+        ann.set_report(project_dir, token, out)
+    return out
+
+
+@router.get("/projects/{project_id}/annotations/pending")
+def pending_annotations_report(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+    """The report of the last annotation check that was neither applied nor discarded.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{report: <the report as POST /annotations returned it, or null>}``.
+    """
+    state.project(project_id)
+    return {"report": ann.pending_report(state.store.dir(project_id))}
 
 
 @router.post("/projects/{project_id}/annotations/{token}/apply")

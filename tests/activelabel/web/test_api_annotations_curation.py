@@ -7,7 +7,7 @@ from api_client import make_client, upload
 from fastapi.testclient import TestClient
 from sample_images import make_image
 
-from activelabel.annotations import cleanup_staging
+from activelabel.annotations import cleanup_staging, load_staged
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
@@ -122,6 +122,22 @@ def test_files_that_cannot_be_imported_are_not_kept_aside(tmp_path):
     good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
     kept = client.post("/api/projects/1/annotations", files=good).json()
     assert staged(state) == [kept["token"]]
+
+
+def test_the_report_is_kept_until_the_files_are_applied_or_discarded(tmp_path):
+    client, state = setup_project(tmp_path)
+    assert client.get("/api/projects/1/annotations/pending").json() == {"report": None}
+    good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    report = client.post("/api/projects/1/annotations", files=good).json()
+    assert client.get("/api/projects/1/annotations/pending").json() == {"report": report}  # as after a reload
+    assert [p.name for p in load_staged(state.store.dir(1), report["token"])] == ["instances.json"]
+    assert client.delete(f"/api/projects/1/annotations/{report['token']}").status_code == 200
+    assert client.get("/api/projects/1/annotations/pending").json() == {"report": None}
+    again = client.post("/api/projects/1/annotations", files=good).json()
+    assert client.get("/api/projects/1/annotations/pending").json()["report"]["token"] == again["token"]
+    done = client.post(f"/api/projects/1/annotations/{again['token']}/apply", json={"action": "import"})
+    assert done.status_code == 200
+    assert client.get("/api/projects/1/annotations/pending").json() == {"report": None}
 
 
 def test_old_staging_is_cleaned_at_the_next_check_and_at_start(tmp_path):
