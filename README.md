@@ -116,7 +116,12 @@ project is its *type*.)
    measures, flags and near-duplicate groups (images, exclusions and annotations stay).
    *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
    be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
-   rejected when uploaded.)
+   rejected when uploaded.) The *Similarity map* groups similar images: *Compute map* reads every
+   active image with a small ImageNet network in the training environment (installed on first use,
+   queued with the trainings), places them on a 2-D map (t-SNE, or PCA for very small or large sets)
+   and splits them into groups (k-means), each shown with its size and most typical image. The same
+   map opens in the FiftyOne App (Embeddings panel, run `activelabel_similarity`, coloured by the
+   field `similarity_group`).
 
 ### Model
 
