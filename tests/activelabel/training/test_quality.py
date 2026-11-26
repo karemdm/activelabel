@@ -151,5 +151,13 @@ def test_every_code_is_produced_and_listed():
             )
         )
     )
+    seen |= set(codes(quality_alerts(classifier([[5, 5], [0, 10]], {"a": 0.0, "b": 0.9}))))  # class_zero
     seen |= {"only_background", "metric_zero", "class_far_below"}
     assert seen == set(CODES)
+
+
+def test_one_predicted_class_does_not_also_name_each_class_at_zero():
+    """A real 2-epoch CPU run predicted only one class: the alerts said "class X was never found, while the
+    others were" for most classes, which was not true; the single-class alert says it once."""
+    run = classifier([[10, 0, 0], [10, 0, 0], [9, 0, 1]], recalls={"a": 1.0, "b": 0.0, "c": 0.0})
+    assert codes(quality_alerts(run)) == ["single_class"]
