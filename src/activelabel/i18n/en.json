@@ -985,6 +985,7 @@
   "tr.err_range": "Between {min} and {max}.",
   "tr.err_dup": "Repeated value.",
   "tr.start_run": "Start run",
+  "tr.blocked_fields": "To start, fix: {fields}.",
   "tr.detail_title": "Run #{n}",
   "tr.config": "Configuration",
   "tr.device": "Device",

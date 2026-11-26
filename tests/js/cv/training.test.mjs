@@ -76,6 +76,31 @@ test('the new-run dialog asks for the family first; only families with a model f
   panel.node.remove();
 });
 
+test('a value out of range keeps Start off and says which setting to fix (#635)', async () => {
+  setMessages({ 'tr.blocked_fields': 'To start, fix: {fields}.', 'tr.p.epochs': 'Epochs' }, 'en');
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  await withApi(async () => {
+    panel.startWith(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const epochs = document.getElementById('tr-p-epochs');
+  const why = document.querySelector('dialog[open] .tr-blocked');
+  assert.ok(why.hidden, 'nothing to fix at first');
+  epochs.value = '0';
+  epochs.dispatchEvent(new window.Event('input'));
+  const start = document.querySelector('dialog[open] button[type="submit"]');
+  assert.equal(start.disabled, true);
+  assert.equal(why.hidden, false);
+  assert.equal(why.textContent, 'To start, fix: Epochs.');
+  epochs.value = '3';
+  epochs.dispatchEvent(new window.Event('input'));
+  assert.equal(start.disabled, false);
+  assert.ok(why.hidden);
+  document.querySelector('dialog[open]').close();
+  panel.node.remove();
+});
+
 test('a failed run says why and warns in the interface language, and offers Resume when it has a checkpoint (#560)', async () => {
   setMessages({
     'error.training_failed': 'The training stopped with an error.', 'tr.warn.batch_halved': 'Batch {from} → {to}.', 'tr.resume': 'Resume',

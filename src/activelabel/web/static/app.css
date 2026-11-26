@@ -1009,6 +1009,7 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-combos.ok { color: var(--ok); }
 .tr-combos.bad { color: var(--danger); }
 .tr-form-error { margin: var(--space-2) 0 0; padding: 0.6rem 0.8rem; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-weight: 600; overflow-wrap: anywhere; }
+.form-actions > .tr-blocked { flex: 1 0 100%; margin: 0; }   /* #635: why Start is off, above the buttons that stay in view */
 
 .tr-detail-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .tr-detail-head h2 { margin: 0; }

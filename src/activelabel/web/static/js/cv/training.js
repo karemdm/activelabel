@@ -429,6 +429,7 @@ export function trainingPanel(page) {
     const sel = (id, ...opts) => el('select', { id, class: 'tr-select' }, ...opts);
     const create = el('button', { type: 'submit', class: 'btn primary' }, t('tr.start_run'));
     const formError = el('p', { class: 'tr-form-error', role: 'alert', hidden: true });
+    const blockedWhy = el('p', { class: 'tr-form-error tr-blocked', role: 'status', hidden: true });   // why "Start" is off, next to it (#635)
 
     // data
     const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
@@ -805,6 +806,7 @@ export function trainingPanel(page) {
     function changed() {
       let combos = 1;
       let bad = 0;
+      const wrong = [];   // names of the settings to fix, said next to the disabled button
       reads = {};
       for (const spec of active) {
         const r = readParam(spec);
@@ -812,7 +814,7 @@ export function trainingPanel(page) {
         const input = document.getElementById(`tr-p-${spec.name}`);
         if (box) box.textContent = r.error || '';
         if (input) { if (r.error) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); }
-        if (r.error) { bad += 1; continue; }
+        if (r.error) { bad += 1; wrong.push(paramName(spec.name)); continue; }
         reads[spec.name] = r.list;
         combos *= r.list.length;
       }
@@ -820,9 +822,13 @@ export function trainingPanel(page) {
       if (levels.length > 1 && levels.includes('custom')) {   // a custom list cannot be one value of a grid
         if (errEls.augmentation) errEls.augmentation.textContent = t('tr.aug_custom_alone');
         bad += 1;
+        wrong.push(paramName('augmentation'));
       }
       if ((levels.length === 1 ? levels[0] : null) !== st.augLevel) syncAug();
-      if (levels.length === 1 && levels[0] === 'custom') bad += st.augBad.size;
+      if (levels.length === 1 && levels[0] === 'custom') {
+        bad += st.augBad.size;
+        st.augBad.forEach((key) => { const [tech, param] = key.split('.'); wrong.push(`${tr(`tr.aug.${tech}`, tech)}: ${param === 'flip_pairs' ? t('tr.aug_pairs') : tr(`tr.augp.${param}`, param)}`); });
+      }
       const grid = st.mode === 'grid';
       const folds = st.fold === 'all' ? Math.max(1, foldCount(versionOf())) : 1;   // a hold-out version has 0 folds: one run per combination
       const total = combos * folds;
@@ -836,6 +842,8 @@ export function trainingPanel(page) {
       } else if (grid) summary.textContent = '';
       else if (folds > 1) { summary.textContent = t('tr.folds_runs', { k: folds }); summary.classList.add('ok'); }
       create.disabled = blocked;
+      blockedWhy.hidden = !wrong.length;
+      blockedWhy.textContent = wrong.length ? t('tr.blocked_fields', { fields: wrong.join(', ') }) : '';
       formError.hidden = true;
       if (bad) advBox.open = true;  // the field with the problem must be in view
       advLine.textContent = changedLine();
@@ -884,7 +892,7 @@ export function trainingPanel(page) {
           el('div', { class: 'field' }, el('label', { for: 'tr-device' }, t('tr.device_label')), deviceSel, el('p', { class: 'hint' }, t('tr.device_help'))))),
       el('div', { class: 'tr-adv-wrap' }, advBox),
       formError,
-      el('div', { class: 'form-actions' }, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
+      el('div', { class: 'form-actions' }, blockedWhy, create, el('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, t('common.cancel'))));
     add(advBox, paramsBox, moreBox);
     const dlg = el('dialog', { class: 'dialog wide tr-dialog', 'aria-label': t('tr.new_title') }, form);
 

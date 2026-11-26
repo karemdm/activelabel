@@ -985,6 +985,7 @@
   "tr.err_range": "Entre {min} e {max}.",
   "tr.err_dup": "Valor repetido.",
   "tr.start_run": "Iniciar treino",
+  "tr.blocked_fields": "Para iniciar, corrija: {fields}.",
   "tr.detail_title": "Treino #{n}",
   "tr.config": "Configuração",
   "tr.device": "Dispositivo",

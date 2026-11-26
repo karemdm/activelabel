@@ -140,6 +140,8 @@ class ModelSpec:
         defaults: replacements for the default of common parameters (for example ``lr``).
         limits: replacements for the (min, max) of common parameters, where the model accepts less
             (for example a fixed input size).
+        choices: replacements for the choices of common parameters, where the model's library offers
+            fewer (Ultralytics has only the cosine and the constant learning-rate schedules).
     """
 
     id: str
@@ -154,9 +156,10 @@ class ModelSpec:
     params: tuple[ParamSpec, ...] = ()
     defaults: dict[str, Any] = field(default_factory=dict)
     limits: dict[str, tuple[float, float]] = field(default_factory=dict)
+    choices: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def param_specs(self) -> list[ParamSpec]:
-        """Common parameters (with this model's defaults and limits) followed by the model's own.
+        """Common parameters (with this model's defaults, limits and choices) followed by the model's own.
 
         Returns:
             The effective specs, in the order the form shows them.
@@ -167,7 +170,8 @@ class ModelSpec:
                 self.image_size if spec.name == "image_size" else self.defaults.get(spec.name, spec.default)
             )
             low, high = self.limits.get(spec.name, (spec.min, spec.max))
-            out.append(replace(spec, default=default, min=low, max=high))
+            choices = self.choices.get(spec.name, spec.choices)
+            out.append(replace(spec, default=default, min=low, max=high, choices=choices))
         return out + list(self.params)
 
     def param(self, name: str) -> ParamSpec | None:
@@ -349,6 +353,8 @@ _TV_DET = {
 }
 _TV_SEG = {"lr": 0.0001, "batch_size": 4}
 _YOLO = {"optimizer": "sgd", "lr": 0.01, "batch_size": 8, "weight_decay": 0.0005}
+#: Ultralytics decays the learning rate linearly or with a cosine (``cos_lr``); ``none`` keeps it constant.
+_YOLO_CHOICES: dict[str, tuple[str, ...]] = {"scheduler": ("none", "cosine")}
 _FIXED_224: dict[str, tuple[float, float]] = {"image_size": (224, 224)}
 _FIXED_320: dict[str, tuple[float, float]] = {"image_size": (320, 320)}
 
@@ -489,6 +495,7 @@ def _yolo_models() -> list[ModelSpec]:
                         notes="Ultralytics is licensed AGPL-3.0: accept the licence before it is installed.",
                         params=(_MOSAIC, _CLOSE_MOSAIC),
                         defaults=_YOLO,
+                        choices=_YOLO_CHOICES,
                     )
                 )
     return out

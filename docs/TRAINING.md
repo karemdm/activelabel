@@ -393,7 +393,9 @@ and *Save as model* work as they do for them. The pinned `ultralytics` version i
   out of memory fails with `out_of_memory`.
 - **Optimizer, schedule, warmup.** `sgd`, `adam` and `adamw`, `lr`, `weight_decay` and `warmup_epochs` map
   directly. The `none` and `cosine` schedules map to `lrf` and `cos_lr`; `step`, `onecycle` and `plateau` do
-  not exist in Ultralytics, which falls back to its linear decay (warning `yolo_scheduler_unsupported`).
+  not exist in Ultralytics, so the YOLO models offer only `none` and `cosine` (the catalogue narrows their
+  choices; any other value is refused with `param_not_choice`). A run stored before that falls back to the
+  linear decay of Ultralytics (warning `yolo_scheduler_unsupported`).
   `backbone_lr_factor` has no counterpart (one learning rate for the whole network; warning
   `yolo_backbone_lr_ignored` when fine-tuning).
 - **Augmentation.** The resolved techniques become Ultralytics hyperparameters: `hflip` and `vflip`
