@@ -214,16 +214,50 @@ export function modelsPanel(page) {
     let mapOpen = false;
     const linked = () => data.project_classes.filter((cls) => (st.map[cls] || []).length).length;
     const mapLine = () => t('md.mapping_summary', { n: num(linked()), total: num(data.project_classes.length) });
+    /* one row per project class (#650): its categories as chips, each with its own remove button, a list and Add
+       for one more (a category another class has is shown, disabled, with that class) and Clear. No Ctrl needed,
+       and the list adds nothing by itself: typing or arrowing through it only moves the choice. */
+    function owner(category) {
+      return Object.keys(st.map).find((cls) => st.map[cls].includes(category)) || null;
+    }
+    function setCategories(cls, list, focusId) {
+      st.map[cls] = list;
+      drawRows();
+      showClash();
+      const again = document.getElementById(focusId);
+      if (again) again.focus();
+    }
+    let rows = null;
+    let line = null;
+    function mapRow(cls, k) {
+      const id = `md-map-${k}`;
+      const mine = st.map[cls] || [];
+      const adder = el('select', { id, class: 'tr-select md-map-add' },
+        el('option', { value: '' }, t('md.mapping_add')),
+        ...modelOf().classes.filter((c) => !mine.includes(c)).map((c) => {
+          const other = owner(c);
+          return el('option', { value: c, disabled: !!other }, other ? t('md.mapping_used', { category: c, cls: other }) : c);
+        }));
+      const chips = mine.length
+        ? el('ul', { class: 'chips md-map-chips', 'aria-label': t('md.mapping_of', { cls }) }, ...mine.map((c) => el('li', { class: 'chip' }, c,
+          el('button', { type: 'button', class: 'chip-x', 'aria-label': t('md.mapping_remove', { category: c, cls }), onclick: () => setCategories(cls, mine.filter((x) => x !== c), id) }, icon('close', 12)))))
+        : el('p', { class: 'muted md-map-none' }, t('md.mapping_unused'));
+      const clear = mine.length
+        ? el('button', { type: 'button', class: 'btn small md-map-clear', 'aria-label': t('md.mapping_clear_label', { cls }), onclick: () => setCategories(cls, [], id) }, t('md.mapping_clear'))
+        : null;
+      const addBtn = el('button', { type: 'button', class: 'btn small md-map-addbtn', 'aria-label': t('md.mapping_add_label', { cls }),
+        onclick: () => { if (adder.value) setCategories(cls, [...mine, adder.value], id); else adder.focus(); } }, t('md.mapping_add_button'));
+      return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), el('div', { class: 'md-map-cell' }, el('div', { class: 'md-map-chipline' }, chips, clear), el('div', { class: 'md-map-tools' }, adder, addBtn)));
+    }
+    function drawRows() {
+      fill(rows, ...data.project_classes.map(mapRow));
+      line.textContent = mapLine();
+    }
     function drawMap() {
       drawChoices();
-      const m = modelOf();
-      const line = el('span', null, mapLine());
-      const rows = el('div', { class: 'md-map-rows' }, ...data.project_classes.map((cls) => {
-          const id = `md-map-${cls}`;
-          const sel = el('select', { id, class: 'tr-select', multiple: true, size: '4', onchange: (e) => { st.map[cls] = [...e.target.selectedOptions].map((o) => o.value); line.textContent = mapLine(); showClash(); } },
-            ...m.classes.map((c) => el('option', { value: c, selected: (st.map[cls] || []).includes(c) }, c)));
-          return el('div', { class: 'md-map-row' }, el('label', { for: id }, cls), sel);
-        }));
+      line = el('span', null, mapLine());
+      rows = el('div', { class: 'md-map-rows' });
+      drawRows();
       const box = el('details', { class: 'md-map', open: mapOpen || !linked() },
         el('summary', null, line, el('span', { class: 'md-map-review' }, t('md.mapping_review'))), rows);
       box.addEventListener('toggle', () => { mapOpen = box.open; });

@@ -888,3 +888,18 @@ def test_the_grid_fields_read_the_decimal_comma_and_show_numbers_in_the_language
     assert "scheduleClash(reads)" in training
     pt = json.loads((Path(i18n.__file__).parent / "pt.json").read_text(encoding="utf-8"))
     assert "ponto e vírgula" in pt["tr.mode_grid_help"]
+
+
+def test_the_public_model_mapping_needs_no_ctrl_to_clear():
+    """#650: each class has its categories as chips with a remove button, a list with Add (the list adds
+    nothing by itself, so typing in it does not pile up categories) and Clear; no native multiple select."""
+    models_js = (SRC / "web" / "static" / "js" / "cv" / "models.js").read_text(encoding="utf-8")
+    assert "multiple: true" not in models_js
+    assert "t('md.mapping_remove', { category: c, cls })" in models_js
+    assert "class: 'tr-select md-map-add' }," in models_js  # no onchange: Add does it
+    assert "onclick: () => setCategories(cls, [], id)" in models_js
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert "Ctrl" not in texts["md.mapping_help"]
+        for key in ("md.mapping_add_button", "md.mapping_clear", "md.mapping_remove", "md.mapping_used"):
+            assert texts[key], key
