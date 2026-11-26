@@ -46,6 +46,8 @@ class ParamSpec:
         choices: allowed values (``choice`` only).
         help: one line for the form.
         group: ``common`` (every model) or ``model`` (this model only).
+        multiple: the value must be a multiple of this (whole numbers only; None for any value), for
+            example an input size that the network halves five times (#635).
     """
 
     name: str
@@ -56,6 +58,7 @@ class ParamSpec:
     choices: tuple[str, ...] = ()
     help: str = ""
     group: str = "common"
+    multiple: int | None = None
 
     def check(self, value: Any) -> Any:
         """Validate ``value`` and return it in the right Python type.
@@ -106,6 +109,13 @@ class ParamSpec:
             raise CodedError(
                 "param_max", f"'{name}' must be at most {self.max:.12g}.", name=name, max=self.max
             )
+        if self.multiple and value % self.multiple:
+            raise CodedError(
+                "param_not_multiple",
+                f"'{name}' must be a multiple of {self.multiple}.",
+                name=name,
+                multiple=self.multiple,
+            )
         return value
 
     def as_dict(self) -> dict[str, Any]:
@@ -123,6 +133,7 @@ class ParamSpec:
             "choices": list(self.choices),
             "help": self.help,
             "group": self.group,
+            "multiple": self.multiple,
         }
 
 
@@ -153,6 +164,7 @@ class ModelSpec:
         params_m: parameters of the network, in millions (``None`` when not known).
         builder: the name the library builds it by, when it differs from ``id`` (two families have a
             network of the same name: torchvision's EfficientNet-B0 is ``tv_efficientnet_b0`` here).
+        multiples: what a common parameter must be a multiple of for this model (``{"image_size": 32}``).
     """
 
     id: str
@@ -173,6 +185,7 @@ class ModelSpec:
     experimental: bool = False
     params_m: float | None = None
     builder: str = ""
+    multiples: dict[str, int] = field(default_factory=dict)
 
     @property
     def library_name(self) -> str:
@@ -196,7 +209,8 @@ class ModelSpec:
             )
             low, high = self.limits.get(spec.name, (spec.min, spec.max))
             choices = self.choices.get(spec.name, spec.choices)
-            out.append(replace(spec, default=default, min=low, max=high, choices=choices))
+            multiple = self.multiples.get(spec.name, spec.multiple)
+            out.append(replace(spec, default=default, min=low, max=high, choices=choices, multiple=multiple))
         return out + list(self.params)
 
     def param(self, name: str) -> ParamSpec | None:

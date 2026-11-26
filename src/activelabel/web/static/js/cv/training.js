@@ -586,6 +586,7 @@ export function trainingPanel(page) {
         if (!Number.isFinite(n)) return { error: t('tr.err_number', { v: tok }) };
         if (spec.kind === 'int' && !Number.isInteger(n)) return { error: t('tr.err_int', { v: tok }) };
         if ((spec.min != null && n < spec.min) || (spec.max != null && n > spec.max)) return { error: t('tr.err_range', { min: plain(spec.min), max: plain(spec.max) }) };
+        if (spec.multiple && n % spec.multiple) return { error: t('tr.err_multiple', { v: tok, n: plain(spec.multiple) }) };   // the same rule as the server (#635)
         list.push(n);
       }
       if (new Set(list).size !== list.length) return { error: t('tr.err_dup') };

@@ -7,17 +7,20 @@ declares must be read by its worker (``start`` is read from the run spec itself)
 
 import ast
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from activelabel import i18n
+from activelabel.errors import CodedError
 from activelabel.training import catalog
 from activelabel.training.catalog import (
     COMMON_PARAMS,
     MODELS,
     PROJECT_TYPES,
     TASK_KINDS,
+    ParamSpec,
     get_model,
     models_for,
 )
@@ -173,6 +176,20 @@ def test_yolo_offers_only_the_schedules_ultralytics_has():
         validate(RunConfig.from_dict({**base, "params": {"scheduler": "onecycle"}}), "detection")
     assert info.value.code == "param_not_choice"
     assert validate(RunConfig.from_dict({**base, "params": {"scheduler": "cosine"}}), "detection")
+
+
+def test_a_model_can_ask_for_a_multiple_and_the_check_and_the_api_say_it():
+    """#635: an input size the network halves five times must be a multiple of 32; the API gives the rule to
+    the form, so the dialog and the server refuse the same values."""
+    spec = ParamSpec("image_size", "int", 256, 128, 1024, multiple=32)
+    assert spec.check(320) == 320 and spec.as_dict()["multiple"] == 32
+    with pytest.raises(CodedError) as info:
+        spec.check(300)
+    assert info.value.code == "param_not_multiple" and info.value.params["multiple"] == 32
+    model = replace(get_model("resnet18"), multiples={"image_size": 32})
+    assert model.param("image_size").multiple == 32
+    assert get_model("resnet18").param("image_size").multiple is None
+    assert next(p for p in model.as_dict()["params"] if p["name"] == "image_size")["multiple"] == 32
 
 
 def test_catalog_consistency():

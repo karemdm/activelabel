@@ -133,7 +133,9 @@ check a value against them: ViT-B/16 only takes an image size of 224 (its positi
 SSDlite320 only 320; the transformers (ConvNeXt-T, ViT-B/16, Swin-T) start at a learning rate of 0.0001; the
 torchvision detectors, instance segmentation and keypoint models start with SGD, learning rate 0.005, batch size
 4, weight decay 0.0005, a one-epoch warmup and the `letterbox` resize (SSDlite320 uses `stretch`); the
-semantic segmentation models start with learning rate 0.0001 and batch size 4.
+semantic segmentation models start with learning rate 0.0001 and batch size 4. A model can also ask for a **multiple** (`multiples`, for example an image
+size that is a multiple of 32 for a network that halves it five times): the catalogue gives it to the form with
+the parameter (`multiple`), and both the form and the server refuse other values (`param_not_multiple`).
 
 Regression (a number per image) needs a numeric annotation type, which ActiveLabel does not have
 yet; it is left for later.

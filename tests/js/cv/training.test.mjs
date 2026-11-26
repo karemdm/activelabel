@@ -128,6 +128,33 @@ test('a value out of range keeps Start off and says which setting to fix (#635)'
   panel.node.remove();
 });
 
+test('a size that must be a multiple of 32 is checked in the dialog like on the server (#635)', async () => {
+  setMessages({ 'tr.blocked_fields': 'To start, fix: {fields}.', 'tr.p.image_size': 'Image size', 'tr.err_multiple': '{v} is not a multiple of {n}.' }, 'en');
+  const models = ANSWERS['/api/training/catalog'].models;
+  const before = models[0].params;
+  models[0].params = [SPEC, { name: 'image_size', kind: 'int', default: 256, min: 128, max: 1024, multiple: 32, help: 'Size' }];
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  try {
+    await withApi(async () => {
+      panel.startWith(1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const size = document.getElementById('tr-p-image_size');
+    size.value = '300';
+    size.dispatchEvent(new window.Event('input'));
+    assert.equal(document.getElementById('tr-p-image_size-err').textContent, '300 is not a multiple of 32.');
+    assert.equal(document.querySelector('dialog[open] button[type="submit"]').disabled, true);
+    size.value = '320';
+    size.dispatchEvent(new window.Event('input'));
+    assert.equal(document.querySelector('dialog[open] button[type="submit"]').disabled, false);
+  } finally {
+    models[0].params = before;
+    document.querySelector('dialog[open]')?.close();
+    panel.node.remove();
+  }
+});
+
 test('a failed run says why and warns in the interface language, and offers Resume when it has a checkpoint (#560)', async () => {
   setMessages({
     'error.training_failed': 'The training stopped with an error.', 'tr.warn.batch_halved': 'Batch {from} → {to}.', 'tr.resume': 'Resume',
