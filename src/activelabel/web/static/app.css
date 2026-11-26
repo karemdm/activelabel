@@ -545,6 +545,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .ready-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: var(--font-sm); font-weight: 700; }
 .ready-badge.ok { color: var(--ok); }
 .ready-badge.todo { color: var(--warn); }
+.ready-badge.bad { color: var(--danger); }
 
 .scope-box { margin-top: var(--space-2); }
 .scope-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.6rem; }
