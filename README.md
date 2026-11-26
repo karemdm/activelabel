@@ -147,6 +147,7 @@ project is its *type*.)
    *Uniqueness* scores each active image from 0 (it has a near twin) to 1 (the most unique) from the
    embeddings the map saved (compute the map first): it is a CPU job of the global queue, and the scores
    also go to the field `uniqueness` in FiftyOne.
+   Each analysis is also recorded as a FiftyOne run (with its parameters and time) that the App lists next to FiftyOne's own.
 
    *Possible label errors and hard images* compares a saved model's predictions with the labels (API for now;
    a job of the global queue, on the lane of the device you choose): FiftyOne Brain's mistakenness says how
