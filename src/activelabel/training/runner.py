@@ -50,6 +50,7 @@ from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
 from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelNotFound, ModelStore
 from activelabel.training.public_models import get_public
+from activelabel.training.quality import quality_alerts
 from activelabel.training.runs import (
     CANCELLED,
     DONE,
@@ -141,6 +142,31 @@ def warning_entry(event: dict[str, Any]) -> dict[str, Any]:
         "params": dict(params) if isinstance(params, dict) else {},
         "message": str(event.get("message", "warning")),
     }
+
+
+def val_image_count(project_dir: Path, store: RunStore, number: int) -> int | None:
+    """Images of the validation part a finished run was scored on.
+
+    Args:
+        project_dir: folder of the project.
+        store: runs of the project.
+        number: number of the run (for a grid or all-folds run, its best child's fold counts).
+
+    Returns:
+        The size of the ``val`` part (or validation fold), or ``None`` when the dataset version is gone.
+    """
+    run = store.get(number)
+    try:
+        config = (
+            store.child_config(number, run["best_child"]) if run.get("best_child") else store.config(number)
+        )
+        version = DatasetStore(project_dir).read(config.dataset)
+    except (DatasetNotFound, KeyError, OSError, ValueError):
+        return None
+    folds = version.get("folds")
+    if folds:
+        return len(folds[config.fold if isinstance(config.fold, int) and config.fold < len(folds) else 0])
+    return len((version.get("parts") or {}).get("val") or [])
 
 
 def worker_key(model: ModelSpec) -> str:
@@ -1389,7 +1415,12 @@ class TrainingRunner:
         except Exception as exc:  # noqa: BLE001 - shown to the person
             store.update(number, status=FAILED, finished=now(), phase="", **failure_fields(exc))
         else:
-            store.update(number, status=DONE, finished=now(), phase="")
+            alerts = quality_alerts(
+                store.results(number),
+                store.metrics(number),
+                val_image_count(self._project_dir(project_id), store, number),
+            )
+            store.update(number, status=DONE, finished=now(), phase="", alerts=alerts)
         finally:
             with self._lock:
                 self._procs.pop(key, None)

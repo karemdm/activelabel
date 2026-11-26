@@ -18,6 +18,7 @@ from activelabel.training.runner import (
     download_env,
     failure_fields,
     pose_box,
+    val_image_count,
     warning_entry,
     worker_key,
     worker_script,
@@ -42,6 +43,8 @@ def test_success(setup):
     assert run["activelabel_version"] and run["best"]["epoch"] == 2 and run["epoch"] == 2
     assert [m["epoch"] for m in store.metrics(n)] == [1, 2]
     assert store.results(n)["best_epoch"] == 2
+    val = len(DatasetStore(state.store.dir(1)).read(1)["parts"]["val"])
+    assert run["alerts"] == ([{"code": "few_val_images", "params": {"n": val}}] if val < 10 else [])
     log = (store.path(n) / "log.txt").read_text()
     assert "hello" in log and "not json noise" in log
     assert run["setup"] == {"device": "cpu", "amp": False, "batch_size": 4} and "setup: " in log
@@ -120,6 +123,7 @@ def test_grid_search_ranks_and_keeps_best_weights(setup):
     assert [c["id"] for c in run["children"]] == ["c1", "c2", "c3"] and run["trainings"] == 3
     assert [c["values"] for c in run["children"]] == [{"score": 0.3}, {"score": 0.9}, {"score": 0.5}]
     assert all(c["status"] == "done" and c["best"]["epoch"] == 2 for c in run["children"])
+    assert isinstance(run["alerts"], list)  # the alerts are those of the best child (see quality.py)
     assert (
         run["best_child"] == "c2"
         and run["best"] == {"epoch": 2, "value": 0.9, "best_fold_value": 0.9}
@@ -292,6 +296,21 @@ def test_build_spec_augmentations(setup):
     )
     spec = build_spec(project_dir, custom, model, run_dir, version)
     assert spec["augmentations"] == [{"name": "blur", "params": {"p": 0.2, "sigma_max": 1.5}}]
+
+
+def test_val_image_count_reads_the_part_or_the_fold_of_the_best_child(setup):
+    _, state, _ = setup
+    project = state.store.dir(1)
+    store = RunStore(project)
+    data = DatasetStore(project)
+    single = new_run(state)
+    assert val_image_count(project, store, single) == len(data.read(1)["parts"]["val"])
+    folded = composite(state, dataset=2, mode="single", fold=1)
+    assert val_image_count(project, store, folded) == len(data.read(2)["folds"][1])
+    store.update(single, best_child="c1")  # a grid run asks its best child (missing here: no answer)
+    assert val_image_count(project, store, single) is None
+    gone = composite(state, dataset=99)
+    assert val_image_count(project, store, gone) is None
 
 
 def test_download_env(tmp_path):

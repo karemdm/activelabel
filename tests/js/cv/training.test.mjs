@@ -100,3 +100,29 @@ test('a failed run says why and warns in the interface language, and offers Resu
   ANSWERS['/api/projects/5/runs'] = { runs: [] };
   panel.node.remove();
 });
+
+test('a finished run with quality alerts shows a badge on the card and the list in the details (#148)', async () => {
+  setMessages({
+    'tr.alerts_badge_one': '{n} quality alert', 'tr.alerts_badge_other': '{n} quality alerts',
+    'tr.alert.metric_zero': 'The main metric ({metric}) is zero.', 'tr.alert.class_zero': 'Class {class} was never found.',
+  }, 'en');
+  const alerts = [{ code: 'metric_zero', params: { metric: 'map50' } }, { code: 'class_zero', params: { class: 'car' } }];
+  ANSWERS['/api/projects/5/runs'] = { runs: [
+    { number: 3, status: 'done', model: 'frcnn', mode: 'single', fold: null, alerts, warnings: [] },
+    { number: 2, status: 'done', model: 'frcnn', mode: 'single', fold: null, alerts: [], warnings: [] },
+    { number: 1, status: 'failed', model: 'frcnn', mode: 'single', fold: null, alerts, warnings: [] },
+  ] };
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  await withApi(async () => {
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const badge = panel.node.querySelector('#run-3 .tr-badge.alert');
+  assert.equal(badge.textContent, '2 quality alerts');
+  assert.match(badge.title, /Class car was never found\./);
+  assert.equal(panel.node.querySelector('#run-2 .tr-badge.alert'), null);
+  assert.equal(panel.node.querySelector('#run-1 .tr-badge.alert'), null);  // only a finished run has them
+  ANSWERS['/api/projects/5/runs'] = { runs: [] };
+  panel.node.remove();
+});

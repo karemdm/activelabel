@@ -384,3 +384,19 @@ def test_environment_tells_whether_the_licence_of_a_model_is_accepted(tmp_path):
     )
     plain = client.get("/api/training/environment", params={"model": "resnet18"}).json()
     assert plain["licence"] is None and plain["licence_accepted"] is True
+
+
+def test_a_finished_run_without_stored_alerts_gets_them_from_its_results(tmp_path):
+    client, state = _setup(tmp_path)
+    assert client.post(RUNS, json={"dataset": 1, "model": "fasterrcnn_resnet50_fpn"}).status_code == 200
+    store = RunStore(state.store.dir(1))
+    assert client.get(RUNS).json()["runs"][0]["alerts"] == []  # queued: none
+    store.update(1, status="done")
+    (store.path(1) / "results.json").write_text(
+        json.dumps({"metric": "map50", "val": {"map50": 0.0}}), encoding="utf-8"
+    )
+    expected = [{"code": "metric_zero", "params": {"metric": "map50"}}]
+    assert client.get(RUNS).json()["runs"][0]["alerts"] == expected
+    assert client.get(f"{RUNS}/1").json()["alerts"] == expected
+    store.update(1, alerts=[])  # stored alerts win (the runner wrote them)
+    assert client.get(f"{RUNS}/1").json()["alerts"] == []

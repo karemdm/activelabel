@@ -241,6 +241,27 @@ instance segmentation the box of an object is the extent of its polygons, and fo
 hold every visible point, so box, mask and keypoints agree. No metric is rounded in the
 results; the interface rounds only for display. A part without images gives 0 for every metric.
 
+## Quality alerts
+
+When a run ends, `training/quality.py` reads its `results.json` and `metrics.jsonl` and stores `alerts` (a list of
+`{code, params}`) in `run.json`; the run card shows a warning badge with their number and the run details list them
+(texts `tr.alert.<code>` in `i18n/`). They are warnings only: saving the run as a model stays allowed. A finished
+run made before the alerts gets them when it is listed (from its results; the validation-size check needs the
+dataset version and is only done at the end of a run). For a grid or all-folds run the alerts are those of the
+best child, whose results and curves are the run's own. Like every output of the tool, they are a hint for a person
+to review, not a validated verdict. The thresholds are named constants in the module.
+
+| Code | When | What to try |
+|---|---|---|
+| `metric_zero` | the selection metric is 0, NaN or empty | check that the labels match the task, train more epochs, lower the learning rate, start from pretrained weights |
+| `only_background` | segmentation: mIoU below 0.01 while the pixel accuracy is at least 0.5 | the model predicts only background: more epochs, a higher learning rate for the head, more or larger objects, class weights or Dice loss if the run offers them |
+| `single_class` | classification: one class takes at least 95% of the predicted images | balance the classes (more images of the others), lower the learning rate, check the labels |
+| `class_zero` | a class has score 0 (recall, AP50 or IoU) while the mean of the classes is above 0 | add examples of that class and check its labels |
+| `class_far_below` | a class scores under half the mean of the classes, and the mean is above 0.2 (at most 5 classes named) | same: more and cleaner examples of that class |
+| `val_worse_than_train` | at the best epoch the validation loss is at least 2 times the training loss and at least 0.1 higher | overfitting: more data or augmentation, a smaller model, early stopping (patience) |
+| `few_val_images` | fewer than 10 images in the validation part (or fold) | make a version with a larger validation part, or use K-fold |
+| `few_val_per_class` | classification: a class with fewer than 2 validation images | the score of that class is not reliable: add images or change the split |
+
 ## Storage
 
 `<project>/runs/r<N>/` (numbers never reused):
