@@ -7,6 +7,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _at_least_one(text: str) -> int:
+    """A whole number setting that is never below 1.
+
+    Args:
+        text: The value of the variable (may be empty or not a number).
+
+    Returns:
+        The number, or 1 when ``text`` is empty, not a whole number or below 1.
+    """
+    try:
+        return max(1, int(text.strip()))
+    except ValueError:
+        return 1
+
+
 @dataclass(frozen=True)
 class Settings:
     """Settings of the service.
@@ -20,12 +35,18 @@ class Settings:
         allowed_hosts: ``ACTIVELABEL_ALLOWED_HOSTS``: host names, separated by commas, the server also
             answers at (besides ``127.0.0.1``, ``localhost``, ``[::1]`` and the address it listens on), for
             example a name of this machine on the local network.
+        queue_cpu: ``ACTIVELABEL_QUEUE_CPU``: jobs that may run at the same time on the processor lane of the
+            work queue (empty, invalid or below 1: 1).
+        queue_gpu: ``ACTIVELABEL_QUEUE_GPU``: jobs that may run at the same time on each GPU lane of the
+            work queue (empty, invalid or below 1: 1).
     """
 
     workspace: Path = Path.home() / ".activelabel"
     language: str = "en"
     import_root: Path | None = None
     allowed_hosts: tuple[str, ...] = ()
+    queue_cpu: int = 1
+    queue_gpu: int = 1
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
@@ -48,6 +69,8 @@ class Settings:
             allowed_hosts=tuple(
                 name.strip() for name in env.get("ACTIVELABEL_ALLOWED_HOSTS", "").split(",") if name.strip()
             ),
+            queue_cpu=_at_least_one(env.get("ACTIVELABEL_QUEUE_CPU", "")),
+            queue_gpu=_at_least_one(env.get("ACTIVELABEL_QUEUE_GPU", "")),
         )
 
     @property

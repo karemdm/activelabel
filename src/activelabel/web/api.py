@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import asdict
 from functools import partial
@@ -31,7 +32,8 @@ from activelabel.labels import (
     save_annotations,
 )
 from activelabel.preannotate import annotated_ids, empty_ids, image_state
-from activelabel.projects import Project, clean_classes
+from activelabel.projects import Project, ProjectNotFound, clean_classes
+from activelabel.scheduler import CPU
 from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskNotFound, TaskStore
@@ -39,6 +41,7 @@ from activelabel.tasks_store import jobs as task_jobs
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 
+LOG = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 MAX_PAGE = 500
@@ -1171,10 +1174,43 @@ def analyze(project_id: int, body: Analyze | None = None, state: AppState = STAT
         The queued job (id and state); its result is read from the job when it finishes.
     """
     manifest = state.manifest_with_images(project_id)
-    project_dir = state.store.dir(project_id)
-    recompute = bool(body and body.recompute)
-    job = partial(_analyze_job, manifest, project_dir, recompute)
-    return state.jobs.submit(project_id, "analyze", job).as_dict()
+    return _queue_analysis(state, project_id, manifest, bool(body and body.recompute)).as_dict()
+
+
+def _queue_analysis(state: AppState, project_id: int, manifest: Manifest, recompute: bool) -> Job:
+    """Queue the curation analysis of a project on the processor lane.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        manifest: The image manifest of the project.
+        recompute: Measure every image again, also those already measured.
+
+    Returns:
+        The queued job.
+    """
+    job = partial(_analyze_job, manifest, state.store.dir(project_id), recompute)
+    return state.jobs.submit(project_id, "analyze", job, {"recompute": recompute}, device=CPU)
+
+
+def restore_analyze(state: AppState, entry: dict[str, Any]) -> None:
+    """Queue again an analysis saved in ``queue.json`` (skipped when the project or its images are gone).
+
+    Args:
+        state: The shared state of the application.
+        entry: The saved queue entry (``project_id`` and ``params`` with ``recompute``).
+    """
+    project_id = int(entry.get("project_id", 0))
+    try:
+        manifest = state.manifest_with_images(project_id)
+    except (ApiError, ProjectNotFound):
+        LOG.info(
+            "The saved analysis of project %s was dropped: the project or its images are gone", project_id
+        )
+        return
+    params = entry.get("params")
+    recompute = bool(params.get("recompute")) if isinstance(params, dict) else False
+    _queue_analysis(state, project_id, manifest, recompute)
 
 
 @router.delete("/projects/{project_id}/curation")

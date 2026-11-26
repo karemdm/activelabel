@@ -28,6 +28,7 @@ from activelabel.web import (
     models_api,
     pages,
     preannotate_api,
+    queue_api,
     similarity_api,
     sync_api,
     tasks_api,
@@ -76,7 +77,7 @@ class RevalidatedStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(state: AppState, app: FastAPI) -> AsyncIterator[None]:
-    """Start-up and shutdown: migrate the stored format, recover runs, clean staging, stop the workers.
+    """Start-up and shutdown: migrate the stored format, recover the queue, clean staging, stop the workers.
 
     Args:
         state: The shared state of the application.
@@ -86,7 +87,12 @@ async def lifespan(state: AppState, app: FastAPI) -> AsyncIterator[None]:
         Once, while the server is running.
     """
     migrate(state.settings.workspace)  # nothing is written when the data needs no change
-    state.runner.recover()
+    state.runner.recover(
+        {
+            "analyze": partial(api.restore_analyze, state),
+            "video_task": partial(video_api.restore_video_task, state),
+        }
+    )
     for project in state.store.list():  # staged annotation files nobody applied or discarded
         cleanup_staging(state.store.dir(project.id))
     yield
@@ -124,6 +130,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.include_router(preannotate_api.router)
     app.include_router(similarity_api.router)
     app.include_router(video_api.router)
+    app.include_router(queue_api.router)
     app.include_router(pages.router)
     app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
     return app

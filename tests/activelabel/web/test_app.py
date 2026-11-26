@@ -26,7 +26,7 @@ def test_lifespan_recovers_cleans_and_shuts_down(tmp_path: Path) -> None:
     project = state.store.create("Cats", "", "classification", ["cat"])
     staging = state.store.dir(project.id) / "staging"
     calls: list[str] = []
-    state.runner.recover = lambda: calls.append("recover")  # type: ignore[method-assign]
+    state.runner.recover = lambda others=None: calls.append("recover")  # type: ignore[method-assign]
     state.runner.shutdown = lambda: calls.append("runner")  # type: ignore[method-assign]
     state.jobs.shutdown = lambda: calls.append("jobs")  # type: ignore[method-assign]
     with TestClient(create_app(state=state)):
