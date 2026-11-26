@@ -992,7 +992,8 @@ def check_annotations(
             400,
             "annotation_format_unknown",
             "The annotation format was not recognised. Supported: COCO JSON, YOLO txt (with data.yaml or "
-            "classes.txt), Pascal VOC XML, CVAT for images or video XML and MOT txt.",
+            "classes.txt), Pascal VOC XML, CVAT for images or video XML, MOT txt and CSV or JSON values for "
+            "regression.",
         )
     if target is not None and task is None and fmt not in ann.VIDEO_ONLY:
         target = None  # image files are matched by name unless the task was chosen

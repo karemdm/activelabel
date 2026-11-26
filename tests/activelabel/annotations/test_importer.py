@@ -190,3 +190,40 @@ def test_replace_with_another_task_does_not_keep_labels_of_the_old_task(proj):
     assert saved is not None and saved.task is Task.SEGMENTATION
     assert all(lb.polygons for items in saved.images.values() for lb in items)  # no old boxes mixed in
     assert summary["backup"]  # they are in the copy
+
+
+def regression_file(rows):
+    return ("values.csv", io.BytesIO(rows.encode()))
+
+
+def test_regression_import_keeps_the_first_value_of_a_target(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="regression", classes=["age"])
+    name = "values.json"
+    data = [{"image": "a.png", "age": 3}, {"image": "b.png", "age": 4, "height": 1.5}]
+    token = stage(store.dir(project.id), [(name, io.BytesIO(json.dumps(data).encode()))])
+    summary = apply(store, project.id, manifest, token, "import")
+    assert summary["task"] == "regression" and summary["labels_imported"] == 3
+    assert summary["classes_added"] == ["height"] and summary["classes_reduced"] == 0
+    annotations = load_annotations(store.dir(project.id))
+    assert annotations is not None and annotations.task is Task.REGRESSION
+    values = {lb.label: lb.value for lb in annotations.images[manifest.all()[1].id]}
+    assert values == {"age": 4.0, "height": 1.5}
+
+
+def test_regression_csv_in_a_regression_project(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="regression")
+    token = stage(store.dir(project.id), [regression_file("image;age\na.png;3,5\nb.png;x\n")])
+    summary = apply(store, project.id, manifest, token, "import")
+    assert summary["labels_imported"] == 1 and summary["classes_added"] == ["age"]
+    assert [p["code"] for p in summary["problems"]] == ["value_invalid"]
+
+
+def test_regression_import_keeps_the_first_value_of_a_repeated_column(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="regression")
+    token = stage(store.dir(project.id), [regression_file("image,age,age\na.png,1,2\nb.png,3,\n")])
+    summary = apply(store, project.id, manifest, token, "import")
+    assert summary["classes_reduced"] == 1 and summary["labels_imported"] == 2
+    annotations = load_annotations(store.dir(project.id))
+    first = annotations.images[manifest.all()[0].id]
+    assert [(lb.label, lb.value) for lb in first] == [("age", 1.0)]
+    assert [p["code"] for p in summary["problems"]] == ["repeated_target"]

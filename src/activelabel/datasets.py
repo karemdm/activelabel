@@ -37,7 +37,7 @@ from activelabel.labels import (
 )
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
-from activelabel.tasks import Task
+from activelabel.tasks import Task, refuse_regression
 from activelabel.tasks_store import TaskStore
 
 PARTS = ("train", "val", "test")
@@ -1315,10 +1315,12 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         The plan: parts, folds, labels, statistics and warnings.
 
     Raises:
-        CodedError: no image to split, or fewer image groups than K-fold needs.
+        CodedError: a regression project (``regression_not_supported_yet``), no image to split, or fewer image
+            groups than K-fold needs.
         ValueError: a split attempt failed (K-fold with too few groups surfaces this way, as a
             ``CodedError``) and no other way of splitting is left to try.
     """
+    refuse_regression(project.task)
     tasks = TaskStore(project_dir).load()
     wanted = set(options.tasks) if options.tasks else {t.id for t in tasks}
     manifest = Manifest(project_dir).load()

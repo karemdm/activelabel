@@ -70,7 +70,7 @@ confirmation first.
 - **Formats** are detected by content (`detect_format`): COCO (`.json` with `images` and `annotations`), YOLO
   (one `.txt` of label lines per image, with `data.yaml`, `classes.txt` or a `.names` file for the class names; also
   pose), Pascal VOC (`.xml`), CVAT XML,
-  CVAT for video, MOT (`gt.txt`/`det.txt`) and class folders. Files of two different formats, or none usable,
+  CVAT for video, MOT (`gt.txt`/`det.txt`), class folders and regression values (`.csv`, or a `.json` of values). Files of two different formats, or none usable,
   are refused (`annotation_format_unknown`). Images are matched by relative name, then by the same name ignoring
   case, then by file name alone; a name shared by several images is reported (`ambiguous_image_name`). The
   other names an image was uploaded with also match (docs/TASKS.md).
@@ -132,6 +132,25 @@ confirmation first.
 - *Change the type to {task} and import* always rewrites the stored type of the saved annotations as well
   as the project's; changing the type or the classes of a project (PATCH) waits for training, ONNX export
   and pre-annotation of the project to finish (409 `busy_training`), because they read both.
+
+## Regression values (CSV/JSON)
+
+A regression project (docs/DESIGN.md, issue #619) has a number per target and image; its *classes* are the
+targets (for example `age`). The values come in one `.csv` or `.json` file (format `regression`):
+
+- **CSV**: a header row; one column names the image (`image`, `file`, `filename` or `path`, in any case; the
+  first column when none of these is there) and every other column is a target, in column order. The delimiter
+  (comma, semicolon or tab) is read from the header row. A decimal comma is read when the value is quoted
+  (`"3,5"`) or the delimiter is a semicolon. An empty cell means no value for that target. A row with more cells
+  than the header, or without an image name, is skipped (`invalid_annotation`).
+- **JSON**: `{"a.jpg": {"age": 34.5, "height": 1.7}, ...}`, or a list `[{"image": "a.jpg", "age": 34.5}, ...]`. A
+  JSON with `images` and `annotations` is COCO, not values.
+- Images are matched by name like the other formats (unknown names: `unmatched_entries`). A value that is not a
+  finite number (text, `nan`, `inf`) is skipped and reported (`value_invalid`, with examples).
+- On import an image keeps the first value of each target (`repeated_target` reports the images that had more;
+  `classes_reduced` in the answer counts them). Each value is a `Label(label=<target>, value=<number>)`.
+- Not built yet for regression projects: the CVAT synchronisation, FiftyOne, the data split, training and
+  pre-annotation answer 400 `regression_not_supported_yet`.
 
 ## HTTP API
 

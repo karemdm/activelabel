@@ -44,6 +44,7 @@ export const ICONS = {
   detection: '<rect x="4" y="6" width="16" height="12" rx="1" stroke-dasharray="3 2"/><path d="M4 6h4M4 6v4M20 18h-4M20 18v-4"/>',
   segmentation: '<path d="M5 15 3 8l6-4 5 3 6 1-2 8-7 3z"/>',
   keypoints: '<circle cx="12" cy="5" r="1.8"/><circle cx="6" cy="12" r="1.8"/><circle cx="18" cy="12" r="1.8"/><circle cx="9" cy="20" r="1.8"/><circle cx="15" cy="20" r="1.8"/><path d="M12 7v5M7.6 12H16.4M12 12l-2.2 6.5M12 12l2.2 6.5"/>',
+  regression: '<path d="M4 4v16h16"/><circle cx="8" cy="15" r="1.2"/><circle cx="12" cy="11" r="1.2"/><circle cx="16" cy="12.5" r="1.2"/><circle cx="19" cy="7" r="1.2"/><path d="M6 17 19 6"/>',
   warning: '<path d="M12 3 2 20h20z"/><path d="M12 10v5M12 17.5v.5"/>',
   error: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/>',

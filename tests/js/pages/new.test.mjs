@@ -9,11 +9,17 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { initNew, readDraft, writeDraft } = await import('../../../src/activelabel/web/static/js/pages/new.js');
 
-setMessages({ 'new.name_required': 'Give the project a name', 'error.project_name_taken': 'That name is taken' }, 'en');
+setMessages({
+  'new.name_required': 'Give the project a name',
+  'error.project_name_taken': 'That name is taken',
+  'field.classes': 'Classes',
+  'field.targets': 'Targets',
+}, 'en');
 
 const box = document.createElement('div');
 box.innerHTML = `<form id="new-form"><input name="name"><textarea name="description"></textarea>
-  <div id="task-picker"></div><div id="classes-field"></div><button id="create-btn">Create</button></form>`;
+  <div id="task-picker"></div><label id="classes-label"></label><div id="classes-field"></div>
+  <p id="classes-hint"></p><button id="create-btn">Create</button></form>`;
 document.body.appendChild(box);
 if (!document.getElementById('toasts')) {
   const toasts = document.createElement('div');
@@ -26,9 +32,22 @@ const submit = () => form.dispatchEvent(new window.Event('submit', { cancelable:
 const lastToast = () => document.getElementById('toasts').lastElementChild;
 
 test('the form gets the task cards and the class chips, and starts on the name', () => {
-  assert.equal(form.querySelectorAll('.task-card').length, 4);
+  assert.equal(form.querySelectorAll('.task-card').length, 5);
   assert.ok(form.querySelector('.chips-box'));
   assert.equal(document.activeElement, form.elements.name);
+});
+
+test('a regression project names its classes field Targets (#619)', () => {
+  const label = document.getElementById('classes-label');
+  assert.equal(label.textContent, 'Classes');
+  const input = form.querySelector('input[value="regression"]');
+  input.checked = true;
+  input.dispatchEvent(new window.Event('change', { bubbles: true }));
+  assert.equal(label.textContent, 'Targets');
+  const back = form.querySelector('input[value="classification"]');
+  back.checked = true;
+  back.dispatchEvent(new window.Event('change', { bubbles: true }));
+  assert.equal(label.textContent, 'Classes');
 });
 
 test('without a name nothing is sent and the form says why', () => {

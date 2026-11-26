@@ -9,6 +9,7 @@ A project keeps its ground truth in ``<project>/annotations.json``::
 
 from __future__ import annotations
 
+import math
 import threading
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -37,10 +38,10 @@ def clamp01(value: float) -> float:
 
 @dataclass
 class Label:
-    """One annotation: a class for the image, or an object.
+    """One annotation: a class for the image, an object, or a value of the image (regression).
 
     Attributes:
-        label: class name.
+        label: class name (regression: the name of the target the value is of).
         bbox: ``[x, y, width, height]`` (relative) for objects; None for image classes.
         polygons: one or more rings of ``[x, y]`` points (relative), for segmentation.
         keypoints: ``[x, y, visibility]`` per point (relative), for pose.
@@ -48,6 +49,7 @@ class Label:
         track: identity of the object across frames (the CVAT track id; FiftyOne ``index``); None for
             objects that are not tracked.
         model: the saved model that made a pre-annotation (``m1``…); None for labels made by people.
+        value: the number of a regression target for the image (#619); None for the other tasks.
     """
 
     label: str
@@ -57,6 +59,7 @@ class Label:
     score: float | None = None
     track: int | None = None
     model: str | None = None
+    value: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form without empty fields.
@@ -84,6 +87,7 @@ class Label:
             score=data.get("score"),
             track=data.get("track"),
             model=data.get("model"),
+            value=None if data.get("value") is None else float(data["value"]),
         )
 
 
@@ -94,10 +98,13 @@ def task_of(labels: list[Label]) -> Task | None:
         labels: the labels of one image or of a project.
 
     Returns:
-        The task, from the richest shape found: keypoints, then polygons, then boxes, else classification.
+        The task, from the richest shape found: values (regression), keypoints, then polygons, then boxes,
+        else classification.
     """
     if not labels:
         return None
+    if any(lb.value is not None for lb in labels):
+        return Task.REGRESSION
     if any(lb.keypoints for lb in labels):
         return Task.KEYPOINTS
     if any(lb.polygons for lb in labels):
@@ -113,6 +120,8 @@ BOX_INVALID = "box_invalid"
 KEYPOINTS_COUNT_MISMATCH = "keypoints_count_mismatch"
 MULTIPLE_CLASSES = "multiple_classes"
 UNKNOWN_CLASS = "unknown_class"
+VALUE_INVALID = "value_invalid"
+REPEATED_TARGET = "repeated_target"
 LABEL_PROBLEMS = (
     NO_GEOMETRY,
     POLYGON_TOO_FEW_POINTS,
@@ -120,12 +129,14 @@ LABEL_PROBLEMS = (
     KEYPOINTS_COUNT_MISMATCH,
     MULTIPLE_CLASSES,
     UNKNOWN_CLASS,
+    VALUE_INVALID,
+    REPEATED_TARGET,
 )
 MAX_PROBLEM_EXAMPLES = 5
 
 
 def has_geometry(task: Task, label: Label) -> bool:
-    """Whether a label has the shape its task needs (classification needs none).
+    """Whether a label has the shape its task needs (classification needs none, regression a value).
 
     Args:
         task: the task the label must fit.
@@ -136,6 +147,8 @@ def has_geometry(task: Task, label: Label) -> bool:
     """
     if task is Task.CLASSIFICATION:
         return True
+    if task is Task.REGRESSION:
+        return label.value is not None
     if task is Task.DETECTION:
         return bool(label.bbox)
     if task is Task.SEGMENTATION:
@@ -154,10 +167,13 @@ def geometry_problem(task: Task, label: Label, keypoints: int | None = None) -> 
     Returns:
         ``no_geometry`` (the shape the task needs is missing), ``box_invalid`` (width or height not
         positive, or the box lies entirely outside the image), ``polygon_too_few_points`` (a ring with
-        fewer than 3 points) or ``keypoints_count_mismatch``; None when the label is fine.
+        fewer than 3 points), ``keypoints_count_mismatch`` or ``value_invalid`` (regression: a value that is
+        not a finite number); None when the label is fine.
     """
     if not has_geometry(task, label):
         return NO_GEOMETRY
+    if task is Task.REGRESSION:
+        return None if math.isfinite(float(label.value or 0.0)) else VALUE_INVALID
     if task is Task.DETECTION and label.bbox:
         x, y, w, h = label.bbox[:4]
         if w <= 0 or h <= 0 or x >= 1 or y >= 1 or x + w <= 0 or y + h <= 0:
@@ -249,7 +265,8 @@ def validate_labels(
 
     Returns:
         The counts and examples per category. For classification ``multiple_classes`` counts the images
-        that have more than one distinct class (those keep only the first on import).
+        that have more than one distinct class (those keep only the first on import); for regression
+        ``repeated_target`` counts the images with two values of one target (the first is kept).
     """
     check = LabelCheck()
     known = {c.lower() for c in classes or []}
@@ -269,6 +286,9 @@ def validate_labels(
                 check.add(UNKNOWN_CLASS, image_id)
         if task is Task.CLASSIFICATION and len({lb.label.lower() for lb in items}) > 1:
             check.add(MULTIPLE_CLASSES, image_id)
+        names = [lb.label.lower() for lb in items]
+        if task is Task.REGRESSION and len(set(names)) < len(names):
+            check.add(REPEATED_TARGET, image_id)
     return check
 
 

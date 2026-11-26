@@ -5,6 +5,8 @@ import pytest
 from ann_helpers import make_project
 
 from activelabel.annotations import load_staged, parse, stage, validate
+from activelabel.annotations.models import ParseResult
+from activelabel.labels import Label
 
 
 def coco_file(task="seg"):
@@ -75,3 +77,22 @@ def test_nothing_matched_is_one_problem_not_two(proj):
     codes = [p.code for p in report.problems]
     assert codes.count("no_images_matched") == 1 and "unmatched_entries" not in codes
     assert report.unmatched["count"] == 1
+
+
+def test_regression_values_are_matched_and_bad_values_reported_once(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png", "b.png"], task="regression", classes=["age"])
+    csv_file = ("v.csv", io.BytesIO(b"image,age\na.png,3\nb.png,oops\n"))
+    files = load_staged(store.dir(project.id), stage(store.dir(project.id), [csv_file]))
+    report = validate(parse(files, "regression", manifest.all()), project)
+    assert report.inferred_task == "regression" and report.task_matches and report.can_import
+    assert [p.code for p in report.problems] == ["value_invalid"]
+    assert report.counts["labels_per_class"] == {"age": 1} and report.classes_new == []
+
+
+def test_regression_repeated_target_is_a_warning(tmp_path):
+    store, project, manifest = make_project(tmp_path, ["a.png"], task="regression", classes=["age"])
+    labels = {manifest.all()[0].id: [Label("age", value=1.0), Label("age", value=2.0)]}
+    result = ParseResult("regression", labels, ["age"], ["v.json"], 1)
+    report = validate(result, project)
+    found = next(p for p in report.problems if p.code == "repeated_target")
+    assert found.level == "warning" and found.count == 1

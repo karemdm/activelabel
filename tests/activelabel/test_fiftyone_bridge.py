@@ -13,6 +13,7 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate import sessions
+from activelabel.errors import CodedError
 from activelabel.fiftyone_bridge import resolve_view
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
@@ -617,3 +618,9 @@ def test_the_port_of_a_session_is_its_server_port():
     """A FiftyOne session has ``server_port``, not ``port``: reading ``port`` dropped the App every time."""
     assert bridge._app_port(SimpleNamespace(server_port=5171)) == 5171
     assert bridge._app_port(SimpleNamespace(port="5172")) == 5172
+
+
+def test_a_regression_project_is_not_opened_in_fiftyone(tmp_path):
+    with pytest.raises(CodedError) as caught:
+        bridge.sync_dataset(SimpleNamespace(id=1, task=Task.REGRESSION), None, None)  # type: ignore[arg-type]
+    assert caught.value.code == "regression_not_supported_yet"

@@ -16,8 +16,8 @@ setMessages({
   'issue.dark': 'Dark images', 'ds.part_train': 'Training', 'ds.part_val': 'Validation', 'ds.part_test': 'Test',
 }, 'en');
 
-test('the four task types and the ten curation issues (two about the stored file), in the order the screens show them', () => {
-  assert.deepEqual(TASKS, ['classification', 'detection', 'segmentation', 'keypoints']);
+test('the five task types and the ten curation issues (two about the stored file), in the order the screens show them', () => {
+  assert.deepEqual(TASKS, ['classification', 'detection', 'segmentation', 'keypoints', 'regression']);
   assert.equal(ISSUES.length, 10);
   assert.deepEqual(ISSUES.slice(-2), ['file_missing', 'file_changed']);   // #620
   assert.ok(SKIP_FILES.has('thumbs.db'));
@@ -33,11 +33,11 @@ test('names fall back to the raw id when the text is missing', () => {
   assert.deepEqual(['train', 'val', 'test', 'other', null].map(partName), ['Training', 'Validation', 'Test', 'other', '']);
 });
 
-test('taskPicker is a radio group of four cards; set and a change move the selection', () => {
+test('taskPicker is a radio group of five cards; set and a change move the selection', () => {
   const picker = taskPicker('t', 'classification');
   document.body.appendChild(picker.node);
   assert.equal(picker.node.getAttribute('role'), 'radiogroup');
-  assert.equal(picker.node.querySelectorAll('input[type="radio"]').length, 4);
+  assert.equal(picker.node.querySelectorAll('input[type="radio"]').length, 5);
   assert.equal(picker.get(), 'classification');
   const input = picker.node.querySelector('input[value="detection"]');
   input.checked = true;

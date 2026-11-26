@@ -19,7 +19,7 @@ STAGING = "staging"
 REPORT_NAME = ".report.json"  # the report of the check, inside the staging folder (not an annotation file)
 MAX_AGE_SECONDS = 24 * 3600
 MAX_TOTAL_BYTES = 1024**3
-ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names"}
+ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names", ".csv"}
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 _TOKEN = re.compile(r"^[0-9a-f]{16}$")
 
@@ -139,7 +139,7 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list
 def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
     """Save uploaded annotation files (or zips of them) and return a token.
 
-    Only json, xml, txt, yaml and names files are kept (other files are ignored). An upload with
+    Only json, csv, xml, txt, yaml and names files are kept (other files are ignored). An upload with
     images and no annotation file (a zip or folder with one sub-folder per class) keeps an empty file
     per image (only when they sit in at least two class folders), so that ``detect_format`` can see
     the class folders. Staging folders older than 24 hours are removed first.
