@@ -377,3 +377,22 @@ def test_smp_offers_decoders_on_encoders_for_semantic_segmentation():
     assert unet.param("image_size").min == 128
     assert get_model("smp_segformer_mit_b2").library_name == "Segformer:mit_b2"
     assert "smp" in catalog.FAMILIES
+
+
+def test_transformers_offers_segformer_detr_rtdetr_and_mask2former():
+    """#606 step 2: Hugging Face models, architecture and variant, built from their Hub checkpoint."""
+    hf = [m for m in catalog.MODELS if m.family == "transformers"]
+    assert {m.arch for m in hf} == {"SegFormer", "DETR", "RT-DETR", "Mask2Former"} and len(hf) == 15
+    assert {m.task_kind for m in hf} == {"semantic", "detection", "instance"}
+    detr = get_model("hf_detr_detr_resnet_50")
+    assert (detr.library_name, detr.types, "transformers" in detr.packages) == (
+        "detr:facebook/detr-resnet-50",
+        ("detection",),
+        True,
+    )
+    assert detr.param("trainable_backbone_layers").min == detr.param("trainable_backbone_layers").max == 5
+    assert (
+        get_model("hf_segformer_mit_b0").task_kind == "semantic"
+        and "other" in get_model("hf_segformer_mit_b0").notes
+    )
+    assert get_model("hf_mask2former_mask2former_swin_tiny_coco_instance").types == ("segmentation",)

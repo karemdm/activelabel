@@ -420,3 +420,10 @@ def test_parse_nvidia_smi_reads_the_memory_when_asked():
     info = parse_nvidia_smi("NVIDIA GeForce RTX 3060, 551.61, 12288 MiB\n")
     assert info is not None and info.memory_mb == 12288 and info.as_dict()["memory_mb"] == 12288
     assert parse_nvidia_smi(QUERY).memory_mb is None  # type: ignore[union-attr]
+
+
+def test_a_package_that_needs_a_newer_python_is_refused_with_a_reason():
+    """transformers 5 needs Python 3.11: an older Python gets a readable message, nothing is installed."""
+    assert envmod.python_floor_problem(["torch", "transformers"], (3, 11)) is None
+    problem = envmod.python_floor_problem(["torch", "transformers==5.23.0"], (3, 10))
+    assert problem is not None and "3.11" in problem and "transformers" in problem

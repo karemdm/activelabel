@@ -11,7 +11,8 @@ ActiveLabel.
 It trains torchvision's models (``family`` ``torchvision``: DeepLabV3, FCN, LR-ASPP) and those of
 segmentation_models_pytorch (``family`` ``smp``, #606: ``model`` is ``<decoder>:<encoder>``, for example
 ``Unet:resnet34``; the decoder, its segmentation head and the encoder play the parts of torchvision's
-classifier and backbone).
+classifier and backbone), and SegFormer of Hugging Face ``transformers`` (``family`` ``transformers``:
+``model`` is ``segformer:<checkpoint>``; ``hf_models.HfSemantic``).
 
 Spec data (``parts[name]`` items)::
 
@@ -41,9 +42,10 @@ from PIL import Image, ImageDraw, ImageOps
 from torch.utils.data import DataLoader
 
 try:
-    from activelabel.training.workers import augment, options
+    from activelabel.training.workers import augment, hf_models, options
 except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import hf_models  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
 try:
@@ -131,6 +133,13 @@ def load_spec(path: str | Path) -> dict[str, Any]:
             raise SpecError(f"Unknown segmentation_models_pytorch model '{spec['model']}'.")
         if int(spec["params"]["image_size"]) % SMP_STRIDE:
             raise SpecError(f"These models take image sizes that are a multiple of {SMP_STRIDE}.")
+    elif spec["family"] == "transformers":
+        try:
+            arch, _ = hf_models.split_id(str(spec["model"]))
+        except ValueError as exc:
+            raise SpecError(str(exc)) from None
+        if arch not in hf_models.SEMANTIC:
+            raise SpecError(f"'{spec['model']}' is not a semantic segmentation model.")
     elif spec["family"] != "torchvision" or spec["model"] not in MODELS:
         raise SpecError(f"Unknown semantic segmentation model '{spec['model']}'.")
     if spec["start"] not in ("transfer", "finetune", "scratch"):
@@ -489,10 +498,10 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
         pretrained: Start from pretrained weights (downloads them when needed) instead of random ones.
 
     Returns:
-        The model (an :class:`SmpNet` for the ``smp`` family).
+        The model (an :class:`SmpNet` for ``smp``, a ``hf_models.HfSemantic`` for ``transformers``).
 
     Raises:
-        SpecError: unknown model, or segmentation_models_pytorch is not installed.
+        SpecError: unknown model, or segmentation_models_pytorch or transformers is not installed.
     """
     model_id = spec["model"]
     if spec.get("family") == "smp":
@@ -506,6 +515,13 @@ def build_model(spec: dict[str, Any], pretrained: bool) -> Any:
             classes=len(spec["classes"]) + 1,
         )
         return SmpNet(net)
+    if spec.get("family") == "transformers":
+        try:
+            return hf_models.HfSemantic(
+                hf_models.build_network(str(model_id), len(spec["classes"]) + 1, pretrained)
+            )
+        except ImportError as exc:
+            raise SpecError(str(exc)) from None
     builder = getattr(torchvision.models.segmentation, model_id, None)
     if builder is None or model_id not in MODELS:
         raise SpecError(f"torchvision has no segmentation model '{model_id}'.")
@@ -536,6 +552,8 @@ def head_modules(model: Any) -> list[Any]:
     """
     if isinstance(model, SmpNet):
         return [model.net.decoder, model.net.segmentation_head]
+    if isinstance(model, hf_models.HfSemantic):
+        return model.heads()
     aux = getattr(model, "aux_classifier", None)
     return [model.classifier] + ([aux] if aux is not None else [])
 
