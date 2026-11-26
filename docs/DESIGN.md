@@ -105,6 +105,12 @@ name (renaming it would break open FiftyOne App tabs and edit sessions), but onl
 into this project's folder; a dataset that holds another workspace's images is never adopted. Deleting a
 project deletes its recorded dataset (and the plain-named one only when it holds this project's images).
 
+**Runs.** Each analysis that writes to the dataset is also recorded as a FiftyOne custom run, with its
+parameters and time, under a stable key: `activelabel_uniqueness`, `activelabel_clustering` (the regrouping)
+and `activelabel_label_check` (the label check); a new computation replaces the run of its key. The similarity
+map itself is FiftyOne's brain run `activelabel_similarity`. `GET .../curation/runs` lists every run of the
+dataset and `DELETE .../curation/runs/{key}` deletes one of ours (`activelabel/curation/fiftyone_runs.py`).
+
 ## Screens
 
 1. **Projects** — cards that fill the row: name, `#id`, type, images (active / excluded), annotation
@@ -270,6 +276,8 @@ running.
 | GET | `/projects/{id}/curation/mistakenness` | | the state of the label check (`{}` before the first one) with the `scores` (image id to `{mistakenness, missing, spurious, hardness}`; `hardness` only for a classification model) |
 | POST | `/projects/{id}/curation/mistakenness` | `{model, device = "auto"}` | the state, queued on the lane of the device; 404 `model_not_found`, 400 for a device this computer lacks or a model that cannot predict on the project, 409 `no_labelled_images`, 409 `mistakenness_running` while one is queued or running |
 | POST | `/projects/{id}/curation/mistakenness/cancel` | | the state (the previous scores stay; a running worker is killed) |
+| GET | `/projects/{id}/curation/runs` | | `{runs: [{type, key, timestamp, config, ours}]}`: the runs of the project's FiftyOne dataset (brain, evaluation, annotation and custom); empty before FiftyOne was used |
+| DELETE | `/projects/{id}/curation/runs/{key}` | | the runs after the deletion; only the runs ActiveLabel records itself can be deleted (the sample fields they wrote stay); 404 `run_not_found` for another run or an unknown key |
 | GET | `/projects/{id}/curation/suggested` | | ids |
 | POST | `/projects/{id}/fiftyone` | `{view, task?, job?}` | job → `{url}` |
 | POST | `/projects/{id}/fiftyone/pull-exclusions` | | `{excluded}` |
