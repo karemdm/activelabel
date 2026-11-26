@@ -5,8 +5,10 @@ import { api } from '../shell/api.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { el, esc, fill, icon } from '../shell/dom.js';
 import { num, t, tn, tr } from '../shell/i18n.js';
+import { confirmDialog } from '../shell/dialogs.js';
 import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
+import { deviceName } from './names.js';
 
 export const GROUP_COLOURS = 8;   // --group-1..8 in app.css; more groups reuse the colours
 const ACTIVE = (s) => s.status === 'queued' || s.status === 'running';
@@ -50,6 +52,17 @@ export function similarityBlock(page) {
   const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   let state = {};
   let timer = null;
+  let reqs = null;      // what the map needs (#664): packages to install, devices, images
+  let device = 'auto';
+
+  async function requirements() {
+    try {
+      reqs = await api('GET', `/projects/${projectId}/curation/similarity/requirements`);
+    } catch (err) {
+      if (err.status !== 404) toastError(err);
+    }
+    return reqs;
+  }
 
   async function load() {
     clearTimeout(timer);
@@ -59,14 +72,33 @@ export function similarityBlock(page) {
       if (err.status !== 404) toastError(err);
       return;
     }
+    if (!reqs) await requirements();
     draw();
     if (ACTIVE(state) && node.isConnected) timer = setTimeout(load, 2000);
+  }
+
+  /* the first map installs PyTorch in the training environment: confirm it like the training dialog does (#664) */
+  async function ready() {
+    const need = await requirements();
+    if (!need) return true;
+    if (need.images < need.min_images) {
+      toast(t('sim.too_few', { min: num(need.min_images), n: num(need.images) }), 'error', 6000);
+      return false;
+    }
+    if (!need.install_needed) return true;
+    return confirmDialog({
+      title: t('sim.install_title'),
+      text: t('tr.packages_note', { list: need.missing.join(', ') }),
+      confirmLabel: t('sim.install_confirm'),
+      danger: false,
+    });
   }
 
   async function start(button) {
     button.disabled = true;
     try {
-      state = await api('POST', `/projects/${projectId}/curation/similarity`, { json: {} });
+      if (!(await ready())) { button.disabled = false; return; }
+      state = await api('POST', `/projects/${projectId}/curation/similarity`, { json: { device } });
       toast(t('sim.started'), 'info', 4000);
       draw();
       timer = setTimeout(load, 1000);
@@ -107,7 +139,13 @@ export function similarityBlock(page) {
     const done = state.points && (state.points.ids || []).length > 0;
     const startBtn = el('button', { type: 'button', class: `btn${done ? '' : ' primary'}`, disabled: active, onclick: (e) => start(e.currentTarget) },
       done ? t('sim.recompute') : t('sim.compute'));
-    const actions = el('div', { class: 'cur-actions' }, startBtn,
+    const few = reqs && reqs.images < reqs.min_images;
+    if (few) startBtn.disabled = true;
+    const devices = (reqs && reqs.devices) || ['auto', 'cpu'];
+    const deviceSel = el('select', { id: 'sim-device', class: 'tr-select', disabled: active, onchange: (e) => { device = e.target.value; } },
+      ...devices.map((d) => el('option', { value: d, selected: d === device }, deviceName(d))));
+    const deviceField = el('label', { class: 'sim-device', for: 'sim-device' }, t('tr.device_label'), ' ', deviceSel);
+    const actions = el('div', { class: 'cur-actions' }, deviceField, startBtn,
       active ? el('button', { type: 'button', class: 'btn', onclick: cancel }, t('sim.cancel')) : null,
       done && !active ? fiftyoneButton(el('button', { type: 'button', class: 'btn', onclick: openApp }, t('sim.open_fo'))) : null);
     const status = statusText(state);
@@ -125,6 +163,7 @@ export function similarityBlock(page) {
       el('h3', { id: 'h-sim' }, t('sim.title')),
       el('p', { class: 'muted' }, t('sim.intro')),
       actions,
+      few ? el('p', { class: 'hint' }, t('sim.too_few', { min: num(reqs.min_images), n: num(reqs.images) })) : null,
       status ? el('p', { class: active ? 'muted' : 'sim-note' }, status) : null,
       ...body,
       live);
