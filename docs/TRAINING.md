@@ -24,9 +24,16 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   ActiveLabel (`<workspace>/training/env`, or a short folder under `%LOCALAPPDATA%` on Windows when
   the path is long), so ActiveLabel itself stays light and free of version conflicts.
 - **Downloads are temporary.** Pretrained weights, the `spec.json` of the run and
-  any other download go to a temporary folder (`<workspace>/training/tmp`), removed when the run ends
-  (finished, failed or cancelled). Folders left by a process that was killed are removed when
-  ActiveLabel starts. Only the run's results stay.
+  any other download go to a temporary folder of the job (`<workspace>/training/tmp`): the worker's
+  `TORCH_HOME` (torchvision), `HF_HOME` (timm, Hugging Face), `XDG_CACHE_HOME`, `YOLO_CONFIG_DIR` and its
+  working folder (where Ultralytics saves its weights) all point inside it. The folder is removed when the
+  training run or pre-annotation ends (finished, failed or cancelled), and the job records what it had
+  downloaded in `downloads` (`run.json`, or the pre-annotation run): `{files: [{name, bytes}], bytes,
+  deleted}`. The trained weights (`best.pt`, `last.pt`) are written to the run's own folder and stay;
+  caches outside ActiveLabel are never read nor removed. The price is that every run, pre-annotation and
+  resumed run (#321) downloads its pretrained weights again (from tens to a few hundred MB, depending on
+  the model). Folders left by a process that was killed are removed when ActiveLabel starts. Only the
+  run's results stay.
 - **One heavy job per device.** Training runs, pre-annotations (docs/PREANNOTATE.md), ONNX exports,
   curation analyses and video extractions of every project wait in one global queue with a lane per
   device (`cpu`, `cuda:0`, `cuda:1`..., `mps`): by default one job at a time on each GPU and one on the

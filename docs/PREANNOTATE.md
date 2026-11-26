@@ -155,7 +155,8 @@ round of labels to review, not to replace a model trained on the project's own i
   `{category: class}`; a category can go to one class only.
 - **Weights**: nothing is stored in the project (`model.json` only, with `source: "public"`, the
   catalogue id and the mapping). Each pre-annotation run downloads the weights from the torchvision
-  servers into the run's temporary folder, removed at the end; it needs `torch` and `torchvision`
+  servers into the run's temporary folder, removed at the end (what was downloaded is recorded in the
+  run's `downloads`, docs/TRAINING.md); it needs `torch` and `torchvision`
   in the training environment (installed first when missing) and an internet connection.
 - In the mapping dialog, a category of the model can go to only one class (the dialog says which classes
   chose it twice and does not save until that is fixed), and at least one class must be linked.
