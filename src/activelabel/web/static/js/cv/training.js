@@ -119,6 +119,24 @@ export function trainingPanel(page) {
       ? el('ul', { class: 'tr-warnings', 'aria-label': t('tr.warnings') }, ...list.map((w) => el('li', null, icon('warning', 14), el('span', null, w))))
       : null;
   }
+  /* quality alerts of a finished run (#148): never block saving; the text comes from tr.alert.<code> */
+  const alertText = (a) => tr(`tr.alert.${a.code}`, a.code, { ...errorParams(a.params), ...(a.params && a.params.metric ? { metric: metricName(a.params.metric) } : {}) });
+  const alertsOf = (r) => (r.status === 'done' ? r.alerts || [] : []);
+  function alertsBadge(r) {
+    const list = alertsOf(r);
+    return list.length
+      ? el('p', { class: 'tr-alerts' }, el('span', { class: 'tr-badge alert', title: list.map(alertText).join(' · ') }, icon('warning', 14), tn('tr.alerts_badge', list.length)))
+      : null;
+  }
+  function alertsBlock(r) {
+    const list = alertsOf(r);
+    return list.length
+      ? el('section', { class: 'tr-section', 'aria-labelledby': 'trd-alerts' },
+        el('h3', { id: 'trd-alerts', class: 'section-title' }, t('tr.alerts')),
+        el('p', { class: 'muted' }, t('tr.alerts_hint')),
+        el('ul', { class: 'tr-warnings' }, ...list.map((a) => el('li', null, icon('warning', 14), el('span', null, alertText(a))))))
+      : null;
+  }
   /* a failed or cancelled single run with a checkpoint goes on from it (same number); grids and all-folds runs later */
   const resumable = (r) => (r.status === 'failed' || r.status === 'cancelled') && !!r.checkpoint_epoch && r.mode !== 'grid' && r.fold !== 'all';
   async function resumeRun(r) {
@@ -156,6 +174,7 @@ export function trainingPanel(page) {
       configError(r),
       r.status === 'failed' && runError(r) ? el('p', { class: 'tr-fail' }, icon('error', 16), el('span', null, runError(r))) : null,
       warningsBlock(r),
+      alertsBadge(r),
       noWeights ? el('p', { class: 'muted tr-msg tr-noweights', id: `${id}-noweights` }, icon('info', 14), t('md.no_weights')) : null,
       best || facts.length
         ? el('p', { class: 'tr-facts' }, best ? el('strong', null, best) : null, best && facts.length ? ' · ' : null, el('span', { class: 'muted' }, facts.join(' · ')))
@@ -1181,7 +1200,7 @@ export function trainingPanel(page) {
           el('h2', null, t('tr.detail_title', { n: r.number })),
           badge(r),
           el('button', { type: 'button', class: 'icon-btn', 'data-act': 'close', 'aria-label': t('common.close'), onclick: () => dlg.close() }, icon('close', 18))),
-        progressBlock(r), trainingsBlock(r), viewingNote(r), chartsBlock(view), resultsBlock(view), setupBlock(view), configBlock(r)));
+        progressBlock(r), alertsBlock(r), trainingsBlock(r), viewingNote(r), chartsBlock(view), resultsBlock(view), setupBlock(view), configBlock(r)));
       body.scrollTop = top;
       const text = phaseText(r);
       if (text !== lastLive) { lastLive = text; live.textContent = text; }

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
+from activelabel.jobs import DONE
 from activelabel.projects import Project
 from activelabel.storage import now
 from activelabel.training import augmentations, devices
@@ -24,6 +25,7 @@ from activelabel.training.licences import (
     licence_of_model,
 )
 from activelabel.training.models import WEIGHTS, ModelStore
+from activelabel.training.quality import quality_alerts
 from activelabel.training.runner import EXTRA_PACKAGES, RunnerError, check_resume
 from activelabel.training.runs import QUEUED, RunBusy, RunNotFound, RunStore
 from activelabel.web.errors import ApiError, bad_request
@@ -108,10 +110,16 @@ def _summary(store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         The run with the main fields of its configuration; ``warnings`` as ``{code, params, message}``
-        and ``error_code`` / ``error_params`` (empty when the failure has no code), for the translations.
+        and ``error_code`` / ``error_params`` (empty when the failure has no code), for the translations;
+        ``alerts`` as ``{code, params}`` (a finished run made before the alerts gets them from its results,
+        without the validation size check).
     """
+    alerts = run.get("alerts")
+    if alerts is None and run.get("status") == DONE:
+        alerts = quality_alerts(store.results(run["number"]), store.metrics(run["number"]))
     run = {
         **run,
+        "alerts": alerts or [],
         "warnings": _warnings(run),
         "error_code": run.get("error_code") or "",
         "error_params": run.get("error_params") or {},
