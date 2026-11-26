@@ -204,3 +204,20 @@ def test_the_model_size_is_a_row_of_buttons_that_wraps_in_two_rows_on_a_phone():
         ):
             assert texts.get(key), (lang, key)
     assert "YOLO12" not in JS  # the owner's decision on #632: not offered
+
+
+def test_the_queue_count_reads_on_its_colour_and_the_panel_fits_a_phone():
+    """#603: the count on the Queue button uses the text colour of the accent (contrast checked for each task
+    colour in test_contrast.py), no fixed white; on a phone the panel is pinned 1rem from each side."""
+    count = re.search(r"^\.queue-count \{([^}]*)\}", CSS, re.M)
+    assert count and "color: var(--on-accent)" in count.group(1)
+    rules = CSS[CSS.index(":root[data-theme") :]  # past the tokens
+    assert not re.search(r"#fff\b|#ffffff\b", rules, re.I)
+    assert re.search(
+        r"max-width: 480px\) \{ \.queue-panel \{ position: fixed; top: 4rem; "
+        r"left: var\(--space-4\); right: var\(--space-4\); width: auto;",
+        CSS,
+    )
+    # the word "Fila" is for screen readers only on a phone, so queue, language and theme fit 390 px
+    word = r"max-width: 480px\) \{ \.queue-btn > span:not\(\.queue-count\) \{ position: absolute;"
+    assert re.search(word, CSS)
