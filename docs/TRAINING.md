@@ -42,7 +42,7 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
 | Segmentation (instance) | torchvision / ultralytics | Mask R-CNN ResNet-50 FPN; YOLOv8/11-seg | torch, torchvision / ultralytics |
 | Keypoints | torchvision / ultralytics | Keypoint R-CNN; YOLOv8/11-pose | torch, torchvision / ultralytics |
 
-**Note on timm.** The classification models that use `timm` are being moved off it (issue #618); until that
+**Note on timm.** The classification models that use `timm` are being moved off it (issue #617); until that
 lands, this page and the pinned versions still mention it.
 
 The new-run dialog asks for the **family** first (*Model family* / *Família do modelo*) and then for a
