@@ -151,10 +151,15 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 /* the queue of heavy work (#603): the top bar button with its count and the panel under it */
 .topbar-tools { position: relative; }
 .queue-btn { gap: 0.4rem; }
-.queue-count { min-width: 1.4rem; padding: 0 0.35rem; border-radius: var(--radius-pill); background: var(--area); color: #fff; font-size: var(--font-xs); font-weight: 700; text-align: center; }
+.queue-count { min-width: 1.4rem; padding: 0 0.35rem; border-radius: var(--radius-pill); background: var(--area); color: var(--on-accent); font-size: var(--font-xs); font-weight: 700; text-align: center; }
 .queue-count[hidden] { display: none; }
 .queue-panel { position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 50; width: min(34rem, calc(100vw - 2rem)); max-height: 70vh; overflow: auto; padding: var(--space-3) var(--space-4); box-shadow: 0 12px 32px rgb(0 0 0 / 0.18); }
 .queue-panel[hidden] { display: none; }
+/* on a phone the button is not at the edge of the screen (language and theme follow it): the panel is pinned to
+   the screen, 1rem from both sides, under the top bar (#603) */
+/* and the word "Fila" is kept for screen readers only, so the bar (queue, language, theme) fits 390 px */
+@media (max-width: 480px) { .queue-btn > span:not(.queue-count) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+@media (max-width: 480px) { .queue-panel { position: fixed; top: 4rem; left: var(--space-4); right: var(--space-4); width: auto; max-height: calc(100vh - 5rem); } }
 .queue-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .queue-head h2 { margin: 0; font-size: var(--font-lg); }
 .queue-rows { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; }
