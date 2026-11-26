@@ -139,6 +139,8 @@ export function initProject() {
 
   function renderHeader() {
     const p = ctx.project;
+    /* the page takes the colour of the task type of the project (app.css: data-task, #621) */
+    document.documentElement.dataset.task = p.task;
     fill(headerBox,
       el('div', { class: 'project-head-main' },
         el('div', { class: 'project-title-row' },

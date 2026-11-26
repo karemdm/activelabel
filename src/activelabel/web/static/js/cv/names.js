@@ -36,7 +36,7 @@ export function taskPicker(name, value) {
         });
         return el(
           'label',
-          { class: `task-card${task === current ? ' selected' : ''}`, for: id },
+          { class: `task-card task-${task}${task === current ? ' selected' : ''}`, for: id },
           input,
           icon(task, 28),
           el('span', { class: 'task-card-title' }, taskName(task)),
@@ -49,7 +49,8 @@ export function taskPicker(name, value) {
   return { node, get: () => current, set: (v) => { current = v; draw(); } };
 }
 
-export const taskBadge = (task) => el('span', { class: `badge task-${task}` }, icon(task, 14), taskName(task));
+/* the type badge: the task colour (app.css .task-<type>) always with its icon and its name (#621) */
+export const taskBadge = (task) => el('span', { class: `badge task-badge task-${task}` }, icon(task, 14), taskName(task));
 
 /** How far the annotation of a project is (its counts, as the API gives them), in a few words. */
 export function annotationStatus(c) {

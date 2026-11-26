@@ -51,7 +51,7 @@ test('taskPicker is a radio group of four cards; set and a change move the selec
 
 test('taskBadge shows the icon and the name of the task', () => {
   const badge = taskBadge('detection');
-  assert.equal(badge.className, 'badge task-detection');
+  assert.equal(badge.className, 'badge task-badge task-detection');
   assert.ok(badge.querySelector('.icon-detection'));
   assert.equal(badge.textContent, 'Detection');
 });

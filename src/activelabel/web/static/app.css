@@ -12,10 +12,12 @@
      touch    --touch 36px (interactive targets; 44px on small screens)
    Breakpoints (media queries cannot use variables): 480px phone, 760px small, 900px medium, 1100px wide.
 
-   Colour says where you are: blue on the home and lists (brand), teal in Dados (steps 1-3), violet in
-   Modelo (steps 4-6). The project page sets data-area="data|model" on <html>; that remaps --area and
-   --area-soft, and every accent (--primary, primary buttons, active chips and tabs, the current step) uses
-   them. Status colours (ok, warn, danger) only mean state and always come with an icon or a word.
+   Colour says what the project is for (#621): blue on the home and lists (brand); inside a project, the
+   colour of its task type (--task-<type>). The project page sets data-task="<type>" on <html>; that remaps
+   --area and --area-soft, and every accent (--primary, primary buttons, active chips and tabs, the current
+   step, the band under the top bar) uses them. Where you are (Dados or Modelo) is told by place and words:
+   two step groups, each with its title. A task colour never stands alone: the type badge carries the icon
+   and the name. Status colours (ok, warn, danger) only mean state and always come with an icon or a word.
    Contrast of every token pair is checked by tests/activelabel/web/test_contrast.py. */
 @property --area { syntax: "<color>"; inherits: true; initial-value: #2456d3; }
 @property --area-soft { syntax: "<color>"; inherits: true; initial-value: #e7eefc; }
@@ -30,10 +32,20 @@
   --on-accent: light-dark(#ffffff, #0b0f14);
   --brand: light-dark(#2456d3, #86a8ff);
   --brand-soft: light-dark(#e7eefc, #1a2645);
-  --dados: light-dark(#0a6f7a, #4fc8d1);
-  --dados-soft: light-dark(#e2f3f4, #0e2c30);
-  --modelo: light-dark(#6a3dc4, #b9a0ff);
-  --modelo-soft: light-dark(#eee8fb, #241b42);
+  /* one hue per task type, apart from each other, from the brand blue and from the status colours
+     (CIELAB distance >= 20, tests/activelabel/web/test_contrast.py) */
+  --task-classification: light-dark(#0a6f7a, #4fc8d1);
+  --task-classification-soft: light-dark(#e2f3f4, #0e2c30);
+  --task-detection: light-dark(#7438c2, #c3a2ff);
+  --task-detection-soft: light-dark(#efe7fb, #261b42);
+  --task-segmentation: light-dark(#a1286f, #f592cc);
+  --task-segmentation-soft: light-dark(#fbe6f1, #3a1a2d);
+  --task-semantic: light-dark(#3d5a0e, #b4d672);
+  --task-semantic-soft: light-dark(#ebf2dc, #232d12);
+  --task-keypoints: light-dark(#92422c, #ff9f5c);
+  --task-keypoints-soft: light-dark(#fce9de, #3b2216);
+  --task-regression: light-dark(#0b62a0, #7cc0f5);
+  --task-regression-soft: light-dark(#e1eefa, #13283c);
   --area: var(--brand);
   --area-soft: var(--brand-soft);
   --primary: var(--area);
@@ -70,8 +82,15 @@
 }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
-:root[data-area="data"] { --area: var(--dados); --area-soft: var(--dados-soft); }
-:root[data-area="model"] { --area: var(--modelo); --area-soft: var(--modelo-soft); }
+/* a task type sets --task on the project page (<html data-task>) and on its badge and picker card */
+:root[data-task="classification"], .task-classification { --task: var(--task-classification); --task-soft: var(--task-classification-soft); }
+:root[data-task="detection"], .task-detection { --task: var(--task-detection); --task-soft: var(--task-detection-soft); }
+:root[data-task="segmentation"], .task-segmentation { --task: var(--task-segmentation); --task-soft: var(--task-segmentation-soft); }
+:root[data-task="semantic"], .task-semantic { --task: var(--task-semantic); --task-soft: var(--task-semantic-soft); }
+:root[data-task="keypoints"], .task-keypoints { --task: var(--task-keypoints); --task-soft: var(--task-keypoints-soft); }
+:root[data-task="regression"], .task-regression { --task: var(--task-regression); --task-soft: var(--task-regression-soft); }
+/* inside a project the task colour is the area colour; an unknown type keeps the brand blue */
+:root[data-task] { --area: var(--task, var(--brand)); --area-soft: var(--task-soft, var(--brand-soft)); }
 :root { transition: --area var(--area-fade), --area-soft var(--area-fade); }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -111,7 +130,7 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 .skip-link:focus { left: 0; }
 
 /* ---- top bar ---- */
-/* the 3px band under the bar is the area colour: blue on the home, teal in Dados, violet in Modelo */
+/* the 3px band under the bar is the area colour: blue on the home, the task colour in a project */
 .topbar { background: var(--surface); border-bottom: 3px solid var(--area); position: sticky; top: 0; z-index: 20; }
 .topbar-inner { max-width: var(--page-max); margin: 0 auto; padding: 0.6rem var(--gutter); display: flex; align-items: center; gap: var(--space-4); }
 .brand { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 700; font-size: var(--font-lg); color: var(--text); text-decoration: none; }
@@ -166,10 +185,10 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 
 .task-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
 .field .task-card, .task-card { display: flex; margin: 0; font-weight: 400; flex-direction: column; gap: var(--space-1); padding: 0.9rem; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; }
-.task-card:hover { border-color: var(--primary); }
-.task-card.selected { border-color: var(--primary); background: var(--primary-soft); }
+.task-card:hover { border-color: var(--task, var(--primary)); }
+.task-card.selected { border-color: var(--task, var(--primary)); background: var(--task-soft, var(--primary-soft)); }
 .task-card:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
-.task-card .icon { color: var(--primary); }
+.task-card .icon { color: var(--task, var(--primary)); }
 .task-card-title { font-weight: 700; }
 .task-card-help { color: var(--muted); font-size: var(--font-sm); }
 
@@ -195,13 +214,16 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 /* the project form (new and edit): the text fields on one side, the kind of work on the other */
 .form-cols { display: grid; gap: 0 var(--space-5); }
 @media (min-width: 900px) { .form-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
-.project-card { display: block; color: var(--text); text-decoration: none; height: 100%; }
-.project-card:hover { border-color: var(--primary); }
+/* each card on the home carries its task colour in a 3px top line and in its type badge (#621) */
+.project-card { display: block; color: var(--text); text-decoration: none; height: 100%; box-shadow: inset 0 3px 0 var(--task, var(--border)); }
+.project-card:hover { border-color: var(--task, var(--primary)); }
 .project-card h2 { margin: 0; overflow-wrap: anywhere; }
 .project-card-top { display: flex; justify-content: space-between; gap: var(--space-2); align-items: baseline; margin-bottom: 0.4rem; }
 .project-id { color: var(--muted); font-weight: 600; }
 .project-desc { color: var(--muted); margin: var(--space-2) 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .badge { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--primary-soft); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0.1rem 0.6rem; font-size: var(--font-sm); font-weight: 600; }
+/* the type badge: icon and name in the task colour on its soft tint (never the colour alone) */
+.task-badge { background: var(--task-soft, var(--primary-soft)); color: var(--task, var(--primary)); border-color: color-mix(in srgb, var(--task, var(--primary)) 45%, var(--surface)); }
 .facts { margin: var(--space-3) 0 0; display: grid; gap: 0.35rem; }
 .facts > div { display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .facts dt { color: var(--muted); }
@@ -222,31 +244,30 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .project-head-actions { display: flex; gap: var(--space-2); align-items: flex-start; }
 
 /* project: one full-width bar with the steps in groups (data | model), above the current step. Each group
-   is its own card in its own colour (teal, violet), so the boundary between the two areas is physical; the
-   group of the current step gets a 3px top line in that colour. */
+   is its own card with its title, so the boundary between the two areas is physical (not a colour: the
+   colour is the task's, #621); the group of the current step gets a 3px top line in the task colour. */
 .project-body { margin-top: var(--space-4); }
 .stepper { position: relative; display: flex; gap: var(--space-3); margin: 0 0 var(--space-4); padding: 0; overflow-x: auto; }
 .step-group { flex: 1 1 0; display: flex; flex-wrap: wrap; gap: var(--space-1) 0.4rem; min-width: 0; padding: var(--space-2) 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); transition: border-color var(--area-fade), box-shadow var(--area-fade); }
-.step-group[data-group="data"] { --group: var(--dados); --group-soft: var(--dados-soft); }
-.step-group[data-group="model"] { --group: var(--modelo); --group-soft: var(--modelo-soft); }
-.step-group:has(.step.current) { border-color: var(--group); box-shadow: inset 0 3px 0 var(--group); }
+.step-group:has(.step.current) { border-color: var(--area); box-shadow: inset 0 3px 0 var(--area); }
 .step-group > .step { flex: 1 1 auto; width: auto; }
-.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: 12px; line-height: 1.2; font-weight: 700; letter-spacing: 0.06em; color: var(--group, var(--muted)); }
+.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: 12px; line-height: 1.2; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
+.step-group:has(.step.current) .step-group-title { color: var(--area); }
 .step { display: flex; align-items: center; gap: 0.65rem; text-align: left; padding: var(--space-2) 0.65rem; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; min-width: 0; width: 100%; transition: background-color var(--area-fade), border-color var(--area-fade); }
 .step:hover { background: var(--surface-2); border-color: var(--border); }
 .step:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
-.step.current { border-color: var(--group, var(--primary)); background: var(--group-soft, var(--primary-soft)); }
+.step.current { border-color: var(--primary); background: var(--primary-soft); }
 /* step markers: the state is in the shape, never only in the colour (and in hidden text for screen readers):
    to do = number in an outline; done = check in the area colour (not green: done is not a status);
    needs attention = amber "!"; busy = pulsing outline; the current step is the only filled circle. */
 .step-num { flex: none; width: 26px; height: 26px; font-size: var(--font-sm); border-radius: 50%; display: grid; place-items: center; background: transparent; color: var(--muted); font-weight: 700; border: 1.5px solid var(--border); transition: background-color var(--area-fade), border-color var(--area-fade), color var(--area-fade); }
-.step.is-done .step-num { color: var(--group, var(--primary)); border-color: var(--group, var(--primary)); }
+.step.is-done .step-num { color: var(--primary); border-color: var(--primary); }
 .step.is-attention .step-num { color: var(--warn); border-color: var(--warn); }
-.step.is-busy .step-num { border-color: var(--group, var(--primary)); color: var(--group, var(--primary)); animation: step-pulse 1.4s ease-in-out infinite; }
-.step.current .step-num { background: var(--group, var(--primary)); color: var(--on-accent); border-color: var(--group, var(--primary)); }
+.step.is-busy .step-num { border-color: var(--primary); color: var(--primary); animation: step-pulse 1.4s ease-in-out infinite; }
+.step.current .step-num { background: var(--primary); color: var(--on-accent); border-color: var(--primary); }
 /* the current step keeps its "needs attention" visible: an amber ring around the filled circle */
-.step.current.is-attention .step-num { box-shadow: 0 0 0 2px var(--group-soft, var(--surface)), 0 0 0 4px var(--warn); }
-@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px var(--group-soft, var(--primary-soft)); } }
+.step.current.is-attention .step-num { box-shadow: 0 0 0 2px var(--primary-soft), 0 0 0 4px var(--warn); }
+@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px var(--primary-soft); } }
 .step-text { display: flex; flex-direction: column; min-width: 0; }
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: var(--font-sm); }
