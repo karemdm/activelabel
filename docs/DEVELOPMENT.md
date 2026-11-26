@@ -242,6 +242,9 @@ wheel installs it with no extras, so it also proves that the server starts witho
   (on CI the job's own MongoDB service is used).
 - For manual or browser tests, start a server with `python tests/helpers/isolated_server.py --port <port>
   --workspace <folder>`: it gets its own database and workspace and refuses the ports of your own servers.
+  Its per-user folders (`LOCALAPPDATA`, `APPDATA`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `TORCH_HOME`, `HF_HOME`)
+  point to `<folder>/profile`, so nothing it does lands in your own profile (the training environment included);
+  for a real training on Windows keep the workspace path short.
 - For interface changes, run your own server on a free port and a scratch workspace, and click through
   the screens in both languages and both themes at desktop and phone widths before calling it done.
 

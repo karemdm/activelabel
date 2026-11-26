@@ -25,6 +25,27 @@ if not (CI and os.environ.get("FIFTYONE_DATABASE_URI")):
     isolation.apply(os.environ, isolation.TESTS_HOME, OWN.port)
 
 
+#: Per-user folders a test could write to; every test gets them inside the run's temporary folder.
+PROFILE_VARIABLES = ("LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TORCH_HOME", "HF_HOME")
+
+
+@pytest.fixture(autouse=True)
+def _own_profile(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test out of the person's profile.
+
+    A training environment of a workspace with a long path falls back to ``%LOCALAPPDATA%\activelabel``.
+    The tests' workspaces are under the temporary folder, so a test that creates one left a folder in the
+    person's real LocalAppData at every run.
+
+    Args:
+        tmp_path_factory: Gives the run's temporary folder.
+        monkeypatch: Sets the variables for this test only.
+    """
+    profile = tmp_path_factory.getbasetemp() / "profile"
+    for name in PROFILE_VARIABLES:
+        monkeypatch.setenv(name, str(profile / name.lower()))
+
+
 def pytest_sessionstart(session: pytest.Session) -> None:
     """Stop the run when FiftyOne could reach a database that is not the tests' own.
 
