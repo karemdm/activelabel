@@ -449,7 +449,7 @@ def _walk_labels(
 
 
 def _read_labels(
-    remote: RemoteProject, settings: ToolSettings, rid: str, only: list[str] | None
+    remote: RemoteProject, settings: ToolSettings, rid: str, only: list[str] | None, hint: Task
 ) -> dict[str, list[Label]]:
     """Labels per remote item key, to choose the task of the project (tags when there are no shapes).
 
@@ -458,10 +458,16 @@ def _read_labels(
         settings: Connection settings of CVAT.
         rid: Id of the remote project.
         only: Ids of the remote tasks to read, or None for all.
+        hint: The type asked for: regression reads the values of the tags first (#619).
 
     Returns:
-        ``{item key: labels}`` (the classification tags when the items have no shapes).
+        ``{item key: labels}``: the values when ``hint`` is regression and the tags hold some, else the
+        shapes, or the classification tags when the items have no shapes.
     """
+    if hint is Task.REGRESSION:
+        values = {it.key: list(it.labels) for it in remote.items(settings, rid, Task.REGRESSION, only)}
+        if any(values.values()):
+            return values
     found = remote.items(settings, rid, Task.DETECTION, only)
     labels = {it.key: list(it.labels) for it in found}
     if found and not any(labels.values()):
@@ -536,7 +542,7 @@ def _import_with_tasks(
     """
     remote = get_remote("cvat")
     progress.update(message="Reading annotations")
-    labels = _read_labels(remote, settings, rid, only)
+    labels = _read_labels(remote, settings, rid, only, hint)
     if not labels:
         raise ToolError(
             "CVAT returned no images for this " + origin.kind + ".", "cvat_no_images", what=origin.kind

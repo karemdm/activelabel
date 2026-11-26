@@ -28,7 +28,7 @@ from activelabel.tasks import Task
 
 ORIGIN_FILE = "origin.json"
 # Order used to break ties between kinds with the same number of annotations (richest first).
-KIND_ORDER = (Task.KEYPOINTS, Task.SEGMENTATION, Task.DETECTION, Task.CLASSIFICATION)
+KIND_ORDER = (Task.REGRESSION, Task.KEYPOINTS, Task.SEGMENTATION, Task.DETECTION, Task.CLASSIFICATION)
 MAX_ITEMS = 200  # most remote projects/tasks listed
 
 
@@ -135,14 +135,17 @@ def not_found(where: str) -> RemoteNotFound:
 
 
 def kind_of(label: Label) -> Task:
-    """What a label is: keypoints, polygons, a box or a class of the whole image.
+    """What a label is: a value of the image, keypoints, polygons, a box or a class of the whole image.
 
     Args:
         label: The label to classify.
 
     Returns:
-        The task kind that matches its geometry (classification when it has none).
+        The task kind that matches its geometry (regression for a value, classification when it has
+        neither geometry nor value).
     """
+    if label.value is not None:
+        return Task.REGRESSION
     if label.keypoints:
         return Task.KEYPOINTS
     if label.polygons:

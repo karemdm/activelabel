@@ -1,4 +1,4 @@
-from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations, task_of
+from activelabel.labels import AnnotationSet, Label, load_annotations, same_value, save_annotations, task_of
 from activelabel.tasks import Task
 
 
@@ -29,3 +29,12 @@ def test_track_in_dict_round_trip():
     label = Label("cat", bbox=[0, 0, 1, 1], track=7)
     assert label.as_dict()["track"] == 7 and Label.from_dict(label.as_dict()) == label
     assert "track" not in Label("cat").as_dict() and Label.from_dict({"label": "cat"}).track is None
+
+
+def test_same_value() -> None:
+    assert same_value(None, None)
+    assert not same_value(None, 1)
+    assert not same_value(1, None)
+    assert same_value(1.0, 1.0 + 1e-12)
+    assert not same_value(1.0, 1.001)
+    assert same_value(0, 0)

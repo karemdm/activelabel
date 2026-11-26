@@ -91,6 +91,24 @@ class Label:
         )
 
 
+def same_value(a: float | None, b: float | None) -> bool:
+    """Whether two regression values are the same number (both missing counts as the same).
+
+    The comparison is exact up to floating point noise (a relative difference of 1e-9): a value has no
+    tolerance of its own, unlike coordinates, because its scale depends on the target.
+
+    Args:
+        a: A value, or None.
+        b: Another value, or None.
+
+    Returns:
+        True when both are None, or both are numbers that differ only by noise.
+    """
+    if a is None or b is None:
+        return a is None and b is None
+    return math.isclose(float(a), float(b), rel_tol=1e-9, abs_tol=1e-12)
+
+
 def task_of(labels: list[Label]) -> Task | None:
     """Task these labels fit best (None when there are no labels).
 

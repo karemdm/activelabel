@@ -149,8 +149,12 @@ targets (for example `age`). The values come in one `.csv` or `.json` file (form
   finite number (text, `nan`, `inf`) is skipped and reported (`value_invalid`, with examples).
 - On import an image keeps the first value of each target (`repeated_target` reports the images that had more;
   `classes_reduced` in the answer counts them). Each value is a `Label(label=<target>, value=<number>)`.
-- Not built yet for regression projects: the CVAT synchronisation, FiftyOne, the data split, training and
-  pre-annotation answer 400 `regression_not_supported_yet`.
+- The values go to CVAT as tags with an attribute `value` and to FiftyOne as one float field per target
+  (docs/SYNC.md, docs/ANNOTATION.md). Importing a CVAT project (or a task of one) with the type
+  *Regression* reads those tags as values; a CVAT task outside any project cannot be imported as regression
+  (400 `regression_not_supported_yet`), since its values are read through the project.
+- Not built yet for regression projects: the data split, training and pre-annotation answer 400
+  `regression_not_supported_yet`.
 
 ## HTTP API
 

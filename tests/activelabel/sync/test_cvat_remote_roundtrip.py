@@ -1425,3 +1425,112 @@ def test_images_with_long_accented_names_are_sent_and_found_again(
     assert result["tasks_created"] == 1 and result["images_new"] == 3
     assert set(links.get_link(env.dir, "cvat")["items"]) == set(env.ids)
     assert plan(env)["unchanged"] == 3
+
+
+# -- regression: a tag per target with a ``value`` attribute (#619) -------------------------------------
+def value_tags(env: Env) -> list[tuple[int, str, str]]:
+    """``(frame, label name, value text)`` of the CVAT tags of the task, sorted.
+
+    Args:
+        env: the environment (synchronised).
+
+    Returns:
+        One row per tag; the value is the text of its ``value`` attribute ("" when it has none).
+    """
+    names = {env.label_id(n): n for n in ("cat", "dog")}
+    specs = {a["id"] for lid in names for a in env.server.labels[lid]["attributes"] if a["name"] == "value"}
+    out = []
+    for tag in env.server.annotations(env.tid)["tags"]:
+        text = next((a["value"] for a in tag["attributes"] if a["spec_id"] in specs), "")
+        out.append((tag["frame"], names[tag["label_id"]], text))
+    return sorted(out)
+
+
+def regression_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Env:
+    """A regression project (targets cat and dog) pushed to CVAT with values on img0 and img1.
+
+    Args:
+        tmp_path: pytest temp dir.
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        The synchronised environment.
+    """
+    labels = {0: [Label("cat", value=31.0), Label("dog", value=2.75)], 1: [Label("cat", value=-4.0)]}
+    env = make_env(tmp_path, monkeypatch, Task.REGRESSION, labels=labels)
+    first_push(env)
+    return env
+
+
+def test_push_regression_writes_a_tag_with_the_value_of_each_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = regression_env(tmp_path, monkeypatch)
+    ann = env.server.annotations(env.tid)
+    assert ann["shapes"] == [] and ann["tracks"] == []
+    assert value_tags(env) == [(0, "cat", "31"), (0, "dog", "2.75"), (1, "cat", "-4")]
+    spec = next(a for a in env.server.labels[env.label_id("cat")]["attributes"] if a["name"] == "value")
+    assert spec["input_type"] == "text" and spec["mutable"] is True
+    assert plan(env)["push"] == 0 and plan(env)["pull"] == 0  # a second sync changes nothing
+
+
+def test_pull_regression_values_edited_added_and_removed_in_cvat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = regression_env(tmp_path, monkeypatch)
+    tags = env.server.annotations(env.tid)["tags"]
+    cat0 = next(t for t in tags if t["frame"] == 0 and t["label_id"] == env.label_id("cat"))
+    spec = cat0["attributes"][0]["spec_id"]
+    kept = [t for t in tags if t["frame"] != 1]  # the value of img1 is deleted
+    kept = [{**t, "attributes": [{"spec_id": spec, "value": "33,5"}]} if t is cat0 else t for t in kept]
+    env.server.anns[env.tid]["tags"] = kept
+    new = env.server.add_tag(env.tid, 2, env.label_id("dog"))
+    dog_spec = next(a["id"] for a in env.server.labels[env.label_id("dog")]["attributes"])
+    env.server.anns[env.tid]["tags"] = [
+        {**t, "attributes": [{"spec_id": dog_spec, "value": "7"}]} if t["id"] == new else t
+        for t in env.server.anns[env.tid]["tags"]
+    ]
+    p, _ = sync(env)
+    assert p["pull"] == 3
+    assert [(lb.label, lb.value) for lb in local(env, 0)] == [("cat", 33.5), ("dog", 2.75)]
+    assert local(env, 1) == [] and [(lb.label, lb.value) for lb in local(env, 2)] == [("dog", 7.0)]
+
+
+def test_a_tag_without_a_value_is_counted_not_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = regression_env(tmp_path, monkeypatch)
+    env.server.add_tag(env.tid, 2, env.label_id("cat"))  # no value attribute
+    p = plan(env)
+    assert p["not_converted"] == {"tag_without_value": 1} and p["pull"] == 0
+
+
+def test_push_regression_edit_updates_the_same_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = regression_env(tmp_path, monkeypatch)
+    before = {(t["frame"], t["label_id"]): t["id"] for t in env.server.annotations(env.tid)["tags"]}
+    set_local(env, 0, [Label("cat", value=30.0), Label("dog", value=2.75)])
+    set_local(env, 1, [])
+    p, _ = sync(env)
+    assert p["push"] == 2
+    after = {(t["frame"], t["label_id"]): t["id"] for t in env.server.annotations(env.tid)["tags"]}
+    cat = env.label_id("cat")
+    assert after[(0, cat)] == before[(0, cat)]  # updated in place, not deleted and created
+    assert value_tags(env) == [(0, "cat", "30"), (0, "dog", "2.75")]
+    assert plan(env)["push"] == 0
+
+
+def test_a_cvat_number_attribute_called_value_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = make_env(tmp_path, monkeypatch, Task.REGRESSION)
+    first_push(env)
+    lid = env.label_id("dog")
+    env.server.labels[lid]["attributes"].append(
+        {"id": 999, "name": "Value", "mutable": True, "input_type": "number", "default_value": "0",
+         "values": ["0", "100", "1"]}
+    )  # fmt: skip
+    tag = env.server.add_tag(env.tid, 1, lid)
+    env.server.anns[env.tid]["tags"] = [
+        {**t, "attributes": [{"spec_id": 999, "value": "12"}]} if t["id"] == tag else t
+        for t in env.server.anns[env.tid]["tags"]
+    ]
+    sync(env)
+    assert [(lb.label, lb.value) for lb in local(env, 1)] == [("dog", 12.0)]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from activelabel import fiftyone_bridge
-from activelabel.annotate.base import GROUND_TRUTH, Pulled, Sent, ToolError, ToolSettings, need_dataset
+from activelabel.annotate.base import Pulled, Sent, ToolError, ToolSettings, need_dataset
 from activelabel.annotate.fo_labels import labels_and_notes
 from activelabel.labels import Label
 from activelabel.optional import F
@@ -104,7 +104,8 @@ class FiftyOneTool:
         out: dict[str, list[Label]] = {i: [] for i in image_ids}
         problems: dict[str, dict[str, int]] = {}
         view = dataset.match(F("image_id").is_in(list(wanted)))
-        ids, values = view.values("image_id"), view.values(GROUND_TRUTH)
+        ids = view.values("image_id")
+        values = fiftyone_bridge.truth_values(view, project.task, fiftyone_bridge.fields_of(dataset))
         for image_id, value in zip(ids, values, strict=True):
             if image_id in wanted:
                 out[image_id], notes = labels_and_notes(value, project.task)

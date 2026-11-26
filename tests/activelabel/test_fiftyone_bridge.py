@@ -13,7 +13,6 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
 from activelabel.annotate import sessions
-from activelabel.errors import CodedError
 from activelabel.fiftyone_bridge import resolve_view
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
@@ -620,7 +619,69 @@ def test_the_port_of_a_session_is_its_server_port():
     assert bridge._app_port(SimpleNamespace(port="5172")) == 5172
 
 
-def test_a_regression_project_is_not_opened_in_fiftyone(tmp_path):
-    with pytest.raises(CodedError) as caught:
-        bridge.sync_dataset(SimpleNamespace(id=1, task=Task.REGRESSION), None, None)  # type: ignore[arg-type]
-    assert caught.value.code == "regression_not_supported_yet"
+def values(**found):
+    return [Label(target, value=number) for target, number in found.items()]
+
+
+def test_target_fields_are_one_float_field_per_target():
+    assert bridge.target_fields(["age", "Idade média", "age!", ""]) == {
+        "age": "ground_truth_age",
+        "Idade média": "ground_truth_idade_média",
+        "age!": "ground_truth_age_2",
+        "": "ground_truth_target",
+    }
+
+
+def test_a_regression_project_has_a_float_field_per_target(tmp_path, project):
+    project.task, project.classes = Task.REGRESSION, ["age", "height"]
+    manifest = build(tmp_path, 2)
+    truth = AnnotationSet(Task.REGRESSION, project.classes, {"i0": values(age=31.0, height=1.75)}, {})
+    dataset = bridge.sync_dataset(project, manifest, truth)
+    assert bridge.GROUND_TRUTH not in dataset.get_field_schema()
+    shown = {s["image_id"]: (s["ground_truth_age"], s["ground_truth_height"]) for s in dataset}
+    assert shown == {"i0": (31.0, 1.75), "i1": (None, None)}
+    assert bridge.fields_of(dataset) == {"age": "ground_truth_age", "height": "ground_truth_height"}
+    assert set(dataset.active_label_schemas) == {"ground_truth_age", "ground_truth_height"}
+    assert dataset.label_schemas["ground_truth_age"]["component"] == "text"
+    assert bridge.edited_images(dataset, ["i0", "i1"], Task.REGRESSION) == set()
+
+
+def test_a_value_edited_in_the_app_is_kept_and_read_back(tmp_path, project):
+    project.task, project.classes = Task.REGRESSION, ["age"]
+    manifest = build(tmp_path, 2)
+    first = AnnotationSet(Task.REGRESSION, ["age"], {"i0": values(age=31.0), "i1": values(age=5.0)}, {})
+    dataset = bridge.sync_dataset(project, manifest, first)
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample["ground_truth_age"] = 33.5  # edited in the App
+    sample.save()
+    assert bridge.edited_images(dataset, ["i0", "i1"], Task.REGRESSION) == {"i0"}
+    second = AnnotationSet(Task.REGRESSION, ["age"], {"i0": values(age=40.0), "i1": values(age=6.0)}, {})
+    again = bridge.sync_dataset(project, manifest, second)
+    shown = {s["image_id"]: s["ground_truth_age"] for s in again}
+    assert shown == {"i0": 33.5, "i1": 6.0}  # the edit stays; the other image follows the project
+    view = again.match(fo.ViewField("image_id").is_in(["i0", "i1"]))
+    truths = dict(
+        zip(
+            view.values("image_id"),
+            bridge.truth_values(view, Task.REGRESSION, {"age": "ground_truth_age"}),
+            strict=True,
+        )
+    )
+    assert truths == {"i0": {"age": 33.5}, "i1": {"age": 6.0}}
+    bridge.restore_project_labels(again, ["i0"], Task.REGRESSION, {"i0": values(age=40.0)})
+    assert again.match(fo.ViewField("image_id") == "i0").first()["ground_truth_age"] == 40.0
+    assert bridge.edited_images(again, ["i0"], Task.REGRESSION) == set()
+
+
+def test_a_removed_target_loses_its_field_and_a_new_type_its_fields(tmp_path, project):
+    project.task, project.classes = Task.REGRESSION, ["age", "height"]
+    manifest = build(tmp_path, 1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    project.classes = ["age"]
+    dataset = bridge.sync_dataset(project, manifest, None)
+    assert "ground_truth_height" not in dataset.get_field_schema()
+    project.task, project.classes = Task.CLASSIFICATION, ["cat"]
+    dataset = bridge.sync_dataset(project, manifest, None)
+    schema = dataset.get_field_schema()
+    assert "ground_truth_age" not in schema and bridge.GROUND_TRUTH in schema
+    assert bridge.fields_of(dataset) == {}

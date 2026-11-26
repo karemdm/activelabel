@@ -9,6 +9,11 @@ the image id (field ``image_id``). Segmentation polygons become ``Polylines`` wi
 Each sample also records what ActiveLabel wrote in ``ground_truth`` (``activelabel_written``: its
 fingerprint; ``activelabel_labels``: the hash of the project labels it came from). A sample whose
 ``ground_truth`` no longer matches its fingerprint was edited in FiftyOne (see :func:`edited_images`).
+
+A regression project (#619) has no ``ground_truth`` label: each target is a float field
+``ground_truth_<target>`` (see :func:`target_fields`), because the App (1.22) edits number fields but not
+``Regression`` labels. Its ground truth is then ``{target: value}`` (see :func:`truth_of`), and the
+fingerprint, the edit detection and the read back work on that the same way.
 """
 
 from __future__ import annotations
@@ -34,13 +39,14 @@ from activelabel.labels import AnnotationSet, Label
 from activelabel.optional import ActiveFields, F, SidebarGroupDocument, fo, to_slug
 from activelabel.projects import Project
 from activelabel.sync.links import label_hash
-from activelabel.tasks import Task, refuse_regression
+from activelabel.tasks import Task
 from activelabel.tasks_store import ImageTask, TaskStore, jobs
 
 GROUND_TRUTH = "ground_truth"
 WRITTEN = "activelabel_written"  # fingerprint of the ground_truth ActiveLabel last wrote
 WRITTEN_LABELS = "activelabel_labels"  # label_hash of the project labels it was written from
 EXCLUDED_TAG = "excluded"
+TARGETS_INFO = "activelabel_targets"  # dataset info: the float field of each target (regression projects)
 VIEW_ALL_ISSUES = "curation - quality issues"
 VIEW_EXCLUDED = "curation - excluded"
 VIEW_DUPLICATES = "curation - near duplicates"
@@ -175,19 +181,105 @@ def delete_dataset(project_dir: Path, project_id: int, recorded: str | None) -> 
     return False
 
 
-def _label_type(task: Task) -> type:
-    """FiftyOne label class used for the ground truth of a task.
+def target_fields(targets: list[str]) -> dict[str, str]:
+    """The float field of each target of a regression project: ``ground_truth_<target>``.
+
+    The target name is lower-cased and every run of characters that are not letters or digits becomes
+    ``_``; a name that repeats gets ``_2``, ``_3``...
 
     Args:
+        targets: the targets of the project (its ``classes``), in order.
+
+    Returns:
+        ``{target: field name}``.
+    """
+    out: dict[str, str] = {}
+    for target in targets:
+        slug = re.sub(r"\W+", "_", target.strip().casefold()).strip("_") or "target"
+        name, n = f"{GROUND_TRUTH}_{slug}", 1
+        while name in out.values():
+            n += 1
+            name = f"{GROUND_TRUTH}_{slug}_{n}"
+        out[target] = name
+    return out
+
+
+def fields_of(dataset: fo.Dataset) -> dict[str, str]:
+    """The float field of each target, as the dataset records it (empty unless it is a regression project).
+
+    Args:
+        dataset: the project's dataset.
+
+    Returns:
+        ``{target: field name}``.
+    """
+    found = (dataset.info or {}).get(TARGETS_INFO)
+    return {str(k): str(v) for k, v in found.items()} if isinstance(found, dict) else {}
+
+
+def truth_of(sample: fo.Sample, task: Task, fields: dict[str, str]) -> Any:
+    """The ground truth a sample shows: its ``ground_truth``, or ``{target: value}`` for regression.
+
+    Args:
+        sample: the sample.
         task: task of the project.
+        fields: the float field of each target (:func:`fields_of`); used by regression projects.
+
+    Returns:
+        The FiftyOne label (or None), or for regression the value of each target whose field has one.
+    """
+    if task is not Task.REGRESSION:
+        return sample[GROUND_TRUTH] if sample.has_field(GROUND_TRUTH) else None
+    values = {t: sample[f] for t, f in fields.items() if sample.has_field(f)}
+    return {t: v for t, v in values.items() if v is not None}
+
+
+def truth_values(view: Any, task: Task, fields: dict[str, str]) -> list[Any]:
+    """:func:`truth_of` of every sample of a view, in the order of ``view.values("image_id")``.
+
+    Args:
+        view: a view (or the dataset).
+        task: task of the project.
+        fields: the float field of each target (regression projects).
+
+    Returns:
+        One ground truth per sample.
+    """
+    if task is not Task.REGRESSION:
+        return list(view.values(GROUND_TRUTH))
+    count = len(view.values("image_id"))
+    schema = view.get_field_schema()
+    columns = {t: view.values(f) for t, f in fields.items() if f in schema}
+    return [{t: col[i] for t, col in columns.items() if col[i] is not None} for i in range(count)]
+
+
+def _write_truth(sample: fo.Sample, task: Task, labels: list[Label], fields: dict[str, str]) -> None:
+    """Write the project labels of one image into its sample (``ground_truth`` or the target fields).
+
+    Args:
+        sample: the sample.
+        task: task of the project.
+        labels: the internal labels of the image.
+        fields: the float field of each target (regression projects).
+    """
+    if task is not Task.REGRESSION:
+        sample[GROUND_TRUTH] = _ground_truth(task, labels)
+        return
+    values = {lb.label: lb.value for lb in labels}
+    for target, name in fields.items():
+        found = values.get(target)
+        sample[name] = None if found is None else float(found)
+
+
+def _label_type(task: Task) -> type:
+    """FiftyOne label class used for the ground truth of a task (regression has none, see the module).
+
+    Args:
+        task: task of the project, other than regression.
 
     Returns:
         ``Classification``, ``Detections``, ``Polylines`` or ``Keypoints``.
-
-    Raises:
-        CodedError: a regression project (``regression_not_supported_yet``).
     """
-    refuse_regression(task)
     return {
         Task.CLASSIFICATION: fo.Classification,
         Task.DETECTION: fo.Detections,
@@ -196,15 +288,18 @@ def _label_type(task: Task) -> type:
     }[task]
 
 
-def _declare_fields(dataset: fo.Dataset, task: Task) -> bool:
+def _declare_fields(dataset: fo.Dataset, task: Task, targets: list[str] | None = None) -> bool:
     """Make sure every field exists with the right type (also when there are no samples).
 
     Args:
         dataset: the project's dataset.
         task: task of the project (decides the type of ``ground_truth``; a field of another type is dropped).
+        targets: the targets of a regression project: one float field each (:func:`target_fields`),
+            recorded in the dataset info; the fields of targets it no longer has are dropped.
 
     Returns:
-        Whether ``ground_truth`` was dropped (the task of the project changed): no sample holds edits now.
+        Whether ground truth was dropped (the task of the project changed, or a target field went away):
+        no sample holds edits now.
     """
     scalars: dict[str, Any] = {
         "image_id": fo.StringField,
@@ -230,8 +325,22 @@ def _declare_fields(dataset: fo.Dataset, task: Task) -> bool:
         dataset.add_sample_field(name, kind)
     dataset.add_sample_field("image_size", fo.ListField, subfield=fo.IntField)
     dataset.add_sample_field("quality_issues", fo.ListField, subfield=fo.StringField)
-    wanted = _label_type(task)
+    fields = target_fields(list(targets or [])) if task is Task.REGRESSION else {}
     dropped = False
+    schema = dataset.get_field_schema()
+    for name in set(fields_of(dataset).values()) - set(fields.values()):
+        if name in schema:
+            dataset.delete_sample_field(name)
+            dropped = True
+    for name in fields.values():
+        dataset.add_sample_field(name, fo.FloatField)
+    dataset.info = {**(dataset.info or {}), TARGETS_INFO: fields}
+    if task is Task.REGRESSION:
+        if GROUND_TRUTH in schema:  # the project was of another type
+            dataset.delete_sample_field(GROUND_TRUTH)
+            dropped = True
+        return dropped
+    wanted = _label_type(task)
     if GROUND_TRUTH in dataset.get_field_schema():
         current = dataset.get_field(GROUND_TRUTH)
         if getattr(current, "document_type", None) is not wanted:  # the task of the project changed
@@ -317,6 +426,7 @@ def _apply(
     kept: set[str],
     where: dict[str, dict[str, Any]],
     protected: bool = False,
+    fields: dict[str, str] | None = None,
 ) -> None:
     """Copy the data of one image record into its FiftyOne sample.
 
@@ -331,7 +441,9 @@ def _apply(
         where: placement (task, job, position, video name) by image id, see :func:`_placement`.
         protected: the image is in an open FiftyOne session: when its ``ground_truth`` was edited in
             FiftyOne (see :func:`is_edited`) it is left as it is; otherwise it is rewritten like any other.
+        fields: the float field of each target (regression projects, :func:`target_fields`).
     """
+    fields = fields or {}
     sample.filepath = str(manifest.file_path(record).resolve())
     sample["image_id"] = record.id
     sample["name"] = record.name
@@ -353,15 +465,15 @@ def _apply(
     sample["time"] = record.time if record.video else None
     tags = [t for t in sample.tags if t != EXCLUDED_TAG]
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
-    if is_edited(sample, task) if protected else edited_outside_session(sample, task):
+    if is_edited(sample, task, fields) if protected else edited_outside_session(sample, task, fields):
         return  # edits not brought back yet: FiftyOne keeps its version
     labels = annotations.images.get(record.id, []) if annotations else []
-    sample[GROUND_TRUTH] = _ground_truth(task, labels)
-    sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+    _write_truth(sample, task, labels, fields)
+    sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
     sample[WRITTEN_LABELS] = label_hash(labels)
 
 
-def edited_outside_session(sample: fo.Sample, task: Task) -> bool:
+def edited_outside_session(sample: fo.Sample, task: Task, fields: dict[str, str] | None = None) -> bool:
     """Whether a sample of no open session was edited in FiftyOne since ActiveLabel wrote it.
 
     The App can edit any view (a task opened for a look, a curation view), not only a session's: such
@@ -370,28 +482,30 @@ def edited_outside_session(sample: fo.Sample, task: Task) -> bool:
     Args:
         sample: the sample.
         task: task of the project.
+        fields: the float field of each target (regression projects).
 
     Returns:
         True when a fingerprint was recorded and the ``ground_truth`` no longer matches it (a sample
         without a fingerprint was written by an earlier version and is refreshed as before).
     """
     written = sample[WRITTEN] if sample.has_field(WRITTEN) else None
-    return written is not None and fingerprint(sample[GROUND_TRUTH], task) != written
+    return written is not None and fingerprint(truth_of(sample, task, fields or {}), task) != written
 
 
-def is_edited(sample: fo.Sample, task: Task) -> bool:
+def is_edited(sample: fo.Sample, task: Task, fields: dict[str, str] | None = None) -> bool:
     """Whether the ``ground_truth`` of a sample was changed in FiftyOne since ActiveLabel wrote it.
 
     Args:
         sample: the sample.
         task: task of the project.
+        fields: the float field of each target (regression projects).
 
     Returns:
         True when it differs from the recorded fingerprint, or when there is none (a dataset written by
         an earlier version: its edits cannot be told apart, so they are kept).
     """
     written = sample[WRITTEN] if sample.has_field(WRITTEN) else None
-    return written is None or fingerprint(sample[GROUND_TRUTH], task) != written
+    return written is None or fingerprint(truth_of(sample, task, fields or {}), task) != written
 
 
 def edited_images(dataset: fo.Dataset, image_ids: list[str], task: Task) -> set[str]:
@@ -406,7 +520,8 @@ def edited_images(dataset: fo.Dataset, image_ids: list[str], task: Task) -> set[
         The ids of the edited images.
     """
     view = dataset.match(F("image_id").is_in(list(image_ids)))
-    return {sample["image_id"] for sample in view.iter_samples() if is_edited(sample, task)}
+    fields = fields_of(dataset)
+    return {sample["image_id"] for sample in view.iter_samples() if is_edited(sample, task, fields)}
 
 
 def written_labels(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, str]:
@@ -445,9 +560,10 @@ def mark_applied(
         How many samples were updated.
     """
     view = dataset.match(F("image_id").is_in(list(image_ids)))
+    fields = fields_of(dataset)
     count = 0
     for sample in view.iter_samples(autosave=True):
-        sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+        sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
         sample[WRITTEN_LABELS] = label_hash(labels.get(sample["image_id"], []))
         count += 1
     return count
@@ -468,11 +584,12 @@ def restore_project_labels(
         How many samples were rewritten.
     """
     view = dataset.match(F("image_id").is_in(list(image_ids)))
+    fields = fields_of(dataset)
     count = 0
     for sample in view.iter_samples(autosave=True):
         project_labels = labels.get(sample["image_id"], [])
-        sample[GROUND_TRUTH] = _ground_truth(task, project_labels)
-        sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
+        _write_truth(sample, task, project_labels, fields)
+        sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
         sample[WRITTEN_LABELS] = label_hash(project_labels)
         count += 1
     return count
@@ -618,15 +735,12 @@ def sync_dataset(
 
     Returns:
         The dataset.
-
-    Raises:
-        CodedError: a regression project (``regression_not_supported_yet``).
     """
-    refuse_regression(project.task)
     name = dataset_name(manifest.project_dir, project.id)
     dataset = fo.load_dataset(name) if fo.dataset_exists(name) else fo.Dataset(name, persistent=True)
     dataset.persistent = True
-    reset = _declare_fields(dataset, project.task)
+    reset = _declare_fields(dataset, project.task, list(project.classes))
+    fields = fields_of(dataset)
 
     records = {r.id: r for r in manifest.all()}
     duplicate_of = load_duplicate_of(manifest.project_dir)
@@ -655,7 +769,9 @@ def sync_dataset(
     for record in records.values():
         if record.id not in known:
             sample = fo.Sample(filepath=str(manifest.file_path(record).resolve()))
-            _apply(sample, record, manifest, project.task, annotations, duplicate_of, kept, where)
+            _apply(
+                sample, record, manifest, project.task, annotations, duplicate_of, kept, where, fields=fields
+            )
             new.append(sample)
     for start in range(0, len(new), _WRITE_BATCH):
         dataset.add_samples(new[start : start + _WRITE_BATCH])
@@ -675,6 +791,7 @@ def sync_dataset(
             kept,
             where,
             protected=sample["image_id"] in protected,
+            fields=fields,
         )
 
     dataset.classes = {GROUND_TRUTH: list(project.classes)}
@@ -703,6 +820,28 @@ def _closed_and_filled(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [{**a, "default": True} if a.get("name") in ("closed", "filled") else a for a in attributes]
 
 
+def _enable_value_editing(dataset: fo.Dataset) -> bool:
+    """Let the App's *Annotate* mode edit the float field of each target (a text box for the number).
+
+    Args:
+        dataset: the dataset of a regression project (its target fields declared).
+
+    Returns:
+        Whether the fields can be edited in the App (False when the project has no target).
+    """
+    names = list(fields_of(dataset).values())
+    try:
+        for name in names:
+            schema = dict(dataset.generate_label_schemas(name, scan_samples=False))
+            dataset.update_label_schema(name, {**schema, "component": "text"})
+        active = list(dataset.active_label_schemas)
+        dataset.active_label_schemas = [*active, *(n for n in names if n not in active)]
+    except Exception:  # noqa: BLE001 - FiftyOne refused the schema: the values can still be seen
+        log.warning("Could not enable editing of the target fields in the FiftyOne App", exc_info=True)
+        return False
+    return bool(names)
+
+
 def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     """Let the App's *Annotate* mode edit ``ground_truth``, choosing classes from the project's list.
 
@@ -710,7 +849,8 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     tab only offers to "Add schema". For polygons the schema also makes a new polyline closed and filled
     (the App's own default is an open, unfilled line). The App can edit classifications, boxes and
     polygons of images, not
-    keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne).
+    keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne). In a
+    regression project the float field of each target gets a schema instead (a text box).
 
     Args:
         dataset: the project's dataset (with its samples, so its media type is known).
@@ -721,6 +861,8 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     """
     if project.task is Task.KEYPOINTS or dataset.media_type != "image":
         return False
+    if project.task is Task.REGRESSION:
+        return _enable_value_editing(dataset)
     try:
         schema = dict(dataset.generate_label_schemas(GROUND_TRUTH, scan_samples=False))
         if project.classes:

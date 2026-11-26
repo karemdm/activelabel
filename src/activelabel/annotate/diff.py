@@ -11,12 +11,14 @@ from activelabel.annotate.base import Pulled
 from activelabel.backups import make_backup
 from activelabel.images.manifest import Manifest
 from activelabel.labels import (
+    REPEATED_TARGET,
     AnnotationSet,
     Label,
     annotations_lock,
     common_keypoint_count,
     geometry_problem,
     load_annotations,
+    same_value,
     save_annotations,
 )
 from activelabel.projects import Project, ProjectStore
@@ -153,11 +155,34 @@ class ImageChanges:
         return bool(self.added or self.removed or self.edited)
 
 
+def _compare_values(old: list[Label], new: list[Label]) -> ImageChanges:
+    """Changes of the values of one image of a regression project: labels are matched by target.
+
+    Args:
+        old: the values in the project (one label per target).
+        new: the values brought back from the tool.
+
+    Returns:
+        A value of a target that only one side has is added or removed; a value that differs is edited.
+    """
+    changes = ImageChanges()
+    before = {lb.label: lb for lb in old}
+    after = {lb.label: lb for lb in new}
+    for target, label in after.items():
+        if target not in before:
+            changes.added.append(label)
+        elif not same_value(before[target].value, label.value):
+            changes.edited.append(label)
+    changes.removed = [lb for target, lb in before.items() if target not in after]
+    return changes
+
+
 def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChanges:
     """Match old and new labels of one image and sort them into added, removed and edited.
 
     Args:
-        task: task of the project (classification compares only the first label).
+        task: task of the project (classification compares only the first label; regression matches
+            the values by target, see :func:`_compare_values`).
         old: the labels in the project.
         new: the labels brought back from the tool.
 
@@ -175,6 +200,8 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
         elif before:
             changes.removed.append(before[0])
         return changes
+    if task is Task.REGRESSION:
+        return _compare_values(old, new)
     free_old, free_new = list(range(len(old))), list(range(len(new)))
     for min_iou, same_class in ((SAME_CLASS_IOU, True), (OTHER_CLASS_IOU, False)):
         pairs = sorted(
@@ -210,7 +237,8 @@ def clean_labels(
             not in it, or None, is not checked (a CVAT skeleton of another class may have other points).
 
     Returns:
-        The usable labels and counts of what was dropped: ``multiple_classes`` and the codes of
+        The usable labels and counts of what was dropped: ``multiple_classes``, ``repeated_target``
+        (regression: a second value of one target) and the codes of
         :func:`activelabel.labels.geometry_problem` (``no_geometry``, ``box_invalid``,
         ``polygon_too_few_points``, ``keypoints_count_mismatch``).
     """
@@ -227,6 +255,14 @@ def clean_labels(
     if project.task is Task.CLASSIFICATION and len(out) > 1:
         dropped["multiple_classes"] = len(out) - 1
         out = out[:1]
+    if project.task is Task.REGRESSION:  # one value per target: the first is kept
+        first: list[Label] = []
+        for lb in out:
+            if not any(f.label == lb.label for f in first):
+                first.append(lb)
+        if len(first) < len(out):
+            dropped[REPEATED_TARGET] = len(out) - len(first)
+        out = first
     return out, dropped
 
 

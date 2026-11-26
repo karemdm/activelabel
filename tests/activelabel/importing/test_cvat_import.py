@@ -21,6 +21,7 @@ from activelabel.jobs import Cancelled, Job, Progress
 from activelabel.labels import Label, load_annotations
 from activelabel.projects import ProjectStore
 from activelabel.sync import engine, links, registry
+from activelabel.sync.remote import RemoteItem
 from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore, jobs
 
@@ -624,3 +625,44 @@ def test_download_without_fiftyone_stops_before_reading(monkeypatch, tmp_path):
     with pytest.raises(optional.FeatureMissing) as caught:
         ci._download(settings, "project", "7", tmp_path)
     assert caught.value.code == "fiftyone_not_installed"
+
+
+class FakeItems:
+    """A remote whose items depend on the task asked for; it records the tasks it was asked."""
+
+    def __init__(self, by_task: dict[Task, list[RemoteItem]]) -> None:
+        self.by_task = by_task
+        self.asked: list[Task] = []
+
+    def items(self, settings, rid, task, only):
+        self.asked.append(task)
+        return self.by_task.get(task, [])
+
+
+def item(key: str, *labels: Label) -> RemoteItem:
+    return RemoteItem(key, f"{key}.png", 10, 10, list(labels))
+
+
+def test_read_labels_with_the_regression_hint_reads_the_values_first() -> None:
+    remote = FakeItems({Task.REGRESSION: [item("1:0", Label("age", value=3.0)), item("1:1")]})
+    out = ci._read_labels(remote, SETTINGS, "1", None, Task.REGRESSION)
+    assert out == {"1:0": [Label("age", value=3.0)], "1:1": []}
+    assert remote.asked == [Task.REGRESSION]
+
+
+def test_read_labels_falls_back_to_the_shapes_when_the_tags_hold_no_values() -> None:
+    remote = FakeItems({Task.REGRESSION: [item("1:0")], Task.DETECTION: [item("1:0", box("car"))]})
+    out = ci._read_labels(remote, SETTINGS, "1", None, Task.REGRESSION)
+    assert out == {"1:0": [box("car")]}
+    assert remote.asked == [Task.REGRESSION, Task.DETECTION]
+
+
+def test_read_labels_without_the_regression_hint_does_not_ask_for_values() -> None:
+    remote = FakeItems({Task.DETECTION: [item("1:0", box("car"))]})
+    ci._read_labels(remote, SETTINGS, "1", None, Task.DETECTION)
+    assert remote.asked == [Task.DETECTION]
+
+
+def test_read_labels_reads_classification_tags_when_there_are_no_shapes() -> None:
+    remote = FakeItems({Task.DETECTION: [item("1:0")], Task.CLASSIFICATION: [item("1:0", Label("cat"))]})
+    assert ci._read_labels(remote, SETTINGS, "1", None, Task.DETECTION) == {"1:0": [Label("cat")]}

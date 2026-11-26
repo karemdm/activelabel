@@ -121,3 +121,9 @@ def test_ring_of_fewer_than_three_points_is_left_out_and_noted():
     labels, notes = labels_and_notes(fo.Polylines(polylines=[short, mixed]), Task.SEGMENTATION)
     assert [(lb.label, len(lb.polygons or [])) for lb in labels] == [("b", 1)]
     assert notes == {"polygon_too_few_points": 2}
+
+
+def test_regression_values_are_read_from_a_dict_and_missing_ones_left_out():
+    found = labels_from_fo({"age": 31, "height": float("nan"), "weight": None}, Task.REGRESSION)
+    assert found == [Label("age", value=31.0)]
+    assert fingerprint({"age": 31.0}, Task.REGRESSION) != fingerprint({"age": 32.0}, Task.REGRESSION)

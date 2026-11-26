@@ -4,7 +4,8 @@ import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
-from activelabel.sync.engine import make_plan
+from activelabel.annotate.base import ToolSettings
+from activelabel.web import import_api
 
 CODE = "regression_not_supported_yet"
 
@@ -50,14 +51,15 @@ def test_the_catalogues_answer_without_models(regression):
     assert client.get("/api/training/augmentations", params={"type": "regression"}).json()["kinds"] == {}
 
 
-def test_the_cvat_synchronisation_is_refused(regression):
-    _, state = regression
-    with pytest.raises(ValueError) as caught:
-        make_plan(state.store, 1, "cvat", None, None, None)  # type: ignore[arg-type]
-    assert getattr(caught.value, "code", "") == CODE
-
-
-def test_importing_from_cvat_as_a_regression_project_is_refused(regression):
+def test_importing_a_cvat_task_outside_a_project_as_regression_is_refused(regression, monkeypatch):
     client, _ = regression
-    body = {"tool": "cvat", "kind": "project", "remote_id": 1, "name": "x", "task": "regression"}
+    monkeypatch.setattr(
+        import_api, "_settings", lambda state, tool: ToolSettings("cvat", "https://cvat.test")
+    )
+    monkeypatch.setattr(
+        import_api.IMPORTERS["cvat"],
+        "check_remote",
+        lambda s, k, r: {"name": "t", "classes": [], "project_id": None},
+    )
+    body = {"tool": "cvat", "kind": "task", "remote_id": 1, "name": "x", "task": "regression"}
     _refused(client.post("/api/import", json=body))

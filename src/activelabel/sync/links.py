@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from activelabel.images.manifest import ImageRecord
-from activelabel.labels import Label
+from activelabel.labels import Label, same_value
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync.remote import RemoteItem
 
@@ -53,7 +53,7 @@ def _canonical(label: Label) -> str:
         label: The label to write.
 
     Returns:
-        Compact, key-sorted JSON of the class, geometry (rounded) and track id.
+        Compact, key-sorted JSON of the class, geometry (rounded), track id and value (regression).
     """
     data: dict[str, Any] = {"label": label.label}
     if label.bbox:
@@ -64,16 +64,18 @@ def _canonical(label: Label) -> str:
         data["keypoints"] = _round(label.keypoints)
     if label.track is not None:
         data["track"] = label.track
+    if label.value is not None:  # a regression value, exact (its scale depends on the target)
+        data["value"] = float(label.value)
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def label_hash(labels: list[Label]) -> str:
     """Stable SHA-256 (hex) of the labels of one image in the internal format.
 
-    Every label is written as canonical JSON (class, bbox, polygons, keypoints, track id when there is
-    one; the score is left out) with coordinates rounded to 4 decimals, and the list is sorted, so the
-    order of the labels and geometry noise below 0.00005 of the image size do not change the hash. No
-    labels give the hash of the empty list.
+    Every label is written as canonical JSON (class, bbox, polygons, keypoints, track id and regression
+    value when there is one; the score is left out) with coordinates rounded to 4 decimals, and the list
+    is sorted, so the order of the labels and geometry noise below 0.00005 of the image size do not change
+    the hash. No labels give the hash of the empty list.
 
     Args:
         labels: The labels of one image, in any order.
@@ -107,7 +109,7 @@ def _close(a: Any, b: Any, tol: float) -> bool:
 
 
 def _label_close(a: Label, b: Label, tol: float) -> bool:
-    """Whether two labels have the same class, track id and geometry within ``tol``.
+    """Whether two labels have the same class, track id, value and geometry within ``tol``.
 
     The box of a label with polygons is derived from them (a COCO box is a pixel wider than the box the tool
     computes), so only the polygons are compared then.
@@ -120,7 +122,7 @@ def _label_close(a: Label, b: Label, tol: float) -> bool:
     Returns:
         True when the labels match.
     """
-    if a.label != b.label or a.track != b.track:
+    if a.label != b.label or a.track != b.track or not same_value(a.value, b.value):
         return False
     fields = ("polygons", "keypoints") if a.polygons and b.polygons else ("bbox", "polygons", "keypoints")
     return all(_close(getattr(a, f), getattr(b, f), tol) for f in fields)
@@ -149,7 +151,7 @@ def same_labels(a: list[Label], b: list[Label], tol: float = TOLERANCE) -> bool:
 
 
 def _geometry_close(a: Label, b: Label, tol: float) -> bool:
-    """Whether two labels have the same class and geometry within ``tol`` (track id ignored).
+    """Whether two labels have the same class, value and geometry within ``tol`` (track id ignored).
 
     Args:
         a: First label.
@@ -159,8 +161,10 @@ def _geometry_close(a: Label, b: Label, tol: float) -> bool:
     Returns:
         True when the labels match.
     """
-    return a.label == b.label and all(
-        _close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints")
+    return (
+        a.label == b.label
+        and same_value(a.value, b.value)
+        and all(_close(getattr(a, f), getattr(b, f), tol) for f in ("bbox", "polygons", "keypoints"))
     )
 
 
