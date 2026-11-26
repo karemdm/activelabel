@@ -780,7 +780,10 @@ def test_the_run_detail_shows_the_setup_and_the_learning_rate():
 
 def test_the_pre_annotate_tab_offers_the_device():
     """#553: the same device list as the training dialog, sent as ``device``."""
-    assert "id: 'pre-device'" in JS and "threshold: form.threshold, device: form.device" in JS
+    assert (
+        "id: 'pre-device'" in JS
+        and "scope: form.scope, device: form.device, options: sentOptions(model)" in JS
+    )
     assert JS.count("export const deviceName") == 1 and "    const deviceName" not in JS  # one shared namer
     for lang in ("pt", "en"):
         assert json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))["pre.device_help"]
@@ -822,3 +825,24 @@ def test_the_classes_field_says_how_to_add_a_class_and_takes_a_pasted_list():
     for lang, enter in (("pt", "Enter ou vírgula"), ("en", "Enter or a comma")):
         texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
         assert enter in texts["new.classes_hint"] and enter in texts["classes.help"]
+
+
+def test_the_pre_annotate_settings_are_folded_and_follow_the_model():
+    """#86: classes and parameters under one folded line, built from the schema the API sends per model."""
+    assert "class: 'pre-settings'" in JS and "t('pre.set_default')" in JS and "t('pre.set_changed')" in JS
+    assert "model.options || []" in JS and "o.level === 'basic'" in JS and "t('pre.params_more')" in JS
+    assert "MANY_CLASSES = 12" in JS and "LIST_LIMIT = 100" in JS and "t('pre.classes_invert')" in JS
+    assert "json.classes = s.classes" in JS and "repeatRun(r)" in JS and "SETTINGS_KEY" in JS
+    assert "id: 'pre-threshold'" not in JS  # the confidence moved into the settings
+    for lang in ("pt", "en"):
+        texts = json.loads((SRC / "i18n" / f"{lang}.json").read_text(encoding="utf-8"))
+        for name in (
+            "margin",
+            "nms_iou",
+            "max_detections",
+            "class_agnostic_nms",
+            "min_size",
+            "mask_threshold",
+        ):
+            assert texts[f"pre.opt.{name}"] and texts[f"pre.opt_hint.{name}"], (lang, name)
+        assert "{min}" in texts["pre.opt_range"] and "{max}" in texts["pre.opt_range"]

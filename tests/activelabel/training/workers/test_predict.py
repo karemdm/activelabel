@@ -75,3 +75,61 @@ def test_detect_takes_a_letterbox_prediction_back_to_the_photo(module):
     assert legacy["masks"][0].shape == (200, 400)
     boxed = module.detect(model, Image.new("RGB", (400, 200)), "instance", "cpu", 100, "letterbox")
     assert boxed["masks"][0].shape == (200, 400) and boxed["masks"][0].all()
+
+
+BOXES = [[0, 0, 50, 50], [2, 2, 52, 52], [60, 60, 70, 70], [0, 0, 49, 49], [80, 80, 82, 82]]
+LABELS = [1, 1, 1, 2, 1]
+SCORES = [0.9, 0.8, 0.7, 0.85, 0.6]
+
+
+def test_select_detections_applies_nms_per_class_by_default(module):
+    picked = module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", "b"], 0.5, {"nms_iou": 0.5})
+    assert picked == [0, 3, 2, 4]  # box 1 overlaps box 0 (same class); box 3 is another class
+
+
+def test_select_detections_can_apply_nms_across_classes(module):
+    opts = {"nms_iou": 0.5, "class_agnostic_nms": True}
+    assert module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", "b"], 0.5, opts) == [0, 2, 4]
+
+
+def test_select_detections_threshold_size_most_and_classes(module):
+    assert module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", "b"], 0.75) == [0, 3, 1]
+    opts = {"min_size": 0.05}
+    assert 4 not in module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", "b"], 0.5, opts)
+    opts = {"max_detections": 2}
+    assert module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", "b"], 0.5, opts) == [0, 3]
+    assert module.select_detections(BOXES, LABELS, SCORES, 100, 100, ["a", None], 0.5) == [0, 1, 2, 4]
+
+
+def test_classification_margin_and_classes_not_chosen(module):
+    assert module.classification_labels([0.5, 0.45, 0.05], ["a", "b", "c"], 0.4, "m1", margin=0.1) == []
+    assert module.classification_labels([0.6, 0.3, 0.1], ["a", "b", "c"], 0.4, "m1", margin=0.1)
+    # the best class was not chosen: no label, never the second best in its place
+    assert module.classification_labels([0.7, 0.2, 0.1], ["", "b", "c"], 0.1, "m1") == []
+
+
+class Head:
+    def __init__(self) -> None:
+        self.score_thresh, self.nms_thresh, self.detections_per_img = 0.05, 0.5, 100
+
+
+class Detector:
+    def __init__(self) -> None:
+        self.roi_heads = Head()
+
+
+def test_tune_detector_sets_threshold_nms_and_objects(module):
+    model = Detector()
+    module.tune_detector(model, 0.01, {"nms_iou": 0.3, "max_detections": 500})
+    assert (model.roi_heads.score_thresh, model.roi_heads.nms_thresh) == (0.01, 0.3)
+    assert model.roi_heads.detections_per_img == 500
+    module.tune_detector(model, 0.5, {"max_detections": 5})
+    assert model.roi_heads.score_thresh == 0.01 and model.roi_heads.detections_per_img == 500
+
+
+def test_instance_masks_follow_the_mask_threshold(module):
+    if torch is None:
+        pytest.skip("needs torch")
+    probabilities = torch.full((1, 1, 4, 4), 0.6)
+    assert module.instance_masks(probabilities, 4, 4)[0].all()
+    assert not module.instance_masks(probabilities, 4, 4, 0.7)[0].any()

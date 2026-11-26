@@ -110,6 +110,7 @@ def test_rules_never_overwrite_people(pre):
         "skipped": 1,
         "empty": 2,
         "dropped_class": 1,
+        "dropped_unchosen": 0,
         "dropped_geometry": 0,
     }
     images = load_annotations(project_dir).images
@@ -163,6 +164,7 @@ def test_preannotate_end_to_end(pre):
             "skipped": 0,
             "empty": 1,
             "dropped_class": 0,
+            "dropped_unchosen": 0,
             "dropped_geometry": 0,
             "unreadable": 0,
             "removed_classes": [],
@@ -420,3 +422,53 @@ def test_status_constants_are_shared():
         jobs.FAILED,
         jobs.CANCELLED,
     )
+
+
+def test_the_settings_of_a_run_are_stored_sent_and_only_the_chosen_classes_written(pre):
+    client, state, runner, empty = pre
+    model = client.get("/api/projects/1/preannotations").json()["models"][0]
+    assert model["classes"] == [{"name": "a", "in_project": True}, {"name": "b", "in_project": True}]
+    assert [o["name"] for o in model["options"]] == ["confidence", "margin"]
+    task_id = client.get("/api/projects/1/preannotations").json()["tasks"][0]["id"]
+    body = {"model": 1, "task": task_id, "classes": ["b"], "options": {"confidence": 0.3, "margin": 0.1}}
+    resp = client.post("/api/projects/1/preannotations", json=body)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["options"] == {"confidence": 0.3, "margin": 0.1} and resp.json()["classes"] == ["b"]
+    assert resp.json()["threshold"] == 0.3
+    run = wait_for(
+        lambda: (
+            (r := client.get("/api/projects/1/preannotations").json()["runs"][0])["status"] == "done" and r
+        )
+    )
+    spec = json.loads((state.store.dir(1) / "models" / "m1" / "predict_spec.json").read_text())
+    assert spec["keep"] == ["b"] and spec["options"] == {"confidence": 0.3, "margin": 0.1}
+    # the fake model answers "a" anyway: ActiveLabel drops it too, nothing is written
+    assert run["counts"]["dropped_unchosen"] == 5 and run["counts"]["images"] == 0
+    assert client.get("/api/projects/1/preannotations").json()["tasks"][0]["unreviewed"] == 0
+
+
+@pytest.mark.parametrize(
+    ("extra", "code"),
+    [
+        ({"classes": []}, "no_class_selected"),
+        ({"classes": ["zzz"]}, "class_not_in_model"),
+        ({"options": {"nms_iou": 0.5}}, "option_unknown"),
+        ({"options": {"confidence": 1.5}}, "option_range"),
+    ],
+)
+def test_wrong_settings_are_refused_with_a_code(pre, extra, code):
+    client, state, runner, empty = pre
+    task_id = client.get("/api/projects/1/preannotations").json()["tasks"][0]["id"]
+    resp = client.post("/api/projects/1/preannotations", json={"model": 1, "task": task_id, **extra})
+    assert (resp.status_code, resp.json()["code"]) == (400, code)
+
+
+def test_without_settings_the_defaults_of_the_kind_are_used(pre):
+    client, state, runner, empty = pre
+    task_id = client.get("/api/projects/1/preannotations").json()["tasks"][0]["id"]
+    resp = client.post("/api/projects/1/preannotations", json={"model": 1, "task": task_id})
+    assert resp.json()["options"] == {"confidence": 0.5, "margin": 0.0} and resp.json()["classes"] == [
+        "a",
+        "b",
+    ]
+    wait_for(lambda: client.get("/api/projects/1/preannotations").json()["runs"][0]["status"] == "done")

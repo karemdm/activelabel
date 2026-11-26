@@ -5,7 +5,10 @@ training worker module that builds the network: ``classification`` or ``detectio
 (``classification``, ``detection`` or ``keypoints``), ``build`` (what that worker's ``build_model``
 reads), ``classes`` (in the order of the network's outputs), ``threshold`` (lowest confidence kept),
 ``model`` (the saved model's name, e.g. ``m1``), ``items`` (``[{"id", "path"}]``) and ``device`` (``auto``,
-``cpu``, ``cuda:N`` or ``mps``; ``auto`` when absent). For a public
+``cpu``, ``cuda:N`` or ``mps``; ``auto`` when absent). Optional: ``options`` (the inference parameters of the
+run, see ``activelabel/preannotate_options.py``: ``nms_iou``, ``max_detections``, ``class_agnostic_nms``,
+``min_size``, ``mask_threshold``, ``margin``; the defaults when absent) and ``keep`` (the project classes to
+write; the others are treated like categories the project does not use). For a public
 pretrained model the spec has ``public`` (``builder``, ``categories``, ``mapping``, ``task``) instead
 of ``checkpoint``, ``worker`` and ``build``: torchvision downloads the weights, and categories missing
 from the mapping are dropped.
@@ -73,22 +76,27 @@ def _clamp(value: float) -> float:
 
 
 def classification_labels(
-    probabilities: list[float], classes: list[str], threshold: float, model: str
+    probabilities: list[float], classes: list[str], threshold: float, model: str, margin: float = 0.0
 ) -> list[dict[str, Any]]:
-    """The most likely class when it reaches ``threshold`` (else no label).
+    """The most likely class when it reaches ``threshold`` and beats the next by ``margin`` (else no label).
+
+    The image stays without a label when the model is unsure, and also when its most likely class was not
+    chosen (an empty name): the second most likely class is never written in its place.
 
     Args:
         probabilities: Probability of each class, in the order of ``classes``.
-        classes: Class names, in the order of the network's outputs.
+        classes: Class names, in the order of the network's outputs (``""``: a class not to write).
         threshold: Lowest confidence kept.
         model: Name of the saved model, stored in the label.
+        margin: Lowest difference between the two most likely classes.
 
     Returns:
         A list with one label (``label``, ``score``, ``model``), or an empty list.
     """
     best = max(range(len(probabilities)), key=lambda i: probabilities[i])
     score = float(probabilities[best])
-    if score < threshold or best >= len(classes):
+    second = max((float(p) for i, p in enumerate(probabilities) if i != best), default=0.0)
+    if score < threshold or score - second < margin or best >= len(classes) or not classes[best]:
         return []
     return [{"label": classes[best], "score": round(score, 4), "model": model}]
 
@@ -226,19 +234,115 @@ def detection_labels(
     return out
 
 
-def instance_masks(probabilities: Any, width: int, height: int) -> list[Any]:
+def _iou(box: Any, others: Any) -> Any:
+    """Intersection over union of one box with several.
+
+    Args:
+        box: ``[x1, y1, x2, y2]``.
+        others: ``(N, 4)`` array of boxes.
+
+    Returns:
+        ``(N,)`` array of IoU values.
+    """
+    x1 = np.maximum(box[0], others[:, 0])
+    y1 = np.maximum(box[1], others[:, 1])
+    x2 = np.minimum(box[2], others[:, 2])
+    y2 = np.minimum(box[3], others[:, 3])
+    inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    areas = (others[:, 2] - others[:, 0]) * (others[:, 3] - others[:, 1])
+    return inter / np.maximum(area + areas - inter, 1e-9)
+
+
+def select_detections(
+    boxes: list[list[float]],
+    labels: list[int],
+    scores: list[float],
+    width: int,
+    height: int,
+    classes: list[str | None],
+    threshold: float,
+    opts: dict[str, Any] | None = None,
+) -> list[int]:
+    """Which detections to keep: confidence, chosen class, smallest size, NMS and the most per image.
+
+    Args:
+        boxes: Boxes ``[x1, y1, x2, y2]`` in pixels.
+        labels: Class index of each box (0 is background).
+        scores: Confidence of each box.
+        width: Image width in pixels.
+        height: Image height in pixels.
+        classes: Project class names (index 0 of the list is class 1); ``None`` marks a class not to write.
+        threshold: Lowest confidence kept.
+        opts: ``nms_iou`` (boxes overlapping more than this become one), ``class_agnostic_nms`` (also across
+            classes), ``min_size`` (shorter side, as a share of the image's) and ``max_detections``.
+
+    Returns:
+        Indices of the kept detections, highest confidence first.
+    """
+    opts = opts or {}
+    iou = float(opts.get("nms_iou", 1.0))
+    agnostic = bool(opts.get("class_agnostic_nms", False))
+    min_size = float(opts.get("min_size", 0.0))
+    most = int(opts.get("max_detections", len(scores) or 1))
+    candidates = []
+    for i, (box, label, score) in enumerate(zip(boxes, labels, scores, strict=True)):
+        if score < threshold or not 1 <= int(label) <= len(classes) or classes[int(label) - 1] is None:
+            continue
+        if min((box[2] - box[0]) / width, (box[3] - box[1]) / height) < min_size:
+            continue
+        candidates.append(i)
+    candidates.sort(key=lambda i: -scores[i])
+    array = np.asarray(boxes, dtype="float64").reshape(-1, 4)
+    kept: list[int] = []
+    for i in candidates:
+        if len(kept) >= most:
+            break
+        rivals = [k for k in kept if agnostic or labels[k] == labels[i]]
+        if rivals and iou < 1.0 and float(_iou(array[i], array[rivals]).max()) > iou:
+            continue
+        kept.append(i)
+    return kept
+
+
+def tune_detector(model: Any, threshold: float, opts: dict[str, Any] | None = None) -> None:
+    """Set the confidence, NMS IoU and objects per image inside a torchvision detector.
+
+    The detector keeps candidates down to ``threshold`` (its default is 0.05) and applies the per-class NMS
+    with ``nms_iou``; it may keep more objects than ``max_detections`` (at least its own default), because
+    :func:`select_detections` cuts after the NMS across classes.
+
+    Args:
+        model: The torchvision detection network.
+        threshold: Lowest confidence kept.
+        opts: The run's options (``nms_iou``, ``max_detections``).
+    """
+    opts = opts or {}
+    for owner in (getattr(model, "roi_heads", None), getattr(model, "head", None), model):
+        if owner is None:
+            continue
+        if hasattr(owner, "score_thresh"):
+            owner.score_thresh = min(float(owner.score_thresh), threshold)
+        if "nms_iou" in opts and hasattr(owner, "nms_thresh"):
+            owner.nms_thresh = float(opts["nms_iou"])
+        if "max_detections" in opts and hasattr(owner, "detections_per_img"):
+            owner.detections_per_img = max(int(owner.detections_per_img), int(opts["max_detections"]))
+
+
+def instance_masks(probabilities: Any, width: int, height: int, cut: float = MASK_THRESHOLD) -> list[Any]:
     """Boolean masks (reduced to at most ``MAX_MASK_SIDE`` pixels) of the ``(N, 1, H, W)`` mask output.
 
     Args:
         probabilities: Tensor of mask probabilities, shape ``(N, 1, H, W)``.
         width: Image width in pixels.
         height: Image height in pixels.
+        cut: Probability from which a pixel is inside the object.
 
     Returns:
         One 2-D boolean array per detection.
     """
     step = mask_step(width, height)
-    return [m[::step, ::step] for m in (probabilities[:, 0] > MASK_THRESHOLD).cpu().numpy()]
+    return [m[::step, ::step] for m in (probabilities[:, 0] > cut).cpu().numpy()]
 
 
 def semantic_map(
@@ -281,7 +385,15 @@ def semantic_map(
     return classes_map.cpu().numpy(), confidence.cpu().numpy()
 
 
-def detect(model: Any, image: Any, task: str, device: str, size: int = 0, policy: str = "") -> dict[str, Any]:
+def detect(
+    model: Any,
+    image: Any,
+    task: str,
+    device: str,
+    size: int = 0,
+    policy: str = "",
+    mask_threshold: float = MASK_THRESHOLD,
+) -> dict[str, Any]:
     """Run a detector on a photo; boxes, keypoints and masks come back in photo pixels.
 
     Args:
@@ -291,6 +403,7 @@ def detect(model: Any, image: Any, task: str, device: str, size: int = 0, policy
         device: Torch device name the model is on.
         size: Side of the square input; 0 gives the photo as it is (the network resizes it).
         policy: The resize policy the model was trained with, used when ``size`` is given.
+        mask_threshold: Probability from which a pixel is inside an instance's mask.
 
     Returns:
         ``boxes`` (``[x1, y1, x2, y2]``), ``labels`` and ``scores`` lists, ``keypoints`` (per detection, or
@@ -310,9 +423,9 @@ def detect(model: Any, image: Any, task: str, device: str, size: int = 0, policy
             step = mask_step(width, height)
             grid = (-(-width // step), -(-height // step))
             back = options.unfit_map(out["masks"], width, height, size, policy, grid)
-            masks = list((back[:, 0] > MASK_THRESHOLD).cpu().numpy())
+            masks = list((back[:, 0] > mask_threshold).cpu().numpy())
         else:
-            masks = instance_masks(out["masks"], width, height)
+            masks = instance_masks(out["masks"], width, height, mask_threshold)
     return {
         "boxes": boxes.tolist(),
         "labels": out["labels"].cpu().tolist(),
@@ -358,16 +471,17 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
         if bad or [k for k in result.unexpected_keys if not k.startswith("aux_classifier.")]:
             raise ValueError("The weights do not match the network.")
         classes = list(spec["classes"])
+    keep = spec.get("keep")
+    if (
+        keep is not None
+    ):  # classes not chosen for the run are dropped like categories the project does not use
+        classes = [c if c in keep else None for c in classes]
+    opts = dict(spec.get("options") or {})
     device = options.pick_device(torch, str(spec.get("device") or "auto"))
     model.to(device).eval()
     threshold, name = float(spec["threshold"]), str(spec["model"])
     if task in DETECTION_KINDS:
-        for part in ("roi_heads", "head"):  # keep candidates down to the threshold (the default is 0.05)
-            module = getattr(model, part, None)
-            if module is not None and hasattr(module, "score_thresh"):
-                module.score_thresh = min(float(module.score_thresh), threshold)
-        if hasattr(model, "score_thresh"):
-            model.score_thresh = min(float(model.score_thresh), threshold)
+        tune_detector(model, threshold, opts)
     # the resize policy saved with the weights; a model saved before it existed has none
     policy = str(checkpoint.get("resize") or "")
     size = int(checkpoint.get("image_size") or 0) if policy else 0
@@ -402,23 +516,36 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                 )
                 labels = semantic_labels(classes_map, confidence, classes, threshold, name)
             elif task in DETECTION_KINDS:
-                found = detect(model, image, task, device, size, policy)
+                found = detect(
+                    model,
+                    image,
+                    task,
+                    device,
+                    size,
+                    policy,
+                    float(opts.get("mask_threshold", MASK_THRESHOLD)),
+                )
+                picked = select_detections(
+                    found["boxes"], found["labels"], found["scores"], width, height, classes, threshold, opts
+                )
                 labels = detection_labels(
-                    found["boxes"],
-                    found["labels"],
-                    found["scores"],
+                    [found["boxes"][i] for i in picked],
+                    [found["labels"][i] for i in picked],
+                    [found["scores"][i] for i in picked],
                     width,
                     height,
                     classes,
                     threshold,
                     name,
-                    found["keypoints"],
-                    found["masks"],
+                    None if found["keypoints"] is None else [found["keypoints"][i] for i in picked],
+                    None if found["masks"] is None else [found["masks"][i] for i in picked],
                 )
             else:
                 logits = model(transform(image).unsqueeze(0).to(device))
                 probabilities = torch.softmax(logits, dim=1)[0].cpu().tolist()
-                labels = classification_labels(probabilities, [c or "" for c in classes], threshold, name)
+                labels = classification_labels(
+                    probabilities, [c or "" for c in classes], threshold, name, float(opts.get("margin", 0.0))
+                )
             totals["images"] += 1 if labels else 0
             totals["objects"] += len(labels)
             emit("prediction", id=item["id"], labels=labels)

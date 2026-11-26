@@ -175,8 +175,12 @@ de detecção e de pontos-chave; nos outros tipos o botão não aparece).
 
 1. Em *Imagens*, aba *Tasks e jobs*, crie uma *Nova task* com as imagens novas.
 2. Em *Anotações*, aba *Pré-anotar*: escolha o modelo (o atual, por padrão), a task, quais
-   imagens (sem anotação, ou pré-anotadas e ainda não revisadas) e a confiança mínima (de 0,05
-   a 0,95; a tela propõe 0,5 para classificação e 0,3 para detecção e pontos-chave). Inicie.
+   imagens (sem anotação, ou pré-anotadas e ainda não revisadas) e o dispositivo. Em *Ajustes da
+   pré-anotação* (recolhido, com um resumo do que mudou) dá para escolher só algumas classes do modelo
+   e ajustar os parâmetros do tipo de modelo: confiança mínima (padrão 0,5 em classificação e 0,25 nos
+   demais), IoU do NMS, máximo de objetos, tamanho mínimo, limiar da máscara e outros, cada um com seu
+   padrão e "Restaurar". Inicie. No *Histórico*, *Repetir com estes ajustes* preenche o formulário com os
+   ajustes de uma execução.
    Imagens ilegíveis são contadas e puladas. Funciona para classificação, detecção,
    pontos-chave e segmentação (as máscaras viram polígonos). No cartão de um modelo em *Modelos*,
    *Pré-anotar com este* abre esta aba com o modelo escolhido.

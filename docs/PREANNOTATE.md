@@ -13,8 +13,10 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
    models that can pre-annotate this project are listed, and a model saved with an architecture this version no
    longer offers is shown disabled as *unavailable*), task (the newest one with images without annotations by
    default), which images (*Without annotations* or *Not reviewed*, that is, pre-annotated and not reviewed;
-   each with its count, and a choice with no image is disabled), minimum confidence (the screen accepts 0.05 to
-   0.95); one button, which says how many images it will pre-annotate. A run that is queued or running is shown
+   each with its count, and a choice with no image is disabled) and the device; one button, which says how many
+   images it will pre-annotate. Above the button, one folded line, *Pre-annotation settings* (*Ajustes da
+   pré-anotação*), says what differs from the defaults (for example `2 of 6 classes · NMS IoU 0.6 · +1`, marked
+   *changed*) or `default`; opened, it shows the classes and the parameters (see *Settings* below). A run that is queued or running is shown
    on the same screen with its progress and a stop button. When it ends with nothing written because the model
    was never sure enough, the screen says so and suggests a lower confidence.
    If the project has no model at all, the tab says *To pre-annotate, save a trained model or add a public model
@@ -25,7 +27,9 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
    yet, with *Review in CVAT* (opens the CVAT tab with that task chosen), *Review in FiftyOne* (opens
    the FiftyOne tab with "Pre-annotated, not reviewed" chosen) and *Accept as they are*
    (*Aceitar como estão*).
-3. **History** (*Histórico*): every run with model, task, threshold and result.
+3. **History** (*Histórico*): every run with model, task, the settings it used (one line), result and
+   *Repeat with these settings* (fills the form with that run's model, task, images and settings; it does not
+   start by itself).
 
 ## Rules
 
@@ -42,15 +46,46 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
 - FiftyOne shows the confidence of pre-annotations (`confidence` of each detection), to filter the
   doubtful ones first.
 
-## Minimum confidence
+## Settings
 
-Detections (and segments) below it are left out; for classification, an image whose best class is below it stays
-without a label. The screen limits it to 0.05–0.95 and proposes 0.5 for classification and 0.3 for detection and
-keypoints (a reviewer corrects a few extra boxes faster than drawing missing ones); a segmentation model proposes
-0.5. Models trained on few images give low scores: when a run finds nothing, the screen says so and suggests a
-lower threshold. A detection model is allowed to return candidates down to this threshold even when its own
-`score_thresh` hyperparameter (docs/TRAINING.md) is higher; the metrics of a training run do not depend on
-either.
+**Classes.** By default a run writes every class of the model that the project has. The settings list them (a
+trained model: the project's classes at its training; a public model: the project classes its categories are
+mapped to) with *All*, *None* and *Invert* and a count (`3 of 80 used`); up to 12 classes are chips, more get a
+search and a list (at most 100 at a time, the chosen ones first). Classes the project no longer has are listed
+apart and cannot be chosen. With no class chosen the screen says so and the start button is disabled. A class
+that was not chosen is never written: the model process drops it (like a category the project does not use) and
+ActiveLabel drops it again when writing (`counts.dropped_unchosen`). For classification, an image whose most
+likely class was not chosen stays without a label (the second class is never written in its place).
+
+**Parameters.** Each kind of model describes its own (the API sends them with each model: name, type, default,
+range, step and `basic` or `advanced`); a parameter that does not apply to the model is not shown. The basic ones
+are shown first, the others under *More settings*. Each field shows its default, is marked when changed and has
+*Restore*; *Restore defaults* clears them all. A value out of range opens the settings, says *Use a value between
+X and Y* and disables the start button.
+
+| Parameter | Kinds | Default (range) | What it does |
+| --- | --- | --- | --- |
+| `confidence` (minimum confidence) | all | 0.5 classification, 0.25 the others (0.001–0.999) | detections, segments and classes below it are left out; a classified image below it stays without a label |
+| `margin` | classification | 0 (0–0.9) | no label when the two most likely classes are closer than this |
+| `nms_iou` | detection, keypoints, instance | 0.5 (0.05–0.95) | boxes of a class overlapping more than this become one |
+| `max_detections` | detection, keypoints, instance | 100 (1–1000) | the most confident objects kept per image |
+| `class_agnostic_nms` | detection, keypoints, instance | no | the NMS also merges boxes of different classes |
+| `min_size` | detection, keypoints, instance | 0 (0–0.5) | objects whose shorter side is below this share of the image's are left out |
+| `mask_threshold` | instance | 0.5 (0.1–0.9) | pixels with a higher mask probability are inside the object |
+| `min_region` | instance, semantic | 0.0002 (0–0.05) | mask regions smaller than this share of the image are noise |
+| `simplify` | instance, semantic | 0.004 (0–0.05) | outline simplification, as a share of its perimeter (at least one pixel) |
+
+A kind added later (a regression model, for example) gets the common parameters and its own. The confidence
+default follows the model kind (a reviewer corrects a few extra boxes faster than drawing missing ones). Models
+trained on few images give low scores: when a run finds nothing, the screen says so and suggests a lower
+confidence. A detection model is allowed to return candidates down to the confidence even when its own
+`score_thresh` hyperparameter (docs/TRAINING.md) is higher, and its NMS and objects per image follow the settings;
+the metrics of a training run do not depend on either. Keypoint models have no point-level settings: the
+visibility torchvision gives its points is not a probability.
+
+The settings of each model are remembered in this browser (per project). Each run stores the values it used
+(`options`, every parameter of the kind, and `classes`), so it can be repeated exactly; a run stored before the
+settings existed is repeated with its `threshold` and the defaults.
 
 ## How it runs
 
@@ -76,16 +111,17 @@ error `interrupted`; it can be started again. Logs:
 Supported: classification, detection, keypoints, **instance segmentation and semantic segmentation**
 (torchvision). A segmentation model predicts masks; the worker (which has no OpenCV) sends each mask as a
 run-length code of at most a fixed size on its longer side, and ActiveLabel turns it into polygons: the
-outer outline of every region (holes are not kept), regions smaller than 0.02 % of the image are dropped
-as noise, and each outline is simplified (Douglas-Peucker, tolerance 0.4 % of its perimeter, at least one
-pixel). An instance gives one object with all its regions as rings; the mask of a whole class from a
+outer outline of every region (holes are not kept), regions smaller than `min_region` of the image (0.02 % by
+default) are dropped as noise, and each outline is simplified (Douglas-Peucker, tolerance `simplify` of its
+perimeter, 0.4 % by default, at least one pixel). An instance gives one object with all its regions as rings; the mask of a whole class from a
 semantic model becomes one object per region. Every polygon object also gets its bounding box. YOLO
 (Ultralytics) models cannot pre-annotate yet.
 
 What is written is checked when the run ends:
 
 - Only labels of the project's **current classes** and with the **shape its type needs** are written; the
-  others are counted, not written (`counts.dropped_class`, `counts.dropped_geometry`; the model's classes that
+  others are counted, not written (`counts.dropped_class`, `counts.dropped_geometry`, and
+  `counts.dropped_unchosen` for classes not chosen for the run; the model's classes that
   the project no longer has are listed in `counts.removed_classes`). A model whose classes are all gone from the
   project is refused (the run fails with a plain text).
 - An image in which the model finds nothing is counted (`counts.empty`) and left without labels; with *Not
@@ -138,8 +174,8 @@ models the catalogue answer has an empty `models` list.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/api/projects/{id}/preannotations` | models that can pre-annotate, tasks with counts (images, unlabeled, unreviewed), runs |
-| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", threshold, device}` (threshold 0.5 when omitted, accepted from 0.001 to 0.999; the screen offers 0.05 to 0.95 and proposes 0.3 for detection and keypoints; `device` is `auto` when omitted, see *Device*) |
+| GET | `/api/projects/{id}/preannotations` | models that can pre-annotate (each with `classes`: `[{name, in_project}]`, and `options`: its parameters, see *Settings*), tasks with counts (images, unlabeled, unreviewed), runs |
+| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", device, options, classes}`; `options` omitted or partial: the defaults of the model's kind; `classes` omitted: every class of the model the project has; `threshold` is still accepted as the older name of `options.confidence` (0.001–0.999); `device` is `auto` when omitted, see *Device*. The run keeps `options` (every parameter), `classes` and `threshold` (the confidence) |
 | POST | `/api/projects/{id}/preannotations/{n}/cancel` | cancel a queued or running run |
 | POST | `/api/projects/{id}/preannotations/accept` | accept the pre-annotations of a task (`{task}`) or of every task |
 
@@ -147,11 +183,13 @@ Errors (each with a `code`, docs/DESIGN.md): 404 for an unknown model, run or ta
 `preannotation_not_found`, `task_not_found`); 400 for a model that is not in this version's catalogue
 (`model_not_in_catalogue`), whose labels the project does not use (`model_kind_mismatch`) or whose kind
 cannot pre-annotate (`preannotation_kind_unsupported`: today only the YOLO family, whatever its task), a threshold outside
-0.001–0.999 (`threshold_range`), a device that is not valid or not on this computer (`device_invalid`,
+0.001–0.999 (`threshold_range`), a setting the model's kind does not have (`option_unknown`) or with a wrong
+value (`option_range`, `option_not_number`, `option_not_whole`, `option_not_bool`, each with the `option`), a
+class the model cannot write into the project (`class_not_in_model`) or no class chosen (`no_class_selected`), a device that is not valid or not on this computer (`device_invalid`,
 `device_unavailable`), an unknown scope (`scope_invalid`) or no image to fill
 (`no_images_for_choice`); 409 when the same task and scope are already being pre-annotated
 (`preannotation_running`). The result of a run has `counts` with `images`, `objects`, `skipped`,
-`unreadable`, `empty`, `dropped_class`, `dropped_geometry` and `removed_classes`.
+`unreadable`, `empty`, `dropped_class`, `dropped_unchosen`, `dropped_geometry` and `removed_classes`.
 
 Edit sessions accept the image scope `preannotated` (images whose labels are all pre-annotations).
 

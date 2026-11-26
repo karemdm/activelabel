@@ -35,7 +35,7 @@ from functools import partial
 from pathlib import Path
 from typing import IO, Any
 
-from activelabel import __version__, preannotate
+from activelabel import __version__, preannotate, preannotate_options
 from activelabel.datasets import DatasetNotFound, DatasetStore, common_count
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
@@ -538,7 +538,13 @@ class _PredictionEvents:
     """Collects the events of a pre-annotation process: labels per image, unreadable images, progress."""
 
     def __init__(
-        self, runs: preannotate.PreannotationStore, number: int, progress: Progress, total: int
+        self,
+        runs: preannotate.PreannotationStore,
+        number: int,
+        progress: Progress,
+        total: int,
+        min_region: float = preannotate.MIN_REGION,
+        simplify: float = preannotate.SIMPLIFY,
     ) -> None:
         """Start collecting events of one pre-annotation run.
 
@@ -547,8 +553,12 @@ class _PredictionEvents:
             number: number of the pre-annotation run.
             progress: progress handle of the job.
             total: number of images sent to the process (used until it reports its own total).
+            min_region: smallest mask region kept, as a share of the image.
+            simplify: outline simplification of the masks, as a share of the perimeter.
         """
         self.predictions: dict[str, list[Label]] = {}
+        self.min_region = min_region
+        self.simplify = simplify
         self.unreadable: list[str] = []
         self._runs = runs
         self._number = number
@@ -564,7 +574,9 @@ class _PredictionEvents:
         """
         kind = event.get("event")
         if kind == "prediction":
-            self.predictions[str(event["id"])] = preannotate.mask_labels(event.get("labels") or [])
+            self.predictions[str(event["id"])] = preannotate.mask_labels(
+                event.get("labels") or [], self.min_region, self.simplify
+            )
         elif kind == "skipped":
             self.unreadable.append(str(event.get("id")))
         elif kind == "progress" and time.monotonic() - self._last >= PROGRESS_EVERY:
@@ -1155,10 +1167,17 @@ class TrainingRunner:
             runs.update(number, phase="predicting", message="", total=len(items), done=0)
             self.tmp_root.mkdir(parents=True, exist_ok=True)
             tmp = Path(tempfile.mkdtemp(prefix=f"p{number}-", dir=self.tmp_root))
+            # a run stored before the settings existed has only its threshold: the defaults for the rest
+            options = preannotate_options.resolve(
+                kind, run.get("options") or {"confidence": float(run["threshold"])}
+            )
+            keep = run.get("classes")
             spec: dict[str, Any] = {
                 "task": kind,
                 "classes": list(card.get("classes") or []),
-                "threshold": float(run["threshold"]),
+                "threshold": float(options["confidence"]),
+                "options": options,
+                "keep": keep,
                 "model": f"m{card['number']}",
                 "items": items,
                 "device": str(run.get("device") or "auto"),
@@ -1184,7 +1203,14 @@ class TrainingRunner:
                 }
             spec_file = tmp / "spec.json"
             spec_file.write_text(json.dumps(spec), encoding="utf-8")
-            events = _PredictionEvents(runs, number, progress, len(items))
+            events = _PredictionEvents(
+                runs,
+                number,
+                progress,
+                len(items),
+                float(options.get("min_region", preannotate.MIN_REGION)),
+                float(options.get("simplify", preannotate.SIMPLIFY)),
+            )
             script = self._scripts(kind).parent / PREDICT_SCRIPT.name
             cmd = [str(self.environment.python()), str(script), str(spec_file)]
             log_file = project_dir / "preannotations" / f"p{number}.log"
@@ -1199,7 +1225,9 @@ class TrainingRunner:
                     "nothing was written. Run it again."
                 )
             counts: dict[str, Any] = dict(
-                preannotate.apply_predictions(project_dir, now_project, events.predictions, str(run["scope"]))
+                preannotate.apply_predictions(
+                    project_dir, now_project, events.predictions, str(run["scope"]), keep
+                )
             )
             counts["unreadable"] = len(events.unreadable)
             counts["removed_classes"] = removed  # classes of the model the project does not have
