@@ -10,6 +10,7 @@ from activelabel.config import Settings
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import JobManager
 from activelabel.projects import Project, ProjectNotFound, ProjectStore
+from activelabel.scheduler import Limits, Scheduler
 from activelabel.training.runner import TrainingRunner
 from activelabel.web.errors import ApiError
 
@@ -18,20 +19,29 @@ class AppState:
     """Service state, kept in ``app.state.activelabel``."""
 
     def __init__(self, settings: Settings, jobs: JobManager | None = None) -> None:
-        """Build the settings-dependent services: stores, job manager and training runner.
+        """Build the settings-dependent services: stores, global queue, job manager and training runner.
 
         Args:
             settings: The settings of the application.
-            jobs: The job manager (a new one when omitted).
+            jobs: The job manager (a new one on the app's global queue when omitted; an injected one brings
+                its own queue).
         """
         self.settings = settings
         self.store = ProjectStore(settings.projects_dir)
-        self.jobs = jobs or JobManager()
+        if jobs is None:
+            self.scheduler = Scheduler(
+                settings.workspace / "queue.json", Limits(cpu=settings.queue_cpu, gpu=settings.queue_gpu)
+            )
+            self.jobs = JobManager(scheduler=self.scheduler)
+        else:
+            self.jobs = jobs
+            self.scheduler = jobs.scheduler
         self.runner = TrainingRunner(
             settings.workspace,
             self.store.dir,
             lambda: [p.id for p in self.store.list()],
             project=self.store.get,
+            scheduler=self.scheduler,
         )
 
     def project(self, project_id: int) -> Project:

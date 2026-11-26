@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 import uuid
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from pydantic import BaseModel, ValidationError
 
 from activelabel.images.ingest import ingest_frames
 from activelabel.images.manifest import Manifest
@@ -24,12 +25,14 @@ from activelabel.images.video import (
     plan,
     resolve_selection,
 )
-from activelabel.jobs import Progress
+from activelabel.jobs import Job, Progress
+from activelabel.scheduler import CPU
 from activelabel.tasks_store import TaskStore, check_job_size, clean_name
 from activelabel.web.errors import ApiError, bad_request
 from activelabel.web.state import AppState, get_state
 from activelabel.web.tasks_api import _view
 
+LOG = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
 CHUNK = 1024 * 1024
@@ -318,6 +321,20 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
     Returns:
         The queued job (id and state); its result is read from the job when it finishes.
     """
+    return _queue_video_task(state, project_id, body).as_dict()
+
+
+def _queue_video_task(state: AppState, project_id: int, body: VideoTask) -> Job:
+    """Check a video task request and queue its extraction on the processor lane.
+
+    Args:
+        project_id: Id of the project.
+        body: The video, the selection, the task name and the job size.
+        state: The shared state of the application.
+
+    Returns:
+        The queued job; its ``params`` hold the request, so a restart can queue it again.
+    """
     videos = _videos(state, project_id)
     info = _find(videos, body.video)
     start, stop, step = _select(info, body)
@@ -348,4 +365,22 @@ def task_from_video(project_id: int, body: VideoTask, state: AppState = STATE) -
         stem,
         planned,
     )
-    return state.jobs.submit(project_id, "video_task", job).as_dict()
+    params = {"video": body.video, "request": body.model_dump()}
+    return state.jobs.submit(project_id, "video_task", job, params, device=CPU)
+
+
+def restore_video_task(state: AppState, entry: dict[str, Any]) -> None:
+    """Queue again a video extraction saved in ``queue.json`` (skipped, and logged, when it cannot run).
+
+    Args:
+        state: The shared state of the application.
+        entry: The saved queue entry (``project_id`` and ``params`` with the request).
+    """
+    project_id = int(entry.get("project_id", 0))
+    params = entry.get("params")
+    request = params.get("request") if isinstance(params, dict) else None
+    try:
+        body = VideoTask.model_validate(request)
+        _queue_video_task(state, project_id, body)
+    except (ApiError, HTTPException, ValidationError) as exc:
+        LOG.info("The saved video task of project %s was dropped: %s", project_id, exc)
