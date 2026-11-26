@@ -54,9 +54,10 @@ export const parseNumber = (text) => {
   return Number(decimalSign() === ',' && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(token) ? token.replace(',', '.') : token);
 };
 /** The tokens of a list of numbers ("0,01; 0,001" in Portuguese, "0.01, 0.001" in English). Where the comma is the decimal sign
- *  the items are separated by ";" or by a comma followed by a space, so "0,01, 0,001" is two values; elsewhere by "," or ";". */
-export const splitNumbers = (text) =>
-  String(text).split(decimalSign() === ',' ? /;|,\s+/ : /[,;]/).map((s) => s.trim()).filter(Boolean);
+ *  the items are separated by ";" or by a comma followed by a space, so "0,01, 0,001" is two values; elsewhere by "," or ";".
+ *  A list of whole numbers (`integers`) has no decimal sign, so every comma separates: "10,20" is two values in any language. */
+export const splitNumbers = (text, integers = false) =>
+  String(text).split(decimalSign() === ',' && !integers ? /;|,\s+/ : /[,;]/).map((s) => s.trim()).filter(Boolean);
 /** The separator the interface language writes between the items of a list of numbers. */
 export const listSeparator = () => (decimalSign() === ',' ? '; ' : ', ');
 export const fmtBytes = (n) => {

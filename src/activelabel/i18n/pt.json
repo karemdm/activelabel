@@ -1538,7 +1538,7 @@
   "error.dataset_not_number": "A versão dos dados deve ser um número.",
   "error.dataset_part_empty": "A parte de {parts} ficaria sem imagens (poucas imagens ou grupos de imagens para estas proporções): não dá para treinar um modelo com esta versão.",
   "error.dataset_in_use": "Os treinos {runs} usam esta versão e ainda não terminaram: cancele-os primeiro.",
-  "error.dataset_used_by_runs": "Os treinos {runs} usaram esta versão e não poderão ser repetidos depois que ela for apagada (os modelos salvos continuam funcionando): confirme para excluir mesmo assim.",
+  "error.dataset_used_by_runs": "Os treinos {runs} usaram esta versão e não poderão ser repetidos depois que ela for apagada (os modelos salvos continuam funcionando): confirme para apagá-la mesmo assim.",
   "error.fold_not_found": "Este fold não existe.",
   "error.fold_required": "Informe o fold (esta versão usa K-fold).",
   "error.version_has_no_folds": "Esta versão não tem folds.",

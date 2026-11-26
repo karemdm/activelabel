@@ -212,3 +212,10 @@ def test_help_texts_state_what_the_code_does():
         assert "variedade" not in texts["ds.videos_help"] and "variety" not in texts["ds.videos_help"]
     assert "enclosing box" in load("en")["tr.augh.rotation"]
     assert "envolvente" in load("pt")["tr.augh.rotation"]
+
+
+def test_deleting_a_dataset_version_uses_one_verb_in_portuguese():
+    """#548: the version is "apagada" in every text of its deletion, not "excluída" in some."""
+    texts = load("pt")
+    keys = [k for k in texts if k.startswith("ds.delete") or k == "error.dataset_used_by_runs"]
+    assert keys and not [k for k in keys if "exclu" in texts[k].lower()]

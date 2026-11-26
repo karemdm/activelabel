@@ -576,7 +576,7 @@ export function trainingPanel(page) {
         return list.length ? { list } : { error: t('tr.err_required') };
       }
       const text = String(st.vals[name] == null ? '' : st.vals[name]);
-      const tokens = grid ? splitNumbers(text) : [text.trim()].filter(Boolean);
+      const tokens = grid ? splitNumbers(text, spec.kind === 'int') : [text.trim()].filter(Boolean);
       if (!tokens.length) return { error: t('tr.err_required') };
       const list = [];
       for (const tok of tokens) {
@@ -796,7 +796,7 @@ export function trainingPanel(page) {
       if (mode === 'single') {
         for (const spec of active) {
           if (spec.kind === 'int' || spec.kind === 'float') {
-            const first = splitNumbers(st.vals[spec.name])[0] || '';
+            const first = splitNumbers(st.vals[spec.name], spec.kind === 'int')[0] || '';
             st.vals[spec.name] = Number.isFinite(parseNumber(first)) ? String(parseNumber(first)) : first;
           }
           if (spec.kind === 'choice') st.sel[spec.name] = st.sel[spec.name].slice(0, 1);

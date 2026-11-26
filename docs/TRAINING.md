@@ -78,7 +78,7 @@ Options chosen on the screen and saved in `config.yaml`:
 | --- | --- |
 | Data | dataset version; for K-fold versions, all folds or one fold |
 | Model | model; start: **transfer learning** (pretrained, backbone frozen, only the head trains) / **fine-tuning** (pretrained, everything trains; backbone learning rate × factor) / **from scratch** |
-| Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50) |
+| Mode | **single run**, **grid search** (lists of values for some hyperparameters: every combination is a run; at most 50). The values are separated by commas (`0.01, 0.001`); in Portuguese, where the comma is the decimal sign, by `;` or a comma followed by a space (`0,01; 0,001`), and a list of whole numbers by any comma |
 | Hyperparameters | from the catalogue: epochs, batch size, learning rate, optimizer (SGD, Adam, AdamW), weight decay, scheduler and warmup epochs, image size, resize policy, augmentation level (see below), early stopping patience, mixed precision, seed, the backbone rate factor (fine-tuning only), and model-specific ones (label smoothing, class weights, loss and focal gamma, trainable backbone layers, score threshold) |
 | Device | *Automatic*, *CPU*, *GPU n* or *Apple GPU (MPS)*: where this run trains (see *Principles*); not part of the saved configuration |
 | Selection | metric that chooses the best epoch / best run, per type: classification accuracy (default) or macro F1; detection, instance segmentation and keypoints mAP50-95 (default) or mAP50; semantic segmentation mIoU (default) or pixel accuracy |
@@ -102,7 +102,10 @@ down to 0), `step` (divided by 10 at every third of the epochs), `onecycle` (ris
 steps, then falls; it has its own ramp, so `warmup_epochs` is not used with it) or `plateau` (divided by 10 when
 the selection metric on validation has not improved for 2 epochs). `warmup_epochs` (0 to 50, default 0; 1 for
 the torchvision detectors) raises the rate linearly from almost 0 to the full value over that many epochs, which
-steadies fine-tuning and detectors started from COCO weights. All workers (classification, detection,
+steadies fine-tuning and detectors started from COCO weights. The warmup cannot be longer than the
+training (`warmup_epochs` above `epochs` is refused with `warmup_exceeds_epochs`), and an early stopping
+`patience` (0 = off) must be below `epochs` (else `patience_exceeds_epochs`: it could never stop the run); in a
+grid search every combination counts. Runs saved before this rule still resume as they were. All workers (classification, detection,
 instance segmentation, keypoints, semantic segmentation) apply the same schedule, set step by step; the rate at
 the end of each epoch is kept as `lr` in `metrics.jsonl`.
 

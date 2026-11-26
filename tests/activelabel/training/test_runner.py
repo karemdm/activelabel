@@ -515,6 +515,18 @@ def test_a_failed_run_resumes_from_its_checkpoint(resumable):
     assert again.status_code == 409 and again.json()["code"] == "run_not_resumable"
 
 
+def test_a_run_saved_before_the_schedule_rule_still_resumes(resumable):
+    """#546: warmup/patience longer than the epochs is refused for new runs only, not on resume."""
+    client, state, runner = resumable
+    store = RunStore(state.store.dir(1))
+    n = new_run(state, epochs=3, warmup_epochs=5, patience=10, fake="crash")
+    runner.enqueue(1, n)
+    assert wait_for(finished(store, n))["checkpoint_epoch"] == 2
+    answer = client.post(f"/api/projects/1/runs/{n}/resume")
+    assert answer.status_code == 200, answer.text
+    assert wait_for(finished(store, n))["status"] == "done"
+
+
 def test_resume_is_refused_with_a_reason(resumable):
     client, state, runner = resumable
     store, n = crashed_run(state, runner)
