@@ -324,3 +324,32 @@ def test_an_smp_model_trains_with_the_segmentation_worker(worker, tmp_path, monk
     results = worker.train(smp_spec(tmp_path))
     assert results["epochs_run"] == 1 and "miou" in results["val"]
     assert (tmp_path / "out" / "best.pt").exists()
+
+
+@pytest.mark.parametrize(("lower", "best"), [(True, 2), (False, 1)])
+def test_the_best_epoch_follows_the_direction_of_the_metric(worker, tmp_path, monkeypatch, lower, best):
+    """#619: an error metric (lower is better) picks the epoch with the smallest value."""
+    pytest.importorskip("torchvision")
+    Image.new("RGB", (32, 32), (200, 10, 10)).save(tmp_path / "a.png")
+    items = [
+        {"path": str(tmp_path / "a.png"), "objects": [{"label": 0, "polygons": [SQUARE]}]} for _ in range(2)
+    ]
+    values = iter([0.5, 0.2, 0.4])
+    real = worker.evaluation
+    monkeypatch.setattr(
+        worker, "evaluation", lambda matrix, classes: {**real(matrix, classes), "miou": next(values)}
+    )
+    monkeypatch.setattr(worker, "emit", lambda event, **fields: None)
+    params = {
+        "epochs": 3, "batch_size": 2, "lr": 0.001, "optimizer": "adamw", "weight_decay": 0.0,
+        "scheduler": "plateau", "warmup_epochs": 0, "image_size": 32, "resize": "stretch",
+        "augmentation": "none", "patience": 0, "seed": 1, "start": "scratch", "backbone_lr_factor": 0.1,
+        "amp": "auto",
+    }  # fmt: skip
+    spec = {
+        "task": "semantic", "model": "lraspp_mobilenet_v3_large", "family": "torchvision", "classes": CLASSES,
+        "start": "scratch", "params": params, "seed": 1, "metric": "miou", "fold": None,
+        "parts": {"train": items, "val": items}, "output_dir": str(tmp_path / "out"), "device": "cpu",
+        "augmentations": [], "digest": "d", "lower_is_better": lower,
+    }  # fmt: skip
+    assert worker.train(spec)["best_epoch"] == best

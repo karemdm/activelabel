@@ -7,6 +7,7 @@ declares must be read by its worker (``start`` is read from the run spec itself)
 
 import ast
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -464,3 +465,19 @@ def test_mask2former_sizes_are_the_published_ones_and_smp_sizes_stay_unknown():
     ]
     assert sizes == [47.5, 68.8, 107.0]
     assert all(m.params_m is None for m in catalog.MODELS if m.family == "smp")
+
+
+def test_error_metrics_are_better_lower():
+    """#619: the selection metrics where lower is better; the catalogue says which a model has."""
+    assert catalog.lower_is_better("rmse") and catalog.lower_is_better("mae")
+    assert not catalog.lower_is_better("accuracy") and not catalog.lower_is_better("r2")
+    assert get_model("resnet50").as_dict()["lower_metrics"] == []
+
+
+def test_the_interface_knows_the_same_error_metrics():
+    """The comparison table (compare.js) marks the same metrics best when lowest, plus the loss."""
+    text = (Path(catalog.__file__).parents[1] / "web" / "static" / "js" / "cv" / "compare.js").read_text(
+        "utf-8"
+    )
+    listed = re.search(r"LOWER_IS_BETTER = \[([^\]]*)\]", text).group(1)
+    assert set(re.findall(r"'(\w+)'", listed)) == set(catalog.LOWER_IS_BETTER) | {"loss"}

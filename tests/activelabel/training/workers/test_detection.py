@@ -364,3 +364,26 @@ def test_dataset_fits_the_photo_and_its_boxes(w, tmp_path):
     tensor, target = w.DetectionDataset([item], "detection", 0, None, 50, "letterbox")[0]
     assert tuple(tensor.shape) == (3, 50, 50)
     assert target["boxes"][0].tolist() == pytest.approx([12.5, 18.5, 37.5, 31], abs=0.6)
+
+
+@pytest.mark.parametrize(("lower", "best"), [(True, 2), (False, 1)])
+def test_the_best_epoch_follows_the_direction_of_the_metric(w, tmp_path, monkeypatch, lower, best):
+    """#619: an error metric (lower is better) picks the epoch with the smallest value."""
+    path = make_image(tmp_path / "a.png", size=(48, 48), seed=1, fmt="PNG")
+    items = [{"path": str(path), "objects": [{"label": 0, "bbox": [0.2, 0.2, 0.4, 0.4]}]} for _ in range(2)]
+    values = iter([0.5, 0.2, 0.4])
+    monkeypatch.setattr(w, "evaluate", lambda *a: {"map50": 0.0, "map50_95": next(values)})
+    monkeypatch.setattr(w, "emit", lambda event, **fields: None)
+    params = {
+        "epochs": 3, "batch_size": 2, "lr": 0.001, "optimizer": "sgd", "weight_decay": 0.0,
+        "scheduler": "plateau", "warmup_epochs": 0, "image_size": 64, "resize": "stretch",
+        "augmentation": "none", "patience": 0, "seed": 1, "start": "scratch", "backbone_lr_factor": 0.1,
+        "amp": "auto", "trainable_backbone_layers": 3, "score_thresh": 0.05,
+    }  # fmt: skip
+    spec = {
+        "task": "detection", "model": "ssdlite320_mobilenet_v3_large", "family": "torchvision",
+        "classes": ["a"], "start": "scratch", "params": params, "seed": 1, "metric": "map50_95", "fold": None,
+        "parts": {"train": items, "val": items}, "output_dir": str(tmp_path / "out"), "device": "cpu",
+        "augmentations": [], "digest": "d", "lower_is_better": lower,
+    }  # fmt: skip
+    assert w.train(spec)["best_epoch"] == best

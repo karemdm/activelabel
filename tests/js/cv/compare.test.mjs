@@ -7,7 +7,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { bestOf, compareBar, compareCheck, compareTable, comparisonRows } = await import('../../../src/activelabel/web/static/js/cv/compare.js');
+const { LOWER_IS_BETTER, bestOf, compareBar, compareCheck, compareTable, comparisonRows } = await import('../../../src/activelabel/web/static/js/cv/compare.js');
 
 setMessages({
   'tr.val': 'Validation', 'tr.test': 'Test', 'tr.metric.f1': 'F1', 'tr.metric.accuracy': 'Accuracy', 'md.size': 'Size', 'md.metric': 'Metric',
@@ -33,6 +33,14 @@ test('the best of a row is the highest, the lowest for a loss or a size, and non
   assert.equal(bestOf({ values: [0.5, 0.4], lower: true }), 0.4);
   assert.equal(bestOf({ values: [0.5, 0.5] }), null);
   assert.equal(bestOf({ values: [0.5, undefined] }), null);
+});
+
+test('errors such as RMSE and MAE are best when lowest, like the loss (#619)', () => {
+  const R1 = { results: { val: { rmse: 2.5, mae: 1.5, r2: 0.6 } } };
+  const R2 = { results: { val: { rmse: 3.0, mae: 1.0, r2: 0.7 } } };
+  const rows = comparisonRows([R1, R2], (c) => c.results).groups[0].rows;
+  assert.deepEqual(rows.map((r) => [r.label, r.lower, bestOf(r)]), [['rmse', true, 2.5], ['mae', true, 1.0], ['r2', false, 0.7]]);
+  assert.deepEqual(LOWER_IS_BETTER, ['loss', 'mae', 'rmse']);
 });
 
 test('the table highlights the best value and lists the folded classes', () => {

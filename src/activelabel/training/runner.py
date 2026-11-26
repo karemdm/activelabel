@@ -46,7 +46,7 @@ from activelabel.scheduler import CPU, Scheduler, device_lane
 from activelabel.storage import now, write_json
 from activelabel.tasks import Task
 from activelabel.training import augmentations, downloads
-from activelabel.training.catalog import ModelSpec, get_model
+from activelabel.training.catalog import ModelSpec, get_model, lower_is_better
 from activelabel.training.config import RunConfig
 from activelabel.training.environment import TrainingEnvironment, kill_tree, remove_tree
 from activelabel.training.models import EXPORT_FILES, FORMATS, ModelError, ModelNotFound, ModelStore
@@ -455,6 +455,7 @@ def build_spec(
         "params": params,
         "seed": params["seed"],
         "metric": config.metric or model.default_metric(),
+        "lower_is_better": lower_is_better(config.metric or model.default_metric()),
         "classes": classes,
         "type": version["type"],
         "fold": config.fold if isinstance(config.fold, int) else None,
@@ -674,7 +675,9 @@ def _describe(entry: dict[str, Any]) -> str:
 def rank_children(
     entries: list[dict[str, Any]], results: dict[str, dict[str, Any] | None], metric: str, n_folds: int
 ) -> dict[str, Any]:
-    """Rank the grid combinations by the mean validation ``metric`` over their folds (higher is better).
+    """Rank the grid combinations by the mean validation ``metric`` over their folds.
+
+    Higher is better, except for the error metrics of :data:`activelabel.training.catalog.LOWER_IS_BETTER`.
 
     Args:
         entries: the ``children`` of ``run.json`` (``id``, ``combo``, ``fold``, ``values``).
@@ -712,13 +715,15 @@ def rank_children(
                 "complete": len(values) == len(members),
             }
         )
+    sign = -1.0 if lower_is_better(metric) else 1.0  # the best mean first either way
     ranking.sort(
-        key=lambda r: (r["mean"] is not None, r["complete"], r["mean"] or 0.0, -r["combo"]), reverse=True
+        key=lambda r: (r["mean"] is not None, r["complete"], sign * (r["mean"] or 0.0), -r["combo"]),
+        reverse=True,
     )
     for position, row in enumerate(ranking, start=1):
         row["rank"] = position
     top = ranking[0] if ranking and ranking[0]["mean"] is not None else None
-    best_child = max(top["scores"], key=lambda c: top["scores"][c]) if top else None
+    best_child = max(top["scores"], key=lambda c: sign * top["scores"][c]) if top else None
     return {
         "ranking": ranking,
         "best_combo": top["combo"] if top else None,

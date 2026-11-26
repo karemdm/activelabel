@@ -31,6 +31,20 @@ METRICS: dict[str, tuple[tuple[str, ...], str]] = {
     "instance": (("map50_95", "map50"), "map50_95"),
     "keypoints": (("map50_95", "map50"), "map50_95"),
 }
+#: Selection metrics where a lower value is better (errors, #619); every other metric is better higher.
+LOWER_IS_BETTER: frozenset[str] = frozenset({"mae", "rmse"})
+
+
+def lower_is_better(metric: str) -> bool:
+    """Whether a lower value of a selection metric is the better one (an error such as RMSE).
+
+    Args:
+        metric: a metric name of :data:`METRICS`.
+
+    Returns:
+        True for the metrics of :data:`LOWER_IS_BETTER`.
+    """
+    return metric in LOWER_IS_BETTER
 
 
 @dataclass(frozen=True)
@@ -259,6 +273,7 @@ class ModelSpec:
             "params": [p.as_dict() for p in self.param_specs()],
             "metrics": list(metrics),
             "default_metric": default,
+            "lower_metrics": [m for m in metrics if lower_is_better(m)],
             "arch": self.arch or self.label,
             "variant": self.variant,
             "experimental": self.experimental,

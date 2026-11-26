@@ -5,6 +5,8 @@ import { el, icon } from '../shell/dom.js';
 import { fmtBytes, nf3, num, t, tn, tr } from '../shell/i18n.js';
 
 const PER_CLASS_KEYS = ['f1', 'ap50_95', 'iou'];
+/** Rows whose best value is the lowest: the loss and the error metrics (catalog.LOWER_IS_BETTER, #619). */
+export const LOWER_IS_BETTER = ['loss', 'mae', 'rmse'];
 
 const metricName = (m) => tr(`tr.metric.${m}`, tr(`tr.col.${m}`, String(m).replace(/_/g, ' ')));
 
@@ -21,7 +23,7 @@ export function comparisonRows(cols, resultsOf, sizeOf = null) {
     if (keys.length) {
       groups.push({
         title: t(part === 'val' ? 'tr.val' : 'tr.test'),
-        rows: keys.map((k) => ({ label: metricName(k), values: cols.map((c) => ((resultsOf(c) || {})[part] || {})[k]), lower: k === 'loss' })),
+        rows: keys.map((k) => ({ label: metricName(k), values: cols.map((c) => ((resultsOf(c) || {})[part] || {})[k]), lower: LOWER_IS_BETTER.includes(k) })),
       });
     }
   }
