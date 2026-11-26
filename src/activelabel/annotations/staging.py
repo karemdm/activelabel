@@ -265,6 +265,21 @@ def set_report(project_dir: Path, token: str, report: dict[str, Any]) -> None:
     (project_dir / STAGING / token / REPORT_NAME).write_text(json.dumps(report), encoding="utf-8")
 
 
+def _mtime(path: Path) -> float:
+    """When a file was last changed, or -1 when it is gone (a staging folder removed meanwhile).
+
+    Args:
+        path: the file.
+
+    Returns:
+        Its modification time in seconds, or -1.0.
+    """
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return -1.0
+
+
 def pending_report(project_dir: Path) -> dict[str, Any] | None:
     """The report of the latest check whose files were neither applied nor discarded, or None.
 
@@ -276,7 +291,7 @@ def pending_report(project_dir: Path) -> dict[str, Any] | None:
         is none (or it is unreadable).
     """
     root = project_dir / STAGING
-    found = sorted(root.glob(f"*/{REPORT_NAME}"), key=lambda p: p.stat().st_mtime) if root.is_dir() else []
+    found = sorted(root.glob(f"*/{REPORT_NAME}"), key=_mtime) if root.is_dir() else []
     for path in reversed(found):
         try:
             report = json.loads(path.read_text(encoding="utf-8"))
