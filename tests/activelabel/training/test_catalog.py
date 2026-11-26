@@ -395,6 +395,10 @@ def test_smp_offers_decoders_on_encoders_for_semantic_segmentation():
     assert (unet.arch, unet.variant, unet.library_name) == ("U-Net", "ResNet-34", "Unet:resnet34")
     assert "segmentation-models-pytorch" in unet.packages and unet.image_size % 32 == 0
     assert unet.param("image_size").min == 128
+    assert all(m.param("image_size").multiple == 32 for m in smp_models)  # #671: refused before training
+    with pytest.raises(CodedError) as refused:
+        unet.param("image_size").check(300)
+    assert refused.value.code == "param_not_multiple"
     assert get_model("smp_segformer_mit_b2").library_name == "Segformer:mit_b2"
     assert "smp" in catalog.FAMILIES
 

@@ -990,8 +990,11 @@ SMP_DECODERS = (
 #: Encoders with ImageNet weights in segmentation_models_pytorch: ``(encoder name, label)``.
 SMP_ENCODERS = (("resnet34", "ResNet-34"), ("resnet50", "ResNet-50"), ("mobilenet_v2", "MobileNetV2"))
 SMP_SEGFORMER_ENCODERS = (("mit_b0", "MiT-B0"), ("mit_b1", "MiT-B1"), ("mit_b2", "MiT-B2"))
-#: Sides must be a multiple of 32 (the worker checks it); at least 128 pixels (an old limit of PAN, kept).
+#: At least 128 pixels (an old limit of PAN, kept); smp also needs a multiple of 32 (:data:`_SMP_MULTIPLES`).
 _SMP_LIMITS: dict[str, tuple[float, float]] = {"image_size": (128, 2048)}
+#: smp refuses sides that are not a multiple of the encoder's output stride: the form and the server say so
+#: before anything is installed (#671; the worker checks it too).
+_SMP_MULTIPLES = {"image_size": 32}
 
 
 def _smp(decoder: str, decoder_label: str, encoder: str, encoder_label: str) -> ModelSpec:
@@ -1017,6 +1020,7 @@ def _smp(decoder: str, decoder_label: str, encoder: str, encoder_label: str) -> 
         params=(_CLASS_WEIGHTS, _SEG_LOSS),
         defaults=_TV_SEG,
         limits=_SMP_LIMITS,
+        multiples=_SMP_MULTIPLES,
         arch=decoder_label,
         variant=encoder_label,
         builder=f"{decoder}:{encoder}",
