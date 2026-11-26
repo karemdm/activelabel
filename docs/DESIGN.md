@@ -51,6 +51,7 @@ Principles (from what went wrong in the previous tool):
   settings.json                    choices kept for the whole workspace: the accepted licences (docs/TRAINING.md, Licences)
   format.json                      {"format_version": N}: format of the workspace, written by a migration (absent: 0)
   format-backups/v<A>-to-v<B>-<time>/   the files a migration changed, as they were before it
+  queue.json                       jobs waiting or running in the global work queue (see *Work queue*)
   projects/next_id.json            next project id (ids are never reused)
   projects/<id>/...                one folder per project (below)
   training/                        training environment (docs/TRAINING.md)
@@ -292,6 +293,50 @@ running.
 
 See [ANNOTATION.md](ANNOTATION.md) (`/annotation-tools`, `/projects/{id}/annotate`), [SYNC.md](SYNC.md)
 (`/projects/{id}/links`, `/projects/{id}/sync/{tool}`, `/cvat/audit`) and [IMPORT.md](IMPORT.md) (`/import`).
+
+### Work queue
+
+All the work of the app waits in one global queue (`scheduler.py`) with a **lane** per device. Heavy
+work goes to the lane of the device it computes on: training runs (a grid or all-folds run takes one
+place for all its children), pre-annotations, ONNX exports (`cpu`), curation analyses (`cpu`) and video
+extractions (`cpu`). Light activities (import, sync, annotation transfer, FiftyOne) share the `light`
+lane, one at a time. A lane runs at most its limit of jobs at once: `ACTIVELABEL_QUEUE_CPU` for `cpu`,
+`ACTIVELABEL_QUEUE_GPU` for each of `cuda:N` and `mps` (1 by default), `light` 1. Inside a lane the
+order is strict first come first served, whatever the project (no priority for short jobs: a position
+never goes back and nothing waits for ever).
+
+The waiting and running jobs are written to `<workspace>/queue.json` on every change. At start-up the
+waiting ones are queued again in the same order (a job whose project, run, model or video is gone is
+dropped); the ones that were running are listed as `interrupted`: a training run is then `failed`
+(`interrupted`) and can be resumed from its last checkpoint (docs/TRAINING.md), the others are asked again.
+
+| Method | Path | Body / query | Returns |
+| --- | --- | --- | --- |
+| GET | `/queue` | `project` (optional): only that project's items (the lanes still count every project) | the queue (below) |
+| POST | `/queue/{job_id}/cancel` | | the queue of every project after cancelling (404 `activity_not_found` for an unknown id); a run or pre-annotation is cancelled as from its page |
+
+```
+{
+  "limits": {"cpu": 1, "gpu": 1, "light": 1},
+  "lanes": [{"device": "cpu", "limit": 1, "running": 1, "queued": 2}],
+  "items": [{
+    "id", "project_id", "project_name", "kind", "device", "params",
+    "status": "running" | "queued",
+    "position": 1,            // place in its lane, from 1 (null while running)
+    "done", "total", "message", "created", "started",
+    "eta_seconds": 120.5,     // running: estimated seconds left, from done/total (null when unknown)
+    "wait_seconds": 120.5     // queued: estimated seconds before it starts (only on a lane of limit 1
+                              // when every job ahead is running with a known estimate; else null)
+  }],
+  "interrupted": [{"id", "project_id", "project_name", "kind", "device", "params", "created", "started",
+                   "status": "interrupted"}]
+}
+```
+
+Running items come first, then the waiting ones in queue order. `kind` is `training`, `preannotate`,
+`export`, `analyze`, `video_task` or a light kind (`import_folder`, `sync_apply`...); `params` says what
+it is about (`{"number": 3}` for a run or pre-annotation, `{"number", "format"}` for an export). The
+`queue_position` of a waiting run (`run.json`) is its `position` in its lane.
 
 ## Tasks and jobs
 

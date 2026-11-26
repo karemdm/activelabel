@@ -27,9 +27,13 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   any other download go to a temporary folder (`<workspace>/training/tmp`), removed when the run ends
   (finished, failed or cancelled). Folders left by a process that was killed are removed when
   ActiveLabel starts. Only the run's results stay.
-- **One run at a time.** Runs are queued; a heavy process never runs in parallel with another. There
-  is a single queue for the whole app, shared by training runs, ONNX exports and pre-annotation
-  (docs/PREANNOTATE.md), for all projects.
+- **One heavy job per device.** Training runs, pre-annotations (docs/PREANNOTATE.md), ONNX exports,
+  curation analyses and video extractions of every project wait in one global queue with a lane per
+  device (`cpu`, `cuda:0`, `cuda:1`..., `mps`): by default one job at a time on each GPU and one on the
+  CPU (`ACTIVELABEL_QUEUE_GPU`, `ACTIVELABEL_QUEUE_CPU`), first come first served inside a lane. A run
+  on `cuda:0` and an export (CPU) may run together; two runs on `cuda:0` never do. A run with device
+  `auto` takes the lane of the device the worker will pick (the first NVIDIA GPU, else the Apple GPU,
+  else the CPU). The queue survives a restart (docs/DESIGN.md, *Work queue*).
 
 ## Model catalogue
 
@@ -201,7 +205,7 @@ segmentation model carry the mask mAP (`mask_map50`, `mask_map50_95`). The selec
 box mAP.
 
 A grid search or a run over *all folds* of a K-fold version trains several **children**, one after
-another in the same slot of the queue (never two at once) and the same temporary folder (pretrained
+another in the same place of the queue (never two at once, on the run's device) and the same temporary folder (pretrained
 weights are downloaded once). Children are ordered by grid combination, then fold; at most 50
 trainings per run (combinations × folds). A child that fails is recorded and the others go on; the
 run fails only if every child fails. At the end the combinations are ranked by the mean of the
@@ -290,7 +294,8 @@ only goes to the server log.
 **Cancel** kills the worker process: the run gets the status `cancelled` and keeps its partial curves
 (`metrics.jsonl`) and its log, but not usable results, and it cannot be saved as a model (only a
 finished run can). Deleting a run that is running answers **409** ("cancel it before deleting"). A run
-that was running when ActiveLabel stopped ends as failed (`interrupted`); queued ones go back in line.
+that was running when ActiveLabel stopped ends as failed (`interrupted`) and can be resumed from its
+last checkpoint; queued runs, pre-annotations and exports go back in line in their old order.
 
 ## Models (step 6)
 
@@ -334,8 +339,8 @@ segmentation), which is then queued right after saving.
   saved run answers `run_already_saved`; an unfinished or cancelled one `run_not_finished`.
 - **Downloads**: the PyTorch weights (`.pt`, a dict with `state_dict`, `classes`, `model`, `family`,
   `image_size`, `resize` and, for classification and segmentation, `mean`/`std`).
-- **ONNX export** (classification and semantic segmentation): queued with the training runs (one heavy
-  process at a time); the `onnx` package is installed in the training environment on the first
+- **ONNX export** (classification and semantic segmentation): queued on the CPU lane of the global
+  queue; the `onnx` package is installed in the training environment on the first
   export; the network is rebuilt without downloading anything, the weights are loaded and the graph
   is checked (`onnx.checker`). Opset 17, dynamic batch size and the fixed image size of the training.
   Input `images` (N×3×S×S, normalised with the ImageNet mean and std; the photo is resized to S×S outside the
@@ -436,6 +441,8 @@ To update the versions:
 
 | Method | Path | What |
 | --- | --- | --- |
+| GET | `/api/queue?project=` | the global work queue: running and waiting jobs of every project (or of one), with lane, position and estimates (docs/DESIGN.md, *Work queue*) |
+| POST | `/api/queue/{job_id}/cancel` | cancel a waiting or running job of any kind; answers the queue |
 | GET | `/api/training/catalog?type=detection` | models and hyperparameter specs |
 | GET | `/api/training/augmentations?type=` | augmentation levels and, per kind of task, the techniques with their settings and the list of each preset |
 | GET | `/api/training/licences` | the licences to accept before a package is installed (`ultralytics`: AGPL-3.0) and whether each was accepted, with its date |

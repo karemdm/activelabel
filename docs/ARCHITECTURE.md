@@ -14,8 +14,9 @@ flowchart TB
   GRD["LocalOnly guard<br/>web/guard.py"]
   API["FastAPI routers<br/>web/*_api.py"]
   DOM["Domain code<br/>labels, datasets, sync,<br/>curation, training"]
-  JOB["Light jobs<br/>one worker thread"]
-  RUN["Training runner<br/>own queue, one worker thread"]
+  JOB["Job manager<br/>activities of the projects"]
+  RUN["Training runner<br/>runs, exports, pre-annotations"]
+  SCH["Global queue<br/>one lane per device"]
   ENV["Training environment<br/>separate Python and workers"]
   DISK[("Workspace on disk<br/>JSON, images, weights")]
   EXT["CVAT, FiftyOne,<br/>system keyring"]
@@ -24,6 +25,8 @@ flowchart TB
   API --> DOM
   API --> JOB
   API --> RUN
+  JOB --> SCH
+  RUN --> SCH
   JOB --> DOM
   DOM --> DISK
   DOM --> EXT
@@ -44,9 +47,11 @@ Rules that shape the design:
 
 - The routers hold no business logic: they validate, take the project lock/`busy` check, and call the
   domain code or submit a job.
-- There is **one heavy process at a time** for the whole app (`TrainingRunner`), shared by training runs,
-  ONNX exports and pre-annotation. The light `JobManager` has one worker too; `AppState.busy(project)`
-  answers 409 to calls that change a project while one of its jobs is queued or running.
+- There is **one heavy job at a time per device** for the whole app: the job manager and the training
+  runner share one `Scheduler` (`scheduler.py`) with a lane per device (`cpu`, `cuda:N`, `mps`; limits
+  in the settings) and a `light` lane for the activities that compute little; it is kept in
+  `queue.json` across restarts (docs/DESIGN.md, *Work queue*). `AppState.busy(project)` answers 409 to
+  calls that change a project while one of its jobs is queued or running.
 - Workers do not need ActiveLabel (the training environment does not have it): they read a `spec.json`,
   share only their sibling helper modules (`options.py`, `augment.py`) and talk back with one JSON object per
   line (`log`, `warning`, `setup`, `progress`, `epoch`, `done`, `error`; `prediction` for pre-annotation).
@@ -195,11 +200,12 @@ flowchart LR
 ```
 
 A run that was running when the service stopped ends as `failed` (`interrupted`) at the next start;
-queued runs are queued again. A failed or cancelled single run that kept a checkpoint can be resumed: it is
-queued again with the same number and goes on from that epoch (`POST .../runs/{n}/resume`).
+queued runs are queued again in their old order (`queue.json`). A failed or cancelled single run that kept a
+checkpoint can be resumed: it is queued again with the same number and goes on from that epoch
+(`POST .../runs/{n}/resume`).
 
 A grid search or an all-folds run is one run with **children** trained one after another in the same
-slot:
+place of the queue:
 
 ```mermaid
 flowchart LR
@@ -209,8 +215,8 @@ flowchart LR
 ```
 
 If the run is cancelled, children not started are marked `cancelled`. A child that fails does not stop
-the others. A run saved as a model (`models/m<N>`) hands its best weights over to the model (they move, they are not copied); ONNX export and pre-annotation
-are queued in the same slot and run the same way (`queued`, `running`, `done`, `failed`).
+the others. A run saved as a model (`models/m<N>`) hands its best weights over to the model (they move, they are not copied); ONNX export (CPU lane) and
+pre-annotation (lane of its device) wait in the same global queue and run the same way (`queued`, `running`, `done`, `failed`).
 
 ## 6. Job lifecycle (light jobs)
 

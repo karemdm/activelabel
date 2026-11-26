@@ -158,8 +158,9 @@ project is its *type*.)
 Background jobs (analysis, uploads, synchronisation, training, export, pre-annotation) appear as a
 small pill in the bottom-right corner of the project page; it opens a card with progress, *Stop*
 (*Parar*) and *See result*. A success fades; a failure stays red until it is opened or dismissed;
-finished activities stay in the history. Only one heavy process (training, export or pre-annotation)
-runs at a time; the others wait in a queue.
+finished activities stay in the history. Heavy work (training, pre-annotation, export, curation
+analysis, video extraction) runs one job at a time per device (CPU, each GPU); the others wait in a
+global queue that survives a restart.
 
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and flows),
 [docs/DESIGN.md](docs/DESIGN.md) (data on disk and the HTTP API),
@@ -177,6 +178,8 @@ More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture, data model and
 | `ACTIVELABEL_LANG` | `en` | Default interface language (`en` or `pt`) |
 | `ACTIVELABEL_IMPORT_ROOT` | (off) | Folder of this machine whose sub-folders may be imported by path (`POST /api/projects/{id}/images/folder`; there is no button for it in the interface) |
 | `ACTIVELABEL_ALLOWED_HOSTS` | (none) | Other host names, separated by commas, the server answers at, e.g. the name of this machine on the local network when it serves with `--host` |
+| `ACTIVELABEL_QUEUE_CPU` | `1` | Jobs that may run at the same time on the processor lane of the work queue (empty, invalid or below 1: 1) |
+| `ACTIVELABEL_QUEUE_GPU` | `1` | Jobs that may run at the same time on each GPU lane (`cuda:N`, `mps`) of the work queue (empty, invalid or below 1: 1) |
 
 The address and user of CVAT are kept in `<workspace>/tools.json`; passwords and tokens only in the
 system keyring.
