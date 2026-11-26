@@ -21,6 +21,8 @@ Everything below goes into the first release, 0.1.0.
   in the App, which answer HTTP 501 `fiftyone_not_installed` without it. `GET /api/features` tells what is
   installed and `DELETE /api/training/environment` removes the training environment (docs/DEVELOPMENT.md,
   *Light install*).
+- **YOLO26 sizes.** The YOLO26 models show their parameters and file size in the catalogue, like YOLO11 and YOLOv8.
+
 - **Projects, images and tasks.** Projects of type classification, detection, segmentation or keypoints;
   images uploaded as files, a folder, a .zip or a video; tasks and jobs inside a project as in CVAT, with
   long videos cut into time-distant segments when needed (docs/TASKS.md, docs/VIDEO.md).
