@@ -178,3 +178,29 @@ def test_small_ux_fixes_of_the_audit():
     assert pt["ann.tile_labels"] == "Objetos anotados" and en["ann.tile_labels"] == "Annotated objects"
     assert "Enter" not in pt["classes.placeholder"] and "Enter" in pt["new.classes_hint"]
     assert "Enter" not in en["classes.placeholder"] and "Enter" in en["new.classes_hint"]
+
+
+def test_the_model_size_is_a_row_of_buttons_that_wraps_in_two_rows_on_a_phone():
+    """#632: sizes are a radio group of equal 44 px buttons (not the tall .seg column on a phone); up to 8
+    in one row on a wide screen, at most 4 per row on a phone; the family names its two fields its own way."""
+    assert re.search(
+        r"^\.tr-sizes \{[^}]*grid-template-columns: repeat\(var\(--n\), minmax\(44px, 1fr\)\)", CSS, re.M
+    )
+    assert re.search(
+        r"max-width: 480px\) \{ \.tr-sizes \{ grid-template-columns: repeat\(var\(--n-phone\)", CSS
+    )
+    assert re.search(r"^\.field \.tr-size, \.tr-size \{[^}]*min-height: 44px", CSS, re.M)
+    assert "role: 'radiogroup', 'aria-describedby': 'tr-size-facts'" in JS
+    assert "name: 'tr-size'" in JS
+    i18n = STATIC.parent.parent / "i18n"
+    for lang in ("pt", "en"):
+        texts = json.loads((i18n / f"{lang}.json").read_text(encoding="utf-8"))
+        for key in (
+            "tr.arch",
+            "tr.arch.ultralytics",
+            "tr.variant",
+            "tr.variant.ultralytics",
+            "tr.size_facts",
+        ):
+            assert texts.get(key), (lang, key)
+    assert "YOLO12" not in JS  # the owner's decision on #632: not offered

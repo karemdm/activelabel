@@ -71,9 +71,36 @@ test('the new-run dialog asks for the family first; only families with a model f
   assert.equal(options.ultralytics.disabled, true);
   assert.match(options.ultralytics.textContent, /needs its AGPL-3.0 licence/);
   assert.equal(document.querySelector('[data-act="licence-ultralytics"]').textContent, 'Accept AGPL-3.0…');
-  assert.deepEqual([...document.getElementById('tr-model').options].map((o) => o.value), ['frcnn', 'retina']);
+  /* #632: the models without an architecture of their own are one architecture each */
+  assert.deepEqual([...document.getElementById('tr-arch').options].map((o) => o.value), ['frcnn', 'retina']);
   document.querySelector('dialog[open]').close();
   panel.node.remove();
+});
+
+test('another size of the same architecture keeps the edited values and says nothing (#312, #632)', async () => {
+  const saved = ANSWERS['/api/training/catalog'];
+  const sized = (variant) => ({ ...model(`net${variant}`, 'torchvision'), arch: 'Net', variant });
+  ANSWERS['/api/training/catalog'] = { models: [sized('n'), sized('s'), sized('m')], common: [], metrics: {} };
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  try {
+    await withApi(async () => {
+      panel.startWith(1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const epochs = document.getElementById('tr-p-epochs');
+    epochs.value = '30';
+    epochs.dispatchEvent(new window.Event('input'));
+    const m = document.querySelector('input[name="tr-size"][value="netm"]');
+    m.checked = true;
+    m.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.equal(document.getElementById('tr-p-epochs').value, '30');
+    assert.equal(document.getElementById('tr-model-changes').textContent, '');
+    document.querySelector('dialog[open]').close();
+  } finally {
+    ANSWERS['/api/training/catalog'] = saved;
+    panel.node.remove();
+  }
 });
 
 test('a value out of range keeps Start off and says which setting to fix (#635)', async () => {

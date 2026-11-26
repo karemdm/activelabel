@@ -1,7 +1,8 @@
 /* Step 5, Training: the runs of the project (list, progress, charts, detail), the new-run dialog (family,
- * model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
+ * architecture and size of the model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
 import { staleCount } from './datasets.js';
+import { defaultModel, modelPicker } from './model_picker.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
@@ -429,7 +430,9 @@ export function trainingPanel(page) {
     /* a family whose licence was not accepted (Ultralytics, AGPL-3.0) cannot be chosen until it is (#213) */
     const licenceOf = (f) => licences.find((l) => l.id === f) || null;
     const blocked = (f) => !!licenceOf(f) && !licenceOf(f).accepted;
-    const first = models.find((m) => !blocked(m.family));
+    const defaultArch = cat.default_arch || {};
+    const firstFamily = (models.find((m) => !blocked(m.family)) || {}).family;
+    const first = firstFamily ? defaultModel(models, firstFamily, defaultArch) : null;
     if (!versions.length || !first) { toast(t('tr.no_options'), 'error'); return; }
 
     const st = { dataset: (versions.find((v) => v.version === version) || versions[0]).version, fold: 'all', family: first.family, model: first.id, start: 'transfer', mode: 'single', metric: '', vals: {}, sel: {}, aug: {}, augLevel: null, augBad: new Set(), augRange: {}, env: null };
@@ -490,36 +493,29 @@ export function trainingPanel(page) {
           Object.assign(licenceOf(f), accepted);
           st.family = f;
           drawFamilies();
-          drawModelList();
-          drawModel();
+          chooseFamily(f);
           familySel.focus();
         }) }, t('tr.licence_open', { name: licenceOf(f).name }))));
     }
     drawFamilies();
     familySel.setAttribute('aria-describedby', 'tr-family-note');
-    const modelSel = sel('tr-model');
     const modelNote = el('p', { class: 'hint', id: 'tr-model-note' });
     /* what a change of model did to the hyperparameters, in one line; read out by screen readers */
     const modelChanges = el('p', { class: 'hint tr-model-changes', id: 'tr-model-changes', role: 'status' });
     let shownModel = null;   // the model the form holds values of
-    /* the models of the chosen family; grouped by kind when the family has more than one (e.g. boxes and masks),
-       else by architecture (#618: ResNet, EfficientNet...) when there are several */
-    function drawModelList() {
-      const mine = models.filter((m) => m.family === st.family);
-      const kinds = new Set(mine.map((m) => m.task_kind));
-      const archs = [...new Set(mine.map((m) => m.arch || m.label))];
-      const options = (list) => list.map((m) => el('option', { value: m.id }, m.label));
-      const groups = kinds.size > 1
-        ? [...kinds].map((k) => el('optgroup', { label: tr(`tr.kind.${k}`, k) }, ...options(mine.filter((m) => m.task_kind === k))))
-        : archs.length > 1 && archs.length < mine.length
-          ? archs.map((a) => el('optgroup', { label: a }, ...options(mine.filter((m) => (m.arch || m.label) === a))))
-          : options(mine);
-      fill(modelSel, ...groups);
-      if (!mine.some((m) => m.id === st.model)) st.model = mine[0].id;
-      modelSel.value = st.model;
+    let touched = false;     // the person chose a model: the size this computer suits is no longer proposed
+    /* architecture (or generation) and size (or variant) of the family (#632); the task is the project's */
+    const picker = modelPicker({ models, family: st.family, model: st.model, onChange: (m, sizeOnly) => { st.model = m.id; drawModel(sizeOnly); } });
+    picker.archField.addEventListener('change', () => { touched = true; });
+    picker.variantField.addEventListener('change', () => { touched = true; });
+    /* another family: its default model, with the values that still apply carried over (#312) */
+    function chooseFamily(f) {
+      st.family = f;
+      const m = defaultModel(models, f, defaultArch, st.env && st.env.default_size);
+      st.model = m.id;
+      picker.setFamily(f, m);
+      drawModel();
     }
-    drawModelList();
-    modelSel.setAttribute('aria-describedby', 'tr-model-note tr-model-changes');
 
     // start
     const startHelp = el('p', { class: 'hint', 'aria-live': 'polite' });
@@ -561,6 +557,7 @@ export function trainingPanel(page) {
       st.env = env;
       fill(deviceSel, ...(env.devices || ['auto', 'cpu']).map((d) => el('option', { value: d }, deviceName(d))));
       if (shownModel) drawModelNote(modelNow());
+      if (env.default_size) picker.setSuggested(env.default_size, !touched);
     }).catch(() => {});
 
     // parameters
@@ -755,6 +752,7 @@ export function trainingPanel(page) {
     function carryValues(prev) {
       const m = modelNow();
       const notes = [];
+      notes.resets = 0;   // values the person chose that the new model does not take
       const kept = [];
       for (const spec of m.params) {
         if (spec.name === 'start') continue;
@@ -770,6 +768,7 @@ export function trainingPanel(page) {
           if (spec.kind === 'choice') st.sel[spec.name] = st.sel[spec.name].filter((c) => spec.choices.includes(c));
           if (!readParam(spec).error) { kept.push(name); continue; }
           setDefault(spec);
+          notes.resets += 1;
           notes.push(t('tr.chg_reset', { p: name, v: valueText(spec, spec.default), old: before.map((v) => valueText(spec, v)).join(', ') }));
           continue;
         }
@@ -820,7 +819,9 @@ export function trainingPanel(page) {
         : t('tr.packages_note', { list: missing.join(', ') });
       modelNote.textContent = [tr(`tr.note.${m.family}`, ''), pkgs].filter(Boolean).join(' ');
     }
-    function drawModel() {
+    /* `sizeOnly`: another size of the same architecture keeps every value the person chose and says nothing,
+       unless a value had to go back to its default (#312, #632) */
+    function drawModel(sizeOnly = false) {
       const m = modelNow();
       /* the catalogue's own note is English: the screen says it by family, in the interface language */
       drawModelNote(m);
@@ -833,16 +834,15 @@ export function trainingPanel(page) {
       const start = st.start;
       drawStart();
       if (shownModel && st.start !== start) notes.push(t('tr.chg_default', { p: t('tr.start'), v: startName(st.start) }));
-      if (shownModel) {
+      if (shownModel && sizeOnly && !notes.resets) modelChanges.textContent = '';
+      else if (shownModel) {
         const shown = notes.length > 4 ? [...notes.slice(0, 4), t('tr.params_more', { n: notes.length - 4 })] : notes;
         modelChanges.textContent = notes.length ? `${t('tr.chg_title', { model: m.label })} ${shown.join(' · ')}` : t('tr.chg_none', { model: m.label });
       }
       shownModel = m;
       setMode(st.mode);
     }
-    modelSel.addEventListener('change', () => { st.model = modelSel.value; drawModel(); });
-    /* another family: its first model, with the values that still apply carried over (#312) */
-    familySel.addEventListener('change', () => { st.family = familySel.value; drawModelList(); drawModel(); });
+    familySel.addEventListener('change', () => { touched = true; chooseFamily(familySel.value); });
     metricSel.addEventListener('change', () => { st.metric = metricSel.value; });
 
     function changed() {
@@ -933,9 +933,11 @@ export function trainingPanel(page) {
           el('div', { class: 'field' }, el('label', { for: 'tr-dataset' }, t('tr.dataset')), datasetSel, staleNote),
           foldField,
           el('div', { class: 'field' }, el('label', { for: 'tr-family' }, t('tr.family')), familySel, familyNote),
-          el('div', { class: 'field' }, el('label', { for: 'tr-model' }, t('tr.model')), modelSel, modelNote, modelChanges),
-          el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp)),
+          picker.archField,
+          picker.variantField,
+          el('div', { class: 'tr-model-box' }, el('span', { class: 'sr-only' }, `${t('tr.model')}: `), picker.summary, modelNote, modelChanges)),
         el('div', { class: 'tr-col' },
+          el('fieldset', { class: 'field' }, el('legend', null, t('tr.start')), startBox, startHelp),
           el('fieldset', { class: 'field' }, el('legend', null, t('tr.mode')), modeBox, modeHelp, summary),
           el('div', { class: 'field' }, el('label', { for: 'tr-metric' }, t('tr.select_metric')), metricSel, el('p', { class: 'hint' }, t('tr.select_metric_help'))),
           el('div', { class: 'field' }, el('label', { for: 'tr-device' }, t('tr.device_label')), deviceSel, el('p', { class: 'hint' }, t('tr.device_help'))))),

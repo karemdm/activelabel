@@ -978,6 +978,19 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--space-5); }
 @media (min-width: 900px) { .tr-form-grid { grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); } }
 .tr-select { width: 100%; min-height: 44px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.7rem; }
+/* the size (or variant) of the model (#632): one row of equal buttons, a radio group; on a phone at most four
+   per row (EfficientNet B0-B7 in two rows), never the tall column of .seg. The scale under it names both ends. */
+.tr-sizes { display: grid; grid-template-columns: repeat(var(--n), minmax(44px, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.field .tr-size, .tr-size { display: flex; align-items: center; justify-content: center; margin: 0; min-height: 44px; padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; box-shadow: -1px 0 0 var(--border), 0 -1px 0 var(--border); }
+.tr-size:hover { background: var(--primary-soft); }
+.tr-size:has(input:checked) { background: var(--primary); color: var(--primary-text); }
+.tr-size:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
+.tr-size-scale { display: flex; justify-content: space-between; margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--font-xs); }
+.tr-size-facts { margin-top: var(--space-1); }
+.tr-variant-only { margin: 0; font-weight: 600; }
+.tr-model-box { margin: 0 0 var(--space-3); }
+.tr-model-summary { margin: 0; font-weight: 600; }
+@media (max-width: 480px) { .tr-sizes { grid-template-columns: repeat(var(--n-phone), minmax(44px, 1fr)); } }
 .tr-seg { max-width: 100%; flex-wrap: wrap; }
 .tr-seg .seg-opt { white-space: normal; }
 .tr-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 0 var(--space-4); align-items: start; }

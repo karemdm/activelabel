@@ -740,9 +740,10 @@ def test_the_import_result_says_what_the_cvat_link_allows():
 
 
 def test_the_training_dialog_asks_for_the_family_before_the_model():
-    """#537/#601: family first; only families with a model for the type; Ultralytics (AGPL) disabled."""
+    """#537/#601: family first; only families with a model for the type; Ultralytics (AGPL) disabled. #632:
+    the family, then its architecture, then the size (``model_picker.js``)."""
     assert "sel('tr-family'" in JS and "for: 'tr-family'" in JS
-    assert JS.index("for: 'tr-family'") < JS.index("for: 'tr-model'")
+    assert JS.index("for: 'tr-family'") < JS.index("picker.archField,") < JS.index("picker.variantField,")
     assert "disabled: !!reason" in JS and "t('tr.family_licence'" in JS and "tr.family_none" not in JS
     assert ".filter((f) => models.some((m) => m.family === f))" in JS
     assert "models.filter((m) => m.family === st.family)" in JS
