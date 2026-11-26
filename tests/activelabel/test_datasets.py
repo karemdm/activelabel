@@ -14,6 +14,8 @@ from activelabel.datasets import (
     build_groups,
     parse_options,
     plan_split,
+    regression_strata,
+    value_bins,
 )
 from activelabel.errors import CodedError
 from activelabel.images.manifest import ImageRecord, Manifest
@@ -996,3 +998,60 @@ def test_kfold_test_share_has_the_same_limit_as_the_interface():
     with pytest.raises(CodedError) as info:
         parse_options({"kfold": 5, "split": {"test": 95}}, [])
     assert info.value.code == "kfold_test_too_big" and info.value.params == {"max": 90}
+
+
+# -- regression: stratified by bins of the values of the first target (#619) ---------------------------
+def build_values(tmp_path, values, targets=("age", "height")):
+    """A regression project whose images ``i000``... have ``values``: ``{image id: {target: value}}``."""
+    store = ProjectStore(tmp_path / "projects")
+    project = store.create("R", "", "regression", list(targets))
+    pdir = store.dir(project.id)
+    TaskStore(pdir).create(images=list(values))
+    Manifest(pdir).add([ImageRecord(i, f"{i}.png", f"images/{i}.png", 8, 8, 1, "t") for i in values])
+    images = {i: [Label(t, value=v) for t, v in found.items()] for i, found in values.items() if found}
+    save_annotations(pdir, AnnotationSet(_Task.REGRESSION, list(targets), images, {}))
+    return pdir, project
+
+
+def test_value_bins_are_quantiles_and_equal_values_share_one():
+    values = {f"i{k}": float(k) for k in range(50)}
+    bins = value_bins(values)
+    assert Counter(bins.values()) == {0: 10, 1: 10, 2: 10, 3: 10, 4: 10}
+    assert bins["i0"] == 0 and bins["i49"] == 4
+    assert Counter(value_bins({f"i{k}": float(k) for k in range(20)}).values()) == {0: 10, 1: 10}
+    assert set(value_bins({f"i{k}": 1.0 for k in range(30)}).values()) == {0}  # equal values: one bin
+    three = {f"i{k}": float(k % 3) for k in range(60)}
+    assert sorted(set(value_bins(three).values())) == [0, 1, 2]  # three distinct values: three bins
+    assert set(value_bins({"a": 1.0, "b": 2.0}).values()) == {0}  # too few values for two bins
+
+
+def test_regression_strata_use_the_first_target_with_values_and_warn_on_a_constant_one():
+    labels = {f"i{k:02d}": [Label("height", value=1.75), Label("age", value=float(k))] for k in range(50)}
+    labels["none"] = [Label("height", value=1.75)]  # no age: no stratum
+    strata, warnings = regression_strata(labels, ["weight", "age", "height"])
+    assert strata["i00"] == {"age #0"} and strata["i49"] == {"age #4"} and strata["none"] == set()
+    assert warnings == [{"code": "target_constant", "target": "height", "value": 1.75}]
+
+
+def test_a_regression_split_spreads_low_and_high_values_over_the_parts(tmp_path):
+    pdir, project = build_values(tmp_path, {f"i{k:03d}": {"age": float(k)} for k in range(100)})
+    p = plan(pdir, project, split={"train": 60, "val": 20, "test": 20})
+    for part in ("val", "test"):
+        ages = sorted(int(i[1:]) for i in p.parts[part])
+        assert len(ages) == 20 and {a // 20 for a in ages} == {0, 1, 2, 3, 4}, part  # every bin in the part
+    assert p.type == "regression" and p.classes == ["age", "height"]
+    assert {w["code"] for w in p.warnings} >= {"classes_unused"}  # height has no value
+    assert p.labels["i000"] == [{"label": "age", "value": 0.0}]
+
+
+def test_a_regression_split_leaves_out_images_without_values_and_keeps_one_value_per_target(tmp_path):
+    values = {f"i{k:03d}": {"age": float(k)} for k in range(20)}
+    values["empty"] = {}
+    pdir, project = build_values(tmp_path, values)
+    found = load_annotations(pdir)
+    found.images["i000"].append(Label("age", value=99.0))  # a second value of the same target
+    save_annotations(pdir, found)
+    p = plan(pdir, project, kfold=4)
+    used = {i for f in p.folds for i in f} | set(p.parts["test"])
+    assert "empty" not in used and len(used) == 20
+    assert p.labels["i000"] == [{"label": "age", "value": 0.0}]

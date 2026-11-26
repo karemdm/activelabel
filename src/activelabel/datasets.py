@@ -2,7 +2,8 @@
 
 A version lives in ``<project>/datasets/v<N>.json`` and never changes once written. The split keeps
 groups of related images (frames of one video, near duplicates) in one part and balances the classes
-across parts with a seeded, deterministic iterative stratification.
+across parts with a seeded, deterministic iterative stratification. A regression project (#619) is balanced
+by bins of the values of its first target instead (:func:`regression_strata`).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import json
 import math
 import random
 import threading
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ from activelabel.labels import (
 )
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
-from activelabel.tasks import Task, refuse_regression
+from activelabel.tasks import Task
 from activelabel.tasks_store import TaskStore
 
 PARTS = ("train", "val", "test")
@@ -54,6 +55,8 @@ SEGMENT_MIN_FRAMES = 2  # ...of at least this many frames...
 SEGMENT_MAX_FRAMES = 30  # ...and at most this many (long videos give more segments)
 MIN_SPLIT_FRAMES = 4  # a video with fewer frames always stays whole
 MAX_KFOLD_TEST = 90  # with K-fold, at least 10 % of the images stay for the folds
+VALUE_BINS = 5  # regression: the values of the first target are split into this many quantile bins...
+VALUES_PER_BIN = 10  # ...at most: a bin has at least this many values (a few images make fewer bins)
 
 _STALE_CACHE: dict[tuple[Path, int], tuple[tuple[int, ...], dict[str, int]]] = {}
 FRESH = {"changed_images": 0, "added": 0, "removed": 0, "excluded": 0, "restored": 0}
@@ -1117,6 +1120,65 @@ def common_count(sizes: Iterable[int]) -> int | None:
     return found.most_common(1)[0][0] if found else None
 
 
+def value_bins(values: dict[str, float], count: int = VALUE_BINS) -> dict[str, int]:
+    """The quantile bin of each value: ``count`` bins with about as many values each.
+
+    There are fewer bins when there are fewer distinct values, or fewer than :data:`VALUES_PER_BIN` values per
+    bin (each bin is spread over the parts like a class, so tiny bins would pull the proportions away from the
+    ones asked for); equal values always share a bin.
+
+    Args:
+        values: image id -> value.
+        count: how many bins at most.
+
+    Returns:
+        image id -> bin number, from 0 (smallest values).
+    """
+    ordered = sorted(values.values())
+    bins = min(count, len(set(ordered)), len(ordered) // VALUES_PER_BIN)
+    if bins <= 1:
+        return dict.fromkeys(values, 0)
+    edges = [ordered[len(ordered) * k // bins] for k in range(1, bins)]
+    return {image_id: bisect_right(edges, value) for image_id, value in values.items()}
+
+
+def regression_strata(
+    labels: dict[str, list[Label]], targets: list[str]
+) -> tuple[dict[str, set[str]], list[dict[str, Any]]]:
+    """What the split balances in a regression project: the bin of the value of the first target.
+
+    The first target of the project with values is cut into up to :data:`VALUE_BINS` quantile bins
+    (:func:`value_bins`); each image gets the stratum ``"<target> #<bin>"``, so every part receives low,
+    middle and high values like the classes of the other types. An image without a value of that target
+    has no stratum. A target whose values are all the same is reported (``target_constant``): a model
+    cannot learn anything from it.
+
+    Args:
+        labels: image id -> its usable labels (one value per target).
+        targets: the targets of the project, in order (values of other targets come after them).
+
+    Returns:
+        image id -> its strata, and the warnings.
+    """
+    per_target: dict[str, dict[str, float]] = {}
+    for image_id, items in labels.items():
+        for lb in items:
+            if lb.value is not None:
+                per_target.setdefault(lb.label, {})[image_id] = float(lb.value)
+    order = [t for t in targets if t in per_target] + [t for t in per_target if t not in targets]
+    warnings = [
+        {"code": "target_constant", "target": t, "value": next(iter(per_target[t].values()))}
+        for t in order
+        if len(set(per_target[t].values())) == 1
+    ]
+    strata: dict[str, set[str]] = {i: set() for i in labels}
+    if order:
+        first = order[0]
+        for image_id, number in value_bins(per_target[first]).items():
+            strata[image_id] = {f"{first} #{number}"}
+    return strata, warnings
+
+
 def usable_labels(
     task: Task, labels: dict[str, list[Label]]
 ) -> tuple[dict[str, list[Label]], dict[str, Any]]:
@@ -1124,7 +1186,8 @@ def usable_labels(
 
     Labels without the shape the task needs, with a polygon of fewer than 3 points, with an invalid
     box or (pose) with another number of points than most are dropped; a classification image keeps
-    only its first label (the class training uses). Images left without labels are not in the result.
+    only its first label (the class training uses), a regression image the first value of each target.
+    Images left without labels are not in the result.
 
     Args:
         task: the kind of task (project type) that sets the shape a label needs.
@@ -1147,6 +1210,8 @@ def usable_labels(
         good = [lb for lb in items if geometry_problem(task, lb, expected) is None]
         if task is Task.CLASSIFICATION:
             good = good[:1]
+        if task is Task.REGRESSION:
+            good = [lb for n, lb in enumerate(good) if all(o.label != lb.label for o in good[:n])]
         if good:
             kept[image_id] = good
     shape = (NO_GEOMETRY, BOX_INVALID, POLYGON_TOO_FEW_POINTS)
@@ -1315,12 +1380,10 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         The plan: parts, folds, labels, statistics and warnings.
 
     Raises:
-        CodedError: a regression project (``regression_not_supported_yet``), no image to split, or fewer image
-            groups than K-fold needs.
+        CodedError: no image to split, or fewer image groups than K-fold needs.
         ValueError: a split attempt failed (K-fold with too few groups surfaces this way, as a
             ``CodedError``) and no other way of splitting is left to try.
     """
-    refuse_regression(project.task)
     tasks = TaskStore(project_dir).load()
     wanted = set(options.tasks) if options.tasks else {t.id for t in tasks}
     manifest = Manifest(project_dir).load()
@@ -1329,7 +1392,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
         k: [lb for lb in v if lb.score is None]
         for k, v in (annotations.images if annotations else {}).items()
     }
-    classification = project.task == Task.CLASSIFICATION
+    labelled_only = project.task in (Task.CLASSIFICATION, Task.REGRESSION)  # no background images
     chosen: list[str] = list(
         dict.fromkeys(
             i
@@ -1341,7 +1404,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     )
     labels, problems = usable_labels(project.task, {i: people[i] for i in chosen if people.get(i)})
     candidates = [i for i in chosen if labels.get(i) or (options.background and not people.get(i))]
-    if classification:
+    if labelled_only:
         candidates = [i for i in candidates if labels.get(i)]
     if not candidates:
         if problems["unusable"]:
@@ -1356,6 +1419,12 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     total = len(candidates)
     position = {i: n for n, i in enumerate(candidates)}
     classes_of = {i: {lb.label for lb in labels.get(i, [])} for i in candidates}
+    strata = classes_of  # what the split balances: the classes, or bins of values (regression)
+    value_warnings: list[dict[str, Any]] = []
+    if project.task is Task.REGRESSION:
+        strata, value_warnings = regression_strata(
+            {i: labels.get(i, []) for i in candidates}, project.classes
+        )
     video_of = {i: manifest[i].video for i in manifest}
     duplicate_of = load_duplicate_of(project_dir)
     names, fps = _video_meta(project_dir, tasks)
@@ -1386,7 +1455,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
     if options.videos == "auto" and targets:
         big = {v for v, ids in frames_of.items() if len(ids) >= MIN_SPLIT_FRAMES and len(ids) > min(targets)}
     splitter = _Splitter(
-        options, candidates, position, classes_of, video_of, duplicate_of, frames_of, shares, test_share
+        options, candidates, position, strata, video_of, duplicate_of, frames_of, shares, test_share
     )
     final: _Attempt | None
     try:
@@ -1396,26 +1465,26 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
             raise
         final = None
     if options.videos == "auto" and final is not None:  # videos holding a class some part lacks are cut too
-        every = {c for s in classes_of.values() for c in s}
+        every = {c for s in strata.values() for c in s}
         lacking = {
             c
             for _, ids, share in final.slots
             if share > 0
-            for c in every - {c for i in ids for c in classes_of.get(i, ())}
+            for c in every - {c for i in ids for c in strata.get(i, ())}
         }
         big |= {
             v
             for v, ids in frames_of.items()
-            if len(ids) >= MIN_SPLIT_FRAMES and any(classes_of[i] & lacking for i in ids)
+            if len(ids) >= MIN_SPLIT_FRAMES and any(strata[i] & lacking for i in ids)
         }
-    if big and (final is None or _quality(final, classes_of, total) > (False, 0)):
+    if big and (final is None or _quality(final, strata, total) > (False, 0)):
         try:
             trial = splitter.attempt(big)
         except ValueError:
             if final is None:
                 raise
         else:
-            if final is None or _quality(trial, classes_of, total) < _quality(final, classes_of, total):
+            if final is None or _quality(trial, strata, total) < _quality(final, strata, total):
                 final = trial
     assert final is not None
     split = final.split
@@ -1443,7 +1512,7 @@ def plan_split(project_dir: Path, project: Project, options: DatasetOptions) -> 
 
     found = sorted({c for s in classes_of.values() for c in s})
     ordered = [c for c in project.classes if c in found] + [c for c in found if c not in project.classes]
-    warnings: list[dict[str, Any]] = list(problems["warnings"])
+    warnings: list[dict[str, Any]] = list(problems["warnings"]) + value_warnings
     on_images = Counter(c for i in candidates for c in classes_of[i])
     parts_wanted = sum(share > 0 for _, _, share in slots)
     for key, ids, share in slots:

@@ -35,7 +35,8 @@ Everything below goes into the first release, 0.1.0.
 - **Regression projects** (#619). A number per image and target (for example age or a count): targets
   instead of classes, values imported from CSV or JSON, synchronised with CVAT (a tag per target with a
   `value` attribute) and edited in FiftyOne (a float field per target) (docs/IMPORT.md, docs/SYNC.md,
-  docs/ANNOTATION.md). The data split, training and pre-annotation of these projects come next.
+  docs/ANNOTATION.md), and split into versions balanced by bins of the values (docs/DATASETS.md). Training and
+  pre-annotation of these projects come next.
 - **YOLO training (Ultralytics).** YOLO26, YOLO11 and YOLOv8 (sizes n to x) detection, segmentation, pose and
   classification models train with their own worker once the AGPL-3.0 licence of Ultralytics is accepted; the acceptance is kept with its date in
   the workspace settings, and nothing is installed or trained before it (docs/TRAINING.md, *Licences*).

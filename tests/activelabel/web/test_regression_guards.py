@@ -30,9 +30,10 @@ def test_a_regression_project_is_created_with_its_targets(regression):
     assert body["task"] == "regression" and body["classes"] == ["age"]
 
 
-def test_data_split_is_refused(regression):
+def test_data_split_needs_values(regression):
     client, _ = regression
-    _refused(client.post("/api/projects/1/datasets", json={}))
+    answer = client.post("/api/projects/1/datasets", json={})
+    assert answer.status_code == 400 and answer.json()["code"] == "nothing_to_split"  # no value yet
 
 
 def test_training_is_refused(regression):

@@ -181,6 +181,10 @@ export function datasetsPanel(page) {
       const list = (w.classes || []).slice(0, 6).join(', ') + ((w.classes || []).length > 6 ? ` (+${w.classes.length - 6})` : '');
       return short ? tn('ds.b_classes_unused', (w.classes || []).length) : tn('ds.w_classes_unused', (w.classes || []).length, { list });
     }
+    if (code === 'target_constant') {   // regression (#619): every value of a target is the same
+      const vars = { target: w.target, value: num(w.value) };
+      return short ? t('ds.b_target_constant', vars) : t('ds.w_target_constant', vars);
+    }
     if (code === 'labels_without_geometry' || code === 'multiple_classes' || code === 'keypoints_count_mismatch') {
       const vars = { n: num(w.count || 0), expected: num(w.expected || 0) };
       return short ? tn(`ds.b_${code}`, w.count || 0, vars) : tn(`ds.w_${code}`, w.count || 0, vars);
@@ -208,7 +212,7 @@ export function datasetsPanel(page) {
   const WARN_GROUP = {
     class_missing: 'classes', classes_missing: 'classes', part_empty: 'size', few_images: 'size',
     labels_without_geometry: 'labels', multiple_classes: 'labels', keypoints_count_mismatch: 'labels',
-    classes_unused: 'classes', few_images_folds: 'size', no_curation: 'curation',
+    classes_unused: 'classes', few_images_folds: 'size', no_curation: 'curation', target_constant: 'labels',
   };
   const warnGroup = (w) => WARN_GROUP[w.code] || (/drift|group/.test(String(w.code)) ? 'balance' : 'other');
   function warnSummary(list) {
