@@ -174,3 +174,30 @@ def test_problems_found_by_the_tool_are_listed(proj):
     _, project, _, ids, folder = proj
     r = d.diff(folder, [ids[1]], {ids[1]: []}, project, tool_problems={ids[1]: {"open_polyline": 2}})
     assert [(p["code"], p["count"]) for p in r["problems"]] == [("open_polyline", 2)]
+
+
+def value(target: str, number: float) -> Label:
+    return Label(target, value=number)
+
+
+def test_regression_values_are_matched_by_target() -> None:
+    old = [value("age", 31.0), value("height", 170.0), value("weight", 70.0)]
+    new = [value("weight", 70.0), value("age", 32.0), value("shoe", 42.0)]
+    changes = d.compare_image(Task.REGRESSION, old, new)
+    assert [lb.label for lb in changes.added] == ["shoe"]
+    assert [lb.label for lb in changes.removed] == ["height"]
+    assert [(lb.label, lb.value) for lb in changes.edited] == [("age", 32.0)]
+
+
+def test_regression_equal_values_are_no_change() -> None:
+    old = [value("age", 31.0)]
+    changes = d.compare_image(Task.REGRESSION, old, [value("age", 31.0 + 1e-12)])
+    assert not changes
+
+
+def test_clean_labels_drops_a_second_value_of_a_target(tmp_path) -> None:
+    _, project, _ = make_project(tmp_path, ["a.png"], task="regression", classes=["age", "height"])
+    labels = [value("age", 31.0), value("height", 170.0), value("age", 99.0)]
+    out, dropped = d.clean_labels(project, labels)
+    assert [(lb.label, lb.value) for lb in out] == [("age", 31.0), ("height", 170.0)]
+    assert dropped["repeated_target"] == 1 and dropped["multiple_classes"] == 0

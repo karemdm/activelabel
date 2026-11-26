@@ -12,7 +12,8 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
   several rings, and an object with several rings is written as grouped polygons, see :func:`join_parts`);
   points -> one keypoints object (all the points
   of the shape; a point at the top-left corner is "not labeled", as in ``cvat_tool``) + bbox; tag ->
-  image class (classification projects only).
+  image class (classification projects only); in a regression project, tag with the text attribute
+  ``value`` -> the value of that target for the image (see :mod:`activelabel.sync.cvat_values`).
 * Visibility of keypoints: CVAT has one ``occluded`` flag per points shape. A pose whose labeled points
   are all "labeled but not visible" (1) is an occluded shape; a pose that mixes 1 and 2 keeps the
   visibility of every point in the text attribute :data:`VISIBILITY` of its label (``"2,1,0"``), added
@@ -46,7 +47,8 @@ object it does not change keeps its id, and only objects it has just read can be
   shape. In a classification project no shape is converted, so none is touched;
 * shapes of any other type (or of a class the project does not know) are kept as they are;
 * tags: in a classification project the tags of a known class are matched by class in the same way;
-  in the other projects every tag is kept (a label without geometry only adds a tag that is missing);
+  in a regression project too, and a tag whose value changed is updated (its id and other attributes
+  stay); in the other projects every tag is kept (a label without geometry only adds a tag that is missing);
 * tracks are handled by :func:`_write_tracks` (a changed track is updated, keeping its id); frames
   that are not given are not touched.
 """
@@ -70,9 +72,10 @@ from activelabel.images.video import VIDEO_EXTENSIONS
 from activelabel.importing import common
 from activelabel.importing.common import RemoteNotFound
 from activelabel.importing.cvat_import import _Http
-from activelabel.labels import MISSING_CORNER, Label, clamp01
+from activelabel.labels import MISSING_CORNER, Label, clamp01, same_value
 from activelabel.projects import Project
 from activelabel.sync import links
+from activelabel.sync.cvat_values import tag_value, value_attributes, value_spec, value_specs, with_value
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteJob, RemoteTask
 from activelabel.tasks import Task
 
@@ -632,8 +635,9 @@ def labels_to_cvat(
         frame: Index of the frame in the task.
         w: Width of the frame in pixels.
         h: Height of the frame in pixels.
-        specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one (poses that mix
-            visibilities 1 and 2 need it, see :func:`_visibility_attrs`).
+        specs: Id of the attribute ActiveLabel keeps on each CVAT label that has one: :data:`VISIBILITY`
+            (poses that mix visibilities 1 and 2 need it, see :func:`_visibility_attrs`) or, in a
+            regression project, ``value`` (the value of a target, see :mod:`activelabel.sync.cvat_values`).
         skeletons: The sublabels of each skeleton label (:func:`skeleton_parts`): a pose of such a class
             is written as a skeleton.
         first_group: The ``group`` of the first multi-part object of the frame (the next ones follow);
@@ -672,7 +676,10 @@ def labels_to_cvat(
             x, y, bw, bh = lb.bbox
             shapes.append(_shape_payload("rectangle", frame, lid, [x * w, y * h, (x + bw) * w, (y + bh) * h]))
         else:
-            tags.append({"frame": frame, "label_id": lid, "group": 0, "source": "manual", "attributes": []})
+            attributes = value_attributes(lb, (specs or {}).get(lid))
+            tags.append(
+                {"frame": frame, "label_id": lid, "group": 0, "source": "manual", "attributes": attributes}
+            )
     return shapes, tags
 
 
@@ -1116,14 +1123,15 @@ def _merge_frame(
         frame: Index of the frame in the task.
         size: ``(width, height)`` of the frame in pixels.
         task: The task type of the project.
-        specs: Id of the :data:`VISIBILITY` attribute of each CVAT label that has one.
+        specs: Id of the :data:`VISIBILITY` attribute (or, in a regression project, of the ``value``
+            attribute) of each CVAT label that has one.
         skeletons: The sublabels of each skeleton label (:func:`skeleton_parts`); skeletons of those labels
             are converted (keypoints projects).
 
     Returns:
         The shapes and the tags the frame has after the write.
     """
-    classification = task is Task.CLASSIFICATION
+    tagged = task in (Task.CLASSIFICATION, Task.REGRESSION)  # tags are the labels; shapes are kept
     w, h = size
     parts = skeletons or {}
     used = [int(s.get("group") or 0) for s in old_shapes]
@@ -1136,7 +1144,7 @@ def _merge_frame(
     for s in old_shapes:
         lid = int(s.get("label_id") or -1)  # -1: no label (never a CVAT id)
         kind_ok = s.get("type") in TRACKABLE or (s.get("type") == "skeleton" and lid in parts)
-        mine = not classification and kind_ok and lid in known
+        mine = not tagged and kind_ok and lid in known
         converted = shape_to_label(s, "x", w, h, vis.get(lid), parts.get(lid)) if mine else None
         mine = converted is not None and _visible(task, converted)
         (convertible if mine else kept_shapes).append(s)
@@ -1158,10 +1166,10 @@ def _merge_frame(
         else:
             kept_shapes.append(shape)
     # what is left in ``convertible`` is gone from the labels: it is deleted
-    old_known = [t for t in old_tags if classification and t.get("label_id") in known]
+    old_known = [t for t in old_tags if tagged and t.get("label_id") in known]
     kept_tags = [t for t in old_tags if not any(t is o for o in old_known)]
     for tag in new_tags:
-        if classification:
+        if tagged:
             match = next(
                 (
                     i
@@ -1170,10 +1178,69 @@ def _merge_frame(
                 ),
                 None,
             )
-            kept_tags.append(old_known.pop(match) if match is not None else tag)
+            kept_tags.append(tag if match is None else _kept_tag(old_known.pop(match), tag, vis))
         elif not any(_same_class(o.get("label_id"), tag["label_id"], aliases) for o in kept_tags):
             kept_tags.append(tag)
     return kept_shapes, kept_tags
+
+
+def _kept_tag(old: dict[str, Any], new: dict[str, Any], specs: dict[int, int]) -> dict[str, Any]:
+    """The tag CVAT keeps for a label of its class: the old one, with the new value when that changed.
+
+    Args:
+        old: The tag CVAT has (same class as ``new``).
+        new: The tag built from the label (:func:`labels_to_cvat`).
+        specs: Id of the ``value`` attribute of each CVAT label that has one (regression projects).
+
+    Returns:
+        ``old`` itself when nothing changed (always in a classification project), an edited copy of it
+        that keeps its id and its other attributes when the value changed, or ``new`` when the label of
+        ``old`` has no ``value`` attribute (a label that differs only in case).
+    """
+    value = tag_value(new, specs.get(int(new["label_id"])))
+    if value is None:
+        return old
+    old_spec = specs.get(int(old.get("label_id") or -1))
+    if old_spec is None:
+        return new
+    if same_value(tag_value(old, old_spec), value):
+        return old
+    return with_value(old, value, old_spec)
+
+
+def _read_values(
+    tags: list[dict[str, Any]],
+    names: dict[int, str],
+    specs: dict[int, int],
+    count: int,
+    per_frame: dict[int, list[Label]],
+    skipped: dict[int, dict[str, int]],
+) -> None:
+    """The values of a regression project from the tags of a task (one per target and frame: the first).
+
+    A tag of a known label without a readable value (no ``value`` attribute, empty or not a number) is
+    counted as ``tag_without_value`` in ``skipped``.
+
+    Args:
+        tags: The tags of the task.
+        names: The name of each top-level CVAT label id.
+        specs: Id of the ``value`` attribute of each CVAT label that has one.
+        count: Number of frames of the task.
+        per_frame: The labels of each frame; the values are added to it.
+        skipped: What could not be converted, by frame; changed in place.
+    """
+    for tag in tags:
+        f, lid = int(tag.get("frame", -1)), int(tag.get("label_id") or -1)  # -1: no label (never an id)
+        name = names.get(lid)
+        if not name or not 0 <= f < count:
+            continue
+        value = tag_value(tag, specs.get(lid))
+        if value is None:
+            skipped.setdefault(f, {})["tag_without_value"] = (
+                skipped.get(f, {}).get("tag_without_value", 0) + 1
+            )
+        elif not any(lb.label.casefold() == name.casefold() for lb in per_frame.get(f, [])):
+            per_frame.setdefault(f, []).append(Label(name, value=value))
 
 
 def _empty_patch() -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -1643,6 +1710,35 @@ class CvatRemote:
             specs = visibility_specs(self._label_rows(api, rid))
         return specs
 
+    def _value_specs(self, api: _Api, rid: str, ids: dict[str, int], labels: list[Label]) -> dict[int, int]:
+        """The ``value`` attribute of each label, added first to the labels of targets that need it.
+
+        A label needs it when one of ``labels`` of its target has a value (regression projects; the
+        attribute is added with ``PATCH /api/projects/{id}``, the other labels are not touched). See
+        :mod:`activelabel.sync.cvat_values`.
+
+        Args:
+            api: The REST client.
+            rid: The CVAT project id.
+            ids: CVAT label id of each class (target) name.
+            labels: The labels about to be written.
+
+        Returns:
+            ``{label id: attribute spec id}``; empty when no label has a value.
+        """
+        if not any(lb.value is not None for lb in labels):
+            return {}
+        rows = self._label_rows(api, rid)
+        specs = value_specs(rows)
+        names = {int(r["id"]): str(r.get("name", "")) for r in rows}
+        wanted = {class_id(ids, lb.label) for lb in labels if lb.value is not None}
+        need = sorted({lid for lid in wanted if lid is not None} - set(specs))
+        if need:
+            body = [{"id": lid, "name": names.get(lid, ""), "attributes": [value_spec()]} for lid in need]
+            api.request("PATCH", f"/api/projects/{rid}", json={"labels": body})
+            specs = value_specs(self._label_rows(api, rid))
+        return specs
+
     @classmethod
     def _labels(cls, api: _Api, rid: str) -> dict[str, int]:
         """The top-level labels of a project.
@@ -1821,7 +1917,8 @@ class CvatRemote:
         Args:
             settings: Address and login of the CVAT server.
             remote_id: The CVAT project id.
-            task: The task type of the project (classification reads tags, the others shapes).
+            task: The task type of the project (classification and regression read tags, the others
+                shapes).
             task_ids: Only these CVAT task ids; None for every task of the project.
 
         Returns:
@@ -1831,7 +1928,9 @@ class CvatRemote:
         rows = self._label_rows(api, remote_id)
         names = {int(r["id"]): str(r["name"]) for r in rows if r.get("name") and not r.get("parent_id")}
         specs = visibility_specs(rows)
+        values = value_specs(rows) if task is Task.REGRESSION else {}
         parts = skeleton_parts(rows)
+        tagged = task in (Task.CLASSIFICATION, Task.REGRESSION)  # their labels are tags, not shapes
         out: list[RemoteItem] = []
         for t in api.paged("/api/tasks", {"project_id": remote_id, "sort": "id"}, ALL):
             tid = t["id"]
@@ -1846,7 +1945,7 @@ class CvatRemote:
             for s in ann.get("shapes") or []:
                 f, lid = int(s.get("frame", -1)), s.get("label_id")
                 name = names.get(lid)
-                if task is Task.CLASSIFICATION or name is None or not 0 <= f < len(frames):
+                if tagged or name is None or not 0 <= f < len(frames):
                     continue
                 why = _not_converted(s, task, parts)
                 if why:
@@ -1860,7 +1959,7 @@ class CvatRemote:
             ids = {n: i for i, n in names.items()}
             for tr in ann.get("tracks") or []:
                 name = names.get(tr.get("label_id"))
-                if task is Task.CLASSIFICATION or name is None:
+                if tagged or name is None:
                     continue
                 if _trackable(tr, ids) is None:  # skeleton tracks, other types: kept, not read
                     f = int(tr.get("frame") or 0)
@@ -1877,6 +1976,8 @@ class CvatRemote:
                     f, name = int(tag.get("frame", -1)), names.get(tag.get("label_id"))
                     if name and 0 <= f < len(frames) and f not in per_frame:
                         per_frame[f] = [Label(name)]
+            if task is Task.REGRESSION:
+                _read_values(ann.get("tags") or [], names, values, len(frames), per_frame, skipped)
             deleted = {int(d) for d in meta.get("deleted_frames") or []}
             for f, fr in enumerate(frames):
                 if f in deleted:
@@ -1939,6 +2040,8 @@ class CvatRemote:
         every = [lb for per in by_task.values() for labels in per.values() for lb in labels]
         pose = project.task is Task.KEYPOINTS
         specs = self._pose_specs(api, remote_id, ids, every) if pose else {}
+        if project.task is Task.REGRESSION:
+            specs = self._value_specs(api, remote_id, ids, every)
         skeletons = skeleton_parts(self._label_rows(api, remote_id)) if pose else {}
         for tid, per in by_task.items():
             frames = self._frames(api, tid)
@@ -1951,7 +2054,7 @@ class CvatRemote:
             patch = _empty_patch()
             old_tracks = ann.get("tracks") or []
             tracks = copy.deepcopy(old_tracks)
-            if project.task is not Task.CLASSIFICATION:
+            if project.task not in (Task.CLASSIFICATION, Task.REGRESSION):
                 per = _write_tracks(tracks, per, ids, frames, specs)
             patch["update"]["tracks"] = [
                 new for new, old in zip(tracks, old_tracks, strict=True) if new != old
@@ -2078,7 +2181,7 @@ class CvatRemote:
             body["segment_size"] = int(job_size)
             body["overlap"] = 0  # CVAT repeats frames between jobs of a video by default
         every = [lb for _, _, labels in batch for lb in labels]
-        specs = self._pose_specs(api, rid, ids, every)
+        specs = self._pose_specs(api, rid, ids, every) or self._value_specs(api, rid, ids, every)
         skeletons = skeleton_parts(self._label_rows(api, rid)) if any(lb.keypoints for lb in every) else {}
         task = api.request("POST", "/api/tasks", json=body)
         tid = task["id"]

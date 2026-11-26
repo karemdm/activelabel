@@ -46,14 +46,10 @@ export function cvatTarget({ link = null, configured = false, task = null, job =
   return { reason: TASK_REASONS[task.cvat] || 'tasks.cvat_not_synced' };
 }
 
-/** Regression projects do not go to CVAT or FiftyOne yet (#619): the buttons say so instead of failing. */
-const regression = (project) => !!project && project.task === 'regression';
-
-/** Why the project cannot be opened in FiftyOne (`null` when it can): FiftyOne must be installed (#658), not
- *  regression yet, and the project needs images. */
+/** Why the project cannot be opened in FiftyOne (`null` when it can): FiftyOne must be installed (#658) and the
+ *  project needs images. */
 export const fiftyoneReason = (project) => {
   if (fiftyoneMissing()) return 'open.fo_not_installed';
-  if (regression(project)) return 'open.regression_later';
   return (project && project.counts && project.counts.active) ? null : 'open.fo_no_images';
 };
 

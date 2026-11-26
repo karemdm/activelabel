@@ -197,12 +197,24 @@ one track id per job.
 | points | one pose object (keypoints). A point at the top-left corner is *not labeled* (0). CVAT has one `occluded` flag per shape: a pose whose labeled points are all *labeled but not visible* (1) is an occluded shape; a pose that mixes 1 and 2 keeps each point's visibility in the text attribute `visibility` of its CVAT label (`"2,1,0"`; added to that label the first time a pose needs it). CVAT has no box for a pose: a pose whose points did not change keeps the box the project has (from COCO, for example), so the box alone is never a change; when the points change the box becomes the box of the points |
 | skeleton | one pose object (keypoints projects): one point per sublabel of the skeleton label, in the order of the sublabels; a missing or `outside` part is *not labeled* (0), an `occluded` one is 1. The class is the skeleton label. A pose of a skeleton class is written back as a skeleton (each part keeps its id) |
 | tag | image class (classification) |
+| tag with the attribute `value` | the value of that target for the image (regression, see below) |
 
 Shapes of other types (ellipse, mask, polyline, cuboid), skeletons outside a keypoints project and tracks
 that are not read (skeleton tracks, tracks of other types) stay in CVAT as they are and never reach the
 project or the training. The plan says so: `not_converted` counts them by kind (`{"ellipse": 2,
 "mask": 1, "tracks": 1, ...}`), and `rotated_rectangle` counts the turned rectangles read as their
 enclosing box.
+
+**Regression projects** (#619). Each target is a CVAT label and the value of a target for an image is a
+*tag* of that label on the frame, with the value as text in the label's attribute `value` (`"31"`, `"2.75"`).
+The attribute is a mutable **text** attribute, added to the label the first time a value of its target is
+written: a CVAT `number` attribute needs a minimum, a maximum and a step, and the CVAT interface refuses a
+value that is not a multiple of the step, which with decimals depends on rounding noise. Reading accepts a
+decimal comma and any attribute called `value` (ignoring case), so a `number` attribute made in CVAT is read
+too. An image keeps one value per target (the first tag); a tag of a target without a readable value is
+counted in `not_converted` as `tag_without_value`. Shapes and tracks of a regression project are neither read
+nor touched. Values are compared exactly (up to floating point noise), not with the tolerance of the
+coordinates: any change of a value is a change.
 
 ## What a push sends to CVAT
 
@@ -217,7 +229,10 @@ the differences on the frames being pushed and sends them as `PATCH /api/tasks/{
 - a shape left without a label is deleted, and a label left without a shape is created with CVAT's
   defaults (no attributes);
 - only objects read just before can be deleted: what someone draws in CVAT meanwhile, on any frame,
-  stays; shapes of types ActiveLabel does not convert, and frames that are not pushed, are never sent.
+  stays; shapes of types ActiveLabel does not convert, and frames that are not pushed, are never sent;
+- tags (classification and regression projects) are matched by class; in a regression project a tag whose
+  value changed is **updated** (it keeps its id and its other attributes), a value removed deletes its tag
+  and a new one creates a tag with the attribute `value`.
 
 A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 

@@ -210,7 +210,7 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     points, left out).
 
     Args:
-        value: the FiftyOne label field value, or None.
+        value: the FiftyOne label field value, a ``{target: value}`` dict (regression), or None.
         task: task of the project (classification keeps one label).
 
     Returns:
@@ -222,6 +222,8 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     notes: dict[str, int] = {}
     if value is None:
         return [], notes
+    if isinstance(value, dict):  # regression: {target: value}, see fiftyone_bridge.truth_of
+        return [Label(str(t), value=float(v)) for t, v in value.items() if not _is_nan(v)], notes
     kind = type(value).__name__
     if kind in ("Classification", "Classifications"):
         labels = _classification(value)
@@ -243,7 +245,7 @@ def labels_from_fo(value: Any, task: Task) -> list[Label]:
 
     Args:
         value: ``Classification`` (``Classifications``: the first), ``Detections``, ``Polylines``,
-            ``Keypoints`` or None.
+            ``Keypoints``, a ``{target: value}`` dict (regression) or None.
         task: task of the project (classification keeps one label).
 
     Returns:
@@ -262,7 +264,7 @@ def fingerprint(value: Any, task: Task) -> str:
     so differences FiftyOne does not keep (float noise below the hash's rounding, scores) do not count.
 
     Args:
-        value: the FiftyOne label field value, or None.
+        value: the FiftyOne label field value, a ``{target: value}`` dict (regression), or None.
         task: task of the project.
 
     Returns:

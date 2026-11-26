@@ -135,6 +135,15 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
 The flow is the old one of the first CVAT-FiftyOne project (edit in the App, everything saved at once) with a
 review layer on top: sessions, the summary of changes, conflicts, safety copies and *Discard* stay.
 
+**Regression projects** (#619) have no `ground_truth` label in FiftyOne. Each target is a float field
+`ground_truth_<target>` (the target name in lower case, every run of other characters than letters and digits
+replaced by `_`, `_2`, `_3`... when two names give the same field), recorded in the dataset info
+(`activelabel_targets`). The App (1.22) edits number fields but not `Regression` labels, so each field gets a
+label schema with a text box, and the values are filtered with the sidebar like the measures. Sessions work
+the same way on `{target: value}`: the fingerprint, the images edited in FiftyOne, bring back, apply and
+discard. A target removed from the project loses its field; a project that changes type loses the fields of
+the old one.
+
 ## Safety copies
 
 Before anything that removes or rewrites annotations in bulk, `annotations.json` is copied next to itself as

@@ -140,3 +140,29 @@ def test_carry_pose_boxes_keeps_the_box_of_a_pose_whose_points_did_not_move() ->
     out = links.carry_pose_boxes([coco], [read, moved, box])
     assert out[0].bbox == coco.bbox and out[1].bbox == moved.bbox and out[2] is box
     assert links.carry_pose_boxes([coco], [read, read])[1].bbox == read.bbox  # each old pose used once
+
+
+def test_hash_covers_the_regression_value() -> None:
+    base = links.label_hash([Label("age", value=31.0)])
+    assert links.label_hash([Label("age", value=32.0)]) != base
+    assert links.label_hash([Label("age", value=31.0)]) == base
+    assert links.label_hash([Label("age")]) != base
+
+
+def test_hash_of_labels_without_value_is_the_same_for_equal_labels() -> None:
+    assert links.label_hash([box("cat")]) == links.label_hash([box("cat")])
+    assert links.label_hash([Label("cat")]) == links.label_hash([Label("cat", value=None)])
+
+
+def test_same_labels_compares_the_value() -> None:
+    assert same_labels([Label("age", value=31.0)], [Label("age", value=31.0)])
+    assert not same_labels([Label("age", value=31.0)], [Label("age", value=32.0)])
+    assert not same_labels([Label("age", value=31.0)], [Label("age")])
+
+
+def test_carry_predictions_needs_the_same_value() -> None:
+    scored = Label("age", value=31.0, score=0.8, model="m1")
+    same = links.carry_predictions([scored], [Label("age", value=31.0)])
+    assert (same[0].score, same[0].model) == (0.8, "m1")
+    changed = links.carry_predictions([scored], [Label("age", value=40.0)])
+    assert (changed[0].score, changed[0].model) == (None, None)

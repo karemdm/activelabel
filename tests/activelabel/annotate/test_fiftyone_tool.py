@@ -93,3 +93,19 @@ def test_pull_tells_which_images_were_edited_and_send_counts_the_kept_ones(tmp_p
     sessions.create(tmp_path, "fiftyone", "all", ["i0", "i1"], [], {})
     dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], {"i0": cat}, {}))
     assert tool.send(dataset, ["i0", "i1"], project, settings, "s2").kept == 1
+
+
+def test_pull_reads_the_values_of_a_regression_project(tmp_path, project):
+    project.task, project.classes = Task.REGRESSION, ["age"]
+    manifest = Manifest(tmp_path)
+    make_image(tmp_path / "images" / "i0.png", seed=0)
+    manifest.add([ImageRecord("i0", "i0.png", "images/i0.png", 64, 48, 1, "2026")])
+    truth = AnnotationSet(Task.REGRESSION, ["age"], {"i0": [Label("age", value=31.0)]}, {})
+    dataset = bridge.sync_dataset(project, manifest, truth)
+    tool, settings = get_tool("fiftyone"), ToolSettings("fiftyone")
+    sent = tool.send(dataset, ["i0"], project, settings, "reg")
+    sample = dataset.first()
+    sample["ground_truth_age"] = 29.5  # edited in the App
+    sample.save()
+    pulled = tool.pull(dataset, ["i0"], project, settings, sent.ref)
+    assert pulled["i0"] == [Label("age", value=29.5)] and pulled.edited == {"i0"}

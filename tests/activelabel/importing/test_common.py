@@ -95,3 +95,16 @@ def test_origin_roundtrip(tmp_path):
     assert common.read_origin(tmp_path) is None
     (tmp_path / "origin.json").write_text('{"tool": "cvat"}', encoding="utf-8")
     assert common.read_origin(tmp_path) == {"tool": "cvat"}
+
+
+def test_kind_of_a_value_is_regression() -> None:
+    assert common.kind_of(Label("age", value=31.0)) is Task.REGRESSION
+    assert common.kind_of(Label("age", value=0.0)) is Task.REGRESSION
+
+
+def test_plan_task_picks_regression_for_value_labels() -> None:
+    labels = {"a": [Label("age", value=31.0), Label("height", value=170.0)], "b": [Label("age", value=5.0)]}
+    plan = plan_task(labels)
+    assert plan.task is Task.REGRESSION
+    assert [lb.value for lb in plan.labels["a"]] == [31.0, 170.0]
+    assert plan.problems == []
