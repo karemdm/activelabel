@@ -159,6 +159,21 @@ def test_validation_uses_the_model_limits():
     assert validate(RunConfig.from_dict({**base, "params": {"image_size": 224}}), "classification")
 
 
+def test_yolo_offers_only_the_schedules_ultralytics_has():
+    """Ultralytics has no step, one-cycle or plateau schedule: the form must not offer them (#635)."""
+    for model in (m for m in MODELS if m.family == "ultralytics"):
+        assert model.param("scheduler").choices == ("none", "cosine")
+    assert (
+        get_model("resnet18").param("scheduler").choices
+        == next(p for p in COMMON_PARAMS if p.name == "scheduler").choices
+    )
+    base = {"dataset": 1, "model": "yolov8n", "start": "transfer", "mode": "single"}
+    with pytest.raises(ConfigError) as info:
+        validate(RunConfig.from_dict({**base, "params": {"scheduler": "onecycle"}}), "detection")
+    assert info.value.code == "param_not_choice"
+    assert validate(RunConfig.from_dict({**base, "params": {"scheduler": "cosine"}}), "detection")
+
+
 def test_catalog_consistency():
     ids = [m.id for m in MODELS]
     assert len(ids) == len(set(ids))
