@@ -1,5 +1,6 @@
-/* Step 6, Models: the saved models (from training runs and public ones), comparing them, downloading,
+/* Step 6, Models: the saved models (from training runs and public ones), comparing the chosen ones, downloading,
  * choosing the current one and pre-annotating with one. */
+import { compareBar, compareCheck, compareTable } from './compare.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, openModal } from '../shell/dialogs.js';
 import { add, el, fill, icon, redraw } from '../shell/dom.js';
@@ -23,8 +24,7 @@ export function modelsPanel(page) {
   const archName = (m) => m.label || labels[m.model] || m.model;
   const isPublic = (m) => m.source === 'public';
   const busy = (m) => Object.values(m.exports || {}).some((e) => e && (e.status === 'queued' || e.status === 'running'));
-  const scalarsOf = (part) => Object.entries(part || {}).filter(([, v]) => typeof v === 'number');
-  const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
+    const download = (m, kind) => `/api/projects/${projectId}/models/${m.number}/download/${kind}`;
 
   /* whether the catalogue has public models for this project type (asked once; null = not known yet) */
   let publicAvailable = null;
@@ -115,6 +115,7 @@ export function modelsPanel(page) {
     const id = `model-${m.number}`;
     return el('li', { class: `tr-run card md-model${m.current ? ' current' : ''}`, id, 'aria-labelledby': `${id}-t` },
       el('div', { class: 'tr-run-head' },
+        isPublic(m) ? null : compareCheck({ id: `${id}-cmp`, label: `m${m.number}`, checked: chosen.has(m.number), onChange: (on) => choose([m.number], on) }),
         el('h3', { id: `${id}-t` }, `m${m.number}`),
         el('span', { class: 'tr-model' }, archName(m)),
         m.current
@@ -142,35 +143,21 @@ export function modelsPanel(page) {
         busy(m) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('md.delete_aria', { n: m.number }), title: t('md.delete'), onclick: () => removeModel(m) }, icon('trash', 18))));
   }
 
+  /* the models chosen for the comparison (#214): only trained ones have metrics to compare */
+  const chosen = new Set();
+  const comparable = () => models.filter((m) => !isPublic(m));
+  function choose(numbers, on) {
+    numbers.forEach((n) => (on ? chosen.add(n) : chosen.delete(n)));
+    sig = '';
+    draw();
+  }
   function compareBlock() {
-    const cols = models.filter((m) => !isPublic(m)).sort((a, b) => a.number - b.number);
+    const cols = comparable().filter((m) => chosen.has(m.number)).sort((a, b) => a.number - b.number);
     if (cols.length < 2) return null;
-    const rows = [];
-    for (const part of ['val', 'test']) {
-      const keys = [];
-      cols.forEach((m) => scalarsOf((m.results || {})[part]).forEach(([k]) => { if (!keys.includes(k) && k !== 'images') keys.push(k); }));
-      keys.forEach((k) => rows.push({ label: t('md.row', { part: t(part === 'val' ? 'tr.val' : 'tr.test'), metric: metricName(k) }), values: cols.map((m) => ((m.results || {})[part] || {})[k]), lower: k === 'loss' }));
-    }
-    const perKey = ['f1', 'ap50_95', 'iou'].find((k) => cols.some((m) => Object.values(((m.results || {}).val || {}).per_class || {}).some((c) => c && k in c)));
-    if (perKey) {
-      const classes = [];
-      cols.forEach((m) => Object.keys(((m.results || {}).val || {}).per_class || {}).forEach((c) => { if (!classes.includes(c)) classes.push(c); }));
-      classes.forEach((c) => rows.push({ label: t('md.class_row', { cls: c, metric: metricName(perKey) }), values: cols.map((m) => ((((m.results || {}).val || {}).per_class || {})[c] || {})[perKey]), cls: true }));
-    }
-    rows.push({ label: t('md.size'), values: cols.map((m) => m.size), size: true, lower: true });
-    const cell = (row, v, best) => el('td', { class: `num${best ? ' best' : ''}` }, v == null ? '—' : row.size ? fmtBytes(v) : nf3.format(v));
-    return el('section', { class: 'tr-section md-compare', 'aria-labelledby': 'md-compare-t' },
-      el('h3', { id: 'md-compare-t', class: 'section-title' }, t('md.compare')),
-      el('p', { class: 'muted tr-note' }, t('md.compare_help')),
-      el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table md-table' },
-        el('caption', { class: 'sr-only' }, t('md.compare')),
-        el('thead', null, el('tr', null, el('th', { scope: 'col' }, t('md.metric')),
-          ...cols.map((m) => el('th', { scope: 'col' }, `m${m.number}`, m.current ? el('span', { class: 'md-star', title: t('md.current') }, icon('star', 12)) : null, el('span', { class: 'md-arch' }, archName(m)))))),
-        el('tbody', null, ...rows.map((row) => {
-          const nums = row.values.filter((v) => typeof v === 'number');
-          const best = nums.length > 1 && new Set(nums).size > 1 ? (row.lower ? Math.min(...nums) : Math.max(...nums)) : null;   // a tie has no best
-          return el('tr', { class: row.cls ? 'sub' : null }, el('th', { scope: 'row' }, row.label), ...row.values.map((v) => cell(row, v, best != null && v === best)));
-        })))));
+    return compareTable({
+      id: 'md-compare', title: t('md.compare'), help: t('md.compare_help'), cols, resultsOf: (m) => m.results, sizeOf: (m) => m.size,
+      head: (m) => [`m${m.number}`, m.current ? el('span', { class: 'md-star', title: t('md.current') }, icon('star', 12)) : null, el('span', { class: 'md-arch' }, archName(m))],
+    });
   }
 
   /* a redraw keeps the keyboard focus on the same button of the same model */
@@ -276,7 +263,7 @@ export function modelsPanel(page) {
   }
 
   function draw() {
-    const s = JSON.stringify(models) + publicAvailable;
+    const s = JSON.stringify(models) + publicAvailable + [...chosen].join(',');
     if (s === sig) return;
     sig = s;
     publicBtn.hidden = publicAvailable === false;  // no public model for this type: nothing to add
@@ -289,6 +276,10 @@ export function modelsPanel(page) {
     }
     mdActions.hidden = false;
     refocus(() => fill(box, ...[
+      comparable().length >= 2
+        ? compareBar({ prefix: 'md-cmp', chosen: comparable().filter((m) => chosen.has(m.number)).length, total: comparable().length,
+          onAll: (on) => choose(comparable().map((m) => m.number), on), onClear: () => choose([...chosen], false) })
+        : null,
       el('ul', { class: 'tr-cards' }, ...models.map(card)),
       compareBlock(),
       models.some((m) => !isPublic(m)) ? el('p', { class: 'muted md-help' }, icon('info', 14), t('md.export_help')) : null,

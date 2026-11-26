@@ -149,7 +149,8 @@ project is its *type*.)
    be resumed from its last checkpoint, and warnings and failures of a run are shown by code in the
    interface language. Packages are installed on demand, at pinned and tested versions, in a separate
    environment. See [docs/TRAINING.md](docs/TRAINING.md).
-6. **Models** keeps the runs you save (*Save as model*): compare them, choose the current one
+6. **Models** keeps the runs you save (*Save as model*): compare the ones you tick (finished runs can be
+   compared the same way in Training), choose the current one
    (*Make current*), download the weights and export ONNX (classification and semantic
    segmentation). *Add a public model* adds a pretrained COCO model that needs no training (detection
    and keypoints projects). The

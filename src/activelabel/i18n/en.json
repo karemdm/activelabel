@@ -1271,8 +1271,6 @@
   "md.compare": "Comparison",
   "md.compare_help": "Each column is a model; the best value of each row is highlighted.",
   "md.metric": "Metric",
-  "md.row": "{part} · {metric}",
-  "md.class_row": "{cls} · {metric}",
   "md.size": "Size",
   "md.export_help": "ONNX runs without PyTorch (onnxruntime, OpenCV, TensorRT…). The onnx package is installed on the first export.",
   "md.onnx_later": "ONNX for detection models comes later",
@@ -1764,5 +1762,18 @@
   "open.cvat_no_address": "The CVAT link has no address: compare with CVAT again.",
   "open.cvat_go": "The project is not in CVAT yet: set it up and compare in Annotations → CVAT.",
   "open.fo_back": "Opens the project's dataset, with its classes to edit. The edits come back to the project through an edit session (below): send the images, edit and bring them back.",
-  "open.fo_no_images": "Add images to open the project in FiftyOne."
+  "open.fo_no_images": "Add images to open the project in FiftyOne.",
+  "tr.compare": "Comparison of the runs",
+  "cmp.per_class": "Per class · {metric}",
+  "cmp.zero_classes_one": "{n} class with 0 in every chosen one",
+  "cmp.zero_classes_other": "{n} classes with 0 in every chosen one",
+  "cmp.choose": "Compare {name}",
+  "cmp.bar": "Comparison",
+  "cmp.select_all": "Select all ({n})",
+  "cmp.chosen_one": "{n} chosen to compare",
+  "cmp.chosen_other": "{n} chosen to compare",
+  "cmp.need_one_more": "Tick one more to compare",
+  "cmp.need_two": "Tick 2 or more to compare",
+  "cmp.clear": "Clear",
+  "tr.compare_help": "Each column is a run; the best value of each row is highlighted."
 }

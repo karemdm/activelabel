@@ -326,8 +326,11 @@ segmentation), which is then queued right after saving.
   project (a public model needs none), and an empty step offers its action: save a finished run or add a
   public model. In the dialog of a public model the mapping is summarised as *{n} of {total} project
   classes linked to a model category* (*Review* opens the choices).
-- **Comparison**: the screen lists the models and compares them in a table (every validation and
-  test metric, the main per-class metric, size), highlighting the best value of each row.
+- **Comparison**: tick the models to compare (the box on each card, or *Select all* in the bar above the
+  list, which says how many are chosen); with two or more, a table shows one row per metric, grouped as
+  validation, test, the main per-class metric and size, with the best value of each row highlighted. The
+  classes with 0 in every chosen model are folded under one line. The Training step compares finished runs
+  the same way.
 - A saved model whose architecture this version no longer offers is listed as *unavailable*
   (*indisponível*) and cannot pre-annotate (it can still be deleted).
 - **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
