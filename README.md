@@ -66,7 +66,7 @@ The service has no login: keep the default host `127.0.0.1` unless you are on a 
 
 **New project** (not a step): name, description and **type** (classification, detection,
 segmentation or keypoints). The project number is automatic. Classes are optional; they can
-come from the annotation files. A project that already exists in CVAT can
+come from the annotation files, or be typed (Enter or a comma adds a class) or pasted as a list. A project that already exists in CVAT can
 be imported instead ([docs/IMPORT.md](docs/IMPORT.md)). The project page then shows a compact
 bar with the six steps; each step shows a marker (done, needs attention, in progress) and its status.
 (In ActiveLabel a *task* is a package of images, as in CVAT; the kind of
@@ -127,14 +127,17 @@ project is its *type*.)
    version whose labels changed afterwards says so. Each version card has *Train with this version*;
    see [docs/DATASETS.md](docs/DATASETS.md).
 5. **Training** runs a model of the catalogue on one dataset version (transfer learning,
-   fine-tuning or from scratch; single run, grid search or all folds) with live curves and
-   evaluation on the test part. Classification, detection, semantic segmentation, instance
-   segmentation (Mask R-CNN) and keypoints (torchvision) are available; YOLO/Ultralytics models (AGPL-3.0)
-   train once the licence is accepted (docs/TRAINING.md, *Licences*), through the API for now. A run chooses its device (automatic, CPU, a GPU or Apple MPS), the resize policy
-   (stretch, letterbox or centre crop), the learning rate schedule with warmup, mixed precision on a CUDA
-   GPU and the data augmentation techniques; when the GPU runs out of memory the batch is halved. Packages
-   are installed on demand, at pinned and tested versions, in a separate environment. See
-   [docs/TRAINING.md](docs/TRAINING.md).
+   fine-tuning or from scratch; single run, grid search or all folds) with live curves (loss, metrics and
+   the learning rate) and evaluation on the test part. The dialog starts by the model family:
+   classification, detection, semantic segmentation, instance segmentation (Mask R-CNN) and keypoints
+   (torchvision) are available; the YOLO models of Ultralytics (AGPL-3.0) are offered once the licence is
+   read and accepted in the same dialog (docs/TRAINING.md, *Licences*). A run chooses its device
+   (automatic, CPU, a GPU or Apple MPS), the resize policy (stretch, letterbox or centre crop), the learning
+   rate schedule with warmup, mixed precision on a CUDA GPU and the data augmentation techniques; when the
+   GPU runs out of memory the batch is halved and the run says so. A run that failed or was cancelled can
+   be resumed from its last checkpoint, and warnings and failures of a run are shown by code in the
+   interface language. Packages are installed on demand, at pinned and tested versions, in a separate
+   environment. See [docs/TRAINING.md](docs/TRAINING.md).
 6. **Models** keeps the runs you save (*Save as model*): compare them, choose the current one
    (*Make current*), download the weights and export ONNX (classification and semantic
    segmentation). *Add a public model* adds a pretrained COCO model that needs no training (detection
@@ -199,8 +202,8 @@ python -m pytest -m integration         # tests that use FiftyOne
 ```
 
 Continuous integration (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests:
-ruff, mypy and the fast tests with coverage on Linux, Windows and macOS (from a path with accents and
-spaces), the FiftyOne tests, a check of the built wheel, the training workers with a CPU PyTorch, and the
+ruff, mypy and the fast tests with coverage on Linux and Windows (and macOS once a change is merged),
+from a path with accents and spaces, the FiftyOne tests, a check of the built wheel, the training workers with a CPU PyTorch, and the
 interface tests (JavaScript unit tests and Playwright). A nightly workflow tests the CVAT synchronisation
 against a real CVAT. The list of jobs and which ones must pass is in docs/DEVELOPMENT.md. The version comes
 from the git tag; releases are described in [RELEASING.md](RELEASING.md).
