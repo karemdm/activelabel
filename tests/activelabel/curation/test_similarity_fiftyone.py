@@ -43,3 +43,9 @@ def test_publishing_again_replaces_the_previous_map(dataset):
 def test_nothing_to_place_leaves_no_map(dataset):
     assert sf.publish(dataset, result(["gone"], [0])) == 0
     assert dataset.list_brain_runs() == []
+
+
+def test_noise_has_no_group(dataset):
+    sf.publish(dataset, result(["i0", "i1", "i2", "i3"], [0, -1, 1, -1]))
+    by_image = dict(zip(dataset.values("image_id"), dataset.values(sf.GROUP_FIELD), strict=True))
+    assert by_image == {"i0": 1, "i1": None, "i2": 2, "i3": None}
