@@ -9,7 +9,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const names = await import('../../../src/activelabel/web/static/js/cv/names.js');
 
-const { TASKS, ISSUES, SKIP_FILES, taskName, issueName, issueTag, partName, taskPicker, taskBadge } = names;
+const { TASKS, ISSUES, SKIP_FILES, taskName, issueName, issueTag, partName, taskPicker, taskBadge, nextTaskNumber } = names;
 
 setMessages({
   'task.detection': 'Detection', 'task.detection.help': 'Boxes', 'issue.blurry': 'Blurry images', 'tag.dark': 'Dark',
@@ -67,4 +67,10 @@ test('annotationStatus says how many images are annotated, or empty, or none', (
 test('deviceName names the devices of the training environment', () => {
   setMessages({ 'tr.device_auto': 'Automatic', 'tr.device_cpu': 'CPU', 'tr.device_gpu': 'GPU {n}', 'tr.device_mps': 'Apple GPU (MPS)' }, 'en');
   assert.deepEqual(['auto', 'cpu', 'cuda:1', 'mps', 'tpu'].map(names.deviceName), ['Automatic', 'CPU', 'GPU 1', 'Apple GPU (MPS)', 'tpu']);
+});
+
+test('nextTaskNumber follows the names like the server does, not the ids (#554)', () => {
+  assert.equal(nextTaskNumber([]), 1);
+  assert.equal(nextTaskNumber([{ id: 1, name: 'Campo' }]), 1);
+  assert.equal(nextTaskNumber([{ id: 5, name: 'Task 2' }, { id: 6, name: 'task 7' }, { id: 7, name: 'Task 3 b' }]), 8);
 });

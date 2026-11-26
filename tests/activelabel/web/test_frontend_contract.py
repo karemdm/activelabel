@@ -10,7 +10,7 @@ from api_client import make_client, upload
 from frontend import js_source
 from sample_images import make_image
 
-from activelabel import i18n
+from activelabel import i18n, tasks_store
 from activelabel.backups import REASONS, make_backup
 from activelabel.labels import AnnotationSet, save_annotations
 from activelabel.tasks import Task
@@ -847,3 +847,12 @@ def test_the_pre_annotate_settings_are_folded_and_follow_the_model():
         ):
             assert texts[f"pre.opt.{name}"] and texts[f"pre.opt_hint.{name}"], (lang, name)
         assert "{min}" in texts["pre.opt_range"] and "{max}" in texts["pre.opt_range"]
+
+
+def test_the_new_task_placeholder_is_the_name_the_server_gives():
+    """#554: the placeholder counts the "Task N" names with the server's own pattern, not the ids."""
+    names = (STATIC / "js" / "cv" / "names.js").read_text(encoding="utf-8")
+    images = (STATIC / "js" / "cv" / "images.js").read_text(encoding="utf-8")
+    assert "nextTaskNumber(tasks)" in images
+    assert tasks_store._DEFAULT_NAME.pattern == r"task (\d+)"
+    assert r"/^task (\d+)$/i" in names
