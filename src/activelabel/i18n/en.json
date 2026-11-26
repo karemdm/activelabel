@@ -1867,6 +1867,8 @@
   "sim.group": "Group {n}",
   "sim.typical": "Typical image of group {n}",
   "error.similarity_running": "The similarity map is already being computed.",
+  "error.uniqueness_running": "The uniqueness is already being computed.",
+  "error.similarity_map_needed": "Compute the similarity map first: uniqueness uses its embeddings.",
   "sim.images_n_one": "{n} image",
   "sim.images_n_other": "{n} images",
   "open.cvat_project": "Open the project in CVAT",

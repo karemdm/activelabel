@@ -20,6 +20,7 @@ from activelabel.web import (
     sync_api,
     tasks_api,
     training_api,
+    uniqueness_api,
     video_api,
 )
 from activelabel.web.errors import install_error_handlers
@@ -46,6 +47,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     app.include_router(models_api.router)
     app.include_router(preannotate_api.router)
     app.include_router(similarity_api.router)
+    app.include_router(uniqueness_api.router)
     app.include_router(video_api.router)
     app.include_router(queue_api.router)
     app.include_router(features_api.router)
