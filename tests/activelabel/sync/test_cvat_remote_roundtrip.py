@@ -521,6 +521,28 @@ def test_push_segmentation_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     ]
 
 
+def test_two_part_polygon_object_stays_one_object_after_a_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ring_a = [(20, 10), (100, 10), (60, 80)]
+    ring_b = [(120, 20), (180, 20), (180, 60), (120, 60)]
+    two = Label(
+        "dog",
+        bbox=px(20, 10, 180, 80),
+        polygons=[[[x / W, y / H] for x, y in ring_a], [[x / W, y / H] for x, y in ring_b]],
+    )
+    env = make_env(tmp_path, monkeypatch, Task.SEGMENTATION, labels={0: [rel_poly("cat", ring_a)], 1: [two]})
+    first_push(env)
+    groups = [s["group"] for s in shapes(env, 1)]
+    assert len(groups) == 2 and groups[0] == groups[1] > 0  # the parts share a CVAT group
+    assert [s["group"] for s in shapes(env, 0)] == [0]  # a single-part object is not grouped
+    plan, _ = sync(env)
+    assert (plan["pull"], plan["push"]) == (0, 0)
+    (back,) = local(env, 1)
+    assert back.label == "dog" and len(back.polygons) == 2
+    assert back.bbox == pytest.approx(px(20, 10, 180, 80), abs=TOL)
+
+
 def test_push_keypoints_payload_with_missing_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     kps = [[0.1, 0.2, 2.0], [0.0, 0.0, 0.0], [0.5, 0.5, 2.0]]
     label = Label("cat", bbox=px(20, 20, 100, 50), keypoints=kps)

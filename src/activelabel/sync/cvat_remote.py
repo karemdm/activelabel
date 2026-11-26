@@ -8,7 +8,9 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
 
 * rectangle -> bbox (a rectangle with ``rotation`` -> the axis-aligned box that encloses it, see
   :func:`activelabel.annotations.geometry.enclosing_box`);
-  polygon -> polygon ring + bbox; points -> one keypoints object (all the points
+  polygon -> polygon ring + bbox (polygons of one class sharing a CVAT group are one object with
+  several rings, and an object with several rings is written as grouped polygons, see :func:`join_parts`);
+  points -> one keypoints object (all the points
   of the shape; a point at the top-left corner is "not labeled", as in ``cvat_tool``) + bbox; tag ->
   image class (classification projects only).
 * Visibility of keypoints: CVAT has one ``occluded`` flag per points shape. A pose whose labeled points
@@ -478,6 +480,37 @@ def shape_to_label(
     return None
 
 
+def join_parts(shapes: list[dict[str, Any]], labels: list[Label | None]) -> list[Label]:
+    """The labels of some CVAT shapes of one frame, polygons of one ``group`` and class joined in one object.
+
+    Args:
+        shapes: The CVAT shapes of the frame (``type``, ``label_id`` and ``group`` are used).
+        labels: The label of each shape, same order (None for one that was not converted).
+
+    Returns:
+        The labels in order; the polygon parts of a shape group (``group`` above 0) of one class are the
+        polygons of its first label, whose box encloses all of them.
+    """
+    out: list[Label] = []
+    first: dict[tuple[Any, int], Label] = {}
+    for shape, label in zip(shapes, labels, strict=True):
+        if label is None:
+            continue
+        group = int(shape.get("group") or 0)
+        head = first.get((shape.get("label_id"), group)) if shape.get("type") == "polygon" and group else None
+        if head is None or not (head.bbox and label.bbox and head.polygons and label.polygons):
+            out.append(label)
+            if shape.get("type") == "polygon" and group:
+                first.setdefault((shape.get("label_id"), group), label)
+            continue
+        head.polygons += label.polygons
+        x0, y0 = min(head.bbox[0], label.bbox[0]), min(head.bbox[1], label.bbox[1])
+        x1 = max(head.bbox[0] + head.bbox[2], label.bbox[0] + label.bbox[2])
+        y1 = max(head.bbox[1] + head.bbox[3], label.bbox[1] + label.bbox[3])
+        head.bbox = [x0, y0, x1 - x0, y1 - y0]
+    return out
+
+
 def _skeleton_to_label(shape: dict[str, Any], name: str, w: int, h: int, parts: list[int]) -> Label | None:
     """A CVAT skeleton -> one pose label, its points in the order of ``parts``.
 
@@ -586,8 +619,12 @@ def labels_to_cvat(
     h: int,
     specs: dict[int, int] | None = None,
     skeletons: dict[int, list[int]] | None = None,
+    first_group: int = 1,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Internal labels -> ``(shapes, tags)`` of one frame, in pixels (unknown classes are skipped).
+
+    An object with several polygon parts is written as one polygon per part that share a CVAT ``group``
+    (numbered from ``first_group``), so that :func:`join_parts` gives it back as one object.
 
     Args:
         labels: The labels of the frame (relative 0..1 geometry).
@@ -599,10 +636,13 @@ def labels_to_cvat(
             visibilities 1 and 2 need it, see :func:`_visibility_attrs`).
         skeletons: The sublabels of each skeleton label (:func:`skeleton_parts`): a pose of such a class
             is written as a skeleton.
+        first_group: The ``group`` of the first multi-part object of the frame (the next ones follow);
+            it must not be used by another shape of the frame.
 
     Returns:
         The CVAT shapes and the CVAT tags (labels without geometry) of the frame.
     """
+    group = first_group
     shapes: list[dict[str, Any]] = []
     tags: list[dict[str, Any]] = []
 
@@ -611,11 +651,11 @@ def labels_to_cvat(
         if lid is None:
             continue
         if lb.polygons:
-            for ring in lb.polygons:
-                if len(ring) >= 3:
-                    shapes.append(
-                        _shape_payload("polygon", frame, lid, [v for p in ring for v in (p[0] * w, p[1] * h)])
-                    )
+            rings = [ring for ring in lb.polygons if len(ring) >= 3]
+            for ring in rings:
+                shape = _shape_payload("polygon", frame, lid, [v for p in ring for v in (p[0] * w, p[1] * h)])
+                shapes.append({**shape, "group": group} if len(rings) > 1 else shape)
+            group += len(rings) > 1
         elif lb.keypoints and lid in (skeletons or {}):
             pixels = [[kp[0] * w, kp[1] * h, kp[2] if len(kp) > 2 else 2.0] for kp in lb.keypoints]
             shapes.append(_skeleton_payload(frame, lid, (skeletons or {})[lid], pixels))
@@ -1086,7 +1126,8 @@ def _merge_frame(
     classification = task is Task.CLASSIFICATION
     w, h = size
     parts = skeletons or {}
-    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs, parts)
+    used = [int(s.get("group") or 0) for s in old_shapes]
+    new_shapes, new_tags = labels_to_cvat(labels, ids, frame, w, h, specs, parts, max(used, default=0) + 1)
     vis = specs or {}
     aliases = class_aliases(ids)
     known = set(ids.values())
@@ -1787,6 +1828,7 @@ class CvatRemote:
             frames = _meta_frames(meta)
             ann = api.get(f"/api/tasks/{tid}/annotations") or {}
             per_frame: dict[int, list[Label]] = {}
+            seen: dict[int, tuple[list[dict[str, Any]], list[Label | None]]] = {}
             skipped: dict[int, dict[str, int]] = {}
             for s in ann.get("shapes") or []:
                 f, lid = int(s.get("frame", -1)), s.get("label_id")
@@ -1798,8 +1840,10 @@ class CvatRemote:
                     skipped.setdefault(f, {})[why] = skipped.get(f, {}).get(why, 0) + 1
                 size = int(frames[f]["width"]), int(frames[f]["height"])
                 label = shape_to_label(s, name, *size, specs.get(lid), parts.get(lid))
-                if label:
-                    per_frame.setdefault(f, []).append(label)
+                shapes_of, labels_of = seen.setdefault(f, ([], []))
+                shapes_of.append(s)
+                labels_of.append(label)
+            per_frame = {f: join_parts(*pair) for f, pair in seen.items()}
             ids = {n: i for i, n in names.items()}
             for tr in ann.get("tracks") or []:
                 name = names.get(tr.get("label_id"))
