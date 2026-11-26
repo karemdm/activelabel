@@ -89,7 +89,8 @@ src/activelabel/
   images/                manifest (images.json), ingest (uploads, zip, thumbnails), video (frames)
   annotations/           importers per format (coco, yolo, xmlformats, videoformats...),
                          staging, validation, conversion between project types
-  curation/              measures (quality), issues and thresholds, summary
+  curation/              measures (quality), issues and thresholds, summary, similarity map
+                         (similarity, similarity_job, similarity_fiftyone)
   annotate/              edit sessions: tools (fiftyone), credentials, diff
   sync/                  three-way sync engine, links, remote adapter (cvat)
   importing/             import a whole project from CVAT
@@ -182,8 +183,10 @@ flowchart TB
   through `tests/helpers/worker_loader.py`, and the job *training workers* runs them with a real CPU
   PyTorch: `classification.py`, `detection.py` (detection, instance segmentation and keypoints),
   `segmentation.py` (semantic), `yolo.py` (Ultralytics, only after its licence is accepted), `predict.py`
-  (pre-annotation) and `export_onnx.py`. `WORKER_FILES` in
-  `runner.py` maps a kind of task to its script.
+  (pre-annotation), `embed.py` (embeddings of the similarity map of the curation) and `export_onnx.py`.
+  `WORKER_FILES` in `runner.py` maps a kind of task to its script; other heavy work (the similarity map)
+  goes into the same one-at-a-time queue with `TrainingRunner.enqueue_tool` and starts its worker with
+  `run_worker`.
 - **Protocol.** The runner writes `spec.json` (image paths, class indexes, labels of each part, model,
   hyperparameters) and starts `<env python> <worker> spec.json` with every cache and temporary folder
   pointed to the run's temporary folder. The worker prints one JSON object per line on stdout: `log`,

@@ -131,7 +131,12 @@ definitivamente* (pede confirmação). Os limites de cada problema ficam em *Lim
 mudam sem medir de novo; *Zerar análise* esquece as medidas, os problemas apontados e os grupos
 de quase duplicatas (imagens, exclusões e anotações ficam). *Abrir no FiftyOne* abre o mesmo
 filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *Trazer exclusões
-do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no envio.
+do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no envio. O *Mapa de
+semelhança* agrupa as imagens parecidas: *Calcular mapa* lê cada imagem ativa com uma rede pequena
+do ImageNet no ambiente de treino (instalado no primeiro uso, na mesma fila dos treinos), coloca as
+imagens num mapa 2-D (t-SNE, ou PCA em conjuntos muito pequenos ou grandes) e as divide em grupos
+(k-means), cada um com seu tamanho e sua imagem típica. O mesmo mapa abre no App do FiftyOne (painel
+Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`).
 
 ### Grupo Modelo
 

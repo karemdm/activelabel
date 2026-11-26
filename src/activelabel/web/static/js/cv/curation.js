@@ -2,6 +2,7 @@
  * the thresholds of the checks. */
 import { imageGrid, openLightbox } from './grid.js';
 import { ISSUES, issueName } from './names.js';
+import { similarityBlock } from './similarity.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, once } from '../shell/dialogs.js';
 import { add, el, esc, fill, icon, redraw } from '../shell/dom.js';
@@ -26,6 +27,7 @@ export function curationPanel(page) {
   const toolbar = el('div', { class: 'toolbar' });
   const tabs = el('div', { class: 'tabs', role: 'group', 'aria-label': t('cur.view') });
   const countText = el('span', { class: 'muted', 'aria-live': 'polite' });
+  const sim = similarityBlock(page);
 
   const grid = imageGrid({
     projectId,
@@ -314,9 +316,10 @@ export function curationPanel(page) {
     actionsBar,
     advBox,
     histBox,
+    sim.node,
     el('div', { class: 'cur-main' },
       tabs, chipsBox, toolbar, grid.node));
-  panel.mount = () => load();
-  panel.refresh = () => load();
+  panel.mount = () => { load(); sim.load(); };
+  panel.refresh = () => { load(); sim.load(); };
   return panel;
 }
