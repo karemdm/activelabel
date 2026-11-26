@@ -148,6 +148,13 @@ project is its *type*.)
    embeddings the map saved (compute the map first): it is a CPU job of the global queue, and the scores
    also go to the field `uniqueness` in FiftyOne.
 
+   *Possible label errors and hard images* compares a saved model's predictions with the labels (API for now;
+   a job of the global queue, on the lane of the device you choose): FiftyOne Brain's mistakenness says how
+   likely each label is wrong (for objects, also the objects the model finds that have no label and the labels
+   it does not find), and for a classification model the hardness says how hard each image is for it. Only
+   the active images that have labels are checked, the labels are never changed, and the predictions and
+   numbers are written to the FiftyOne dataset (`activelabel_predictions`, `mistakenness`, `hardness`).
+
 ### Model
 
 4. **Data split** freezes a *dataset version*: train, validation and test parts (or K folds

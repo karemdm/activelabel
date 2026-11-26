@@ -267,6 +267,9 @@ running.
 | GET | `/projects/{id}/curation/uniqueness` | | the state of the uniqueness scoring (`{}` before the first one) with the `scores` (image id to 0..1) and `outdated` (the scored images differ from the active ones) |
 | POST | `/projects/{id}/curation/uniqueness` | | the state, queued (CPU lane); 409 `uniqueness_running` while one is queued or running, 409 `similarity_map_needed` without the embeddings of the similarity map |
 | POST | `/projects/{id}/curation/uniqueness/cancel` | | the state (the previous scores stay) |
+| GET | `/projects/{id}/curation/mistakenness` | | the state of the label check (`{}` before the first one) with the `scores` (image id to `{mistakenness, missing, spurious, hardness}`; `hardness` only for a classification model) |
+| POST | `/projects/{id}/curation/mistakenness` | `{model, device = "auto"}` | the state, queued on the lane of the device; 404 `model_not_found`, 400 for a device this computer lacks or a model that cannot predict on the project, 409 `no_labelled_images`, 409 `mistakenness_running` while one is queued or running |
+| POST | `/projects/{id}/curation/mistakenness/cancel` | | the state (the previous scores stay; a running worker is killed) |
 | GET | `/projects/{id}/curation/suggested` | | ids |
 | POST | `/projects/{id}/fiftyone` | `{view, task?, job?}` | job → `{url}` |
 | POST | `/projects/{id}/fiftyone/pull-exclusions` | | `{excluded}` |
@@ -310,7 +313,7 @@ See [ANNOTATION.md](ANNOTATION.md) (`/annotation-tools`, `/projects/{id}/annotat
 All the work of the app waits in one global queue (`scheduler.py`) with a **lane** per device. Heavy
 work goes to the lane of the device it computes on: training runs (a grid or all-folds run takes one
 place for all its children), pre-annotations, the embeddings of the similarity map (`similarity`, on the
-device chosen for it), the uniqueness of the images (`uniqueness`, `cpu`), the regrouping of the similarity map (`clustering`, `cpu`), ONNX exports (`cpu`), curation analyses (`cpu`) and video extractions (`cpu`). Light activities (import, sync, annotation transfer, FiftyOne) share the `light`
+device chosen for it), the uniqueness of the images (`uniqueness`, `cpu`), the label check with a saved model (`mistakenness`, on the device chosen for it), the regrouping of the similarity map (`clustering`, `cpu`), ONNX exports (`cpu`), curation analyses (`cpu`) and video extractions (`cpu`). Light activities (import, sync, annotation transfer, FiftyOne) share the `light`
 lane, one at a time. A lane runs at most its limit of jobs at once: `ACTIVELABEL_QUEUE_CPU` for `cpu`,
 `ACTIVELABEL_QUEUE_GPU` for each of `cuda:N` and `mps` (1 by default), `light` 1. Inside a lane the
 order is strict first come first served, whatever the project (no priority for short jobs: a position
@@ -320,7 +323,7 @@ The waiting and running jobs are written to `<workspace>/queue.json` on every ch
 waiting ones are queued again in the same order (a job whose project, run, model or video is gone is
 dropped); the ones that were running are listed as `interrupted`: a training run is then `failed`
 (`interrupted`) and can be resumed from its last checkpoint (docs/TRAINING.md), the others are asked again.
-A similarity map, a regrouping of it or a uniqueness scoring is not queued again: one left queued or running is shown as `interrupted` and is computed
+A similarity map, a regrouping of it, a uniqueness scoring or a label check is not queued again: one left queued or running is shown as `interrupted` and is computed
 again from its button.
 
 | Method | Path | Body / query | Returns |
@@ -347,7 +350,7 @@ again from its button.
 ```
 
 Running items come first, then the waiting ones in queue order. `kind` is `training`, `preannotate`,
-`export`, `similarity`, `uniqueness`, `clustering`, `analyze`, `video_task` or a light kind (`import_folder`, `sync_apply`...); `params` says what
+`export`, `similarity`, `uniqueness`, `mistakenness`, `clustering`, `analyze`, `video_task` or a light kind (`import_folder`, `sync_apply`...); `params` says what
 it is about (`{"number": 3}` for a run or pre-annotation, `{"number", "format"}` for an export). The
 `queue_position` of a waiting run (`run.json`) is its `position` in its lane.
 
