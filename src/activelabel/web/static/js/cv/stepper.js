@@ -63,8 +63,6 @@ export function createStepper(page) {
           el('span', { class: 'step-title' }, t(`step.${step}`), state === 'todo' ? null : el('span', { class: 'sr-only' }, ` (${t(`step.state_${state}`)})`), step === 'annotations' ? el('span', { class: 'optional step-tag' }, t('step.optional')) : null),
           el('span', { class: 'step-status', title: stepStatus(step) }, stepStatus(step))));
     };
-    /* the page takes the colour of the area of the current step (app.css: data-area) */
-    document.documentElement.dataset.area = STEP_GROUPS.find(([, steps]) => steps.includes(ctx.tab))[0];
     redraw(stepper, ...STEP_GROUPS.map(([group, steps]) => el('div', { class: 'step-group', role: 'group', 'aria-labelledby': `sg-${group}`, 'data-group': group },
       el('p', { class: 'step-group-title', id: `sg-${group}` }, t(`project.group_${group}`)),
       ...steps.map(item))));

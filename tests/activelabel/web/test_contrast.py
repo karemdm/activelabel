@@ -1,11 +1,15 @@
 """The colour tokens of ``app.css`` meet WCAG AA contrast in the light and the dark theme.
 
 Every token is written as ``--name: light-dark(#light, #dark);`` in the ``:root`` block; the test reads
-those values and checks the pairs the interface really draws: text on the page and on cards, the area
-accents (brand, Dados, Modelo) and the status colours as text, as fills under ``--on-accent`` and on their
-soft backgrounds. 4.5:1 is the AA minimum for normal text, 3:1 for focus rings and other UI lines.
+those values and checks the pairs the interface really draws: text on the page and on cards, the accents
+(the brand blue and one colour per task type, #621) and the status colours as text, as fills under
+``--on-accent`` and on their soft backgrounds. 4.5:1 is the AA minimum for normal text, 3:1 for focus rings
+and other UI lines. The task colours are also kept apart from each other, from the brand and from the status
+colours, so a project's colour is not read as another type or as a state.
 """
 
+import itertools
+import math
 import re
 from pathlib import Path
 
@@ -17,7 +21,9 @@ CSS = (Path(__file__).resolve().parents[3] / "src" / "activelabel" / "web" / "st
 TOKEN = re.compile(r"--([\w-]+):\s*light-dark\((#[0-9a-fA-F]{6}),\s*(#[0-9a-fA-F]{6})\)")
 TOKENS = {name: (light, dark) for name, light, dark in TOKEN.findall(CSS)}
 THEMES = (0, 1)  # index into (light, dark)
-ACCENTS = ("brand", "dados", "modelo")
+TASK_TYPES = ("classification", "detection", "segmentation", "semantic", "keypoints", "regression")
+TASK_ACCENTS = tuple(f"task-{task}" for task in TASK_TYPES)
+ACCENTS = ("brand", *TASK_ACCENTS)
 STATUS = ("ok", "warn", "danger")
 
 
@@ -62,6 +68,7 @@ def _pairs() -> list[tuple[str, str, float]]:
             (accent, "surface", 4.5),  # links, group titles, outlined accents
             (accent, f"{accent}-soft", 4.5),  # text on the current step pill
             ("text", f"{accent}-soft", 4.5),
+            ("muted", f"{accent}-soft", 4.5),  # the help line of a selected task card, the body wash
         ]
     for status in STATUS:
         pairs += [(status, "surface", 4.5), (status, f"{status}-soft", 4.5), ("text", f"{status}-soft", 4.5)]
@@ -121,3 +128,38 @@ def test_data_series_and_best_values_do_not_use_status_colours():
     ):
         body = re.search(re.escape(rule) + r"[^{]*\{([^}]*)\}", CSS)
         assert body and not re.search(r"--(ok|warn|danger)", body.group(1)), rule
+
+
+def _lab(colour: str) -> tuple[float, float, float]:
+    """CIELAB coordinates of a ``#rrggbb`` colour (sRGB, D65 white).
+
+    Args:
+        colour: the colour as ``#rrggbb``.
+
+    Returns:
+        The (L*, a*, b*) coordinates.
+    """
+    channels = [int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+    xyz = (
+        (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047,
+        0.2126 * r + 0.7152 * g + 0.0722 * b,
+        (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883,
+    )
+    fx, fy, fz = (v ** (1 / 3) if v > 0.008856 else 7.787 * v + 16 / 116 for v in xyz)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        *itertools.combinations(TASK_ACCENTS, 2),
+        *((task, other) for task in TASK_ACCENTS for other in ("brand", *STATUS)),
+    ],
+)
+@pytest.mark.parametrize("theme", THEMES, ids=("light", "dark"))
+def test_task_colours_stay_apart(first: str, second: str, theme: int):
+    """#621: a CIELAB distance of 20 or more between two task types, and from the brand and the status
+    colours. The colour is never the only carrier: the type badge has the icon and the name."""
+    distance = math.dist(_lab(TOKENS[first][theme]), _lab(TOKENS[second][theme]))
+    assert distance >= 20, f"--{first} and --{second} are only {distance:.1f} apart"

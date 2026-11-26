@@ -23,10 +23,13 @@ Principles (from what went wrong in the previous tool):
 
 **Visual system** (the tokens and their rules are at the top of `web/static/app.css`):
 
-- **Colour says where you are**: blue on the home page and the lists, teal in *Data* (steps 1-3), violet in
-  *Model* (steps 4-6). The project page sets `data-area` on the page and every accent (primary buttons, active
-  tabs and chips, the current step, the band under the top bar) follows it, with a short fade (240 ms) when the
-  person moves from one group to the other. Cards are flat.
+- **Colour says what the project is for**: blue on the home page and the lists; inside a project, the colour of
+  its task type (classification teal, detection violet, instance segmentation magenta, semantic segmentation
+  olive, keypoints rust, regression cerulean; tokens `--task-<type>`). The project page sets `data-task`
+  on the page and every accent (primary buttons, active tabs and chips, the current step, the band under the
+  top bar) follows it; each project card on the home page has a top line and a type badge in its colour. The
+  colour never stands alone: the badge always carries the icon and the name. *Data* and *Model* are told apart
+  by place and words (two step groups, each with its title), not by colour. Cards are flat.
 - **Status colours** (ok, warning, danger) only mean a state and always come with an icon or a word, never
   colour alone; data series of charts and the best values in tables do not use them.
 - **Type**: one sans-serif for text and no uppercase (it breaks Portuguese accents and names such as
@@ -37,7 +40,8 @@ Principles (from what went wrong in the previous tool):
 - **Dialogs**: a head with the title and the close button that stays in view while a long dialog scrolls, and
   a footer with the actions that stays at the bottom.
 - The contrast of every pair of colour tokens, in light and in dark, is checked by
-  `tests/activelabel/web/test_contrast.py`.
+  `tests/activelabel/web/test_contrast.py`, which also keeps the task colours apart from each other, from the
+  brand blue and from the status colours.
 
 ## Data on disk
 

@@ -15,12 +15,38 @@ CSS = (STATIC / "app.css").read_text(encoding="utf-8")
 JS = js_source()
 
 
-def test_the_project_page_sets_its_area_from_the_current_step():
-    assert "document.documentElement.dataset.area" in JS
+def test_the_project_page_takes_the_colour_of_its_task_type():
+    """#621: inside a project the accent is the task colour; the home stays blue; Dados and Modelo are told
+    apart by their step groups and titles, not by a colour."""
+    assert "document.documentElement.dataset.task = p.task" in JS
+    assert "dataset.area" not in JS and "data-area" not in CSS and "--dados" not in CSS
     assert "'data-group': group" in JS
-    assert re.search(r':root\[data-area="data"\]\s*\{[^}]*--area: var\(--dados\)', CSS)
-    assert re.search(r':root\[data-area="model"\]\s*\{[^}]*--area: var\(--modelo\)', CSS)
+    page = r":root\[data-task\] \{ --area: var\(--task, var\(--brand\)\); --area-soft: var\(--task-soft,"
+    assert re.search(page, CSS)
+    assert re.search(r"^  --area: var\(--brand\);", CSS, re.M)  # home and lists
     assert "--primary: var(--area)" in CSS
+    assert re.search(r"\.topbar \{[^}]*border-bottom: 3px solid var\(--area\)", CSS)
+
+
+def test_every_task_type_has_its_colour_its_icon_and_its_badge():
+    """#621: each task of ``TASKS`` (names.js) sets ``--task`` for the page, its badge and its picker card;
+    the badge and the home card use it, and the badge always carries the icon and the name."""
+    names = (STATIC / "js" / "cv" / "names.js").read_text(encoding="utf-8")
+    tasks = re.findall(r"'(\w+)'", re.search(r"export const TASKS = \[([^\]]*)\]", names).group(1))
+    dom = (STATIC / "js" / "shell" / "dom.js").read_text(encoding="utf-8")
+    for task in tasks:
+        rule = (
+            rf':root\[data-task="{task}"\], \.task-{task} \{{ '
+            rf"--task: var\(--task-{task}\); --task-soft: var\(--task-{task}-soft\); \}}"
+        )
+        assert re.search(rule, CSS), task
+        assert re.search(rf"^  {task}: '<", dom, re.M), f"no icon for {task}"
+    assert "class: `badge task-badge task-${task}` }, icon(task, 14), taskName(task)" in JS
+    assert "class: `project-card card task-${p.task}`" in JS
+    assert "class: `task-card task-${task}" in JS
+    badge = re.search(r"^\.task-badge \{([^}]*)\}", CSS, re.M)
+    assert badge and "var(--task-soft" in badge.group(1) and "color: var(--task," in badge.group(1)
+    assert re.search(r"^\.project-card \{[^}]*inset 0 3px 0 var\(--task, var\(--border\)\)", CSS, re.M)
 
 
 def test_the_area_fades_and_the_fade_is_off_with_reduced_motion():
@@ -35,11 +61,11 @@ def test_cards_are_flat_and_only_overlays_have_a_shadow():
 
 
 def test_step_markers_carry_the_state_in_the_shape():
-    """Done is an outlined check in the area colour, the current step is the only filled circle."""
+    """Done is an outlined check in the task colour, the current step is the only filled circle."""
     done = re.search(r"^\.step\.is-done \.step-num \{([^}]*)\}", CSS, re.M)
     assert done and "background" not in done.group(1) and "var(--ok" not in done.group(1)
     assert re.search(r"^\.step-num \{[^}]*background: transparent", CSS, re.M)
-    assert re.search(r"^\.step\.current \.step-num \{[^}]*background: var\(--group", CSS, re.M)
+    assert re.search(r"^\.step\.current \.step-num \{[^}]*background: var\(--primary\)", CSS, re.M)
     assert "state === 'done' ? icon('check', 16) : state === 'attention' ? '!'" in JS
     assert "t(`step.state_${state}`)" in JS  # the state as hidden text for screen readers
 

@@ -33,7 +33,7 @@ export async function initProjects() {
 export function projectCard(p) {
   const c = p.counts || {};
   return el('li', null,
-    el('a', { class: 'project-card card', href: `/projects/${p.id}` },
+    el('a', { class: `project-card card task-${p.task}`, href: `/projects/${p.id}` },
       el('div', { class: 'project-card-top' },
         el('h2', null, p.name),
         el('span', { class: 'project-id' }, `#${p.id}`)),
