@@ -62,6 +62,7 @@ export function annotationsPanel(page) {
     if (chosenTask) form.append('task', chosenTask);
     try {
       const report = await api('POST', `/projects/${projectId}/annotations`, { body: form });
+      keepLast(report);
       renderValidation(report);
     } catch (err) {
       fill(reportBox);
@@ -72,13 +73,28 @@ export function annotationsPanel(page) {
     }
   }
 
+  /* A report whose files cannot be imported ("nothing matched") keeps no files on the server, so the server has
+     nothing to give back after a reload: this browser keeps it until other files are checked (#651). */
+  const lastKey = `al-ann-report-${projectId}`;
+  function keepLast(report) {
+    try {
+      if (report && !report.can_import) sessionStorage.setItem(lastKey, JSON.stringify(report));
+      else sessionStorage.removeItem(lastKey);
+    } catch (err) { /* storage off: the report is simply not kept */ }
+  }
+  function lastKept() {
+    try { return JSON.parse(sessionStorage.getItem(lastKey) || 'null'); } catch (err) { return null; }
+  }
+
   /* the report of a check not yet applied or discarded comes back after a reload of the page */
   async function loadPending() {
     if (busy || reportBox.childNodes.length) return;
+    let report = null;
     try {
-      const { report } = await api('GET', `/projects/${projectId}/annotations/pending`);
-      if (report && !busy && !reportBox.childNodes.length) renderValidation(report);
+      ({ report } = await api('GET', `/projects/${projectId}/annotations/pending`));
     } catch (err) { /* no report to show */ }
+    report = report || lastKept();
+    if (report && !busy && !reportBox.childNodes.length) renderValidation(report);
   }
 
   function renderValidation(report) {
@@ -94,9 +110,12 @@ export function annotationsPanel(page) {
     else if (found === proj) taskLine = t('ann.task_same', { task: taskName(found) });
     else taskLine = t('ann.task_diff', { found: taskName(found), project: taskName(proj) });
 
-    const classes = report.classes_found || [];
-    const fresh = new Set(report.classes_new || []);
     const perClass = counts.labels_per_class || {};
+    /* a class the file names but never uses (a COCO category list, say) is not listed with a 0 (#651) */
+    const named = report.classes_found || [];
+    const classes = named.filter((c) => (perClass[c] || 0) > 0);
+    const unused = named.length - classes.length;
+    const fresh = new Set(report.classes_new || []);
 
     const optionMeta = {
       import: { label: t('option.import'), help: t('option.import.help'), primary: true },
@@ -144,6 +163,7 @@ export function annotationsPanel(page) {
               el('span', { class: 'count' }, num(perClass[c] || 0)),
               fresh.has(c) ? el('span', { class: 'new-mark' }, t('ann.new')) : null)))
           : el('p', { class: 'muted' }, t('ann.no_classes')),
+        nothing || !unused ? null : el('p', { class: 'hint' }, tn('ann.classes_unused', unused)),
         el('h4', null, t('ann.problems')),
         (report.problems || []).length
           ? el('ul', { class: 'plain problems' }, ...report.problems.map(problemRow))
@@ -159,6 +179,7 @@ export function annotationsPanel(page) {
     try {
       if (action === 'discard') {
         await api('DELETE', `/projects/${projectId}/annotations/${report.token}`);
+        keepLast(null);
         fill(reportBox, el('p', { class: 'report-line ok' }, icon('check'), t('ann.discarded')));
         drop.hidden = false;
         return;

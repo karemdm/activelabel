@@ -178,7 +178,7 @@ export function imagesPanel(page) {
     if (failure) rows.push(el('p', { class: 'report-line bad', role: 'alert' }, icon('warning'), String(failure.message || failure)));
     if (r.duplicates_count) {
       rows.push(el('div', { class: 'report-line' }, icon('info'),
-        el('div', null, tn('images.duplicates', r.duplicates_count), ' ', el('span', { class: 'muted' }, t('images.duplicates_note')),
+        el('div', null, tn('images.duplicates', r.duplicates_count), ': ', el('span', { class: 'muted' }, t('images.duplicates_note')),
           expandable(t('images.show_list'), r.duplicates.map((d) => el('li', null, nameOf(d)))))));
     }
     if (r.rejected_count) {
