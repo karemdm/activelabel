@@ -416,6 +416,19 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
     )
 
 
+def fo_label(task: Task, labels: list[Label]) -> Any:
+    """FiftyOne label of one image for the task, as the ground truth is written (also for predictions).
+
+    Args:
+        task: task of the project.
+        labels: the internal labels of the image (a ``score`` becomes the ``confidence``).
+
+    Returns:
+        The FiftyOne label of the task's type, or None when ``labels`` is empty.
+    """
+    return _ground_truth(task, labels)
+
+
 def _apply(
     sample: fo.Sample,
     record: ImageRecord,

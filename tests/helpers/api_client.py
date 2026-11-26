@@ -13,6 +13,7 @@ from activelabel.web import (
     datasets_api,
     features_api,
     import_api,
+    mistakenness_api,
     models_api,
     preannotate_api,
     queue_api,
@@ -47,6 +48,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     app.include_router(models_api.router)
     app.include_router(preannotate_api.router)
     app.include_router(similarity_api.router)
+    app.include_router(mistakenness_api.router)
     app.include_router(uniqueness_api.router)
     app.include_router(video_api.router)
     app.include_router(queue_api.router)

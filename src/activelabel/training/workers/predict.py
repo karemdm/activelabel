@@ -8,7 +8,8 @@ reads), ``classes`` (in the order of the network's outputs), ``threshold`` (lowe
 ``cpu``, ``cuda:N`` or ``mps``; ``auto`` when absent). Optional: ``options`` (the inference parameters of the
 run, see ``activelabel/preannotate_options.py``: ``nms_iou``, ``max_detections``, ``class_agnostic_nms``,
 ``min_size``, ``mask_threshold``, ``margin``; the defaults when absent) and ``keep`` (the project classes to
-write; the others are treated like categories the project does not use). For a public
+write; the others are treated like categories the project does not use) and ``logits`` (true: a
+classification ``prediction`` event also carries the raw ``logits``, for the label checks). For a public
 pretrained model the spec has ``public`` (``builder``, ``categories``, ``mapping``, ``task``) instead
 of ``checkpoint``, ``worker`` and ``build``: torchvision downloads the weights, and categories missing
 from the mapping are dropped.
@@ -496,6 +497,7 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
     totals = {"images": 0, "objects": 0, "unreadable": 0}
     with torch.no_grad():
         for step, item in enumerate(items, start=1):
+            extra: dict[str, Any] = {}
             try:
                 with Image.open(item["path"]) as opened:
                     # boxes must fit the photo as shown (EXIF rotation applied), like the labels
@@ -548,9 +550,11 @@ def predict(spec: dict[str, Any]) -> dict[str, int]:
                 labels = classification_labels(
                     probabilities, [c or "" for c in classes], threshold, name, float(opts.get("margin", 0.0))
                 )
+                if spec.get("logits"):  # the label checks (mistakenness, hardness) read the raw outputs
+                    extra["logits"] = [float(x) for x in logits[0].cpu().tolist()]
             totals["images"] += 1 if labels else 0
             totals["objects"] += len(labels)
-            emit("prediction", id=item["id"], labels=labels)
+            emit("prediction", id=item["id"], labels=labels, **extra)
             emit("progress", step=step, steps=len(items))
     return totals
 
