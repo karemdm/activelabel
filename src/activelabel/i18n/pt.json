@@ -1098,7 +1098,7 @@
   "tr.p.backbone_lr_factor": "Fator da taxa de aprendizado do backbone",
   "tr.family.torchvision": "torchvision",
   "tr.family.timm": "timm",
-  "tr.family.smp": "segmentation_models_pytorch",
+  "tr.family.smp": "Segmentation Models (smp)",
   "tr.family.transformers": "Hugging Face transformers",
   "tr.family.ultralytics": "Ultralytics",
   "tr.family": "Família do modelo",
