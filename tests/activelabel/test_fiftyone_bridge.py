@@ -1,9 +1,11 @@
 import socket
+import threading
 import uuid
 from types import SimpleNamespace
 
 import fiftyone as fo
 import pytest
+from fiftyone_isolation import free_port
 from sample_images import make_image
 
 from activelabel import fiftyone_bridge as bridge
@@ -170,13 +172,102 @@ def test_other_tasks_declare_fields(tmp_path, project):
 
 
 def test_launch_app_returns_url(tmp_path, project):
+    """A free port of its own (#525): a fixed one may hold the App of another test run or a leftover one."""
     manifest = build(tmp_path, 1)
     dataset = bridge.sync_dataset(project, manifest, None)
-    url = bridge.launch_app(dataset, "curation - dark", port=5199)
-    slug = "curation-dark"  # FiftyOne's slug of the view name
-    assert url == f"http://localhost:5199/datasets/{dataset.name}?view={slug}"
-    assert bridge.launch_app(dataset, None, port=5199) == f"http://localhost:5199/datasets/{dataset.name}"
-    bridge._session.close()
+    port = free_port()
+    try:
+        url = bridge.launch_app(dataset, "curation - dark", port=port)
+        slug = "curation-dark"  # FiftyOne's slug of the view name
+        assert url == f"http://localhost:{port}/datasets/{dataset.name}?view={slug}"
+        assert (
+            bridge.launch_app(dataset, None, port=port) == f"http://localhost:{port}/datasets/{dataset.name}"
+        )
+    finally:
+        if bridge._session is not None:
+            bridge._drop_session(bridge._session)
+        bridge._session = None
+
+
+# -- time limits of the App (#525) ------------------------------------------------------------
+
+
+class Stuck:
+    """A call that never answers until released (a FiftyOne server that accepts and never replies)."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        self.release.wait(10)
+
+
+def _boom():
+    raise ValueError("boom")
+
+
+def test_within_returns_raises_and_times_out():
+    assert bridge.within(1, lambda: 3, "x") == 3
+    with pytest.raises(ValueError, match="boom"):
+        bridge.within(1, _boom, "x")
+    stuck = Stuck()
+    with pytest.raises(bridge.AppTimeout, match="did not answer within 0 s"):
+        bridge.within(0.1, stuck, "starting")
+    stuck.release.set()
+
+
+def test_a_hung_launch_fails_instead_of_waiting_for_ever(tmp_path, project, monkeypatch):
+    manifest = build(tmp_path, 1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    stuck = Stuck()
+    monkeypatch.setattr(bridge.fo, "launch_app", stuck)
+    monkeypatch.setattr(bridge, "_session", None)
+    monkeypatch.setattr(bridge, "port_answers", lambda port: False)
+    monkeypatch.setattr(bridge, "LAUNCH_TIMEOUT", 0.2)
+    with pytest.raises(bridge.AppTimeout):
+        bridge.launch_app(dataset)
+    assert stuck.calls == 1  # the next ports are not tried: they would hang the same way
+    stuck.release.set()
+
+
+class FakeSession:
+    """An App session: records what it is asked to show; ``hang`` makes switching block."""
+
+    def __init__(self, port, hang=None):
+        self.port, self.hang, self.closed, self.shown = port, hang, False, []
+
+    @property
+    def dataset(self):
+        return None
+
+    @dataset.setter
+    def dataset(self, value):
+        if self.hang is not None:
+            self.hang.wait(10)
+        self.shown.append(value)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.mark.parametrize("problem", ["stopped", "hung"])
+def test_a_dead_or_hung_session_is_dropped_and_a_new_app_started(tmp_path, project, monkeypatch, problem):
+    manifest = build(tmp_path, 1)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    hang = threading.Event() if problem == "hung" else None
+    old = FakeSession(5161, hang)
+    monkeypatch.setattr(bridge, "_session", old)
+    monkeypatch.setattr(bridge, "SWITCH_TIMEOUT", 0.2)
+    monkeypatch.setattr(bridge, "port_answers", lambda port: problem == "hung" and port == 5161)
+    monkeypatch.setattr(bridge, "_launched", {5161})
+    monkeypatch.setattr(bridge.fo, "launch_app", lambda target, port, remote: FakeSession(port))
+    url = bridge.launch_app(dataset)
+    assert old.closed and bridge._session is not old
+    assert url.startswith(f"http://localhost:{bridge._session.port}/datasets/")
+    if hang is not None:
+        hang.set()
     bridge._session = None
 
 

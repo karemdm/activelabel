@@ -19,6 +19,8 @@ import re
 import socket
 import threading
 import uuid
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,10 @@ TASK_VIEW_PREFIX = "task-"  # saved view of a task: ``task-<id>`` (stable; the n
 
 APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
 PORT_TRIES = 11  # APP_PORT and the next 10 ports
+#: Seconds to wait for the App to start (its server answers within FiftyOne's own 60 s, plus the first event).
+LAUNCH_TIMEOUT = 120.0
+#: Seconds to wait for a running App to switch dataset or view.
+SWITCH_TIMEOUT = 30.0
 _launched: set[int] = set()  # ports where this process started the App (its own App may be rejoined)
 
 DATASET_PREFIX = "activelabel"  # datasets are ``<prefix>-<project id>[-<random>]``
@@ -739,6 +745,87 @@ def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
     return f"{url}?view={_slug(dataset, view)}" if view else url
 
 
+class AppTimeout(OSError):
+    """The FiftyOne App did not answer in time (its server is stuck or belongs to another program)."""
+
+
+class _Call:
+    """A call run in a thread of its own, so the caller can stop waiting for it (see :func:`within`)."""
+
+    def __init__(self, action: Callable[[], Any]) -> None:
+        """Remember the call.
+
+        Args:
+            action: the function to call, without arguments.
+        """
+        self.action = action
+        self.result: Any = None
+        self.error: BaseException | None = None
+
+    def __call__(self) -> None:
+        """Run the call and keep its result or its exception."""
+        try:
+            self.result = self.action()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the caller by within()
+            self.error = exc
+
+
+def within(seconds: float, action: Callable[[], Any], what: str) -> Any:
+    """Call ``action`` but wait at most ``seconds`` for it (#525).
+
+    FiftyOne's App session sends its events with ``requests`` and no time limit: a server that accepts the
+    connection and never answers blocks the caller for ever. Here the call runs in a daemon thread; when it
+    is late it is left behind (it ends with the process) and :class:`AppTimeout` is raised.
+
+    Args:
+        seconds: how long to wait.
+        action: the function to call, without arguments.
+        what: what the call does, for the message.
+
+    Returns:
+        What ``action`` returned.
+
+    Raises:
+        AppTimeout: the call did not end in time.
+        BaseException: whatever ``action`` raised.
+    """
+    call = _Call(action)
+    thread = threading.Thread(target=call, name="activelabel-fiftyone-app", daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise AppTimeout(f"The FiftyOne App did not answer within {seconds:.0f} s ({what}). Try again.")
+    if call.error is not None:
+        raise call.error
+    return call.result
+
+
+def _switch(session: Any, dataset: Any, target: Any, change_view: bool) -> None:
+    """Show another dataset (and view) in a running App session.
+
+    Args:
+        session: the FiftyOne session.
+        dataset: the dataset to show.
+        target: the view to show (the dataset itself for the whole dataset).
+        change_view: whether to set the view too.
+    """
+    session.dataset = dataset
+    if change_view:
+        session.view = target
+
+
+def _drop_session(session: Any) -> None:
+    """Close a session that failed or hung, without waiting for it.
+
+    Args:
+        session: the FiftyOne session.
+    """
+    try:
+        within(5.0, session.close, "closing the App")
+    except Exception:  # noqa: BLE001 - it is dropped anyway
+        log.warning("The FiftyOne App session could not be closed; it is left behind")
+
+
 def launch_app(
     dataset: fo.Dataset,
     view: str | None = None,
@@ -764,7 +851,7 @@ def launch_app(
         The URL of the dataset (and view) in the App.
 
     Raises:
-        OSError: no port was free.
+        OSError: no port was free, or the App did not answer in time (:class:`AppTimeout`).
     """
     global _session
     if task is not None:
@@ -780,11 +867,15 @@ def launch_app(
             view, target = None, built
     if _session is not None:
         try:
-            _session.dataset = dataset
-            if view or target is not dataset:
-                _session.view = target
+            if not port_answers(int(_session.port)):
+                raise OSError("the App of the session stopped")  # do not send events to a dead server
+            change_view = bool(view) or target is not dataset
+            within(
+                SWITCH_TIMEOUT, partial(_switch, _session, dataset, target, change_view), "switching dataset"
+            )
             return app_url(dataset, view, int(_session.port))
-        except Exception:  # noqa: BLE001 - the session was closed: start a new one
+        except Exception:  # noqa: BLE001 - the session was closed or hung: start a new one
+            _drop_session(_session)
             _session = None
     last: Exception | None = None
     for candidate in range(port, port + PORT_TRIES):
@@ -792,7 +883,11 @@ def launch_app(
             last = OSError(f"port {candidate} is in use")
             continue
         try:
-            _session = fo.launch_app(target, port=candidate, remote=True)
+            _session = within(
+                LAUNCH_TIMEOUT, partial(fo.launch_app, target, port=candidate, remote=True), "starting"
+            )
+        except AppTimeout:
+            raise  # the next port would hang the same way
         except Exception as exc:  # noqa: BLE001 - port busy: try the next one
             last = exc
             continue
