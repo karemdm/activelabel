@@ -514,7 +514,7 @@ def test_a_refreshed_dataset_is_reloaded_in_the_open_app(tmp_path, project, monk
     labels = AnnotationSet(Task.DETECTION, ["cat"], {}, {})
     dataset = bridge.sync_dataset(project, manifest, labels)
     calls = []
-    app = SimpleNamespace(dataset=dataset, port=1, refresh=lambda: calls.append("refresh"))
+    app = SimpleNamespace(dataset=dataset, server_port=1, refresh=lambda: calls.append("refresh"))
     monkeypatch.setattr(bridge, "_session", app)
     monkeypatch.setattr(bridge, "port_answers", lambda port: True)
     bridge.sync_dataset(project, manifest, labels)
@@ -611,3 +611,9 @@ def test_the_app_port_is_5161_unless_the_environment_names_another():
         return int(out.stdout.strip())
 
     assert (port(None), port(""), port("5183")) == (5161, 5161, 5183)
+
+
+def test_the_port_of_a_session_is_its_server_port():
+    """A FiftyOne session has ``server_port``, not ``port``: reading ``port`` dropped the App every time."""
+    assert bridge._app_port(SimpleNamespace(server_port=5171)) == 5171
+    assert bridge._app_port(SimpleNamespace(port="5172")) == 5172
