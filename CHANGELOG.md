@@ -101,6 +101,8 @@ Everything below goes into the first release, 0.1.0.
   to *Annotate* for every editable dataset: a click selects a box or polygon, and dragging moves it, its
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 
+- **A taken project name stays marked (#637).** In the new-project form the message stays under the name field,
+  the field is marked as invalid and focused, until the name is edited; it was only a toast that faded.
 - **Repeated class names are no longer dropped silently (#637).** Pasting or typing a name already in the list
   (in any case) leaves it out and a note under the field says which names were not added; the example text
   of the field hides once there is a chip.
