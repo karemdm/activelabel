@@ -199,7 +199,7 @@ interface. Failures of CVAT (`cvat_unreachable`, `cvat_login_failed`, `cvat_refu
 `cvat_processing_timeout`, `cvat_backup_failed`, `cvat_backup_timeout`, `cvat_backup_invalid`, `cvat_audit_unavailable`...), of the
 synchronisation (`remote_gone`, `sync_remote_changed`, `sync_local_changed`, `sync_link_changed`,
 `sync_task_has_new_images`, `sync_no_remote`, `plan_not_found`) and of the import (`cvat_config_missing`,
-`cvat_url_invalid`, `cvat_no_images`, `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
+`cvat_url_invalid`, `cvat_no_images`, `cvat_already_imported` (409, with `project_id` and `name`), `cvat_item_not_found`, `import_kind_invalid`) have codes; an error of a tool without one is
 sent as `tool_error` with `tool` and `reason`.
 
 ### Limits

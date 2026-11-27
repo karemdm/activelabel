@@ -10,6 +10,8 @@ from activelabel import optional
 from activelabel.annotate import credentials
 from activelabel.annotate.base import ToolError
 from activelabel.importing import cvat_import
+from activelabel.sync import links
+from activelabel.tasks import Task
 
 
 @pytest.fixture
@@ -218,3 +220,38 @@ def test_starting_an_import_without_fiftyone_answers_501(env, monkeypatch):
     assert r.status_code == 501
     assert r.json()["code"] == "fiftyone_not_installed"
     assert r.json()["params"] == {"install": optional.FIFTYONE_INSTALL}
+
+
+def link_local_project(state, name, remote_id, base="http://cvat"):
+    project = state.store.create(name, "", Task.DETECTION)
+    links.save_link(
+        state.store.dir(project.id), "cvat", links.new_link(f"{base}/projects/{remote_id}", remote_id, "Pets")
+    )
+    return project
+
+
+def test_a_remote_project_that_is_already_linked_is_marked_and_not_imported_again(env, monkeypatch):
+    client, state, _ = env
+    configure_cvat(client)
+    project = link_local_project(state, "Pets", "7")
+    link_local_project(state, "Other server", "8", base="http://elsewhere")  # another server: not this one
+    items = [
+        {"id": 7, "kind": "project", "name": "Pets", "images": 2, "classes": []},
+        {"id": 8, "kind": "project", "name": "Birds", "images": 2, "classes": []},
+        {"id": 9, "kind": "task", "name": "Loose", "images": 1, "classes": []},
+    ]
+    monkeypatch.setattr(cvat_import, "list_remote", lambda settings, search: items)
+    listed = client.get("/api/import/cvat/projects").json()["items"]
+    assert listed[0]["linked_to"] == {"id": project.id, "name": "Pets"}
+    assert "linked_to" not in listed[1] and "linked_to" not in listed[2]
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": "project"})
+    assert r.status_code == 409 and r.json()["code"] == "cvat_already_imported"
+    assert r.json()["params"] == {"project_id": project.id, "name": "Pets"}
+    monkeypatch.setattr(cvat_import, "check_remote", lambda s, kind, rid: {"name": "Birds", "classes": []})
+    monkeypatch.setattr(
+        cvat_import, "import_project", lambda store, settings, workspace, **kw: {"project_id": 0}
+    )
+    assert (
+        client.post("/api/import", json={"tool": "cvat", "remote_id": 8, "kind": "project"}).status_code
+        == 200
+    )

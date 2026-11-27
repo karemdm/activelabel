@@ -31,7 +31,7 @@ from activelabel.importing.common import MAX_ITEMS, Origin, RemoteNotFound
 from activelabel.jobs import Progress
 from activelabel.labels import Label, load_annotations
 from activelabel.optional import fo, fouc, require_fiftyone
-from activelabel.projects import ProjectStore, clean_classes
+from activelabel.projects import Project, ProjectStore, clean_classes
 from activelabel.storage import write_json
 from activelabel.sync import engine as sync_engine
 from activelabel.sync import links
@@ -255,6 +255,53 @@ def list_remote(settings: ToolSettings, search: str = "") -> list[dict[str, Any]
         }
         for kind, item, images, param in chosen[:MAX_ITEMS]
     ]
+
+
+def linked_projects(store: ProjectStore, settings: ToolSettings) -> dict[str, Project]:
+    """The local projects that are linked to a project of this CVAT server, by remote project id.
+
+    A project made by ActiveLabel and sent to CVAT is among them, like one imported from it.
+
+    Args:
+        store: Projects of the workspace.
+        settings: Connection settings of CVAT (the server address tells which links count).
+
+    Returns:
+        ``{remote project id: local project}``; when several projects are linked to the same remote one,
+        the oldest.
+    """
+    base = settings.url.strip().rstrip("/").lower() + "/"
+    found: dict[str, Project] = {}
+    for project in sorted(store.list(), key=lambda p: p.id, reverse=True):
+        link = links.get_link(store.dir(project.id), "cvat")
+        if link and str(link.get("url", "")).lower().startswith(base):
+            found[str(link["remote_id"])] = project
+    return found
+
+
+def already_imported(store: ProjectStore, settings: ToolSettings, remote_id: str) -> ToolError | None:
+    """The error to raise when a remote project already has a local project linked to it.
+
+    Importing it again would link two projects to one remote project, and each would then see the
+    other's tasks as new.
+
+    Args:
+        store: Projects of the workspace.
+        settings: Connection settings of CVAT.
+        remote_id: Id of the remote project.
+
+    Returns:
+        ``cvat_already_imported`` with the ``project_id`` and ``name`` of the project, or None.
+    """
+    project = linked_projects(store, settings).get(str(remote_id))
+    if project is None:
+        return None
+    return ToolError(
+        f"This CVAT project is already in ActiveLabel as '{project.name}'.",
+        "cvat_already_imported",
+        project_id=project.id,
+        name=project.name,
+    )
 
 
 def check_remote(settings: ToolSettings, kind: str, remote_id: str) -> dict[str, Any]:
@@ -588,6 +635,8 @@ def import_project(
     remote = check_remote(settings, kind, remote_id)
     origin = Origin("cvat", settings.url.strip().rstrip("/"), str(remote_id), kind, remote["name"])
     parent = str(remote_id) if kind == "project" else remote.get("project_id")
+    if parent and (again := already_imported(store, settings, parent)) is not None:
+        raise again
     if parent:
         only = None if kind == "project" else [str(remote_id)]
         return _import_with_tasks(
