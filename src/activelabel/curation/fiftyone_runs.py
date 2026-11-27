@@ -19,6 +19,7 @@ RUN_KEYS = {
     "uniqueness": "activelabel_uniqueness",
     "clustering": "activelabel_clustering",
     "mistakenness": "activelabel_label_check",
+    "evaluation": "activelabel_evaluation",  # one run per model: the key ends with ``_m<N>`` (#611)
 }
 #: Kinds of FiftyOne runs listed, with the collection methods that list them and describe one.
 _KINDS = (
@@ -29,18 +30,32 @@ _KINDS = (
 )
 
 
-def record(dataset: Any, analysis: str, **params: Any) -> str:
+def is_ours(key: str) -> bool:
+    """Whether a run key is one ActiveLabel records (a key of :data:`RUN_KEYS`, or one of them with a suffix).
+
+    Args:
+        key: a run key of the dataset.
+
+    Returns:
+        True for the keys of ActiveLabel's analyses (``activelabel_evaluation_m2`` is one).
+    """
+    return any(key == own or key.startswith(f"{own}_") for own in RUN_KEYS.values())
+
+
+def record(dataset: Any, analysis: str, suffix: str = "", **params: Any) -> str:
     """Record (or replace) the run of an analysis on the dataset.
 
     Args:
         dataset: the project's FiftyOne dataset.
-        analysis: a key of :data:`RUN_KEYS` (``uniqueness``, ``clustering``, ``mistakenness``).
+        analysis: a key of :data:`RUN_KEYS` (``uniqueness``, ``clustering``, ``mistakenness``,
+            ``evaluation``).
+        suffix: added to the key for an analysis that has one run per item (``_m2`` for model 2).
         **params: the parameters of the computation (JSON-ready), stored in the run's config.
 
     Returns:
         The run key.
     """
-    key = RUN_KEYS[analysis]
+    key = RUN_KEYS[analysis] + suffix
     config = dataset.init_run(analysis=analysis, recorded=now(), **params)
     dataset.register_run(key, config, overwrite=True)
     return key
@@ -72,12 +87,11 @@ def listing(dataset: Any) -> list[dict[str, Any]]:
         a run ActiveLabel records itself.
     """
     out: list[dict[str, Any]] = []
-    ours = set(RUN_KEYS.values())
     for kind, list_name, info_name in _KINDS:
         for key in getattr(dataset, list_name)():
             timestamp, config = _describe(getattr(dataset, info_name)(key))
             out.append(
-                {"type": kind, "key": key, "timestamp": timestamp, "config": config, "ours": key in ours}
+                {"type": kind, "key": key, "timestamp": timestamp, "config": config, "ours": is_ours(key)}
             )
     return sorted(out, key=lambda run: (run["type"], run["key"]))
 
@@ -85,8 +99,8 @@ def listing(dataset: Any) -> list[dict[str, Any]]:
 def delete(dataset: Any, key: str) -> bool:
     """Delete the run of one of ActiveLabel's analyses (the sample fields it wrote stay).
 
-    Only the runs of :data:`RUN_KEYS` can be deleted here: the others belong to FiftyOne's own tools (an
-    annotation run, for example, is tied to an annotation backend).
+    Only the runs ActiveLabel records (:func:`is_ours`) can be deleted here: the others belong to FiftyOne's
+    own tools (an annotation run, for example, is tied to an annotation backend).
 
     Args:
         dataset: the project's FiftyOne dataset.
@@ -95,7 +109,7 @@ def delete(dataset: Any, key: str) -> bool:
     Returns:
         True when the run existed and was deleted; False for an unknown key or a run that is not ours.
     """
-    if key not in RUN_KEYS.values() or key not in dataset.list_runs():
+    if not is_ours(key) or key not in dataset.list_runs():
         return False
     dataset.delete_run(key)
     return True

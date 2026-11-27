@@ -105,3 +105,58 @@ test('a category is taken out with its own button and a class is cleared at once
     panel.node.remove();
   }
 });
+
+test('a model card offers Evaluate and shows the result across the row, with the way to the worst images (#611)', async () => {
+  setMessages({
+    'md.evaluate': 'Evaluate', 'md.eval_help': 'Help', 'md.eval_title': 'Evaluation of m{n}', 'md.eval_where': '{part} of version {version}',
+    'md.eval_worst': 'Worst ({n})', 'md.eval_images_n_one': '{n} image', 'md.eval_images_n_other': '{n} images', 'ds.part_test': 'Test',
+    'md.eval_started': 'Started', 'md.eval_queued': 'Queued', 'md.eval_cancel': 'Cancel', 'tr.metric.accuracy': 'Accuracy', 'tr.metric.macro_f1': 'Macro F1',
+    'md.eval_classes': 'Classes', 'md.eval_class': 'Class', 'md.eval_support_images': 'Images', 'md.eval_open_fo': 'Open', 'md.eval_fo_hint': '{key}',
+    'tr.metric.precision': 'P', 'tr.metric.recall': 'R', 'tr.metric.f1': 'F1', 'tr.confusion': 'Confusion', 'tr.confusion_help': 'Rows', 'tr.actual_vs_pred': 'R/P',
+  }, 'en');
+  const shown = [];
+  const tabs = [];
+  const ctx = { project: { id: 4, task: 'classification' }, jobs: [], watchers: [], weightless: new Set(), panels: { images: { showIds: (ids, n) => shown.push([ids, n]) } } };
+  const panel = modelsPanel({ ctx, projectId: 4, renderStepper: () => {}, showTab: (step) => tabs.push(step) });
+  const result = {
+    kind: 'classification', version: 2, part: 'test', fold: null, images: 3, evaluated: '2026-11-27T10:00:00+00:00', unreadable: [], view: 'evaluation m1',
+    metrics: { accuracy: 0.5, macro_f1: 0.4 }, classes: [{ class: 'a', precision: 1, recall: 1, f1: 1, support: 2 }],
+    confusion: { classes: ['a'], other: false, missing: false, matrix: [[2]] }, worst: ['x', 'y'], fields: [],
+  };
+  const evaluations = { 1: { status: 'done', result, active: null }, 2: { active: null } };
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    asked.push([(init && init.method) || 'GET', String(url)]);
+    const m = String(url).match(/models\/(\d+)\/evaluation/);
+    let body = { models: [] };
+    if (m && init && init.method === 'POST') body = { status: 'queued', job: 'j', active: Number(m[1]) };
+    else if (m) body = evaluations[m[1]];
+    else if (String(url).endsWith('/models')) body = { models: [{ number: 1, model: 'resnet18', source: 'run', run: 1, dataset: 2, start: 'transfer', metric: 'accuracy', size: 10 }, { number: 2, model: 'resnet18', source: 'run', run: 2, dataset: 2, start: 'transfer', metric: 'accuracy', size: 10 }], current: 1 };
+    else if (String(url).includes('public-catalog')) body = { models: [] };
+    else if (String(url).includes('/training/catalog')) body = { models: [] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    document.body.appendChild(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const first = panel.node.querySelector('#model-1');
+    const second = panel.node.querySelector('#model-2');
+    assert.ok(first.classList.contains('has-eval') && !second.classList.contains('has-eval'));
+    assert.match(first.textContent, /Evaluation of m1/);
+    assert.equal(second.querySelector('[data-act="evaluate"]').textContent, 'Evaluate');
+    first.querySelector('[data-act="eval-worst"]').click();
+    assert.deepEqual(shown, [[['x', 'y'], 1]]);
+    assert.deepEqual(tabs, ['images']);
+    second.querySelector('[data-act="evaluate"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(asked.find((a) => a[0] === 'POST'), ['POST', '/api/projects/4/models/2/evaluation']);
+    assert.match(panel.node.querySelector('#model-2').textContent, /Queued/);
+    assert.equal(panel.node.querySelector('#model-1 [data-act="evaluate"]').disabled, true, 'only one evaluation at a time');
+  } finally {
+    panel.node.hidden = true;  // the page stops polling
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});

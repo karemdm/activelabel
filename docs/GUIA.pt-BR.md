@@ -228,6 +228,15 @@ modelo atual (*Tornar atual*), baixe os pesos e exporte para ONNX (classificaç�
 semântica). *Adicionar modelo público* inclui um modelo já treinado no COCO, sem treinar nada (projetos
 de detecção e de pontos-chave; nos outros tipos o botão não aparece).
 
+*Avaliar* no cartão de um modelo roda o modelo nas imagens de **teste** da versão dos dados em que ele foi
+treinado (nas de validação, se a versão não tem teste) e o FiftyOne compara as respostas com os seus rótulos. É
+um trabalho da fila (um de cada vez; dá para cancelar). O cartão passa a mostrar, na largura toda: precisão,
+revocação, F1 e mAP (acurácia e F1 macro numa classificação), as métricas de cada classe, a matriz de confusão e
+*Ver as piores imagens* (até 50, que filtram *Imagens*). *Abrir no FiftyOne* abre o App nas imagens avaliadas:
+lá, abra o painel *Model Evaluation* (o **+** ao lado das abas da amostra) e escolha `eval_m<N>` (por exemplo
+`eval_m1`) para ver a matriz e comparar dois modelos. Não vale para projetos de pontos-chave nem de regressão;
+avaliar polígonos precisa do pacote `shapely`, que vem com `activelabel[fiftyone]`.
+
 ### Pré-anotar imagens novas com um modelo
 
 1. Em *Imagens*, aba *Tasks e jobs*, crie uma *Nova task* com as imagens novas.

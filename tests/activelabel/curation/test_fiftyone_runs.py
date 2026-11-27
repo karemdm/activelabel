@@ -66,3 +66,19 @@ def test_delete_removes_only_our_runs(dataset):
     assert fiftyone_runs.delete(dataset, similarity_fiftyone.BRAIN_KEY) is False
     assert similarity_fiftyone.BRAIN_KEY in dataset.list_brain_runs()
     assert fiftyone_runs.delete(dataset, "unknown") is False
+
+
+def test_an_analysis_with_one_run_per_model_has_a_key_with_a_suffix(dataset):
+    first = fiftyone_runs.record(dataset, "evaluation", suffix="_m1", model=1, images=4)
+    second = fiftyone_runs.record(dataset, "evaluation", suffix="_m2", model=2, images=4)
+    assert (first, second) == ("activelabel_evaluation_m1", "activelabel_evaluation_m2")
+    assert sorted(dataset.list_runs()) == [first, second]
+    ours = {run["key"]: run["ours"] for run in fiftyone_runs.listing(dataset)}
+    assert ours == {first: True, second: True}
+    assert fiftyone_runs.delete(dataset, first) and dataset.list_runs() == [second]
+
+
+def test_which_keys_are_ours():
+    assert fiftyone_runs.is_ours("activelabel_uniqueness")
+    assert fiftyone_runs.is_ours("activelabel_evaluation_m12")
+    assert not fiftyone_runs.is_ours("eval_m1") and not fiftyone_runs.is_ours("activelabel_evaluations")

@@ -41,6 +41,13 @@ the release notes, generated from the merged pull requests and grouped by label 
   ActiveLabel starts (for that process only; nothing is written to `~/.fiftyone`), reads the edits of the open
   edit session back and opens the ActiveLabel review. It works only for ActiveLabel datasets, calls only the local
   server recorded in `dataset.info`, and says in the App when that server is not reachable (docs/ANNOTATION.md).
+- **Evaluate a saved model in FiftyOne (#611).** *Evaluate* on a model card in *Models* predicts the test part of
+  the dataset version the model was trained on (the validation part without a test one) in the global queue and
+  lets FiftyOne compare it with the labels (`evaluate_detections` with mAP, or `evaluate_classifications`, under
+  the evaluation key `eval_m<N>`, which the App's *Model Evaluation* panel lists). The card shows the main
+  metrics, the metrics of each class, the confusion matrix, *See the worst images* (they filter *Images*) and
+  *Open in FiftyOne*. API: `GET/POST /api/projects/{id}/models/{n}/evaluation` and `.../evaluation/cancel`
+  (docs/TRAINING.md, *Models*). Evaluating polygons needs `shapely`, now part of the `fiftyone` extra.
 
 ## 0.1.0 - 2026-11-27
 

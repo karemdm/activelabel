@@ -35,7 +35,7 @@ configuration is saved as YAML so it can be reproduced, on this or any other mac
   the model). Folders left by a process that was killed are removed when ActiveLabel starts. Only the
   run's results stay.
 - **One heavy job per device.** Training runs, pre-annotations (docs/PREANNOTATE.md), the embeddings of
-  the similarity map, its regrouping, uniqueness scores, label checks with a saved model, ONNX exports, curation analyses and video extractions of every
+  the similarity map, its regrouping, uniqueness scores, label checks and evaluations with a saved model, ONNX exports, curation analyses and video extractions of every
   project wait in one global queue with a lane per
   device (`cpu`, `cuda:0`, `cuda:1`..., `mps`): by default one job at a time on each GPU and one on the
   CPU (`ACTIVELABEL_QUEUE_GPU`, `ACTIVELABEL_QUEUE_CPU`), first come first served inside a lane. A run
@@ -428,6 +428,32 @@ segmentation), which is then queued right after saving.
   the same way.
 - A saved model whose architecture this version no longer offers is listed as *unavailable*
   (*indisponível*) and cannot pre-annotate (it can still be deleted).
+- **Evaluation in FiftyOne** (#611): *Evaluate* (*Avaliar*) on a model card predicts the *test* part of the
+  dataset version the model was trained on (the *validation* part when the version has no test part; the
+  newest version when that one was deleted or the model is public) with the saved model, and FiftyOne
+  compares the predictions with your labels. It is a job of the global queue (device lane, cancellable, one
+  at a time in a project) with three phases: *environment*, *predicting* (the same worker as the label
+  check, with a low confidence of 0.05 so that the doubtful predictions count) and *fiftyone*. Only the
+  active images of the part that a person reviewed are evaluated (an image reviewed with no objects counts);
+  the API can also choose the version, part and fold. The predictions go to the field `eval_m<N>` of the
+  project's FiftyOne dataset (`eval_m<N>_pred` for a classification, because FiftyOne's own `eval_m<N>` is
+  there the field that says whether the image was right), and FiftyOne runs `evaluate_detections` (with the
+  mean average precision; polygons are compared as polylines by their IoU, which needs `shapely`) or
+  `evaluate_classifications` under the evaluation key `eval_m<N>`, which also writes `eval_m<N>_tp`, `_fp`
+  and `_fn` per image. The evaluation is registered as a FiftyOne run (the App's *Model Evaluation* panel
+  lists it; ActiveLabel also records `activelabel_evaluation_m<N>`) and the saved view `evaluation m<N>`
+  holds the images evaluated. The card then shows, across the row: the main metrics (detection and
+  segmentation: precision, recall, F1, mAP; classification: accuracy and macro F1), the metrics of each
+  class, the confusion matrix (the 20 most frequent classes; the others are summed in *(other classes)*; for
+  objects the *(none)* row and column are the objects invented and the objects missed), *See the worst
+  images* (up to 50: the most false positives and misses, or the wrong classifications the model was most
+  sure of), which filters *Images* to them, and *Open in FiftyOne*, which opens the App on the evaluated
+  images: there open the *Model Evaluation* panel (the **+** beside the sample tabs) and choose `eval_m<N>`
+  to see the matrix and compare two models. Keypoints and regression models cannot be evaluated here
+  (`evaluation_task_unsupported`); without FiftyOne the answer is 501 `fiftyone_not_installed`. The state of
+  each model is kept in `evaluations.json` (a cancelled or failed evaluation leaves the previous result);
+  the labels are never changed. The evaluation compares with the project's labels as they are now, which may
+  differ from the version's snapshot if you edited them after freezing it.
 - **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
   pre-annotation that uses it is queued or running. The weights live in the model (they were moved from the
   run), so the run it came from stays in Training with its curves and results but **cannot be saved as a model
@@ -579,6 +605,7 @@ To update the versions:
 | POST | `/api/projects/{id}/models/public` | add a public model (`{public, mapping, note}`) |
 | GET/PATCH/DELETE | `/api/projects/{id}/models/{n}` | card and results / note, `current` / delete (after confirmation) |
 | POST | `/api/projects/{id}/models/{n}/export` | queue an export (`{"format": "onnx"}`) |
+| GET/POST | `/api/projects/{id}/models/{n}/evaluation`, `.../evaluation/cancel` | the evaluation in FiftyOne: state and result / queue it (`{device, version?, part?, fold?}`) / cancel (docs/DESIGN.md has the answers and errors) |
 | GET | `/api/projects/{id}/models/{n}/download/{pytorch\|onnx}` | the weights or the export as a file |
 
 ## Status
