@@ -86,6 +86,7 @@ src/activelabel/
   jobs.py                light background jobs with progress and cancel
   preannotate.py         pre-annotation rules and run records
   fiftyone_bridge.py     the project's FiftyOne dataset, saved views, exclusions
+  fiftyone_plugin/       FiftyOne App plugins ActiveLabel turns on for its App (activelabel_annotate: images open in Annotate mode)
   images/                manifest (images.json), ingest (uploads, zip, thumbnails), video (frames)
   annotations/           importers per format (coco, yolo, xmlformats, videoformats...),
                          staging, validation, conversion between project types

@@ -6,6 +6,8 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+# the FiftyOne App plugins ship their script in dist/ (plain file, no build)
+!src/activelabel/fiftyone_plugin/*/dist/
 # local data (images, projects) never goes to git
 workspace/
 *.zip

@@ -91,7 +91,7 @@ tag_regex = '^v(?P<version>\d+(?:\.\d+)*.*)$'
 where = ["src"]
 
 [tool.setuptools.package-data]
-activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/**/*"]
+activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/**/*", "fiftyone_plugin/*/fiftyone.yml", "fiftyone_plugin/*/dist/*.js"]
 
 # ---------------------------------------------------------------------------
 [tool.ruff]
