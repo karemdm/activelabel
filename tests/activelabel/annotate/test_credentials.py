@@ -117,3 +117,39 @@ def test_server_url_never_touches_the_keyring(tmp_path, monkeypatch):
 def test_server_url_of_a_damaged_entry_is_empty(tmp_path):
     (tmp_path / "tools.json").write_text('{"cvat": "oops"}', encoding="utf-8")
     assert cred.server_url(tmp_path, "cvat") == ""
+
+
+def test_a_new_address_keeps_the_saved_secret_when_the_field_is_left_empty(tmp_path, fake_keyring):
+    """#634: the keyring key holds the address, so a new address used to lose the secret."""
+    cred.save_settings(tmp_path, "cvat", "http://127.0.0.1:8199", "u", "tok")
+    saved = cred.save_settings(tmp_path, "cvat", "http://127.0.0.1:8132/", "u", None)
+    assert saved.url == "http://127.0.0.1:8132" and saved.secret == "tok"
+    assert fake_keyring.store == {
+        ("activelabel", "cvat:http://127.0.0.1:8132"): "tok"
+    }  # the old entry is gone
+
+
+def test_a_new_address_with_a_new_secret_takes_the_new_one(tmp_path, fake_keyring):
+    cred.save_settings(tmp_path, "cvat", "http://a", "u", "old")
+    assert cred.save_settings(tmp_path, "cvat", "http://b", "u", "new").secret == "new"
+    assert (
+        fake_keyring.store[("activelabel", "cvat:http://a")] == "old"
+    )  # only a moved secret leaves its old key
+
+
+def test_a_secret_already_saved_for_the_new_address_is_kept(tmp_path, fake_keyring):
+    cred.save_settings(tmp_path, "cvat", "http://b", "u", "for-b")
+    cred.save_settings(tmp_path, "cvat", "http://a", "u", "for-a")
+    assert cred.save_settings(tmp_path, "cvat", "http://b", "u", None).secret == "for-b"
+
+
+def test_a_keyring_that_cannot_delete_the_old_entry_does_not_fail_the_save(
+    tmp_path, fake_keyring, monkeypatch
+):
+    cred.save_settings(tmp_path, "cvat", "http://a", "u", "tok")
+    monkeypatch.setattr(fake_keyring, "delete_password", refuse)
+    assert cred.save_settings(tmp_path, "cvat", "http://b", "u", None).secret == "tok"
+
+
+def refuse(service, key):
+    raise RuntimeError("keyring locked")

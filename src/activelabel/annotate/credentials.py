@@ -5,6 +5,7 @@ The secret (password or API token) is never written to a file, logged or returne
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from pathlib import Path
 from typing import Any
@@ -147,7 +148,8 @@ def save_settings(workspace: Path, tool: str, url: str, username: str, secret: s
         tool: name of the tool.
         url: URL of the tool (trimmed, trailing ``/`` removed).
         username: user name (trimmed).
-        secret: password or API token for the keyring; None or empty keeps the stored one.
+        secret: password or API token for the keyring; None or empty keeps the stored one, also when the
+            address changes (it moves to the key of the new address, #634).
 
     Returns:
         The settings as saved, with the secret from the keyring.
@@ -160,6 +162,13 @@ def save_settings(workspace: Path, tool: str, url: str, username: str, secret: s
     url = url.strip().rstrip("/")
     check_url(url)
     with _lock:
+        data: dict[str, Any] = read_json(_file(workspace), {}) or {}
+        old_url = str((data.get(tool) or {}).get("url", ""))
+        moved = ""
+        if not secret and old_url and old_url != url and not _get_secret(tool, url):
+            secret = moved = _get_secret(
+                tool, old_url
+            )  # "leave empty to keep it" holds for a new address too
         if secret:
             try:
                 keyring.set_password(SERVICE, _key(tool, url), secret)
@@ -167,7 +176,11 @@ def save_settings(workspace: Path, tool: str, url: str, username: str, secret: s
                 raise ToolError(
                     f"Could not store the secret in the system keyring ({type(exc).__name__})."
                 ) from exc
-        data: dict[str, Any] = read_json(_file(workspace), {}) or {}
+        if moved:
+            with contextlib.suppress(
+                Exception
+            ):  # the old entry is only left over: never fail the save for it
+                keyring.delete_password(SERVICE, _key(tool, old_url))
         data[tool] = {"url": url, "username": username.strip()}
         write_json(_file(workspace), data)
     return load_settings(workspace, tool)

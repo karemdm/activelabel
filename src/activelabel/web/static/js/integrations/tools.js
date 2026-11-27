@@ -183,8 +183,10 @@ export function openToolSetup(tool, entry, onChange) {
     busy(true);
     message.className = 'test-result';
     message.textContent = t('annotate.testing');
+    let stored = false;
     try {
       await store();
+      stored = true;
       const r = await api('POST', `/annotation-tools/${tool}/test`);
       message.className = `test-result ${r && r.ok ? 'ok' : 'bad'}`;
       fill(message, icon(r && r.ok ? 'check' : 'error'), testText(r));
@@ -193,6 +195,8 @@ export function openToolSetup(tool, entry, onChange) {
       closeBtn.textContent = t('common.close');   // saved already: nothing to cancel
     } catch (err) {
       showError(err);
+      /* the address was saved before the test failed: the page shows the new one (#634) */
+      if (stored && onChange) { try { await onChange(); } catch (e) { /* the dialog already says what failed */ } }
     } finally { busy(false); }
   });
   forgetBtn.addEventListener('click', async () => {

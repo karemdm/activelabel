@@ -65,3 +65,29 @@ test('errors about the address are told apart, so they stay under the field (#63
   assert.equal(isUrlError({ code: 'cvat_login_failed' }), false);
   assert.equal(isUrlError(null), false);
 });
+
+/* a <dialog> that jsdom can open and close */
+const dialogProto = window.HTMLDialogElement && window.HTMLDialogElement.prototype;
+if (dialogProto && !dialogProto.showModal) dialogProto.showModal = function showModal() { this.setAttribute('open', ''); };
+if (dialogProto && !dialogProto.close) dialogProto.close = function close() { this.removeAttribute('open'); };
+
+test('a test that fails after the address was saved still refreshes the page with the new address (#634)', async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(`${init.method} ${url}`);
+    if (init.method === 'PUT') return { ok: true, status: 200, text: async () => JSON.stringify({ tool: 'cvat', url: 'http://b', configured: true }) };
+    return { ok: false, status: 400, text: async () => JSON.stringify({ detail: 'Set up CVAT first.', code: 'tool_not_configured', params: {} }) };
+  };
+  let changed = 0;
+  tools.openToolSetup('cvat', { url: 'http://a', username: 'u', configured: true }, async () => { changed += 1; });
+  const dlg = document.querySelector('dialog[open]');
+  dlg.querySelector('#tool-url').value = 'http://b';
+  const testBtn = [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'annotate.test');
+  testBtn.click();
+  for (let i = 0; i < 20 && !changed; i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(calls, ['PUT /api/annotation-tools/cvat', 'POST /api/annotation-tools/cvat/test']);
+  assert.equal(changed, 1);
+  assert.match(dlg.querySelector('#tool-result').className, /bad/);
+  dlg.remove();
+  delete globalThis.fetch;
+});
