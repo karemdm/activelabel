@@ -224,6 +224,7 @@ export function imagesPanel(page) {
     }),
     onOpen: (items, i) => openLightbox(projectId, items, i),
     targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
+    onValue: () => refreshCounts(),
   });
   const gridTitle = el('h3', { class: 'section-title', id: 'h-images-grid', tabindex: '-1' }, t('images.grid_title'));
 

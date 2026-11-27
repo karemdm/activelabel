@@ -38,6 +38,7 @@ export function curationPanel(page) {
     onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
     onOpen: (items, i) => openLightbox(projectId, items, i),
     targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
+    onValue: () => refreshProject(),
   });
 
   ctx.curationSelected = () => [...grid.selected];

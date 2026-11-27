@@ -10,7 +10,7 @@ export const shown = (value) => nf4.format(value);
 
 /** One value of a regression image on its card: a button that becomes a number field when clicked (Enter or leaving
  *  the field saves it, Escape cancels, an empty field clears the value). `img.values` is kept up to date. */
-function valueCell(projectId, img, target) {
+function valueCell(projectId, img, target, saved) {
   const cell = el('span', { class: 'value-cell' });
   let leaving = false;   // Enter, Escape or a failed save already settled the field: the blur that follows does nothing
   const show = () => {
@@ -25,6 +25,7 @@ function valueCell(projectId, img, target) {
     try {
       const reply = await api('PUT', `/projects/${projectId}/images/${img.id}/values`, { json: { values: { [target]: number } } });
       img.values = reply.values;
+      if (saved) saved();
     } catch (err) { toastError(err); }
     return true;
   };
@@ -53,16 +54,16 @@ function valueCell(projectId, img, target) {
 }
 
 /** The values of a regression image on its card, one editable cell per target (nothing for other project types). */
-export const valueLine = (projectId, img, targets) => (targets && targets.length
-  ? el('span', { class: 'thumb-values' }, ...targets.map((target) => valueCell(projectId, img, target)))
+export const valueLine = (projectId, img, targets, saved) => (targets && targets.length
+  ? el('span', { class: 'thumb-values' }, ...targets.map((target) => valueCell(projectId, img, target, saved)))
   : null);
 
 /**
  * Paged grid of thumbnails. `query()` returns {status, issue}. With `selectable`, every card
  * has a checkbox and `selected` (a Set of ids) is kept up to date. In a regression project `targets()` names its targets and
- * every card shows an editable value for each (#619).
+ * every card shows an editable value for each (#619); `onValue()` is called after one is saved.
  */
-export function imageGrid({ projectId, query, selectable = false, onSelect, onOpen, targets = null }) {
+export function imageGrid({ projectId, query, selectable = false, onSelect, onOpen, targets = null, onValue }) {
   const selected = new Set();
   const items = [];
   let total = 0;
@@ -98,7 +99,7 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
       box,
       el('div', { class: 'thumb-meta' },
         el('span', { class: 'thumb-name', title: img.name }, img.name),
-        valueLine(projectId, img, targets && targets()),
+        valueLine(projectId, img, targets && targets(), onValue),
         (img.issues || []).length
           ? el('span', { class: 'thumb-tags' }, ...img.issues.map((i) => el('span', { class: `tag tag-${i}`, title: tr(`issue.${i}.help`, '') }, issueTag(i))))
           : null,
