@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from activelabel.curation.similarity import PAIR_LIMIT, SimilarityStore
 from activelabel.errors import CodedError
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Progress
@@ -42,6 +43,8 @@ class Thresholds:
         min_side: images whose shortest side is below this (pixels) are ``small``.
         max_aspect: long side / short side above this is ``odd_aspect``.
         phash_distance: perceptual hashes this close (Hamming, 0..64) are near duplicates.
+        embedding_distance: images whose similarity-map embeddings are this close (cosine distance) are
+            near duplicates too (#608); 0 turns it off. Without a similarity map nothing is added.
     """
 
     dark: float = 40.0
@@ -53,6 +56,7 @@ class Thresholds:
     min_side: int = 224
     max_aspect: float = 3.0
     phash_distance: int = 6
+    embedding_distance: float = 0.02
 
     def __post_init__(self) -> None:
         """Check every value (finite, within its limits) and make the whole-number ones ``int``.
@@ -93,6 +97,7 @@ LIMITS: dict[str, tuple[float, float]] = {
     "min_side": (1, 100_000),
     "max_aspect": (1, 1_000),
     "phash_distance": (0, 64),
+    "embedding_distance": (0, PAIR_LIMIT),
 }
 WHOLE = ("min_side", "phash_distance")
 
@@ -184,18 +189,26 @@ def _find(parent: list[int], i: int) -> int:
     return i
 
 
-def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> list[list[str]]:
+def _group_duplicates(
+    ids: list[str], hashes: list[str], max_distance: int, links: list[tuple[str, str]] | None = None
+) -> list[list[str]]:
     """Groups (size >= 2) of images whose hashes are within ``max_distance`` of a group member.
 
     Args:
         ids: image ids.
         hashes: the perceptual hash of each image (16 hex digits), in the order of ``ids``.
         max_distance: the largest Hamming distance (0..64) that links two images.
+        links: more pairs of ids to put in one group (near pairs of the similarity map); a pair with an id
+            that is not in ``ids`` is ignored.
 
     Returns:
         The groups of ids, in the order of their first image.
     """
     parent = list(range(len(ids)))
+    row = {image_id: i for i, image_id in enumerate(ids)}
+    for a, b in links or []:
+        if a in row and b in row:
+            parent[_find(parent, row[a])] = _find(parent, row[b])
     values = np.array([int(h, 16) for h in hashes], dtype=np.uint64)
     # Pigeonhole: two 64-bit hashes that differ in at most d bits agree entirely on at least one of
     # d + 1 chunks, so only hashes sharing a chunk value are compared (not every pair).
@@ -219,6 +232,22 @@ def _group_duplicates(ids: list[str], hashes: list[str], max_distance: int) -> l
     return [g for g in groups.values() if len(g) > 1]
 
 
+def map_links(project_dir: Path, max_distance: float) -> list[tuple[str, str]]:
+    """Pairs of images the similarity map found almost the same, within ``max_distance``.
+
+    Args:
+        project_dir: folder of the project.
+        max_distance: the largest cosine distance kept; 0 keeps none.
+
+    Returns:
+        ``(id, id)`` per pair; empty without a similarity map (or one made before #608).
+    """
+    if max_distance <= 0:
+        return []
+    pairs = SimilarityStore(project_dir).read().get("near_pairs") or []
+    return [(str(p[0]), str(p[1])) for p in pairs if len(p) == 3 and float(p[2]) <= max_distance]
+
+
 def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dict[str, int]:
     """Flag issues of active, measured images and save them in ``record.issues``.
 
@@ -229,7 +258,9 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
     unusually sharp project, the floor catches hopelessly blurry images in a blurry project.
 
     Near duplicates are grouped by perceptual hash; in each group the image with the largest
-    resolution (then the sharpest) is kept unflagged and the others get ``near_duplicate``.
+    resolution (then the sharpest) is kept unflagged and the others get ``near_duplicate``. Pairs the
+    similarity map found almost the same (``embedding_distance``, see :func:`map_links`) join those
+    groups: crops, brightness changes and neighbouring video frames the hash misses.
     Which image each one repeats is saved in ``curation.json`` (``duplicate_of``). The same
     file cannot be stored twice (ids are content hashes), but identical video frames can (their ids
     are salted): they are near duplicates at distance 0. Excluded and unmeasured images are neither
@@ -275,7 +306,10 @@ def flag_issues(manifest: Manifest, thresholds: Thresholds | None = None) -> dic
     duplicate_of: dict[str, str] = {}
     hashed = [r for r in measured if r.phash]
     by_id = {r.id: r for r in hashed}
-    groups = _group_duplicates([r.id for r in hashed], [r.phash for r in hashed], thresholds.phash_distance)
+    links = map_links(manifest.project_dir, thresholds.embedding_distance)
+    groups = _group_duplicates(
+        [r.id for r in hashed], [r.phash for r in hashed], thresholds.phash_distance, links
+    )
     for group in groups:
         best = max(
             group, key=lambda i: (by_id[i].width * by_id[i].height, by_id[i].metrics.get("sharpness", 0), i)

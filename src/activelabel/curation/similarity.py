@@ -8,7 +8,9 @@ PyTorch. Files of a project:
   with the ``backbone`` that made them;
 - ``<project>/similarity.json``: the state of the last computation (``status``, progress, ``error``) and
   its result: the ``method`` of the map, the ``groups`` (size and most typical image of each) and the
-  ``points`` (``ids``, ``xy`` scaled to 0..1, ``group`` of each image).
+  ``points`` (``ids``, ``xy`` scaled to 0..1, ``group`` of each image), and the ``near_pairs``: pairs of
+  images whose embeddings are almost the same (``[id, id, cosine distance]``, see :func:`near_pairs`),
+  which the curation adds to its near duplicates (#608).
 """
 
 from __future__ import annotations
@@ -37,6 +39,11 @@ SEED = 0
 CLUSTER_METHODS = ("auto", "kmeans", "hdbscan")
 MAX_CHOSEN_GROUPS = 50  # most groups a person may ask k-means for
 NOISE = -1
+#: Pairs of images farther apart than this cosine distance are not kept (the curation threshold,
+#: ``Thresholds.embedding_distance``, can only be set below it).
+PAIR_LIMIT = 0.1
+PAIR_NEIGHBOURS = 5  # nearest neighbours of each image looked at for near pairs
+PAIR_BLOCK = 4_000_000  # distances computed at once (rows x images), to bound the memory
 
 _LOCKS: dict[Path, threading.RLock] = {}
 _GUARD = threading.Lock()
@@ -207,6 +214,45 @@ def typical_images(ids: list[str], vectors: np.ndarray, labels: np.ndarray) -> l
     return out
 
 
+def near_pairs(ids: list[str], vectors: np.ndarray, limit: float = PAIR_LIMIT) -> list[list[Any]]:
+    """Pairs of images whose embeddings are almost the same: crops, brightness changes, video frames.
+
+    The perceptual hash of the curation misses these. Each image is compared with its
+    :data:`PAIR_NEIGHBOURS` nearest neighbours (cosine distance of the normalised embeddings), a block of
+    rows at a time.
+
+    Args:
+        ids: Image id of each row.
+        vectors: Embeddings, one row per image.
+        limit: The largest cosine distance kept.
+
+    Returns:
+        ``[id, id, distance]`` per pair (each pair once, the smaller row first), the distance rounded to
+        4 decimals, sorted by distance.
+    """
+    rows = len(ids)
+    if rows < 2:
+        return []
+    unit = vectors.astype(np.float32)
+    unit /= np.maximum(np.linalg.norm(unit, axis=1, keepdims=True), 1e-12)
+    k = min(PAIR_NEIGHBOURS, rows - 1)
+    found: dict[tuple[int, int], float] = {}
+    chunk = max(1, PAIR_BLOCK // rows)
+    for start in range(0, rows, chunk):
+        stop = min(rows, start + chunk)
+        distances = 1.0 - unit[start:stop] @ unit.T
+        distances[np.arange(stop - start), np.arange(start, stop)] = np.inf  # not its own neighbour
+        nearest = np.argpartition(distances, k - 1, axis=1)[:, :k]
+        for offset, columns in enumerate(nearest):
+            row = start + offset
+            for column in columns:
+                distance = float(max(distances[offset, column], 0.0))
+                if distance <= limit:
+                    found[(min(row, int(column)), max(row, int(column)))] = distance
+    pairs = [[ids[a], ids[b], round(d, 4)] for (a, b), d in found.items()]
+    return sorted(pairs, key=lambda p: (p[2], p[0], p[1]))
+
+
 def build_map(ids: list[str], vectors: np.ndarray) -> dict[str, Any]:
     """The map and the groups of a set of embeddings.
 
@@ -215,7 +261,7 @@ def build_map(ids: list[str], vectors: np.ndarray) -> dict[str, Any]:
         vectors: Embeddings, one row per image.
 
     Returns:
-        ``{"method", "groups", "points": {"ids", "xy", "group"}}`` (see the module docstring).
+        ``{"method", "groups", "points": {"ids", "xy", "group"}, "near_pairs"}`` (see the module docstring).
     """
     points, method = project_points(vectors)
     labels = find_groups(vectors)
@@ -227,6 +273,7 @@ def build_map(ids: list[str], vectors: np.ndarray) -> dict[str, Any]:
             "xy": [[round(float(x), 4), round(float(y), 4)] for x, y in points],
             "group": [int(g) for g in labels],
         },
+        "near_pairs": near_pairs(ids, vectors),
     }
 
 

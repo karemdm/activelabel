@@ -166,7 +166,11 @@ imagens num mapa 2-D (t-SNE, ou PCA em conjuntos muito pequenos ou grandes) e as
 mapa de novo sem recalculá-lo: *Automático*, um *Número de grupos* à sua escolha ou *Grupos de tamanho livre*
 (HDBSCAN, com o *Menor grupo*); neste, as imagens que não cabem em grupo nenhum aparecem numa cor neutra e têm
 um filtro próprio, *Sem grupo*, acima da grade. O mesmo mapa abre no App do FiftyOne (painel
-Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`).
+Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`). Com o mapa pronto,
+pares de imagens quase iguais para a rede (recortes, mudança de brilho, quadros vizinhos de vídeo, que o
+hash perceptual não pega) também viram quase duplicatas; o limite fica em *Limites* ("Quase duplicata
+pelo mapa de semelhança", 0 desliga). Arquivos idênticos nunca chegam a ser duas imagens: o envio os
+reconhece pelo conteúdo.
 
 A *Unicidade* dá a cada imagem uma nota de 0 (tem uma quase gêmea) a 1 (a mais diferente), a partir do mapa:
 *Calcular unicidade* precisa do mapa pronto (o botão diz isso enquanto ele não existe), entra na fila das

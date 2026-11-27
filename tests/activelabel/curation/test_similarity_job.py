@@ -6,7 +6,8 @@ from sample_images import make_image
 from training_fakes import FAKE_EMBED, FakeEnv, wait_for
 
 from activelabel import optional
-from activelabel.curation import similarity, similarity_job
+from activelabel.curation import issues, similarity, similarity_job
+from activelabel.images.manifest import Manifest
 from activelabel.training.runner import TrainingRunner
 
 FINISHED = ("done", "failed", "cancelled")
@@ -183,3 +184,35 @@ def test_an_image_without_its_file_is_listed_so_the_new_map_is_not_outdated(setu
     assert done["status"] == "done" and done["unreadable"] == [first.id]
     active = {r.id for r in state.manifest(1).active()}
     assert similarity_job.state(runner, state.store.dir(1), active)["outdated"] is False
+
+
+def test_a_new_map_flags_its_near_pairs_as_near_duplicates_when_the_images_were_analysed(setup):
+    client, state, runner, published = setup
+    project_dir = state.store.dir(1)
+    manifest = Manifest(project_dir)
+    similarity_job.refresh_duplicates(manifest)  # never analysed: nothing to flag
+    assert all(not r.issues for r in manifest.active())
+    first, second = [r.id for r in manifest.active()][:2]
+    measured = {"metrics": {"brightness": 128.0}}
+    hashes = [
+        "0000000000000000",
+        "ffffffffffffffff",
+        "0f0f0f0f0f0f0f0f",
+        "f0f0f0f0f0f0f0f0",
+        "00ff00ff00ff00ff",
+    ]
+    hashes += ["ff00ff00ff00ff00", "3333333333333333", "cccccccccccccccc", "5555555555555555"]
+    manifest.update({r.id: {**measured, "phash": h} for r, h in zip(manifest.active(), hashes, strict=True)})
+    similarity.SimilarityStore(project_dir).update(near_pairs=[[first, second, 0.001]])
+    similarity_job.refresh_duplicates(manifest)
+    flagged = [r.id for r in Manifest(project_dir).active() if "near_duplicate" in r.issues]
+    assert len(flagged) == 1 and flagged[0] in (first, second)
+
+
+def test_a_failed_refresh_of_the_duplicates_is_only_logged(setup, monkeypatch, caplog):
+    client, state, runner, published = setup
+    manifest = Manifest(state.store.dir(1))
+    manifest.update({r.id: {"metrics": {"brightness": 128.0}} for r in manifest.active()})
+    monkeypatch.setattr(issues, "flag_issues", lambda m: 1 / 0)
+    similarity_job.refresh_duplicates(manifest)
+    assert "near duplicates" in caplog.text

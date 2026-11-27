@@ -13,9 +13,11 @@ from activelabel.curation.issues import (
     flag_issues,
     load_duplicate_of,
     load_thresholds,
+    map_links,
     save_thresholds,
 )
 from activelabel.curation.quality import hamming, measure_images
+from activelabel.curation.similarity import SimilarityStore
 from activelabel.curation.summary import suggest_exclusions, summary
 from activelabel.errors import CodedError
 from activelabel.images.ingest import ingest_files
@@ -154,3 +156,40 @@ def test_files_deleted_or_changed_on_disk_are_flagged_and_kept_by_the_thresholds
         files[image_id].write_bytes(data)
     assert flag_files(manifest) == {"file_missing": 0, "file_changed": 0}
     assert all("file_" not in " ".join(r.issues) for r in manifest.all())
+
+
+def test_the_similarity_map_adds_near_duplicates_the_hash_misses(tmp_path):
+    manifest = Manifest(tmp_path)
+    add(manifest, "big", size=(128, 96), seed=1)
+    add(manifest, "crop", size=(120, 90), seed=2)  # another picture for the hash
+    add(manifest, "other", size=(128, 96), seed=9)
+    measure_images(manifest)
+    assert hamming(manifest.get("big").phash, manifest.get("crop").phash) > LIMITS.phash_distance
+    SimilarityStore(tmp_path).update(near_pairs=[["big", "crop", 0.01], ["big", "other", 0.08]])
+    flag_issues(manifest, LIMITS)
+    assert "near_duplicate" in manifest.get("crop").issues
+    assert "near_duplicate" not in manifest.get("other").issues  # farther than embedding_distance
+    assert load_duplicate_of(tmp_path) == {"crop": "big"}
+    off = Thresholds(min_side=40, low_contrast=3.0, embedding_distance=0)
+    flag_issues(manifest, off)
+    assert "near_duplicate" not in manifest.get("crop").issues
+
+
+def test_map_links_reads_the_pairs_within_the_distance(tmp_path):
+    assert map_links(tmp_path, 0.05) == []  # no map
+    SimilarityStore(tmp_path).update(near_pairs=[["a", "b", 0.01], ["a", "c", 0.06], ["bad"]])
+    assert map_links(tmp_path, 0.05) == [("a", "b")]
+    assert map_links(tmp_path, 0.1) == [("a", "b"), ("a", "c")]
+    assert map_links(tmp_path, 0) == []
+
+
+def test_group_duplicates_joins_the_extra_links_of_known_ids():
+    hashes = ["0000000000000000", "ffffffffffffffff", "0f0f0f0f0f0f0f0f"]
+    groups = _group_duplicates(["a", "b", "c"], hashes, 0, [("a", "b"), ("b", "zzz")])
+    assert groups == [["a", "b"]]
+
+
+def test_the_embedding_distance_has_limits():
+    with pytest.raises(CodedError):
+        Thresholds(embedding_distance=0.5)
+    assert Thresholds(embedding_distance=0).embedding_distance == 0.0

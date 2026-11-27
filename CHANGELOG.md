@@ -13,6 +13,11 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ### Added
 
+- **Near duplicates from the similarity map (#608).** A new similarity map keeps the pairs of images whose
+  embeddings are almost the same (cosine distance up to 0.1) and the curation adds them to its near duplicates:
+  crops, brightness changes and neighbouring video frames the perceptual hash misses. The threshold is
+  *embedding_distance* under *Thresholds* (default 0.02, 0 turns it off); the issues are flagged again when a map is
+  ready. Identical files were already one image (images are stored by content), so #622 needs nothing more.
 - **Edits go to the project from the App in one click (#706, #703).** *Enviar ao ActiveLabel* is also a button of the
   image window (no dialog). It applies the edits at once when nothing needs a look (no unreadable shape, conflict or
   unknown class) and says what changed; otherwise, or with *Revisar antes de aplicar* on (FiftyOne tab), the review
