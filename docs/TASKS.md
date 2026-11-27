@@ -87,7 +87,7 @@ otherwise the reason the task cannot be opened in CVAT: `not_configured` (no CVA
 `unreachable` (it is there, but CVAT did not answer). In the *Open in…* menu of a task or job, the first four
 lead to *Annotations → CVAT* (*Go to CVAT in Annotations*), where a comparison creates the project or the
 task in CVAT, or decides what to do with what was deleted there; `not_configured` and `unreachable` keep the
-item disabled with the reason. The project header's *Open in CVAT* does the same once the last comparison
+item disabled with the reason. The CVAT tab's *Open the project in CVAT* row does the same once the last comparison
 found the CVAT project deleted, and its address is built on the CVAT server set up now
 (`GET /projects/{id}/links`), so it follows a change of that address.
 

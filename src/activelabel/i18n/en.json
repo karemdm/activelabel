@@ -1859,7 +1859,6 @@
   "open.cvat_not_configured": "CVAT is not set up: set up the connection to open the project there.",
   "open.cvat_not_synced": "The project is not in CVAT yet: compare with CVAT once (below) to create it there.",
   "open.cvat_no_address": "The CVAT link has no address: compare with CVAT again.",
-  "open.cvat_go": "The project is not in CVAT yet: set it up and compare in Annotations → CVAT.",
   "open.cvat_remote_gone": "The CVAT project was deleted: unlink it or compare again in Annotations → CVAT.",
   "open.fo_back": "Opens the project's dataset, with its classes to edit. The edits come back to the project through an edit session (below): send the images, edit and bring them back.",
   "open.fo_no_images": "Add images to open the project in FiftyOne.",

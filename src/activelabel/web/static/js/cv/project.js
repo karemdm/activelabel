@@ -10,7 +10,6 @@ import { modelsPanel } from './models.js';
 import { issueName, taskBadge, taskName, taskPicker } from './names.js';
 import { createStepper } from './stepper.js';
 import { trainingPanel } from './training.js';
-import { headerCvatButton, headerFiftyoneButton } from '../integrations/open.js';
 import { loadFeatures } from '../shell/features.js';
 import { createSync } from '../integrations/sync.js';
 import { linkBadge, originBadge } from '../integrations/tools.js';
@@ -154,9 +153,6 @@ export function initProject() {
         p.description ? el('p', { class: 'muted' }, p.description) : null,
         (p.classes || []).length ? classLine(p.classes) : null),
       el('div', { class: 'project-head-actions' },
-        /* look at and edit the annotations in the tools (#602) */
-        headerCvatButton(page),
-        headerFiftyoneButton(page),
         el('button', { type: 'button', class: 'btn', onclick: openEdit }, t('project.edit')),
         el('button', { type: 'button', class: 'btn danger-outline', onclick: openDelete }, t('project.delete'))));
   }
@@ -288,7 +284,7 @@ export function initProject() {
   const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
   ctx.tab = STEPS.includes(startHash) ? startHash : 'images';
   /* FiftyOne may not be installed (#218): its buttons say so once the server answered (#658) */
-  loadFeatures().then(() => { if (ctx.project && !ctx.gone) renderHeader(); });
+  loadFeatures();   // the buttons registered with fiftyoneButton are marked when it answers
   refreshProject().then((ok) => {
     if (!ok) return;
     pollJobs();

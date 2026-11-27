@@ -1,6 +1,6 @@
 /* Annotating in an external tool from the Annotations step: CVAT tasks and FiftyOne edit sessions, their
  * setup, and bringing the annotations back. */
-import { cvatOpenRow, fiftyoneOpenRow } from './open.js';
+import { cvatOpenRow, cvatProjectGone, fiftyoneOpenRow } from './open.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import {
   SESSION_TOOLS, TOOLS, imagesOf, isHttp, openCvatAudit, openToolSetup, serverName, statusLabel, toolName,
@@ -113,7 +113,7 @@ export function annotateBlock(page) {
   function drawOpen() {
     const c = state.cvat;
     const task = c.scope === 'project' ? null : cvatTask();
-    fill(cvatOpenBox, cvatOpenRow({ link: cvatLink(), configured: isReady('cvat'), task, job: c.scope === 'job' ? c.job : null }));
+    fill(cvatOpenBox, cvatOpenRow({ link: cvatLink(), configured: isReady('cvat'), task, job: c.scope === 'job' ? c.job : null, gone: !!cvatLink() && cvatProjectGone(page) }));
     fill(foOpenBox, fiftyoneOpenRow(page));
   }
 
