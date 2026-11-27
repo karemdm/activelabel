@@ -119,7 +119,10 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
   na revisão. Descartar uma comparação apaga o plano, para que outra aba não o aplique.
 - *FiftyOne*: *Editar no FiftyOne* envia as imagens (todas, ou as que você escolher em *Escolher imagens*) e abre o App
   do FiftyOne, que mostra só o `ground_truth`. Para uma imagem só, o caminho curto: na galeria de *Imagens*,
-  clique na imagem e em *Editar no FiftyOne*; o App abre direto nela. Ao clicar numa imagem, a janela já abre na aba *Annotate*, pronta
+  clique na imagem e em *Editar no FiftyOne*; o App abre direto nela. Depois de editar, *Enviar ao ActiveLabel*
+  (no alto da janela da imagem) leva as edições ao projeto na hora, quando nada precisa de um olhar, e diz o que
+  mudou; senão abre a revisão. *Revisar antes de aplicar*, na aba FiftyOne, faz sempre abrir a revisão, e uma
+  sessão aplicada tem *Desfazer*. Ao clicar numa imagem, a janela já abre na aba *Annotate*, pronta
   para editar só com o mouse: clique numa caixa para selecioná-la, arraste-a para mover, arraste um canto ou um
   ponto do polígono para ajustar, troque a classe em *label* à direita, apague com a tecla *Delete* (vários de uma vez com a lixeira no alto da janela, *Apagar rótulos*, que se
   desfaz com a lixeira com seta ao lado) e desfaça

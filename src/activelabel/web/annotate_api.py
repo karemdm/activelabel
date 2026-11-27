@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from activelabel import fiftyone_bridge
+from activelabel import backups, fiftyone_bridge
 from activelabel.annotate import credentials, sessions
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, Pulled, ToolError, ToolSettings
@@ -19,7 +20,7 @@ from activelabel.annotate.registry import get_tool
 from activelabel.constants import DATASET_STEPS, PROGRESS_STEPS
 from activelabel.errors import CodedError
 from activelabel.jobs import Progress
-from activelabel.labels import Label, annotations_lock, load_annotations
+from activelabel.labels import Label, annotations_lock, annotations_path, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync.links import label_hash
@@ -42,6 +43,12 @@ class ToolBody(BaseModel):
     url: str = ""
     username: str = ""
     secret: str | None = None
+
+
+class PrefsBody(BaseModel):
+    """Body of PUT /projects/{id}/annotate/prefs."""
+
+    review_first: bool = False
 
 
 class SendBody(BaseModel):
@@ -481,8 +488,13 @@ def _pull_job(
     session: dict[str, Any],
     session_id: str,
     progress: Progress,
+    auto_apply: bool = False,
 ) -> dict[str, Any]:
     """Body of the ``annotate_pull`` job: read the annotations back, summarise and keep them for applying.
+
+    With ``auto_apply`` (the "Enviar ao ActiveLabel" button of the FiftyOne App) the edits are applied at
+    once when nothing needs a look (see :func:`_needs_review`) and the project does not ask for a review
+    first (``annotate_prefs.json``); otherwise they wait for the review, as always.
 
     Args:
         state: The shared state of the application.
@@ -492,9 +504,11 @@ def _pull_job(
         session: The session record (tool, images and reference of the send).
         session_id: Id of the session.
         progress: Where the job reports its progress.
+        auto_apply: Apply at once when nothing needs a review.
 
     Returns:
-        ``{session, diff}``: the updated session and the summary of the changes.
+        ``{session, diff}``: the updated session and the summary of the changes, with ``applied`` (the counts)
+        when the edits were applied at once, or ``review`` (why not) when they wait for the review.
     """
     project_dir = state.store.dir(project.id)
     image_ids: list[str] = session["image_ids"]
@@ -522,23 +536,77 @@ def _pull_job(
         image_tags=tags,
         origins=origins,
     )
-    return {"session": sessions.public(updated), "diff": summary}
+    result: dict[str, Any] = {"session": sessions.public(updated), "diff": summary}
+    if auto_apply:
+        why = "asked" if sessions.load_prefs(project_dir)["review_first"] else _needs_review(summary)
+        if why:
+            result["review"] = why
+        else:
+            try:
+                result["applied"] = _apply_pulled(state, project.id, session_id)
+            except ApiError as exc:  # the project changed meanwhile: the review shows it
+                result["review"] = exc.code
+            result["session"] = sessions.public(_session(state, project.id, session_id))
+    return result
+
+
+def _needs_review(summary: dict[str, Any]) -> str:
+    """Why pulled edits must be reviewed before they are applied, or ``""`` when they can go in at once.
+
+    Args:
+        summary: The summary of the changes (see :func:`activelabel.annotate.diff.diff`).
+
+    Returns:
+        ``nothing_changed``, ``problems`` (shapes that cannot be read as they are, conflicts) or
+        ``unknown_classes``; ``""`` when the edits can be applied.
+    """
+    if not summary.get("images_changed"):
+        return "nothing_changed"
+    if summary.get("problems"):
+        return "problems"
+    if summary.get("unknown_classes"):
+        return "unknown_classes"
+    return ""
+
+
+def _file_hash(project_dir: Path) -> str:
+    """Hash of the project's ``annotations.json`` (to notice that it changed after an apply).
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        The SHA-256 of the file, or ``""`` when there is none.
+    """
+    path = annotations_path(project_dir)
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ""
 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/pull")
-def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, Any]:
+def pull(
+    project_id: int,
+    session_id: str,
+    apply: str = Query("", pattern="^(|auto)$"),
+    state: AppState = STATE,
+) -> dict[str, Any]:
     """Read the annotations back and summarise the changes (job; result ``{session, diff}``).
 
     Args:
         project_id: Id of the project.
         session_id: Id of the annotation session.
+        apply: ``auto`` applies the edits at once when nothing needs a review (see :func:`_pull_job`); an
+            applied session can then be read back again (its images were edited again after a send from
+            the App).
         state: The shared state of the application.
 
     Returns:
         The queued job (id and state); its result is read from the job when it finishes.
     """
     session = _session(state, project_id, session_id)
-    if session["status"] in (sessions.APPLIED, sessions.DISCARDED):
+    again = (
+        session["status"] == sessions.APPLIED and apply == "auto"
+    )  # edited again after a send from the App
+    if session["status"] in (sessions.APPLIED, sessions.DISCARDED) and not again:
         raise ApiError(
             409,
             "session_finished",
@@ -549,7 +617,7 @@ def pull(project_id: int, session_id: str, state: AppState = STATE) -> dict[str,
     project = state.project(project_id)
     tool = _session_tool(session["tool"])
     settings = _settings(state, session["tool"])
-    job = partial(_pull_job, state, project, tool, settings, session, session_id)
+    job = partial(_pull_job, state, project, tool, settings, session, session_id, auto_apply=apply == "auto")
     return state.jobs.submit(project_id, "annotate_pull", job).as_dict()
 
 
@@ -565,8 +633,27 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
     Returns:
         ``{applied}``: the counts of what was applied.
     """
-    session = _session(state, project_id, session_id)
+    _session(state, project_id, session_id)
     state.busy(project_id)
+    return {"applied": _apply_pulled(state, project_id, session_id)}
+
+
+def _apply_pulled(state: AppState, project_id: int, session_id: str) -> dict[str, Any]:
+    """Make the pulled annotations of a session the ground truth (the caller checked that nothing else runs).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+
+    Returns:
+        The counts of what was applied (with ``backup``, the safety copy made first).
+
+    Raises:
+        ApiError: 400 ``pull_first``; 409 ``already_applied``, ``already_discarded`` or
+            ``annotations_changed``.
+    """
+    session = _session(state, project_id, session_id)
     try:
         data = read_json(_pulled_file(state, project_id, session_id))
     except ValueError:  # damaged file: the annotations have to be brought back again
@@ -604,9 +691,94 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
             image_tags=session.get("image_tags"),
             origins=session.get("origins"),
         )
-        sessions.update(project_dir, session_id, status=sessions.APPLIED, applied=counts)
+        sessions.update(
+            project_dir,
+            session_id,
+            status=sessions.APPLIED,
+            applied=counts,
+            applied_file=_file_hash(project_dir),
+        )
         _tell_tool(state, project_id, session, applied=True)
-    return {"applied": counts}
+    return counts
+
+
+@router.post("/projects/{project_id}/annotate/{session_id}/undo")
+def undo_apply(project_id: int, session_id: str, state: AppState = STATE) -> dict[str, Any]:
+    """Take back the apply of a session: the safety copy made by the apply becomes the annotations again.
+
+    The session goes back to ``pulled``, so its edits can be reviewed and applied again, or discarded. A
+    project that had no annotations before the apply has none again.
+
+    Args:
+        project_id: Id of the project.
+        session_id: Id of the annotation session.
+        state: The shared state of the application.
+
+    Returns:
+        ``{session, restored}``: the session and the result of the restore.
+
+    Raises:
+        ApiError: 409 ``undo_not_applied`` when the session is not applied (or its safety copy is gone),
+            409 ``undo_changed_since`` when the annotations changed after the apply (the copy would undo
+            that too).
+    """
+    project_dir = state.store.dir(project_id)
+    state.busy(project_id)
+    with annotations_lock(project_dir):
+        session = _session(state, project_id, session_id)
+        applied = session.get("applied") or {}
+        if session["status"] != sessions.APPLIED or "backup" not in applied:
+            raise ApiError(409, "undo_not_applied", "Only an applied session can be undone.")
+        if session.get("applied_file") != _file_hash(project_dir):
+            raise ApiError(
+                409,
+                "undo_changed_since",
+                "The annotations changed after this apply, so it cannot be undone here: "
+                "use the safety copies.",
+            )
+        if applied["backup"]:
+            try:
+                restored = backups.restore_backup(state.store, project_id, applied["backup"])
+            except FileNotFoundError as exc:
+                raise ApiError(409, "undo_not_applied", "The safety copy of this apply is gone.") from exc
+        else:  # the project had no annotations before this apply: it has none again
+            annotations_path(project_dir).unlink(missing_ok=True)
+            restored = {"restored": "", "backup": "", "images": 0, "labels": 0}
+        updated = sessions.update(
+            project_dir, session_id, status=sessions.PULLED, applied=None, applied_file=None
+        )
+    return {"session": sessions.public(updated), "restored": restored}
+
+
+@router.get("/projects/{project_id}/annotate/prefs")
+def get_prefs(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+    """How the project's edit sessions are brought back.
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{review_first}``.
+    """
+    state.project(project_id)
+    return sessions.load_prefs(state.store.dir(project_id))
+
+
+@router.put("/projects/{project_id}/annotate/prefs")
+def put_prefs(project_id: int, body: PrefsBody, state: AppState = STATE) -> dict[str, Any]:
+    """Choose whether edits sent from the FiftyOne App wait for a review ("Revisar antes de aplicar").
+
+    Args:
+        project_id: Id of the project.
+        body: ``{review_first}``.
+        state: The shared state of the application.
+
+    Returns:
+        The preferences as saved.
+    """
+    state.project(project_id)
+    return sessions.save_prefs(state.store.dir(project_id), body.review_first)
 
 
 @router.post("/projects/{project_id}/annotate/{session_id}/discard")

@@ -27,6 +27,12 @@ export function annotateBlock(page) {
   const cvatOpenBox = el('div', { class: 'cvat-open' });
   const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatOpenBox, cvatDirBox, cvatSendBox);
   const foOpenBox = el('div', { class: 'fo-open' });
+  /* "Revisar antes de aplicar" (#706): off, the App's "Send to ActiveLabel" applies at once when nothing needs a look */
+  const reviewFirst = el('input', { type: 'checkbox', id: 'annotate-review-first', onchange: (e) => saveReviewFirst(e.target) });
+  const prefsBox = el('p', { class: 'fo-prefs' },
+    el('label', { for: 'annotate-review-first' }, reviewFirst, ' ', t('annotate.review_first')),
+    el('span', { class: 'muted small', id: 'annotate-review-first-help' }, ' ', t('annotate.review_first_help')));
+  reviewFirst.setAttribute('aria-describedby', 'annotate-review-first-help');
   const scopeBox = el('div', { class: 'scope-wrap' });
   const chooseBox = el('details', { class: 'choose-images', id: 'annotate-choose' },
     el('summary', null, t('annotate.choose')), scopeBox);
@@ -37,7 +43,7 @@ export function annotateBlock(page) {
     cvatCtaBox, cvatCard, sync.node);
   const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
     el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-    foOpenBox, chooseBox,
+    foOpenBox, prefsBox, chooseBox,
     el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
       el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
       sessionsBox));
@@ -307,6 +313,7 @@ export function annotateBlock(page) {
     const taskLabel = sessionTask ? sessionTask.name : `#${s.task}`;
     let scopeText = tr(`annotate.scope.${s.scope}`, s.scope || '');
     if (s.scope === 'issue' && s.issue) scopeText = t('annotate.scope_issue_named', { issue: issueName(s.issue) });
+    else if (s.scope === 'selected' && imagesOf(s) === 1) scopeText = t('annotate.scope_one');  // "Edit in FiftyOne" of one image
     else if (s.scope === 'task' && s.task != null) scopeText = s.job ? t('annotate.scope_job_named', { task: taskLabel, n: s.job }) : t('annotate.scope_task_named', { task: taskLabel });
     const legacy = !SESSION_TOOLS.includes(tool);
     const legacyTool = !TOOLS.includes(tool);  // links to a tool this version does not have are not offered
@@ -342,6 +349,14 @@ export function annotateBlock(page) {
       buttons.push(act(t('annotate.discard'), '', async () => {
         await api('POST', `/projects/${projectId}/annotate/${sid}/discard`);
         toast(t('annotate.discarded'), 'success', 4000);
+        await loadSessions();
+      }));
+    }
+    if (!legacy && s.status === 'applied' && s.applied && 'backup' in s.applied) {
+      buttons.push(act(t('annotate.undo'), '', async () => {
+        await api('POST', `/projects/${projectId}/annotate/${sid}/undo`);
+        toast(t('annotate.undone'), 'success', 6000);
+        await refreshProject();
         await loadSessions();
       }));
     }
@@ -412,6 +427,18 @@ export function annotateBlock(page) {
     drawSend();
     cvatDraw(true);
   }
+  async function loadPrefs() {
+    try {
+      const prefs = await api('GET', `/projects/${projectId}/annotate/prefs`);
+      reviewFirst.checked = !!(prefs && prefs.review_first);
+    } catch (err) { if (err.status !== 404) toastError(err); }
+  }
+  async function saveReviewFirst(box) {
+    try {
+      const prefs = await api('PUT', `/projects/${projectId}/annotate/prefs`, { json: { review_first: box.checked } });
+      box.checked = !!(prefs && prefs.review_first);
+    } catch (err) { box.checked = !box.checked; toastError(err); }
+  }
   async function loadSessions() {
     try {
       const data = await api('GET', `/projects/${projectId}/annotate`);
@@ -456,7 +483,7 @@ export function annotateBlock(page) {
     cvatSection,
     fiftyoneSection,
     reveal,
-    mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues(), loadTasks(), loadPre()]); await loadSessions(); },
+    mount: async () => { sync.draw(); await Promise.all([loadTools(), loadIssues(), loadTasks(), loadPre(), loadPrefs()]); await loadSessions(); },
     refresh: async () => { sync.draw(); await Promise.all([loadIssues(), loadTasks(), loadPre()]); await loadSessions(); },
     show: async () => { await Promise.all([loadIssues(), loadTasks(), loadPre()]); drawScope(); drawSend(); },
     /** the CVAT tab with one task chosen (review of its pre-annotations) */

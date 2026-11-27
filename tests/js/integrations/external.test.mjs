@@ -19,6 +19,7 @@ const ANSWERS = {
   '/api/projects/2/tasks': { tasks: [] },
   '/api/projects/2/preannotations': { models: [], runs: [] },
   '/api/projects/2/curation': { issues: {} },
+  '/api/projects/2/annotate/prefs': { review_first: false },
 };
 
 test('the CVAT and FiftyOne tabs load the tools, sessions, tasks, pre-annotations and issues of the project', async () => {
@@ -92,6 +93,79 @@ test('the CVAT card shows no link to a project deleted in CVAT, and the open row
     assert.equal(facts.querySelector('a'), null);
     assert.match(facts.textContent, /Pets \(deleted in CVAT\)/);
     assert.match(block.cvatSection.querySelector('#cvat-open-reason').textContent, /Use Unlink, or compare again\./);
+  } finally {
+    globalThis.fetch = real;
+    document.body.replaceChildren();
+  }
+});
+
+test('#706: "Review before applying" shows the saved choice and saves a change', async () => {
+  setMessages({ 'annotate.review_first': 'Review before applying' }, 'en');
+  const ctx = { project: { id: 2, task: 'detection', classes: ['cat'], counts: { active: 3 } }, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} };
+  const page = {
+    ctx, projectId: 2, isActive: () => false, jobStarted: async () => {}, refreshProject: async () => true,
+    startSync: async () => {}, syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+    diffView: () => null, issueName: (x) => x,
+  };
+  const answers = { ...ANSWERS, '/api/projects/2/annotate/prefs': { review_first: true } };
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'PUT') {
+      sent.push(JSON.parse(options.body));
+      return { ok: true, status: 200, text: async () => options.body };
+    }
+    return { ok: answers[url] !== undefined, status: answers[url] !== undefined ? 200 : 404, text: async () => JSON.stringify(answers[url] ?? {}) };
+  };
+  try {
+    const block = annotateBlock(page);
+    document.body.append(block.fiftyoneSection);
+    await block.mount();
+    const box = block.fiftyoneSection.querySelector('#annotate-review-first');
+    assert.equal(box.checked, true);
+    box.checked = false;
+    box.dispatchEvent(new window.Event('change'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(sent, [{ review_first: false }]);
+  } finally {
+    globalThis.fetch = real;
+    document.body.replaceChildren();
+  }
+});
+
+test('#706: an applied session can be undone from its card', async () => {
+  setMessages({ 'annotate.tool.fiftyone': 'FiftyOne', 'annotate.undo': 'Undo', 'annotate.undone': 'Apply undone', 'annotate.scope_one': 'One image' }, 'en');
+  const ctx = { project: { id: 2, task: 'detection', classes: ['cat'], counts: { active: 3 } }, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} };
+  let refreshed = 0;
+  const page = {
+    ctx, projectId: 2, isActive: () => false, jobStarted: async () => {}, refreshProject: async () => { refreshed += 1; return true; },
+    startSync: async () => {}, syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+    diffView: () => null, issueName: (x) => x,
+  };
+  const applied = { id: 'a', tool: 'fiftyone', scope: 'selected', status: 'applied', images: 1, links: [], applied: { backup: 'x.json' } };
+  const old = { id: 'b', tool: 'fiftyone', scope: 'all', status: 'applied', images: 1, links: [], applied: {} };
+  const answers = { ...ANSWERS, '/api/projects/2/annotate': { sessions: [applied, old] } };
+  const posted = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'POST') {
+      posted.push(url);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ session: { ...applied, status: 'pulled' } }) };
+    }
+    return { ok: answers[url] !== undefined, status: answers[url] !== undefined ? 200 : 404, text: async () => JSON.stringify(answers[url] ?? {}) };
+  };
+  try {
+    const block = annotateBlock(page);
+    document.body.append(block.fiftyoneSection);
+    await block.mount();
+    const undo = [...block.fiftyoneSection.querySelectorAll('#session-a button')].find((b) => b.textContent === 'Undo');
+    assert.ok(undo, 'the applied session offers Undo');
+    assert.match(block.fiftyoneSection.querySelector('#session-a .session-meta').textContent, /One image/);  // from an image's window
+    assert.equal([...block.fiftyoneSection.querySelectorAll('#session-b button')].find((b) => b.textContent === 'Undo'), undefined);
+    undo.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(posted, ['/api/projects/2/annotate/a/undo']);
+    assert.equal(refreshed, 1);
   } finally {
     globalThis.fetch = real;
     document.body.replaceChildren();

@@ -166,6 +166,47 @@ def _save(project_dir: Path, sessions: list[dict[str, Any]]) -> None:
     write_json(_file(project_dir), {"sessions": sessions})
 
 
+def prefs_file(project_dir: Path) -> Path:
+    """Path of ``annotate_prefs.json``: how the edit sessions of the project are brought back.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        The path of the preferences file.
+    """
+    return project_dir / "annotate_prefs.json"
+
+
+def load_prefs(project_dir: Path) -> dict[str, Any]:
+    """The preferences of the project's edit sessions.
+
+    Args:
+        project_dir: the project folder.
+
+    Returns:
+        ``{review_first}``: whether edits sent from the FiftyOne App wait for a review instead of being
+        applied at once (False by default).
+    """
+    data = read_json(prefs_file(project_dir), {}) or {}
+    return {"review_first": data.get("review_first") is True}
+
+
+def save_prefs(project_dir: Path, review_first: bool) -> dict[str, Any]:
+    """Save the preferences of the project's edit sessions.
+
+    Args:
+        project_dir: the project folder.
+        review_first: whether edits sent from the FiftyOne App wait for a review.
+
+    Returns:
+        The preferences as saved.
+    """
+    with _lock:
+        write_json(prefs_file(project_dir), {"review_first": bool(review_first)})
+    return load_prefs(project_dir)
+
+
 def create(
     project_dir: Path,
     tool: str,
