@@ -109,6 +109,12 @@ export function createSync(page) {
       const name = toolName(syncJobTool(job) || 'cvat');
       const rows = RESULT_KEYS.filter((k) => Number(r[k]) > 0).map((k) => el('li', { class: 'dir-row' },
         el('span', null, t(`sync.res_${k}`, { tool: name })), el('strong', null, num(r[k]))));
+      const renamed = r.renamed_classes || [];
+      if (renamed.length) {
+        rows.push(el('li', { class: 'dir-line' },
+          el('div', { class: 'dir-row' }, el('span', null, t('sync.res_renamed_classes')), el('strong', null, num(renamed.length))),
+          el('ul', { class: 'plain dir-sub' }, ...renamed.map((x) => el('li', null, t('sync.rename_item', { old: x.from, new: x.to }))))));
+      }
       return el('div', { class: 'card sync-result', id: 'sync-result' },
         el('div', { class: 'session-head' },
           el('span', { class: 'session-tool' }, icon('check', 22), el('strong', null, t('sync.result_title')))),
@@ -142,6 +148,8 @@ export function createSync(page) {
       const tRenamePull = renames.filter((x) => x.direction === 'pull');
       const cRename = plan.renamed_classes || [];
       const pRename = plan.project_rename || null;
+      /* images that change only because a class was renamed are not in the detailed comparison below */
+      const classOnly = cRename.length ? Number(plan.pull || 0) - Number((plan.diff_pull || {}).images_changed || 0) : 0;
       const renameConflicts = [...(plan.project_rename_conflict ? [plan.project_rename_conflict] : []), ...(plan.tasks_rename_conflicts || [])];
       /* shapes the tool has that the project cannot hold (ellipses, rotated boxes read as their box...): they stay there (#519) */
       const notConverted = Object.entries(plan.not_converted || {}).filter(([, n]) => Number(n) > 0);
@@ -190,7 +198,7 @@ export function createSync(page) {
           line(t('sync.row_tasks_rename'), tRenamePull.length, sub(tRenamePull, renameText)),
           line(t('sync.row_classes_rename'), cRename.length, sub(cRename, renameText)),
           line(t('sync.row_not_converted', { tool: name }), ncTotal, sub(notConverted, ncText)),
-          line(t('sync.row_annot'), plan.pull),
+          line(t('sync.row_annot'), plan.pull, classOnly > 0 ? el('p', { class: 'muted dir-sub' }, tn('sync.pull_class_only', classOnly)) : null),
           line(t('sync.row_remove'), plan.remove_local),
           line(t('sync.row_restore'), plan.restore_local)]));
 
