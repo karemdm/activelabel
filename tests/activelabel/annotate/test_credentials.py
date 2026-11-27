@@ -92,3 +92,28 @@ def test_tool_url_with_user_or_password_is_refused_without_echo(tmp_path):
         assert info.value.code == "url_has_credentials"
         assert "s3cret" not in str(info.value) and "s3cret" not in str(info.value.params)
     assert not (tmp_path / "tools.json").exists()
+
+
+class _ForbiddenKeyring:
+    def __getattr__(self, name):
+        raise AssertionError("the keyring was used")
+
+
+def test_server_url_is_read_without_the_keyring(tmp_path, fake_keyring):
+    assert cred.server_url(tmp_path, "cvat") == ""  # nothing saved
+    cred.save_settings(tmp_path, "cvat", "https://cvat.example///", "ann", "tok")
+    fake_keyring.store.clear()  # a keyring with no secret still gives the address
+    assert cred.server_url(tmp_path, "cvat") == "https://cvat.example"
+    assert cred.server_url(tmp_path, "other") == ""
+
+
+def test_server_url_never_touches_the_keyring(tmp_path, monkeypatch):
+    cred.save_settings(tmp_path, "cvat", "http://c/", "u", None)
+
+    monkeypatch.setattr(credentials, "keyring", _ForbiddenKeyring())
+    assert cred.server_url(tmp_path, "cvat") == "http://c"
+
+
+def test_server_url_of_a_damaged_entry_is_empty(tmp_path):
+    (tmp_path / "tools.json").write_text('{"cvat": "oops"}', encoding="utf-8")
+    assert cred.server_url(tmp_path, "cvat") == ""
