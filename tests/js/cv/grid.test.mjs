@@ -14,7 +14,8 @@ if (!proto.close) proto.close = function close() { this.removeAttribute('open');
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { imageGrid, openLightbox } = await import('../../../src/activelabel/web/static/js/cv/grid.js');
 
-setMessages({ 'grid.range': '{from}–{to} of {total}', 'grid.empty': 'No images', 'tag.dark': 'Dark', 'lightbox.prev': 'Previous', 'lightbox.next': 'Next' }, 'en');
+setMessages({ 'grid.range': '{from}–{to} of {total}', 'grid.empty': 'No images', 'tag.dark': 'Dark', 'lightbox.prev': 'Previous', 'lightbox.next': 'Next',
+  'uniq.value': 'Uniqueness {value}', 'lightbox.uniqueness': 'Uniqueness', 'lightbox.uniqueness_help': '0 is almost the same as another image.' }, 'en');
 
 const images = (n) => Array.from({ length: n }, (_, i) => ({ id: `i${i}`, name: `img${i}.png`, issues: i === 0 ? ['dark'] : [] }));
 
@@ -80,5 +81,45 @@ test('the lightbox shows one image and moves with its buttons', () => {
   box.querySelector('[data-nav="next"]').click();
   assert.equal(box.querySelector('h2').textContent, 'img1.png');
   assert.equal(box.querySelector('[data-nav="next"]').disabled, true);
+  box.close();
+});
+
+test('#667: the sort, the uniqueness filter and the group go to the server, in every page and in allIds', async () => {
+  let grid;
+  const asked = await withImages(3, async () => {
+    grid = imageGrid({ projectId: 7, query: () => ({ status: 'active', sort: 'uniqueness_asc', uniqueBelow: 0.3, group: -1 }) });
+    await grid.reload();
+    await grid.allIds();
+  });
+  for (const url of asked) {
+    const q = new URL(url, 'http://localhost').searchParams;
+    assert.equal(q.get('sort'), 'uniqueness_asc');
+    assert.equal(q.get('unique_below'), '0.3');
+    assert.equal(q.get('group'), '-1');
+  }
+  const none = await withImages(1, async () => { await imageGrid({ projectId: 7, query: () => ({ uniqueBelow: 0, group: 0 }) }).reload(); });
+  const q = new URL(none[0], 'http://localhost').searchParams;
+  assert.equal(q.get('unique_below'), '0');   // zero is a value, not "no filter"
+  assert.equal(q.get('group'), '0');
+  assert.equal(q.has('sort'), false);
+});
+
+test('#667: the value shows on the card only when the grid is sorted or filtered by it, and always in the lightbox', async () => {
+  const scored = async (query) => {
+    let grid;
+    const real = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ total: 1, items: [{ id: 'a', name: 'a.png', issues: [], uniqueness: 0.5 }] }) });
+    try { grid = imageGrid({ projectId: 1, query }); await grid.reload(); } finally { globalThis.fetch = real; }
+    return grid.node;
+  };
+  assert.match((await scored(() => ({ sort: 'uniqueness_desc' }))).querySelector('.thumb-uniq').textContent, /Uniqueness 0\.50/);
+  assert.ok((await scored(() => ({ uniqueBelow: 0.9 }))).querySelector('.thumb-uniq'));
+  assert.equal((await scored(() => ({}))).querySelector('.thumb-uniq'), null);
+
+  openLightbox(1, [{ id: 'a', name: 'a.png', issues: [], uniqueness: 0.5 }, { id: 'b', name: 'b.png', issues: [] }], 0);
+  const box = document.querySelector('dialog.lightbox');
+  assert.match(box.textContent, /Uniqueness0\.50.*almost the same/);
+  box.querySelector('[data-nav="next"]').click();
+  assert.doesNotMatch(box.textContent, /Uniqueness/);   // an image without a score shows no value
   box.close();
 });

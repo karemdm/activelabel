@@ -140,14 +140,18 @@ project is its *type*.)
    active image with a small ImageNet network in the training environment (the first time it asks before
    installing PyTorch, as the training dialog does; you choose the device; at least 5 active images),
    places them on a 2-D map (t-SNE, or PCA for very small or large sets)
-   and splits them into groups (k-means), each shown with its size and most typical image. Regrouping (API for now; a CPU job of the
-   global queue) groups the same map again without recomputing it: k-means with the number of groups you choose, or
-   HDBSCAN with groups of free size, where images that fit no group are noise (no group). The same
+   and splits them into groups (k-means), each shown with its size and most typical image. *Regroup* (a CPU job of the
+   global queue, with progress and Cancel) groups the same map again without recomputing it: *Automatic*, a *Number of
+   groups* you choose, or *Groups of any size* (HDBSCAN, with the *Smallest group*), where images that fit no group are
+   drawn in a neutral colour and have their own filter, *No group*, above the grid. The same
    map opens in the FiftyOne App (Embeddings panel, run `activelabel_similarity`, coloured by the
    field `similarity_group`).
    *Uniqueness* scores each active image from 0 (it has a near twin) to 1 (the most unique) from the
-   embeddings the map saved (compute the map first): it is a CPU job of the global queue, and the scores
-   also go to the field `uniqueness` in FiftyOne.
+   embeddings the map saved (compute the map first; the button says so while there is no map): *Compute uniqueness*
+   is a CPU job of the global queue, with progress and Cancel, and the scores also go to the field `uniqueness` in
+   FiftyOne. Once scored, the grid can be sorted by it (*Most unique first* or *Most repeated first*) and filtered
+   to the images with a uniqueness *below* a value, which finds the near-repeated ones; the value shows on each card
+   while one of them is on, and in the image detail. A notice says when the images changed since the scores.
    Each analysis is also recorded as a FiftyOne run (with its parameters and time) that the App lists next to FiftyOne's own.
 
    *Possible label errors and hard images* compares a saved model's predictions with the labels (API for now;

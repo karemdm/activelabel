@@ -158,8 +158,18 @@ do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no env
 semelhança* agrupa as imagens parecidas: *Calcular mapa* lê cada imagem ativa com uma rede pequena
 do ImageNet no ambiente de treino (instalado no primeiro uso, na mesma fila dos treinos), coloca as
 imagens num mapa 2-D (t-SNE, ou PCA em conjuntos muito pequenos ou grandes) e as divide em grupos
-(k-means), cada um com seu tamanho e sua imagem típica. O mesmo mapa abre no App do FiftyOne (painel
+(k-means), cada um com seu tamanho e sua imagem típica. *Reagrupar* (com progresso e Cancelar) agrupa o mesmo
+mapa de novo sem recalculá-lo: *Automático*, um *Número de grupos* à sua escolha ou *Grupos de tamanho livre*
+(HDBSCAN, com o *Menor grupo*); neste, as imagens que não cabem em grupo nenhum aparecem numa cor neutra e têm
+um filtro próprio, *Sem grupo*, acima da grade. O mesmo mapa abre no App do FiftyOne (painel
 Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`).
+
+A *Unicidade* dá a cada imagem uma nota de 0 (tem uma quase gêmea) a 1 (a mais diferente), a partir do mapa:
+*Calcular unicidade* precisa do mapa pronto (o botão diz isso enquanto ele não existe), entra na fila das
+atividades pesadas, mostra o andamento e tem Cancelar. Com as notas, a grade pode ser ordenada por elas
+(*Mais únicas primeiro* ou *Mais repetidas primeiro*) e filtrada para as imagens com unicidade *abaixo de* um
+valor, o que acha as quase repetidas; a nota aparece em cada cartão enquanto um dos dois está ligado e no
+detalhe da imagem. Um aviso diz quando as imagens mudaram desde as notas.
 
 ### Grupo Modelo
 

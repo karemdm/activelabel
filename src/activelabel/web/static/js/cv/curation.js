@@ -3,7 +3,8 @@
 import { imageGrid, openLightbox } from './grid.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { ISSUES, issueName } from './names.js';
-import { similarityBlock } from './similarity.js';
+import { NO_GROUP, similarityBlock } from './similarity.js';
+import { uniquenessBlock } from './uniqueness.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, once } from '../shell/dialogs.js';
 import { add, el, esc, fill, icon, redraw } from '../shell/dom.js';
@@ -29,12 +30,22 @@ export function curationPanel(page) {
   const toolbar = el('div', { class: 'toolbar' });
   const tabs = el('div', { class: 'tabs', role: 'group', 'aria-label': t('cur.view') });
   const countText = el('span', { class: 'muted', 'aria-live': 'polite' });
-  const sim = similarityBlock(page);
+  const mapBox = el('div', { class: 'cur-map-filter' });  // the filter of the images the map left without a group (#667)
+  let noGroup = false;
+  let noise = 0;
+  const uniq = uniquenessBlock({ projectId, onChange: () => grid.reload() });
+  const sim = similarityBlock({
+    ...page,
+    onMap: ({ ready, noise: n }) => {
+      uniq.setMap(ready);
+      if (n !== noise) { noise = n; if (!noise && noGroup) { noGroup = false; grid.reload(); } drawNoGroup(); }
+    },
+  });
 
   const grid = imageGrid({
     projectId,
     selectable: true,
-    query: () => ({ status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
+    query: () => ({ ...uniq.query(), group: noGroup ? NO_GROUP : null, status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
     onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
     onOpen: (items, i) => openLightbox(projectId, items, i),
   });
@@ -105,6 +116,7 @@ export function curationPanel(page) {
     drawAdvanced();
     drawTabs();
     drawToolbar();
+    drawNoGroup();
     histBox.hidden = !analyzed();
     chipsBox.hidden = !analyzed() || view !== 'active';
     advBox.hidden = !limitsOpen || !summary || !summary.thresholds;
@@ -210,6 +222,13 @@ export function curationPanel(page) {
       }
     });
     fill(advBox, form);
+  }
+
+  function drawNoGroup() {
+    redraw(mapBox, noise ? el('button', {
+      type: 'button', class: `chip-btn${noGroup ? ' active' : ''}`, 'aria-pressed': noGroup ? 'true' : 'false', title: t('cur.no_group.help'), 'data-act': 'no-group',
+      onclick: () => { noGroup = !noGroup; drawNoGroup(); grid.reload(); },
+    }, el('span', null, t('cur.no_group')), el('span', { class: 'count' }, num(noise))) : null);
   }
 
   function drawTabs() {
@@ -321,10 +340,11 @@ export function curationPanel(page) {
     actionsBar,
     advBox,
     histBox,
+    uniq.node,
     sim.node,
     el('div', { class: 'cur-main' },
-      tabs, chipsBox, toolbar, grid.node));
-  panel.mount = () => { load(); sim.load(); };
-  panel.refresh = () => { load(); sim.load(); };
+      tabs, chipsBox, uniq.controls, mapBox, toolbar, grid.node));
+  panel.mount = () => { load(); sim.load(); uniq.load(); };
+  panel.refresh = () => { load(); sim.load(); uniq.load(); };
   return panel;
 }

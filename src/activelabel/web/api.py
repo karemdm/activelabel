@@ -17,7 +17,7 @@ from activelabel import annotations as ann
 from activelabel import fiftyone_bridge
 from activelabel.backups import make_backup
 from activelabel.constants import DATASET_STEPS, PROGRESS_STEPS
-from activelabel.curation import issues, quality
+from activelabel.curation import issues, quality, similarity, uniqueness
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.fiftyone_names import recorded_name
@@ -642,6 +642,36 @@ def import_folder(project_id: int, body: FolderImport, state: AppState = STATE) 
     return state.jobs.submit(project_id, "import_folder", job).as_dict()
 
 
+def _uniqueness_scores(state: AppState, project_id: int) -> dict[str, float]:
+    """The saved uniqueness scores of a project (empty before the first scoring).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        Image id to score (0 to 1).
+    """
+    scores = uniqueness.UniquenessStore(state.store.dir(project_id)).read().get("scores")
+    return dict(scores) if isinstance(scores, dict) else {}
+
+
+def _map_group(state: AppState, project_id: int) -> dict[str, int]:
+    """The group of each image on the similarity map (empty without a map).
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+
+    Returns:
+        Image id to group (``-1``: no group).
+    """
+    points = similarity.SimilarityStore(state.store.dir(project_id)).read().get("points")
+    if not isinstance(points, dict):
+        return {}
+    return {str(i): int(g) for i, g in zip(points.get("ids", []), points.get("group", []), strict=False)}
+
+
 @router.get("/projects/{project_id}/images")
 def list_images(
     project_id: int,
@@ -653,6 +683,9 @@ def list_images(
     dataset: int | None = None,
     part: str | None = None,
     fold: int | None = None,
+    sort: str = Query("", pattern="^(|uniqueness_desc|uniqueness_asc)$"),
+    unique_below: float | None = Query(None, ge=0, le=1),
+    group: int | None = Query(None, ge=-1),
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=MAX_PAGE),
     state: AppState = STATE,
@@ -675,12 +708,19 @@ def list_images(
         dataset: Keep the images of this dataset version.
         part: With ``dataset``: ``train``, ``val`` or ``test``.
         fold: With ``dataset``: keep this fold (0-based).
+        sort: ``uniqueness_desc`` (most unique first) or ``uniqueness_asc`` (most repeated first), by the
+            saved uniqueness scores; images without a score come last. Empty keeps the order of the project.
+        unique_below: Keep the images whose uniqueness is below this value (0 to 1); images without a score
+            are left out.
+        group: Keep the images of this group of the similarity map (``-1``: the ones HDBSCAN left without a
+            group); an image that is not on the map is left out.
         offset: Items to skip.
         limit: Items to return.
         state: The shared state of the application.
 
     Returns:
-        ``{total, items}``: how many images match and the requested page.
+        ``{total, items}``: how many images match and the requested page; an item has ``uniqueness`` when
+        it was scored.
     """
     manifest = state.manifest(project_id)
     records = manifest.all()
@@ -723,6 +763,15 @@ def list_images(
     if ids:
         wanted = set(ids.split(","))
         records = [r for r in records if r.id in wanted]
+    if group is not None:
+        in_group = _map_group(state, project_id)
+        records = [r for r in records if in_group.get(r.id) == group]
+    scores = _uniqueness_scores(state, project_id)
+    if unique_below is not None:
+        records = [r for r in records if r.id in scores and scores[r.id] < unique_below]
+    if sort:
+        sign = -1 if sort == "uniqueness_desc" else 1
+        records = sorted(records, key=lambda r: (r.id not in scores, sign * scores.get(r.id, 0.0)))
     annotations = load_annotations(state.store.dir(project_id))
     counts = {k: len(v) for k, v in annotations.images.items()} if annotations else {}
     classified = annotations is not None and annotations.task == Task.CLASSIFICATION
@@ -734,6 +783,8 @@ def list_images(
         item = _image_item(record, counts.get(record.id, 0))
         if classified and annotations:
             item["classes"] = sorted({lb.label for lb in annotations.images.get(record.id, [])})
+        if record.id in scores:
+            item["uniqueness"] = scores[record.id]
         original = duplicate_of.get(record.id)
         if original and "near_duplicate" in record.issues:
             item["duplicate_of"], item["duplicate_of_name"] = original, names.get(original, "")

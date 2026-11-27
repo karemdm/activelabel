@@ -2,14 +2,35 @@
 import { issueTag } from './names.js';
 import { api } from '../shell/api.js';
 import { el, fill, icon } from '../shell/dom.js';
-import { fmtBytes, nf1, num, t, tr } from '../shell/i18n.js';
+import { fmtBytes, nf1, nf2, num, t, tr } from '../shell/i18n.js';
 import { toastError } from '../shell/toast.js';
 
+/** A uniqueness score (0 to 1) as the person reads it: two decimals. */
+const score = (value) => nf2.format(value);
+
+/** The query string of one page of the grid: `q` is what query() returns. */
+function filterParams(q, offset, limit) {
+  const params = new URLSearchParams({ status: q.status || 'active', offset: String(offset), limit: String(limit) });
+  if (q.issue) params.set('issue', q.issue);
+  if (q.ids) params.set('ids', q.ids.join(','));
+  if (q.task != null) params.set('task', String(q.task));
+  if (q.job != null) params.set('job', String(q.job));
+  if (q.dataset) {
+    params.set('dataset', String(q.dataset.n));
+    if (q.dataset.fold != null) params.set('fold', String(q.dataset.fold)); else if (q.dataset.part) params.set('part', q.dataset.part);
+  }
+  if (q.sort) params.set('sort', q.sort);                          // uniqueness_desc | uniqueness_asc (#667)
+  if (q.uniqueBelow != null) params.set('unique_below', String(q.uniqueBelow));
+  if (q.group != null) params.set('group', String(q.group));       // a group of the similarity map; -1: no group
+  return params;
+}
+
 /**
- * Paged grid of thumbnails. `query()` returns {status, issue}. With `selectable`, every card
+ * Paged grid of thumbnails. `query()` returns {status, issue, sort, uniqueBelow, group}. With `selectable`, every card
  * has a checkbox and `selected` (a Set of ids) is kept up to date.
  */
 export function imageGrid({ projectId, query, selectable = false, onSelect, onOpen }) {
+  const showUniqueness = () => !!(query().sort || query().uniqueBelow != null);  // the value on the card only when it is what the grid is about
   const selected = new Set();
   const items = [];
   let total = 0;
@@ -47,6 +68,9 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
         el('span', { class: 'thumb-name', title: img.name }, img.name),
         (img.issues || []).length
           ? el('span', { class: 'thumb-tags' }, ...img.issues.map((i) => el('span', { class: `tag tag-${i}`, title: tr(`issue.${i}.help`, '') }, issueTag(i))))
+          : null,
+        typeof img.uniqueness === 'number' && showUniqueness()
+          ? el('span', { class: 'thumb-uniq', title: t('uniq.value_help') }, t('uniq.value', { value: score(img.uniqueness) }))
           : null,
         img.duplicate_of_name
           ? el('span', { class: 'thumb-dup', title: img.duplicate_of_name }, t('cur.duplicate_of', { name: img.duplicate_of_name }))
@@ -86,15 +110,7 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
     const mine = ++token;
     if (reset) { page = 0; selected.clear(); fire(); }
     const q = query();
-    const params = new URLSearchParams({ status: q.status || 'active', offset: String(page * size), limit: String(size) });
-    if (q.issue) params.set('issue', q.issue);
-    if (q.ids) params.set('ids', q.ids.join(','));
-    if (q.task != null) params.set('task', String(q.task));
-    if (q.job != null) params.set('job', String(q.job));
-    if (q.dataset) {
-      params.set('dataset', String(q.dataset.n));
-      if (q.dataset.fold != null) params.set('fold', String(q.dataset.fold)); else if (q.dataset.part) params.set('part', q.dataset.part);
-    }
+    const params = filterParams(q, page * size, size);
     try {
       const data = await api('GET', `/projects/${projectId}/images?${params}`);
       if (mine !== token) return;
@@ -120,15 +136,7 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
     const ids = [];
     let offset = 0;
     for (;;) {
-      const params = new URLSearchParams({ status: q.status || 'active', offset: String(offset), limit: '200' });
-      if (q.issue) params.set('issue', q.issue);
-      if (q.ids) params.set('ids', q.ids.join(','));
-      if (q.task != null) params.set('task', String(q.task));
-      if (q.job != null) params.set('job', String(q.job));
-      if (q.dataset) {
-        params.set('dataset', String(q.dataset.n));
-        if (q.dataset.fold != null) params.set('fold', String(q.dataset.fold)); else if (q.dataset.part) params.set('part', q.dataset.part);
-      }
+      const params = filterParams(q, offset, 200);
       const data = await api('GET', `/projects/${projectId}/images?${params}`);
       const got = data.items || [];
       got.forEach((i) => ids.push(i.id));
@@ -185,6 +193,10 @@ export function openLightbox(projectId, items, index) {
           (img.issues || []).length
             ? el('p', { class: 'thumb-tags' }, ...img.issues.map((x) => el('span', { class: `tag tag-${x}`, title: tr(`issue.${x}.help`, '') }, issueTag(x))))
             : el('p', { class: 'muted' }, t(metrics.length ? 'lightbox.no_issues' : 'lightbox.not_analyzed')),
+          typeof img.uniqueness === 'number' ? el('h3', null, t('lightbox.uniqueness')) : null,
+          typeof img.uniqueness === 'number'
+            ? el('p', null, el('strong', null, score(img.uniqueness)), ' ', el('span', { class: 'muted' }, t('lightbox.uniqueness_help')))
+            : null,
           metrics.length ? el('h3', null, t('lightbox.metrics')) : null,
           metrics.length
             ? el('dl', { class: 'facts compact' }, ...metrics.map(([k, v]) => el('div', null, el('dt', null, tr(`metric.${k}`, k)), el('dd', null, nf1.format(v)))))
