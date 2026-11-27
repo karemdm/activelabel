@@ -130,7 +130,9 @@ Only CVAT needs them. Set in the interface: the *Settings* (*Ajustes*) button of
 *Configurar o CVAT*, before it is set up) or the *Set up* / *Settings* button of the CVAT card on the import page
 (docs/IMPORT.md). The form starts with the address empty and an example of one as its placeholder (the address of CVAT
 online); the password or token is one field, called *Password or token* (*Senha ou token*), and when one is
-already saved the field says so and leaving it empty keeps it. Once CVAT is set up, the *CVAT* tab shows
+already saved the field says so and leaving it empty keeps it, also when only the address changes (the secret
+moves to the keyring key of the new address). When *Save and test* saved the address but the test then failed, the
+page still shows the new address. Once CVAT is set up, the *CVAT* tab shows
 "Connected to <server> as <user>". URL and username are stored in
 `<workspace>/tools.json`; the password / token **only** in the system keyring (service
 `activelabel`, key `<tool>:<url>`). They are never written to a file, never returned by the API
