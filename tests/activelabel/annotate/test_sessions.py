@@ -110,3 +110,12 @@ def test_public_hides_the_image_tags(proj):
     assert updated["image_tags"] == {ids[0]: ["check"]}
     assert "image_tags" not in sessions.public(updated)
     assert "image_tags" not in sessions.public(sessions.get(folder, session["id"]))
+
+
+def test_public_hides_the_origins(proj):
+    folder, _, ids = proj
+    session = sessions.create(folder, "fiftyone", "all", ids[:1], [], {})
+    updated = sessions.update(folder, session["id"], status="pulled", origins={ids[0]: ["h", None]})
+    assert updated["origins"] == {ids[0]: ["h", None]}
+    assert "origins" not in sessions.public(updated)
+    assert "origins" not in sessions.public(sessions.get(folder, session["id"]))

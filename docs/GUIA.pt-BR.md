@@ -125,6 +125,8 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
   *Descartar estas alterações*). O esquema de rótulos que o App exige para editar é gravado pelo
   ActiveLabel; só as imagens editadas no FiftyOne trazem a versão de lá. Geometrias inválidas que voltam
   do FiftyOne são listadas como problema, nunca gravadas em silêncio.
+  Uma caixa ou polígono movido para longe no FiftyOne conta como *editado* (não como adicionado e removido), e as
+  tags das imagens e dos rótulos criadas no FiftyOne voltam, aparecem na revisão e ficam guardadas no projeto.
 
 - *Importar anotações*: solte os arquivos de anotação (ou um .zip). O formato é detectado
   (COCO JSON, YOLO txt com `data.yaml`/`classes.txt`, Pascal VOC XML, XML do CVAT para

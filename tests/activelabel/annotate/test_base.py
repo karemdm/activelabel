@@ -34,3 +34,10 @@ def test_pulled_tags_are_the_image_tags_or_none():
     assert pulled.tags == {"a": ["check"]}
     source["b"] = ["x"]
     assert pulled.tags == {"a": ["check"]}  # a copy
+
+
+def test_pulled_origins_default_to_nothing_and_are_a_copy():
+    assert Pulled({}, set()).origins == {}
+    given = {"a": ["h", None]}
+    pulled = Pulled({"a": [Label("cat"), Label("dog")]}, {"a"}, origins=given)
+    assert pulled.origins == given and pulled.origins is not given

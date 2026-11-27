@@ -13,6 +13,8 @@ from activelabel.annotate import registry, sessions
 from activelabel.annotate.base import Pulled, ToolSettings
 from activelabel.images.tags import load_tags, set_tags
 from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
+from activelabel.sync.links import label_hash
+from activelabel.tasks import Task
 from activelabel.web import annotate_api
 from activelabel.web.errors import ApiError
 
@@ -145,3 +147,47 @@ def test_a_pull_of_a_tool_without_image_tags_changes_no_stored_tags(tmp_path, mo
     assert not sessions.get(folder, sid).get("image_tags")
     assert client.post(f"/api/projects/1/annotate/{sid}/apply").status_code == 200
     assert load_tags(folder) == {ids[1]: ["keep"]}
+
+
+class MovedTool(TaggedTool):
+    """A tool that says only the first image was edited, and gives the origin of the labels of both."""
+
+    def __init__(
+        self, labels: dict[str, list[Label]], origins: dict[str, list[str | None]], edited: str
+    ) -> None:
+        super().__init__(labels, None)
+        self.origins = origins
+        self.edited = edited
+
+    def pull(self, dataset, image_ids, project, settings, ref) -> Pulled:
+        return Pulled(self.labels, {self.edited}, origins=self.origins)
+
+
+def test_origins_pair_a_moved_box_and_are_kept_only_for_the_edited_images(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, _ = _tagged_session(tmp_path, None)
+    cat = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])
+    other = Label("cat", bbox=[0.5, 0.5, 0.2, 0.2])
+    save_annotations(folder, AnnotationSet(Task.DETECTION, ["cat"], {ids[0]: [cat], ids[1]: [other]}, {}))
+    moved = Label("cat", bbox=[0.7, 0.7, 0.2, 0.2])  # far from where it was: no overlap with the old box
+    tool = MovedTool(
+        {ids[0]: [moved], ids[1]: [moved]},
+        {ids[0]: [label_hash([cat])], ids[1]: [label_hash([other])]},
+        edited=ids[0],
+    )
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    monkeypatch.setattr(annotate_api, "_tool", lambda name: tool)
+    result = annotate_api._pull_job(
+        state, state.project(1), tool, ToolSettings("fiftyone"), sessions.get(folder, sid), sid, Quiet()
+    )
+    diff = result["diff"]
+    assert (diff["added"], diff["removed"], diff["edited"], diff["images_changed"]) == (0, 0, 1, 1)
+    assert "origins" not in result["session"]  # never shown by the API
+    assert sessions.get(folder, sid)["origins"] == {
+        ids[0]: [label_hash([cat])]
+    }  # the other image was not edited
+    reply = client.post(f"/api/projects/1/annotate/{sid}/apply")
+    assert reply.status_code == 200, reply.text
+    applied = reply.json()["applied"]
+    assert (applied["added"], applied["removed"], applied["edited"]) == (0, 0, 1)
+    saved = load_annotations(folder).images
+    assert saved[ids[0]][0].bbox == moved.bbox and saved[ids[1]] == [other]

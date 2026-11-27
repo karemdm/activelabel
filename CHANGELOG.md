@@ -80,6 +80,9 @@ Everything below goes into the first release, 0.1.0.
   replace the labels of an image with a revision check (409 `labels_changed`), the checks of an import
   (400 `labels_invalid`) and new classes added only on request (409 `classes_new`); the edit is sent to CVAT
   at the next comparison and shown in FiftyOne (#588, docs/ANNOTATION.md).
+- **A box moved far in FiftyOne is an edit.** Brought-back labels are paired with the project label they
+  were written from by the id FiftyOne keeps (`activelabel_label_refs`), so a box or polygon moved far, resized
+  or reclassified counts as *edited* in the review and on apply, not as *added* plus *removed* (#588). The
 - **Tags from FiftyOne.** Sample tags and label tags made in the App come back with *Bring annotations
   back*, are counted in the review (`tags: {added, removed}`) and are kept in the project (`tags.json`,
   the labels' `tags`), and written back into FiftyOne (#588). The stored format is now version 2 (new

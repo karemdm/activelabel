@@ -86,6 +86,17 @@ def _tags(value: Any) -> list[str] | None:
     return list(dict.fromkeys(tags)) or None
 
 
+def _keep_id(ids: list[str] | None, value: Any) -> None:
+    """Note the FiftyOne id of a label that was read (when the caller asked for the ids).
+
+    Args:
+        ids: the list the ids go into, or None when they are not wanted.
+        value: the FiftyOne label that was read.
+    """
+    if ids is not None:
+        ids.append(str(getattr(value, "id", "") or ""))
+
+
 def _classification(value: Any) -> list[Label]:
     """Labels of a ``Classification`` or ``Classifications`` (the first one).
 
@@ -103,12 +114,13 @@ def _classification(value: Any) -> list[Label]:
     return [Label(str(value.label), tags=_tags(value))]
 
 
-def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
+def _detections(value: Any, notes: dict[str, int], ids: list[str] | None = None) -> list[Label]:
     """Labels of a ``Detections`` value: those with a class and a box.
 
     Args:
         value: the ``Detections`` label.
         notes: counters; ``mask_only`` is increased for each detection that has a mask.
+        ids: when given, gets the FiftyOne id of each label read, in the same order.
 
     Returns:
         One label with a box per detection.
@@ -121,6 +133,7 @@ def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
         if getattr(det, "mask", None) is not None:
             _note(notes, "mask_only")  # kept as a box: masks are not converted
         out.append(Label(str(det.label), bbox=box, track=_track(det), tags=_tags(det)))
+        _keep_id(ids, det)
     return out
 
 
@@ -134,7 +147,7 @@ def _note(notes: dict[str, int], code: str) -> None:
     notes[code] = notes.get(code, 0) + 1
 
 
-def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
+def _polylines(value: Any, notes: dict[str, int], ids: list[str] | None = None) -> list[Label]:
     """Labels of a ``Polylines`` value: those with a class and a ring of at least 3 points.
 
     ``closed`` and ``filled`` are not read when a ring has 3 points or more: the App gives a polyline
@@ -147,6 +160,7 @@ def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
     Args:
         value: the ``Polylines`` label.
         notes: counters; ``open_polyline`` and ``polygon_too_few_points`` are increased once per polyline.
+        ids: when given, gets the FiftyOne id of each label read, in the same order.
 
     Returns:
         One label with polygons and their bounding box per usable polyline.
@@ -168,6 +182,7 @@ def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
         out.append(
             Label(str(poly.label), bbox=_box_of(flat), polygons=rings, track=_track(poly), tags=_tags(poly))
         )
+        _keep_id(ids, poly)
     return out
 
 
@@ -190,11 +205,12 @@ def _inside(inner: list[float], outer: list[float]) -> bool:
     )
 
 
-def _keypoints(value: Any) -> list[Label]:
+def _keypoints(value: Any, ids: list[str] | None = None) -> list[Label]:
     """Labels of a ``Keypoints`` value, restoring visibility and the original box kept by the bridge.
 
     Args:
         value: the ``Keypoints`` label.
+        ids: when given, gets the FiftyOne id of each label read, in the same order.
 
     Returns:
         One label per keypoint set with its points ``[x, y, visibility]``.
@@ -216,10 +232,13 @@ def _keypoints(value: Any) -> list[Label]:
         if box and kept and len(kept) == 4 and _inside(box, [float(v) for v in kept]):
             box = [_r(float(v)) for v in kept]
         out.append(Label(str(kp.label), bbox=box, keypoints=points, track=_track(kp), tags=_tags(kp)))
+        _keep_id(ids, kp)
     return out
 
 
-def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int]]:
+def labels_and_notes(
+    value: Any, task: Task, ids: list[str] | None = None
+) -> tuple[list[Label], dict[str, int]]:
     """Like :func:`labels_from_fo`, plus notes on shapes that were changed or left out to be read.
 
     Notes: ``mask_only`` (a detection mask kept as its box), ``open_polyline`` (a line that is not closed
@@ -229,6 +248,8 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     Args:
         value: the FiftyOne label field value, a ``{target: value}`` dict (regression), or None.
         task: task of the project (classification keeps one label).
+        ids: when given, gets the FiftyOne id of each label returned, in the same order (none for a
+            classification: its labels are compared by class only).
 
     Returns:
         The labels and the notes.
@@ -245,11 +266,11 @@ def labels_and_notes(value: Any, task: Task) -> tuple[list[Label], dict[str, int
     if kind in ("Classification", "Classifications"):
         labels = _classification(value)
     elif kind == "Detections":
-        labels = _detections(value, notes)
+        labels = _detections(value, notes, ids)
     elif kind == "Polylines":
-        labels = _polylines(value, notes)
+        labels = _polylines(value, notes, ids)
     elif kind == "Keypoints":
-        labels = _keypoints(value)
+        labels = _keypoints(value, ids)
     else:
         raise ValueError(f"Unsupported FiftyOne label type: {kind}")
     if task is Task.CLASSIFICATION:
