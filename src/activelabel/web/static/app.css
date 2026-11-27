@@ -707,11 +707,13 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .callout-line { display: flex; gap: 0.6rem; background: var(--primary-soft); border-radius: var(--radius-sm); padding: 0.7rem 0.8rem; margin: 0 0 1.25rem; }
 .callout-line .icon { color: var(--primary); margin-top: 2px; }
 .import-error p { margin: 0 0 var(--space-2); }
-.import-job { max-width: 52rem; }
+.import-job { max-width: none; }  /* the whole width, like the other pages (#695) */
 .ok-title, .bad-title { display: flex; align-items: center; gap: var(--space-2); margin-top: 0; }
 .ok-title .icon { color: var(--ok); }
 .bad-title .icon { color: var(--danger); }
 .result-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3) var(--space-5); margin: var(--space-4) 0; }
+.result-facts > div { display: block; }  /* label above value, every cell aligned to the left */
+.result-facts dd { text-align: left; }
 .result-facts dt { color: var(--muted); font-size: var(--font-sm); }
 .result-facts dd { margin: 0; font-weight: 600; }
 .origin-badge { background: var(--surface-2); }
