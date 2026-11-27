@@ -676,6 +676,7 @@ def sync_dataset(
     tidy_app(dataset)
     _save_views(dataset, tasks)
     report(total, total)
+    refresh_app(dataset)
     return dataset
 
 
@@ -971,6 +972,30 @@ def launch_app(
         _launched.add(candidate)
         return app_url(dataset, view, candidate)
     raise OSError(f"No free port for the FiftyOne App ({port}-{port + PORT_TRIES - 1}): {last}")
+
+
+def refresh_app(dataset: fo.Dataset) -> bool:
+    """Make a running App that shows ``dataset`` read it again, so the page needs no F5.
+
+    Args:
+        dataset: the dataset that was just changed.
+
+    Returns:
+        Whether an App of ours was showing the dataset and was refreshed.
+    """
+    session = _session
+    if session is None:
+        return False
+    try:
+        if session.dataset is None or session.dataset.name != dataset.name:
+            return False
+        if not port_answers(int(session.port)):
+            return False
+        within(SWITCH_TIMEOUT, session.refresh, "refreshing the App")
+    except Exception:  # noqa: BLE001 - the App is a convenience: the dataset is already up to date
+        log.warning("The FiftyOne App could not be refreshed", exc_info=True)
+        return False
+    return True
 
 
 def port_answers(port: int) -> bool:
