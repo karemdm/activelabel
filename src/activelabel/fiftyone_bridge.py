@@ -11,9 +11,10 @@ fingerprint; ``activelabel_labels``: the hash of the project labels it came from
 ``ground_truth`` no longer matches its fingerprint was edited in FiftyOne (see :func:`edited_images`).
 
 A regression project (#619) has no ``ground_truth`` label: each target is a float field
-``ground_truth_<target>`` (see :func:`target_fields`), because the App (1.22) edits number fields but not
-``Regression`` labels. Its ground truth is then ``{target: value}`` (see :func:`truth_of`), and the
-fingerprint, the edit detection and the read back work on that the same way.
+``ground_truth_<target>`` (see :func:`target_fields`) to sort, filter and chart the values in the App. They
+are only shown: the values are edited in ActiveLabel, so the App gets no label schema for them. Its ground
+truth is then ``{target: value}`` (see :func:`truth_of`), and the fingerprint and the edit detection work on
+that the same way.
 """
 
 from __future__ import annotations
@@ -859,28 +860,6 @@ def _closed_and_filled(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [{**a, "default": True} if a.get("name") in ("closed", "filled") else a for a in attributes]
 
 
-def _enable_value_editing(dataset: fo.Dataset) -> bool:
-    """Let the App's *Annotate* mode edit the float field of each target (a text box for the number).
-
-    Args:
-        dataset: the dataset of a regression project (its target fields declared).
-
-    Returns:
-        Whether the fields can be edited in the App (False when the project has no target).
-    """
-    names = list(fields_of(dataset).values())
-    try:
-        for name in names:
-            schema = dict(dataset.generate_label_schemas(name, scan_samples=False))
-            dataset.update_label_schema(name, {**schema, "component": "text"})
-        active = list(dataset.active_label_schemas)
-        dataset.active_label_schemas = [*active, *(n for n in names if n not in active)]
-    except Exception:  # noqa: BLE001 - FiftyOne refused the schema: the values can still be seen
-        log.warning("Could not enable editing of the target fields in the FiftyOne App", exc_info=True)
-        return False
-    return bool(names)
-
-
 def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     """Let the App's *Annotate* mode edit ``ground_truth``, choosing classes from the project's list.
 
@@ -888,8 +867,8 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     tab only offers to "Add schema". For polygons the schema also makes a new polyline closed and filled
     (the App's own default is an open, unfilled line). The App can edit classifications, boxes and
     polygons of images, not
-    keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne). In a
-    regression project the float field of each target gets a schema instead (a text box).
+    keypoints: a keypoints project gets no schema (its labels are shown, not edited, in FiftyOne), and nor
+    does a regression project (its values are edited in ActiveLabel; the float fields only show them).
 
     Args:
         dataset: the project's dataset (with its samples, so its media type is known).
@@ -898,10 +877,8 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
     Returns:
         Whether ``ground_truth`` can be edited in the App.
     """
-    if project.task is Task.KEYPOINTS or dataset.media_type != "image":
+    if project.task in (Task.KEYPOINTS, Task.REGRESSION) or dataset.media_type != "image":
         return False
-    if project.task is Task.REGRESSION:
-        return _enable_value_editing(dataset)
     try:
         schema = dict(dataset.generate_label_schemas(GROUND_TRUTH, scan_samples=False))
         if project.classes:

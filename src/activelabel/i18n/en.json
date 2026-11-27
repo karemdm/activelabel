@@ -814,6 +814,7 @@
   "tasks.menu_view_fo": "View in FiftyOne",
   "tasks.menu_cvat": "Open in CVAT",
   "tasks.fo_no_keypoints": "FiftyOne does not edit keypoints: use CVAT",
+  "tasks.fo_no_regression": "Values are edited in ActiveLabel; FiftyOne only shows them.",
   "tasks.cvat_not_configured": "CVAT is not set up: configure it in the CVAT tab",
   "tasks.cvat_not_linked": "This project is not in CVAT yet: Compare with CVAT (Annotations → CVAT) creates it there",
   "tasks.cvat_not_synced": "This task is not in CVAT yet: Compare with CVAT (Annotations → CVAT) creates it there",
@@ -1820,7 +1821,9 @@
   "error.what.task": "task",
   "error.tool_error": "{tool} error: {reason}",
   "error.fiftyone_keypoints_not_editable": "The FiftyOne App does not edit keypoints: edit them in CVAT.",
+  "error.fiftyone_regression_not_editable": "The FiftyOne App edits no values: edit them in ActiveLabel (Images).",
   "error.regression_not_supported_yet": "This is not available for regression projects yet.",
+  "error.cvat_not_for_regression": "CVAT keeps shapes and class tags, not a number per image. Use a CSV or JSON file with the values.",
   "error.tool_unsupported": "Sessions of {tool} are no longer supported: close this session.",
   "error.device_invalid": "The device must be automatic, CPU, a GPU (cuda:N) or MPS.",
   "error.device_unavailable": "The device {device} is not available on this computer.",
@@ -1957,5 +1960,6 @@
   "open.fo_edit": "Edit in {tool}",
   "annotate.choose": "Choose images",
   "open.fo_view": "Open in {tool} (view only)",
+  "open.fo_regression": "Edit values in ActiveLabel (Images); FiftyOne is for looking.",
   "open.fo_keypoints": "Keypoints can only be viewed here: edit them in CVAT."
 }

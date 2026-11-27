@@ -13,6 +13,7 @@ import { problemRow } from '../shell/widgets.js';
 
 export function annotationsPanel(page) {
   const { ctx, projectId, refreshProject, tabsView } = page;
+  const regression = !!ctx.project && ctx.project.task === 'regression';   // numbers per image: no CVAT tab (#619)
   const node = el('section', { class: 'panel', id: 'panel-annotations', hidden: true, 'aria-labelledby': 'h-annotations' });
   const panel = { node, mounted: false };
   const fileInput = el('input', { type: 'file', multiple: true, class: 'sr-only', id: 'ann-input', tabindex: '-1' });
@@ -266,7 +267,7 @@ export function annotationsPanel(page) {
     if (!images && !labels && !emptyImages) {
       const way = (tab, key) => el('li', null, el('button', { type: 'button', class: 'btn small', onclick: () => annTabs.select(tab, true) }, t(`ann.way_${key}`)), el('span', { class: 'muted' }, t(`ann.way_${key}_help`)));
       fill(gtBox, el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
-        el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
+        el('ul', { class: 'ann-ways' }, ...(regression ? [] : [way('cvat', 'cvat')]), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
       return;
     }
     const tile = (label, value, extra = '') => el('div', { class: `stat-tile${extra}` }, el('dd', null, num(value)), el('dt', null, label));
@@ -314,13 +315,13 @@ export function annotationsPanel(page) {
   const annTabs = tabsView('annotations', t('step.annotations'), [
     { id: 'summary', label: t('ann.tab_summary'), nodes: [gtBox, backupsBox] },
     { id: 'preannotate', label: t('pre.tab'), nodes: [pre.node], onShow: () => pre.load() },
-    { id: 'cvat', label: toolName('cvat'), nodes: [annotate.cvatSection] },
+    regression ? null : { id: 'cvat', label: toolName('cvat'), nodes: [annotate.cvatSection] },
     { id: 'fiftyone', label: toolName('fiftyone'), nodes: [annotate.fiftyoneSection] },
     { id: 'files', label: t('ann.tab_files'), nodes: [el('section', { class: 'annot-section load-files', 'aria-labelledby': 'h-load' },
       el('h3', { id: 'h-load' }, t('ann.load_title')),
       el('p', { class: 'muted' }, t('ann.load_intro')),
       taskBox, drop, fileInput, reportBox)] },
-  ], 'summary');
+  ].filter(Boolean), 'summary');
   add(node,
     el('h2', { id: 'h-annotations' }, t('step.annotations')),
     annTabs.node);

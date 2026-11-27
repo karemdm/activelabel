@@ -447,14 +447,17 @@ export function imagesPanel(page) {
 
   /** What a task (or one of its jobs) can be opened in. A disabled item says why. */
   function openItems(task, job) {
-    const keypoints = ctx.project && ctx.project.task === 'keypoints';
+    const kind = ctx.project && ctx.project.task;
+    const regression = kind === 'regression';   // numbers per image: FiftyOne to look at them, no CVAT (#619)
+    const viewOnly = kind === 'keypoints' || regression;
     const link = (ctx.links || []).find((l) => l.tool === 'cvat') || null;
     /* a task always says its own reason (not the project's), linked or not */
     const target = cvatTarget({ link: link || {}, configured: true, task, job: job || null });
-    const items = [keypoints
-      ? { label: t('tasks.menu_edit_fo'), disabled: true, reason: t('tasks.fo_no_keypoints') }
+    const items = [viewOnly
+      ? { label: t('tasks.menu_edit_fo'), disabled: true, reason: t(regression ? 'tasks.fo_no_regression' : 'tasks.fo_no_keypoints') }
       : { label: t('tasks.menu_edit_fo'), onclick: () => editInFiftyOne(task, job) }];
-    if (keypoints) items.push({ label: t('tasks.menu_view_fo'), onclick: () => openTaskInFiftyOne(task, job) });
+    if (viewOnly) items.push({ label: t('tasks.menu_view_fo'), onclick: () => openTaskInFiftyOne(task, job) });
+    if (regression) return items;
     /* what a comparison can fix (not in CVAT yet, deleted there) leads to the CVAT tab with the reason; a
        connection not set up or CVAT down cannot be fixed there, so the item stays disabled with why (#684) */
     if (target.url) items.push({ label: t('tasks.menu_cvat'), href: target.url });

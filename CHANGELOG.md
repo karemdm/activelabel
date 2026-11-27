@@ -33,10 +33,9 @@ Everything below goes into the first release, 0.1.0.
   images uploaded as files, a folder, a .zip or a video; tasks and jobs inside a project as in CVAT, with
   long videos cut into time-distant segments when needed (docs/TASKS.md, docs/VIDEO.md).
 - **Regression projects** (#619). A number per image and target (for example age or a count): targets
-  instead of classes, values imported from CSV or JSON, synchronised with CVAT (a tag per target with a
-  `value` attribute) and edited in FiftyOne (a float field per target) (docs/IMPORT.md, docs/SYNC.md,
-  docs/ANNOTATION.md), and split into versions balanced by bins of the values (docs/DATASETS.md). Training and
-  pre-annotation of these projects come next.
+  instead of classes, values imported from CSV or JSON and edited in ActiveLabel, shown in FiftyOne as a float
+  field per target (view only), and split into versions balanced by bins of the values (docs/IMPORT.md,
+  docs/ANNOTATION.md, docs/DATASETS.md). Training and pre-annotation of these projects come next.
 - **YOLO training (Ultralytics).** YOLO26, YOLO11 and YOLOv8 (sizes n to x) detection, segmentation, pose and
   classification models train with their own worker once the AGPL-3.0 licence of Ultralytics is accepted; the acceptance is kept with its date in
   the workspace settings, and nothing is installed or trained before it (docs/TRAINING.md, *Licences*).
@@ -79,6 +78,7 @@ Everything below goes into the first release, 0.1.0.
 
 ### Changed
 
+- Regression projects no longer sync with CVAT (it keeps no number per image); in FiftyOne they are view-only, and values are edited in ActiveLabel (#619).
 - **Import name.** The name typed in the import form stays only in ActiveLabel: the first comparison no
   longer offers it as a rename of the CVAT project (the link records both names) (#695).
 - **Import report.** The report card of an imported project uses the whole width and its summary cells line
