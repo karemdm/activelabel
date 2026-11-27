@@ -5,7 +5,8 @@ annotations, with a review before anything changes. In the interface this is the
 *Annotations*; it is also the only way to review in CVAT (there are no CVAT edit sessions). The API takes
 `cvat` as `{tool}`; any other name answers 404 `tool_unknown`. When CVAT is set up, the tab says which
 server and user it is connected to (*Connected to ... as ...*); the connection is set as described in
-docs/ANNOTATION.md (*Credentials*).
+docs/ANNOTATION.md (*Credentials*): the address is `http://` or `https://` without a user or password in it, and
+the password is kept only in the system keyring.
 
 A link written for a tool that cannot be synchronised any more (an old workspace; see
 [CHANGELOG.md](../CHANGELOG.md)) is listed by `GET /api/projects/{id}/links` with `supported: false` and shown as "Linked to a
@@ -15,11 +16,11 @@ unlinked, which changes nothing in that tool.
 ## Link
 
 `<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, local_name, created, last_sync, revision,
-tasks?, classes?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
+tasks?, classes?, local_name?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
 "removed"?: true}}}}`
 (one link per tool; `key` identifies the image in the remote project, `"<task_id>:<frame>"` in CVAT;
 `revision` goes up on every save, so a comparison made before
-another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md; `classes` is
+another synchronisation is refused; `tasks` is the mapping of docs/TASKS.md (a task left in CVAT after it was deleted here has `kept_remote: true`); `classes` is
 `{"<class id in the tool>": "<name>"}` at the last sync, to notice a class renamed there). For each image the link
 keeps the labels as they were at the last sync (`labels`) and their hash (`base`, a stable SHA-256 of
 the labels in the internal format, sorted, coordinates rounded to 4 decimals); `removed` marks an image
@@ -54,8 +55,8 @@ to the synchronisation and would keep counting in the plan. If an upload of late
 half-made task is deleted.
 
 **Audit of the server.** The *Tasks on the server* (*Tasks no servidor*) button of the *CVAT* tab opens a
-**read-only audit** (`GET /api/cvat/audit`, 400 `tool_error` when CVAT cannot be reached or refuses the
-login): the tasks of every project of the configured server, saying which project is linked to one of
+**read-only audit** (`GET /api/cvat/audit`; 400 with the code of the failure, for example `cvat_unreachable` or
+`cvat_login_failed`, when CVAT cannot be reached or refuses the login): the tasks of every project of the configured server, saying which project is linked to one of
 ours, and the tasks that are in no project, grouped by name pattern (digits shown as `#`, e.g.
 `street_round_#`; the biggest group first). ActiveLabel only creates tasks inside a project, so those come
 from other tools or older versions. The audit never moves or deletes anything. A list CVAT does not
@@ -139,8 +140,10 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    project takes that name here. A project made here is called `ActiveLabel <id> - <name>` in CVAT, and the
    prefix is added or removed on the way; a project imported from CVAT keeps the plain name on both sides.
    A name typed differently at the import stays only here (#695, product decision): the link records the
-   remote name (`remote_name`) and the local one (`local_name`) at the import, so the first comparison sees
-   no rename on either side and offers nothing to CVAT; a later rename on one side is offered as usual.
+   remote name (`remote_name`) and the local one (`local_name`) at the import and after each comparison that
+   settles the names, so the first comparison sees no rename on either side and offers nothing to CVAT; a
+   later rename on one side is offered as usual. A `push` always sends the local name and a `pull` always
+   takes the CVAT one. Both sides renamed to different names: both are kept and a warning is shown.
    Renaming is never blocked while CVAT is down: the name is sent at the next
    synchronisation that can reach it. A rename that fails is a warning, tried again next time.
 
@@ -164,6 +167,22 @@ The person chooses the direction before comparing (`direction` in `POST /sync/{t
 | `push` | this project wins: the tool becomes like it; no conflicts; tasks that exist only in the tool are left alone |
 
 A task deleted here is deleted in the tool only in `both`/`push` and only when confirmed.
+
+## Open in CVAT
+
+*Open in CVAT* (*Abrir no CVAT*) is in the *CVAT* tab and in the open menu of each task and job in
+*Tasks and jobs*; it is not in the project header. The addresses are built on the server that is set up
+now, so they follow a change of that address (`GET /api/projects/{id}/links` gives the project one):
+
+| Opens | Address |
+| --- | --- |
+| the project | `<server>/projects/<project id>` |
+| a task | `<server>/tasks/<task id>` |
+| a job | `<server>/tasks/<task id>/jobs/<job id>` |
+
+When there is nothing to open, the tab or the menu says why in one line (CVAT not set up, project or task not in
+CVAT yet, deleted there, CVAT did not answer; see docs/TASKS.md). The edits made in CVAT come back through
+*Compare with CVAT*.
 
 ## Tracks (CVAT)
 
@@ -193,7 +212,7 @@ one track id per job.
 | --- | --- |
 | rectangle | box (detection) |
 | rectangle with `rotation` | the axis-aligned box that **encloses** the turned rectangle (detection trains on axis-aligned boxes). The rectangle stays turned in CVAT: a push of its frame leaves it alone while its enclosing box is unchanged; moving the box moves the rectangle and keeps its turn; resizing it replaces the rectangle by the new box, without a turn. In tracks the turn is interpolated between keyframes, the short way round |
-| polygon | polygon and its box (segmentation) |
+| polygon | polygon and its box (segmentation). Polygons of one class that share a CVAT `group` are **one object with several parts** (rings); its box encloses all of them. An object with several parts is written back as one polygon per part, all in one CVAT group |
 | points | one pose object (keypoints). A point at the top-left corner is *not labeled* (0). CVAT has one `occluded` flag per shape: a pose whose labeled points are all *labeled but not visible* (1) is an occluded shape; a pose that mixes 1 and 2 keeps each point's visibility in the text attribute `visibility` of its CVAT label (`"2,1,0"`; added to that label the first time a pose needs it). CVAT has no box for a pose: a pose whose points did not change keeps the box the project has (from COCO, for example), so the box alone is never a change; when the points change the box becomes the box of the points |
 | skeleton | one pose object (keypoints projects): one point per sublabel of the skeleton label, in the order of the sublabels; a missing or `outside` part is *not labeled* (0), an `occluded` one is 1. The class is the skeleton label. A pose of a skeleton class is written back as a skeleton (each part keeps its id) |
 | tag | image class (classification) |
@@ -240,7 +259,7 @@ A new task (*add*) is filled with one `PUT`, since it has no annotations yet.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/api/projects/{id}/links` | | `{links: [{tool, url, remote_id, remote_name, last_sync, images, supported}]}` |
+| GET | `/api/projects/{id}/links` | | `{links: [{tool, url, remote_id, remote_name, last_sync, images, supported}]}` (`url` of a CVAT project is built on the server set up now) |
 | DELETE | `/api/projects/{id}/links/{tool}` | | `{unlinked: true}` (remote untouched); 409 while a job of the project runs; 404 `not_linked` |
 | POST | `/api/projects/{id}/sync/{tool}` | `{create?, remote_id?, scope: "project"\|"task"\|"job" (default project), task?, job?, direction: "both"\|"pull"\|"push" (default both)}` | job `sync_plan` |
 | GET | `/api/cvat/audit` | | `{url, projects: [{id, name, url, linked_to: {id, name}\|null, tasks: [{id, name, size, url}]}], loose: [{pattern, tasks}], missing: ["projects"\|"tasks"]}`; read-only |
