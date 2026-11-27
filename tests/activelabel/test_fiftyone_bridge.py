@@ -1,4 +1,7 @@
+import os
 import socket
+import subprocess
+import sys
 import threading
 import uuid
 from types import SimpleNamespace
@@ -534,3 +537,39 @@ def test_polygons_are_written_closed_and_filled_and_new_ones_default_to_that(tmp
     assert polyline.closed and polyline.filled
     attributes = {a["name"]: a for a in dataset.label_schemas[bridge.GROUND_TRUTH]["attributes"]}
     assert attributes["closed"]["default"] is True and attributes["filled"]["default"] is True
+
+
+def test_sync_reports_how_many_images_it_has_handled(tmp_path, project):
+    manifest = build(tmp_path, 3)
+    seen = []
+    bridge.sync_dataset(project, manifest, None, lambda done, total: seen.append((done, total)))
+    assert seen[0] == (0, 3) and seen[-1] == (3, 3)  # from none to all, in the order the work is done
+    assert [done for done, _ in seen] == sorted(done for done, _ in seen)
+    seen.clear()
+    bridge.sync_dataset(project, manifest, None, lambda done, total: seen.append((done, total)))  # refresh
+    assert seen[0] == (0, 3) and seen[-1] == (3, 3)
+
+
+def test_sync_stops_when_the_progress_callback_raises(tmp_path, project):
+    manifest = build(tmp_path, 3)
+
+    def stop(done, total):
+        raise RuntimeError("cancelled")
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        bridge.sync_dataset(project, manifest, None, stop)
+
+
+def test_the_app_port_is_5161_unless_the_environment_names_another():
+    code = "from activelabel import fiftyone_bridge as b; print(b.APP_PORT)"
+
+    def port(value):
+        env = {k: v for k, v in os.environ.items() if k != "ACTIVELABEL_FIFTYONE_PORT"}
+        if value is not None:
+            env["ACTIVELABEL_FIFTYONE_PORT"] = value
+        out = subprocess.run(
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        )
+        return int(out.stdout.strip())
+
+    assert (port(None), port(""), port("5183")) == (5161, 5161, 5183)

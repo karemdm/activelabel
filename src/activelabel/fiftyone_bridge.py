@@ -47,12 +47,16 @@ VIEW_DUPLICATES = "curation - near duplicates"
 
 TASK_VIEW_PREFIX = "task-"  # saved view of a task: ``task-<id>`` (stable; the name is its description)
 
-APP_PORT = 5161  # not 5151: another FiftyOne program on the machine may own the default port
+#: First port of the App: 5161 (not 5151: another FiftyOne program on the machine may own the default port),
+#: or the one in ``ACTIVELABEL_FIFTYONE_PORT``.
+APP_PORT = int(os.environ.get("ACTIVELABEL_FIFTYONE_PORT") or 5161)
 PORT_TRIES = 11  # APP_PORT and the next 10 ports
 #: Seconds to wait for the App to start (its server answers within FiftyOne's own 60 s, plus the first event).
 LAUNCH_TIMEOUT = 120.0
 #: Seconds to wait for a running App to switch dataset or view.
 SWITCH_TIMEOUT = 30.0
+_WRITE_BATCH = 200  # new samples written per call, so a long dataset reports progress between the calls
+_REPORT_EVERY = 10  # samples between two progress reports while the existing ones are refreshed
 _launched: set[int] = set()  # ports where this process started the App (its own App may be rejoined)
 
 DATASET_PREFIX = "activelabel"  # datasets are ``<prefix>-<project id>[-<random>]``
@@ -560,7 +564,21 @@ def open_session_images(project_dir: Any) -> set[str]:
     return sessions.protected_images(project_dir)
 
 
-def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSet | None) -> fo.Dataset:
+def _no_report(done: int, total: int) -> None:
+    """Progress reporter that ignores what it is told (no one is watching).
+
+    Args:
+        done: items handled so far.
+        total: items in all.
+    """
+
+
+def sync_dataset(
+    project: Project,
+    manifest: Manifest,
+    annotations: AnnotationSet | None,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> fo.Dataset:
     """Create or refresh the persistent FiftyOne dataset of a project, in place.
 
     Samples are matched by ``image_id``: re-running updates them, adds new images and removes
@@ -577,6 +595,8 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
         project: the project (name of the dataset, task, classes).
         manifest: images, measures and issues.
         annotations: ground truth, or None when there is none yet.
+        on_progress: called with ``(images handled, images in all)`` while the samples are written (the
+            last call has both equal, once the views are saved); it may raise to stop the work.
 
     Returns:
         The dataset.
@@ -605,15 +625,24 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     if stale:
         dataset.delete_samples(stale)
 
+    total = len(records)
+    handled = 0
+    report = on_progress or _no_report
+    report(0, total)
     new: list[fo.Sample] = []
     for record in records.values():
         if record.id not in known:
             sample = fo.Sample(filepath=str(manifest.file_path(record).resolve()))
             _apply(sample, record, manifest, project.task, annotations, duplicate_of, kept, where)
             new.append(sample)
-    if new:
-        dataset.add_samples(new)
+    for start in range(0, len(new), _WRITE_BATCH):
+        dataset.add_samples(new[start : start + _WRITE_BATCH])
+        handled += len(new[start : start + _WRITE_BATCH])
+        report(handled, total)
     for sample in dataset.select(list(known.values())).iter_samples(autosave=True):
+        handled += 1
+        if handled % _REPORT_EVERY == 0:
+            report(handled, total)
         _apply(
             sample,
             records[sample["image_id"]],
@@ -631,6 +660,7 @@ def sync_dataset(project: Project, manifest: Manifest, annotations: AnnotationSe
     dataset.save()
     enable_editing(dataset, project)
     _save_views(dataset, tasks)
+    report(total, total)
     return dataset
 
 

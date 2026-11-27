@@ -251,3 +251,32 @@ def test_shutdown_keeps_what_was_queued_in_queue_json(tmp_path):
         (waiting.id, "queued"),
     ]
     assert waiting.status == QUEUED  # it never started
+
+
+def test_a_stage_moves_the_bar_inside_its_share_of_the_scale():
+    jobs = JobManager()
+    seen = []
+
+    def work(progress):
+        (shown,) = jobs.list(1)
+        progress.update(done=0, total=100)
+        stage = progress.share(0, 70, "Preparing")
+        for handled in (0, 5, 10):
+            stage(handled, 10)
+            seen.append((shown.done, shown.message))
+        progress.share(70, 100)(0, 0)  # nothing to do: the stage counts as complete
+        seen.append((shown.done, shown.message))
+
+    wait(jobs.submit(1, "demo", work))
+    assert seen == [(0, "Preparing"), (35, "Preparing"), (70, "Preparing"), (100, "Preparing")]
+
+
+def test_a_stage_stops_a_cancelled_job():
+    jobs = JobManager()
+
+    def work(progress):
+        jobs.cancel(jobs.list(1)[0].id)
+        progress.share(0, 50)(1, 2)  # raises Cancelled
+
+    job = jobs.submit(1, "demo", work)
+    assert wait(job).status == CANCELLED

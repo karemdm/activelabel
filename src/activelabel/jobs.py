@@ -127,6 +127,36 @@ class Progress:
             self._job.message = message
         self.check()
 
+    def share(self, start: int, end: int, message: str | None = None) -> Callable[[int, int], None]:
+        """A reporter of a stage of the job: its own ``done`` of ``total`` fills ``start`` to ``end``.
+
+        The job reports on a scale of its own (``total`` = 100 for percent); a function that only knows how
+        many items it has handled gives its counts to the returned callable, and the bar advances inside
+        the stage.
+
+        Args:
+            start: where the stage begins on the job's scale (the job's ``done`` at zero items).
+            end: where the stage ends (the job's ``done`` when all the items are handled).
+            message: what the job is doing during the stage, or None to keep the current message.
+
+        Returns:
+            A function ``(done, total)`` that updates the job (and checks for cancellation).
+        """
+        return partial(self._stage, start, end, message)
+
+    def _stage(self, start: int, end: int, message: str | None, done: int, total: int) -> None:
+        """Move the bar to the share of a stage that is done.
+
+        Args:
+            start: where the stage begins on the job's scale.
+            end: where the stage ends on the job's scale.
+            message: what the job is doing during the stage (None keeps the current message).
+            done: items of the stage handled so far.
+            total: items of the stage in all (zero means it has nothing to do and counts as complete).
+        """
+        fraction = min(1.0, done / total) if total > 0 else 1.0
+        self.update(done=start + round((end - start) * fraction), message=message)
+
     def check(self) -> None:
         """Stop here if the job was cancelled.
 

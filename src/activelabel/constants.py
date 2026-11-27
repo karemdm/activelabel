@@ -11,6 +11,11 @@ from __future__ import annotations
 QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
 FINISHED = (DONE, FAILED, CANCELLED)
 
+# Scale of the progress bar of a job that prepares the FiftyOne dataset and opens the App: the dataset
+# takes the first DATASET_STEPS of PROGRESS_STEPS, starting or switching the App the rest
+PROGRESS_STEPS = 100
+DATASET_STEPS = 70
+
 # State of an image in a project's manifest
 ACTIVE = "active"
 EXCLUDED = "excluded"

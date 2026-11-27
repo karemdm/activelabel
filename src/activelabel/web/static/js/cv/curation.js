@@ -8,6 +8,7 @@ import { api } from '../shell/api.js';
 import { confirmDialog, once } from '../shell/dialogs.js';
 import { add, el, esc, fill, icon, redraw } from '../shell/dom.js';
 import { fmt, nf1, num, t, tn, tr } from '../shell/i18n.js';
+import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
 export function curationPanel(page) {
@@ -293,12 +294,13 @@ export function curationPanel(page) {
   async function openFiftyOne() {
     if (sayFiftyoneMissing()) return;   // #658: the toast says how to add it
     const view_ = issue ? `curation - ${issue}` : 'curation - quality issues';
+    const tab = reserveTab(t('cur.fo_waiting'));
     try {
       const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: { view: view_ } });
-      if (job && job.id) ctx.openWhenDone.add(job.id);
+      if (job && job.id) ctx.openWhenDone.set(job.id, tab); else dropTab(tab);
       toast(t('cur.fo_starting'), 'info', 4000);
       await jobStarted(job);
-    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
+    } catch (err) { dropTab(tab); if (!fiftyoneError(err)) toastError(err); }
   }
   async function pullExclusions() {
     try {

@@ -48,7 +48,7 @@ def test_progress_message_shapes_match_what_the_server_writes():
         text = path.read_text(encoding="utf-8")
         written |= {
             m.replace("{tool}", "cvat").replace("{body.tool}", "cvat").replace("{session['tool']}", "cvat")
-            for m in re.findall(r'progress\.update\(message=f"([^"]+)"', text)
+            for m in re.findall(r'progress\.update\((?:[^"\n]*?, )?message=f"([^"]+)"', text)
         }
     assert {"Reading cvat", "Writing to cvat", "Sending to cvat", "Reading annotations from cvat"} <= written
     for message in sorted(written):

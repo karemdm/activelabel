@@ -5,6 +5,7 @@ import { api } from '../shell/api.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { el, esc, fill, icon } from '../shell/dom.js';
 import { num, t, tn, tr } from '../shell/i18n.js';
+import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
 export const GROUP_COLOURS = 8;   // --group-1..8 in app.css; more groups reuse the colours
@@ -84,12 +85,13 @@ export function similarityBlock(page) {
 
   async function openApp() {
     if (sayFiftyoneMissing()) return;   // #675
+    const tab = ctx ? reserveTab(t('cur.fo_waiting')) : null;
     try {
       const job = await api('POST', `/projects/${projectId}/fiftyone`, { json: {} });
-      if (job && job.id && ctx) ctx.openWhenDone.add(job.id);
+      if (job && job.id && ctx) ctx.openWhenDone.set(job.id, tab); else dropTab(tab);
       toast(t('sim.fo_starting'), 'info', 6000);
       if (jobStarted) await jobStarted(job);
-    } catch (err) { if (!fiftyoneError(err)) toastError(err); }
+    } catch (err) { dropTab(tab); if (!fiftyoneError(err)) toastError(err); }
   }
 
   function groupList() {

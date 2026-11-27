@@ -6,6 +6,7 @@ import { api } from '../shell/api.js';
 import { fiftyoneButton, fiftyoneError, fiftyoneMissing, fiftyoneMissingNote, sayFiftyoneMissing } from '../shell/features.js';
 import { el, icon } from '../shell/dom.js';
 import { t } from '../shell/i18n.js';
+import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
 /* why a task cannot be opened in CVAT, by the `cvat` state the task list gives */
@@ -55,12 +56,13 @@ export const fiftyoneReason = (project) => {
 /** Prepares the project's FiftyOne dataset (its labels and label schema) and opens the App in a new tab when
  *  the job ends. `page` is the project page (projectId, ctx, jobStarted). */
 export async function openInFiftyOne(page) {
+  const tab = reserveTab(t('cur.fo_waiting'));  // at the click: a tab opened when the job ends would be blocked
   try {
     const job = await api('POST', `/projects/${page.projectId}/fiftyone`, { json: {} });
-    if (job && job.id) page.ctx.openWhenDone.add(job.id);
+    if (job && job.id) page.ctx.openWhenDone.set(job.id, tab); else dropTab(tab);
     toast(t('cur.fo_starting'), 'info', 4000);
     await page.jobStarted(job);
-  } catch (err) { if (!fiftyoneError(err)) toastError(err); }
+  } catch (err) { dropTab(tab); if (!fiftyoneError(err)) toastError(err); }
 }
 
 /** A reason as a sentence of a paragraph: the task-list texts (also used as short titles) end without a stop. */

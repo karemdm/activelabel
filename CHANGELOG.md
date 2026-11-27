@@ -81,6 +81,16 @@ Everything below goes into the first release, 0.1.0.
 - **Open in CVAT and in FiftyOne** moved from the project header into the CVAT and FiftyOne tabs of
   Annotations; the menu of each task keeps its own (#602).
 
+### Fixed
+
+- **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
+  (images written to the dataset, then the App; the activity pill also names the stage), and the App really
+  opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened
+  after the wait, which browsers block (and the old "blocked" notice appeared even when the tab had opened).
+  Sending images to an edit session opens the App too. If the browser gives no tab, the address stays on
+  screen as a link; if the job fails, the reason is shown. The first port of the App can be set with
+  `ACTIVELABEL_FIFTYONE_PORT` (default 5161).
+
 ### Removed
 
 - **Label Studio support.** Importing a project from Label Studio, its synchronisation, its edit sessions

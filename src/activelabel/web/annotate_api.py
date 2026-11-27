@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from activelabel.annotate import credentials, sessions
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, Pulled, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
+from activelabel.constants import DATASET_STEPS, PROGRESS_STEPS
 from activelabel.errors import CodedError
 from activelabel.jobs import Progress
 from activelabel.labels import Label, annotations_lock, load_annotations
@@ -54,18 +56,22 @@ class SendBody(BaseModel):
 
 
 # -- dataset access (replaced in tests, FiftyOne is slow to start) --------------
-def prepare_dataset(project: Project, state: AppState) -> Any:
+def prepare_dataset(
+    project: Project, state: AppState, on_progress: Callable[[int, int], None] | None = None
+) -> Any:
     """Refresh the project's FiftyOne dataset from the project and return it.
 
     Args:
         project: The project to refresh the dataset of.
         state: The shared state of the application.
+        on_progress: Called with ``(images handled, images in all)`` while the dataset is refreshed.
 
     Returns:
         The FiftyOne dataset of the project.
     """
     manifest = state.manifest(project.id)
-    return fiftyone_bridge.sync_dataset(project, manifest, load_annotations(state.store.dir(project.id)))
+    annotations = load_annotations(state.store.dir(project.id))
+    return fiftyone_bridge.sync_dataset(project, manifest, annotations, on_progress)
 
 
 def open_dataset(project: Project, state: AppState) -> Any:
@@ -372,9 +378,11 @@ def _send_job(
         ``{session, links, step}``, plus ``kept_fiftyone_edits`` when some images keep edits made in FiftyOne.
     """
     project_dir = state.store.dir(project.id)
-    progress.update(message="Preparing the FiftyOne dataset")
-    dataset = prepare_dataset(project, state)
-    progress.update(message=f"Sending to {body.tool}")
+    progress.update(done=0, total=PROGRESS_STEPS, message="Preparing the FiftyOne dataset")
+    dataset = prepare_dataset(
+        project, state, progress.share(0, DATASET_STEPS, "Preparing the FiftyOne dataset")
+    )
+    progress.update(done=DATASET_STEPS + 5, message=f"Sending to {body.tool}")
     session_id = sessions.new_id()
     sent = tool.send(dataset, image_ids, project, settings, session_id)
     session = sessions.create(
@@ -395,6 +403,7 @@ def _send_job(
     }
     if sent.kept:  # images that still show edits of an earlier session (not brought back yet)
         result["kept_fiftyone_edits"] = sent.kept
+    progress.update(done=PROGRESS_STEPS)
     return result
 
 

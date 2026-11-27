@@ -87,7 +87,7 @@ export function initProject() {
     jobs: [],
     busy: new Set(),  // work that leaving the page would lose (an upload in progress)
     jobStatus: new Map(),
-    openWhenDone: new Set(),
+    openWhenDone: new Map(),  // job id -> the tab reserved for its App (or null)
     pollTimer: null,
     panels: {},
     weightless: new Set(),  // runs whose weights just went with a deleted model (until the list says has_weights: false)
