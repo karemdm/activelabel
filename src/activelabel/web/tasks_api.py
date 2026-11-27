@@ -229,6 +229,16 @@ _remote_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="activelabel
 _remote_cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
 
 
+def forget_remote(project_id: int) -> None:
+    """Drop what was read from CVAT for a project, so the next task list asks CVAT again.
+
+    Args:
+        project_id: Id of the project.
+    """
+    for key in [k for k in _remote_cache if k[0] == project_id]:
+        _remote_cache.pop(key, None)
+
+
 def remote_status(state: AppState, project_id: int, refresh: bool = False) -> dict[str, Any]:
     """CVAT task and jobs (state, stage, assignee) of each linked local task: ``{task id: {...}}``.
 

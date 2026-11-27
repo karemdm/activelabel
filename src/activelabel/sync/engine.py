@@ -693,6 +693,7 @@ def make_plan(
     local = _local_labels(project_dir)
     by_key = {it.key: it for it in items}
     known_tasks = rtask_ids if read is None else read
+    gone_tasks: set[str] = set()  # remote tasks the link knows and the tool no longer has
     if info is not None:
         # remote tasks the link knows but the tool no longer has: deleted there, so their images
         # count as removed (for the tasks of the scope)
@@ -707,7 +708,8 @@ def make_plan(
         }
         if scope == "project":
             linked_tasks |= {_key_task(e["key"]) for e in link_items.values() if e.get("key")}
-        known_tasks = set(known_tasks) | (linked_tasks - rtask_ids - {"None", ""})
+        gone_tasks = linked_tasks - rtask_ids - {"None", ""}
+        known_tasks = set(known_tasks) | gone_tasks
 
     # candidates: images of the scope, plus (project/task scope) linked images deleted locally
     in_tasks = {i for t in local_tasks for i in t.images}
@@ -836,6 +838,18 @@ def make_plan(
             push_changes[image_id] = ([], mine)
             decisions[image_id] = {"key": "", "action": ADD, "kind": "", "local_hash": links.label_hash(mine)}
 
+    # tasks deleted in the tool, with the images that go with them (the review names them)
+    tasks_removed_remote = [
+        {
+            "task": t.id,
+            "name": t.name,
+            "images": sum(1 for i in t.images if (decisions.get(i) or {}).get("action") == REMOVE_LOCAL),
+        }
+        for t in scoped_tasks
+        if mapping.get(str(t.id)) in gone_tasks
+    ]
+    tasks_removed_remote = [x for x in tasks_removed_remote if x["images"]]
+
     # tasks deleted here (still in the tool) and tasks added in the tool (project scope)
     local_ids = {str(t.id) for t in local_tasks}
     tasks_delete = [
@@ -887,6 +901,7 @@ def make_plan(
         "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
+        "tasks_removed_remote": tasks_removed_remote,
         "tasks_rename": tasks_rename,
         "tasks_names": tasks_names,
         "tasks_rename_conflicts": tasks_rename_conflicts,
@@ -925,6 +940,7 @@ def make_plan(
         "skipped_tasks": skipped_tasks,
         "tasks_new": tasks_new,
         "tasks_delete": tasks_delete,
+        "tasks_removed_remote": tasks_removed_remote,
         "tasks_rename": tasks_rename,
         "tasks_rename_conflicts": tasks_rename_conflicts,
         "project_rename": project_rename,

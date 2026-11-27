@@ -141,6 +141,7 @@ export function createSync(page) {
       const tCreate = plan.tasks_create || [];
       const tNew = plan.tasks_new || [];
       const tDelete = plan.tasks_delete || [];
+      const tGone = plan.tasks_removed_remote || []; /* tasks deleted in the tool: their images are removed here (#695) */
       /* names (#587): the tasks renamed on one side go to the other; classes renamed in the tool come here; the
          project's own name follows the same rule when the plan carries it */
       const renames = plan.tasks_rename || [];
@@ -199,7 +200,8 @@ export function createSync(page) {
           line(t('sync.row_classes_rename'), cRename.length, sub(cRename, renameText)),
           line(t('sync.row_not_converted', { tool: name }), ncTotal, sub(notConverted, ncText)),
           line(t('sync.row_annot'), plan.pull, classOnly > 0 ? el('p', { class: 'muted dir-sub' }, tn('sync.pull_class_only', classOnly)) : null),
-          line(t('sync.row_remove'), plan.remove_local),
+          line(t('sync.row_remove'), plan.remove_local,
+            sub(tGone, (x) => t('sync.removed_task_item', { name: x.name, n: tn('sync.n_images', Number(x.images) || 0) }))),
           line(t('sync.row_restore'), plan.restore_local)]));
 
       const apply = el('button', { type: 'button', class: 'btn primary big', id: 'sync-apply' }, t('sync.apply'));

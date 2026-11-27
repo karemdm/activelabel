@@ -69,6 +69,9 @@ Everything below goes into the first release, 0.1.0.
 
 ### Changed
 
+- **CVAT: task deleted there.** The review of a task deleted in CVAT names the task next to "Images to remove", and
+  the task list stops offering "Open in CVAT" for it right after the comparison (the cached state is dropped).
+
 - **Open in CVAT and in FiftyOne** moved from the project header into the CVAT and FiftyOne tabs of
   Annotations; the menu of each task keeps its own (#602).
 

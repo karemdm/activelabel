@@ -473,6 +473,8 @@ def test_task_deleted_in_the_tool_excludes_its_images_here(synced):
     env.remote.delete_task(SETTINGS, beta)
     p = plan(env)
     assert p["remove_local"] == len(images) and p["tasks_create"] == []
+    name = TaskStore(env.dir).get(2).name
+    assert p["tasks_removed_remote"] == [{"task": 2, "name": name, "images": len(images)}]
     apply(env, p["plan_id"])
     records = Manifest(env.dir).load()
     assert all(records[i].status == "excluded" for i in images)
