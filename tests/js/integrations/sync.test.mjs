@@ -109,7 +109,7 @@ function drawPlan(plan) {
     'sync.row_not_converted': 'Shapes that stay only in {tool}', 'sync.not_converted_item': '{kind}: {n}',
     'sync.shape.ellipse': 'ellipses', 'sync.shape.mask': 'masks', 'sync.kind_geometry': 'Same classes: the position differs.',
     'sync.kind_labels': 'Edited on both sides', 'sync.kind_removed_local': 'Removed here', 'sync.kind_removed_remote': 'Removed in {tool}',
-    'sync.no_labels': 'no labels', 'sync.side_local': 'Here',
+    'sync.no_labels': 'no labels', 'sync.side_local': 'Here', 'sync.pull_class_only_one': '{n} of them changes only by the class name', 'sync.pull_class_only_other': '{n} of them change only by the class name',
   }, 'en');
   const { ctx, sync } = makePage();
   ctx.jobs = [{
@@ -155,6 +155,34 @@ test('a conflict with the same classes on both sides says that the position diff
   const why = rows.map((r) => r.querySelector('.conflict-why')?.textContent ?? null);
   assert.deepEqual(why, ['Same classes: the position differs.', null, null, null]);
   block.node.remove();
+});
+
+test('the result card lists the renamed classes with their names', () => {
+  setMessages({
+    'annotate.tool.cvat': 'CVAT', 'sync.result_title': 'Done', 'sync.res_pulled': 'Images updated here', 'sync.res_renamed_classes': 'Classes renamed',
+    'sync.rename_item': '{old} → {new}', 'common.close': 'Close',
+  }, 'en');
+  const { ctx, sync } = makePage();
+  ctx.jobs = [{ id: 'a2', kind: 'sync_apply', status: 'done', created: '2026-11-26T10:00:00', result: { pulled: 10, renamed_classes: [{ from: 'pessoa', to: 'pedestre' }] } }];
+  const block = sync.syncBlock();
+  document.body.append(block.node);
+  block.draw(true);
+  const text = block.node.querySelector('#sync-result').textContent;
+  assert.match(text, /Classes renamed.*1/);
+  assert.match(text, /pessoa → pedestre/);
+  block.node.remove();
+});
+
+test('the review says how many images change only by the class name when classes were renamed', () => {
+  const block = drawPlan({ renamed_classes: [{ from: 'a', to: 'b' }], pull: 10, diff_pull: { images_changed: 3 } });
+  assert.match(block.node.querySelectorAll('.sync-dir')[1].textContent, /7 of them change only by the class name/);
+  block.node.remove();
+  const same = drawPlan({ renamed_classes: [{ from: 'a', to: 'b' }], pull: 3, diff_pull: { images_changed: 3 } });
+  assert.doesNotMatch(same.node.textContent, /change only by the class name/);
+  same.node.remove();
+  const none = drawPlan({ pull: 10, diff_pull: { images_changed: 3 } });
+  assert.doesNotMatch(none.node.textContent, /change only by the class name/);
+  none.node.remove();
 });
 
 test('the result card lists the renames, not "everything is in sync" (#587)', () => {
