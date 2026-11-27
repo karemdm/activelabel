@@ -81,6 +81,7 @@ Everything below goes into the first release, 0.1.0.
 
 ### Changed
 
+- The segmentation colour is a raspberry rose, clearly apart from the violet of detection; a test keeps every pair of task colours 38 degrees or more apart in hue (#619).
 - Regression projects no longer sync with CVAT (it keeps no number per image); in FiftyOne they are view-only, and values are edited in ActiveLabel (#619).
 - **Import name.** The name typed in the import form stays only in ActiveLabel: the first comparison no
   longer offers it as a rename of the CVAT project (the link records both names) (#695).

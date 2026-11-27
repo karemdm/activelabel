@@ -38,8 +38,8 @@
   --task-classification-soft: light-dark(#e2f3f4, #0e2c30);
   --task-detection: light-dark(#7438c2, #c3a2ff);
   --task-detection-soft: light-dark(#efe7fb, #261b42);
-  --task-segmentation: light-dark(#a1286f, #f592cc);
-  --task-segmentation-soft: light-dark(#fbe6f1, #3a1a2d);
+  --task-segmentation: light-dark(#b02165, #f987b1);
+  --task-segmentation-soft: light-dark(#fee6ed, #3d1927);
   --task-semantic: light-dark(#3d5a0e, #b4d672);
   --task-semantic-soft: light-dark(#ebf2dc, #232d12);
   --task-keypoints: light-dark(#92422c, #ff9f5c);

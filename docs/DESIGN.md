@@ -24,7 +24,7 @@ Principles (from what went wrong in the previous tool):
 **Visual system** (the tokens and their rules are at the top of `web/static/app.css`):
 
 - **Colour says what the project is for**: blue on the home page and the lists; inside a project, the colour of
-  its task type (classification teal, detection violet, instance segmentation magenta, semantic segmentation
+  its task type (classification teal, detection violet, instance segmentation raspberry rose, semantic segmentation
   olive, keypoints rust, regression cerulean; tokens `--task-<type>`). The project page sets `data-task`
   on the page and every accent (primary buttons, active tabs and chips, the current step, the band under the
   top bar) follows it; each project card on the home page has a top line and a type badge in its colour. The
