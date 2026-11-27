@@ -142,6 +142,19 @@ def test_the_report_is_kept_until_the_files_are_applied_or_discarded(tmp_path):
     assert client.get("/api/projects/1/annotations/pending").json() == {"report": None}
 
 
+def test_the_pending_report_recomputes_has_annotations_when_it_is_read(tmp_path):
+    client, state = setup_project(tmp_path)
+    good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
+    report = client.post("/api/projects/1/annotations", files=good).json()
+    assert report["has_annotations"] is False
+    first = state.manifest(1).all()[0].id
+    labels = {first: [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
+    saved = AnnotationSet(Task.DETECTION, ["cat"], labels, {})
+    save_annotations(state.store.dir(1), saved)  # annotations arrive after the check
+    pending = client.get("/api/projects/1/annotations/pending").json()["report"]
+    assert pending["has_annotations"] is True and pending["token"] == report["token"]
+
+
 def test_old_staging_is_cleaned_at_the_next_check_and_at_start(tmp_path):
     client, state = setup_project(tmp_path)
     good = [("files", ("instances.json", coco(["0.png", "1.png"]).encode()))]
