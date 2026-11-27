@@ -42,14 +42,15 @@ it came from.
 imported before, or one made by ActiveLabel and sent) is marked in the list ("Already in ActiveLabel as
 ...", with a button that opens it) and is not imported again: importing it twice would link two projects
 to the same CVAT project, and each would offer the other's tasks as new. `POST /api/import` answers 409
-`cvat_already_imported` (`project_id`, `name`), and so does the import of a task of such a project; new
+`cvat_already_imported` (`project_id`, `name`); the import of a task of such a project starts, and its job then fails with the same code (`error_code`, `error_params`). New
 tasks of that project come with *Compare with CVAT* in the project that already exists. A CVAT project
 without images is marked and cannot be chosen ("No images in CVAT yet"). `GET /api/import/{tool}/projects`
 adds `linked_to: {id, name}` to the projects that have a local one.
 
-Images keep their remote file names; identical files are added once (content hash, `images_duplicate`);
-unreadable files are listed in the report (`images_rejected`), and a project import says when fewer images
-were added than CVAT listed (`images_missing`). It also counts what it cannot bring instead of dropping it
+Images keep their remote file names; identical files are added once (content hash). A project import (or a
+task of a project) says when fewer images were added than CVAT listed (`images_missing`, an information
+line). The import of a task outside any project reports identical files as `images_duplicate` and unreadable
+ones as `images_rejected`. A CVAT project or task with no images is not imported (`cvat_no_images`). The import also counts what it cannot bring instead of dropping it
 silently: CVAT shapes that are not converted, by kind (ellipses, masks, tracks...: `shapes_not_converted`; they
 stay in CVAT), rotated rectangles, which are imported as the box around them (`rotated_boxes_flattened`; the
 rotation stays in CVAT), a task whose original video could not be downloaded or used and so stays as images
@@ -171,9 +172,12 @@ messages: "Listing CVAT data", "Reading annotations", "Comparing with CVAT", "Do
 "Creating the project" (shown in the interface language); while the frames of a CVAT project are downloaded the job counts them
 (`done` / `total`, message "Downloading images"), so the bar advances image by image. Cancelling stops at a safe point and removes the half-created project.
 Errors: tool not configured → 400 "Configure <tool> first" (`tool_not_configured`); remote project not
-found → 404; `ToolError` → 400 with its message.
+found → 404 (`cvat_item_not_found`); any other failure of CVAT → 400 with the code of the failure and its message.
+The import answers 501 `fiftyone_not_installed` when FiftyOne is not installed, also for a project, since the
+check is made before the kind is known.
 
 The address of the tool must be `http://` or `https://` (`url_invalid`). A frame that CVAT does not deliver
 stops the import (`cvat_download_failed`, with the HTTP status) and the half-created project is removed.
-Frames of a CVAT task are paired with the local images by position in the task, not by file name. A failure reported by CVAT is answered as
-400 `tool_error` (`params.tool`, `params.reason`).
+Frames of a CVAT task are paired with the local images by position in the task, not by file name. A failure reported by CVAT keeps its own code (for
+example `cvat_unreachable`, `cvat_login_failed`, `cvat_refused`, see docs/DESIGN.md); only an error with no code is
+answered as 400 `tool_error` (`params.tool`, `params.reason`).

@@ -104,8 +104,7 @@ interface chama de *Tipo*.
   que faltam vão numa task nova. Detalhes: [TASKS.md](TASKS.md) e [VIDEO.md](VIDEO.md).
 
 **2. Anotações** (opcional). Cinco abas. *Abrir no CVAT*, na aba CVAT, abre o projeto vinculado (ou a task ou o job escolhido) e *Editar no FiftyOne*, na aba
-FiftyOne, abre o App para editar; enquanto o projeto não está no CVAT, o botão diz por quê e leva à aba
-CVAT. As edições voltam como antes: por *Comparar com o CVAT* e por uma sessão de edição do FiftyOne.
+FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no CVAT (sem configuração, sem vínculo ou ainda fora do CVAT), a aba diz o motivo em uma linha, no lugar do botão. As edições voltam: por *Comparar com o CVAT* e por uma sessão de edição do FiftyOne.
 
 - *Resumo*: o que o projeto já tem, em blocos (imagens anotadas, anotações, classes com anotação,
   a revisar) e as classes mais frequentes, com busca e *Ver todas*.

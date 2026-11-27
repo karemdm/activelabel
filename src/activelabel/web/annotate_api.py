@@ -302,7 +302,8 @@ def test_tool(tool: str, state: AppState = STATE) -> dict[str, Any]:
         state: The shared state of the application.
 
     Returns:
-        ``{ok, message}``: whether the connection and login worked, and a readable text.
+        ``{ok, message}``: whether the connection and login worked, and a readable text. For CVAT also
+        ``code`` and ``params``: ``test_connected`` (with ``url`` and ``user``) or the code of the failure.
     """
     _tool_name(tool)
     settings = _settings(state, tool)

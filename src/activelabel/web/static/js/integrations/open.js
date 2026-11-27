@@ -1,5 +1,5 @@
 /* Opening the project in CVAT and in FiftyOne to look at and edit the annotations there (#602): what can be
- * opened, or why not, and the buttons of the project header and of the Annotations tabs. The edits come back
+ * opened, or why not, and the rows of the Annotations tabs (the project header has none). The edits come back
  * through the CVAT comparison and the FiftyOne edit sessions, as before. */
 import { isHttp, toolName } from './tools.js';
 import { api } from '../shell/api.js';
