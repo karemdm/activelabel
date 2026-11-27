@@ -44,7 +44,7 @@ polygon, so such a ring is one (closed implicitly), even when it was saved as `c
 Only a polyline that is neither closed nor filled and has no ring of 3 points is a line, and is skipped
 (`open_polyline`).
 
-The FiftyOne App runs on port 5161 (or the next free one; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`. Starting the App waits at most 2 minutes and switching it to another dataset at most 30 seconds; an App that does not answer in time is dropped and the activity fails with a message instead of waiting for ever (#525).
+The FiftyOne App runs on port 5161 (or the one in the environment variable `ACTIVELABEL_FIFTYONE_PORT`; either way, the next free one when it is busy; a port where an App of another program already answers is skipped, so a link never shows another program's App and database). Its links point to `http://localhost:<port>`. Starting the App waits at most 2 minutes and switching it to another dataset at most 30 seconds; an App that does not answer in time is dropped and the activity fails with a message instead of waiting for ever (#525).
 
 **Images with no objects.** An image can be listed in the project's annotations with an empty list of
 labels: reviewed, with nothing to label (a background image, for example). It is not "annotated", which
@@ -66,6 +66,12 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    the task (and job) and its card names it.
 2. **Send** (*Send to FiftyOne*, a job): the FiftyOne dataset is refreshed from the project (images +
    current ground truth) and the App opens on a saved view with those images, field `ground_truth`.
+   The job reports real progress on a scale of 100 (`done` of `total`): the images written to the dataset fill
+   the first 70, then come the stages *Sending to FiftyOne* (75) and finished (100). The interface opens a tab
+   at the click (a browser only allows that straight after a click), shows a waiting line in it and, when the
+   job ends, takes it to the App; when the browser gave no tab, the address stays on screen as a link until it
+   is closed; when the job fails or is stopped, the tab is closed and the reason is shown. *Open in
+   FiftyOne* (the job `fiftyone`, result `{url, view, step}`) works the same way.
    A **session** is recorded in `<project>/annotate.json` (and `annotate/<session>/`): id, tool, image
    ids, created, status (`open` → `pulled` → `applied` / `discarded`), links. Each sample records what
    ActiveLabel wrote in its `ground_truth` (`activelabel_written`: a fingerprint of those labels;

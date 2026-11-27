@@ -1,10 +1,11 @@
 /* The activity strip of a project (running and finished jobs), its history, and the job helpers the steps
  * share (is it running, did it go stale, start one and wait for the strip to show it). */
-import { imagesOf, jobMessage, statusText, toolName } from '../integrations/tools.js';
+import { imagesOf, isHttp, jobMessage, statusText, toolName } from '../integrations/tools.js';
 import { api, jobFailure } from '../shell/api.js';
 import { openModal } from '../shell/dialogs.js';
 import { el, fill, icon } from '../shell/dom.js';
 import { fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
+import { dropTab, showInTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 import { progressBar } from '../shell/widgets.js';
 
@@ -49,6 +50,13 @@ export function createActivities(page) {
     if (/annot/.test(kind)) return 'annotations';
     return 'images';
   }
+
+  /* where a finished job left the App: the address of a view (`url`) or the link of an edit session */
+  const appAddress = (job) => {
+    const r = job.result || {};
+    const link = (r.links || []).find((l) => l && isHttp(l.url));
+    return isHttp(r.url) ? r.url : (link ? link.url : '');
+  };
 
   const jobSessionId = (job) => {
     const s = job.result && job.result.session;
@@ -110,7 +118,7 @@ export function createActivities(page) {
     if (!shown.length) { fill(jobsBox); jobsLive.textContent = ''; return; }
     const pct = running.length === 1 && running[0].total ? Math.round((running[0].done / running[0].total) * 100) : null;
     const summary = running.length
-      ? `${tn('jobs.running_n', running.length)}${pct != null ? ` · ${pct}%` : ''}`
+      ? `${tn('jobs.running_n', running.length)}${pct != null ? ` · ${pct}%` : ''}${running.length === 1 && running[0].message ? ` · ${jobMessage(running[0])}` : ''}`
       : `${statusText(latest[0].status)} · ${kindText(latest[0].kind, latest[0])}`;
     const glyph = running.length ? el('span', { class: 'tr-dot', 'aria-hidden': 'true' }) : icon(latest[0].status === 'done' ? 'check' : 'error', 14);
     const said = `${t('jobs.title')}: ${running.length ? tn('jobs.running_n', running.length) : summary}`;
@@ -243,11 +251,13 @@ export function createActivities(page) {
       ctx.jobStatus.set(job.id, job.status);
       if (before && (before === 'queued' || before === 'running') && !isActive(job)) {
         finished = true;
-        if (job.status === 'failed') toastError(new Error(jobError(job) || statusText('failed')));
-        if (job.status === 'done' && ctx.openWhenDone.has(job.id)) {
+        const reason = jobError(job) || statusText('failed');
+        if (job.status === 'failed') toastError(new Error(ctx.openWhenDone.has(job.id) ? t('cur.fo_failed', { reason }) : reason));
+        if (ctx.openWhenDone.has(job.id)) {
+          const tab = ctx.openWhenDone.get(job.id);
           ctx.openWhenDone.delete(job.id);
-          const url = job.result && job.result.url;
-          if (url && !window.open(url, '_blank', 'noopener')) toast(t('cur.fo_popup'), 'info', 8000);
+          const url = job.status === 'done' ? appAddress(job) : '';
+          if (url) showInTab(tab, url); else dropTab(tab);
         }
       }
     }

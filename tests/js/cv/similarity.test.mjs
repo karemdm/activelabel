@@ -70,7 +70,7 @@ test('a finished map shows its summary, groups and actions', async () => {
     groups: [{ group: 0, size: 2, typical: 'a' }, { group: 1, size: 1, typical: 'c' }],
     points: { ids: ['a', 'b', 'c'], xy: [[0, 0], [0.1, 0.1], [1, 1]], group: [0, 0, 1] },
   };
-  const block = similarityBlock({ projectId: 3, ctx: { openWhenDone: new Set() } });
+  const block = similarityBlock({ projectId: 3, ctx: { openWhenDone: new Map() } });
   const asked = await withApi(state, () => block.load());
   assert.deepEqual(asked, [['GET', '/api/projects/3/curation/similarity']]);
   const text = block.node.textContent;

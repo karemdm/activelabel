@@ -167,3 +167,42 @@ def test_deleting_a_project_without_fiftyone_does_not_start_its_database(tmp_pat
     monkeypatch.setattr(api, "drop_fiftyone_dataset", lambda *args: dropped.append(args))
     assert client.request("DELETE", "/api/projects/1", json={"confirm_name": "Cats"}).status_code == 200
     assert dropped == []
+
+
+class Recorder:
+    """A stand-in for the progress handle of a job: keeps what it was told."""
+
+    def __init__(self):
+        self.calls = []
+
+    def update(self, done=None, total=None, message=None):
+        self.calls.append((done, total, message))
+
+    def share(self, start, end, message=None):
+        return lambda done, count: self.calls.append((start, end, message, done, count))
+
+
+def test_opening_fiftyone_reports_stages_up_to_the_whole_bar(tmp_path, monkeypatch):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "p", "task": "detection", "classes": ["cat"]})
+    seen = {}
+
+    def sync(project, manifest, annotations, on_progress=None):
+        seen["on_progress"] = on_progress
+        return "dataset"
+
+    monkeypatch.setattr(fiftyone_bridge, "sync_dataset", sync)
+    monkeypatch.setattr(
+        fiftyone_bridge, "launch_app", lambda *args, **kwargs: "http://localhost:5183/datasets/x"
+    )
+    progress = Recorder()
+    project, manifest = state.project(1), state.manifest(1)
+    result = api._open_fiftyone_job(project, manifest, state.store.dir(1), None, None, None, progress)
+    assert result == {"url": "http://localhost:5183/datasets/x", "view": "", "step": "curation"}
+    assert progress.calls[0] == (0, 100, "Preparing the FiftyOne dataset")
+    assert [c for c in progress.calls if c[2] == "Opening the FiftyOne App"] == [
+        (75, None, "Opening the FiftyOne App")
+    ]
+    assert progress.calls[-1] == (100, None, None)
+    seen["on_progress"](5, 10)  # the dataset stage fills the first 70 of the 100
+    assert progress.calls[-1] == (0, 70, "Preparing the FiftyOne dataset", 5, 10)

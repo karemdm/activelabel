@@ -50,7 +50,9 @@ def env(tmp_path, monkeypatch):
     client, state = make_client(tmp_path)
     tool = FakeTool()
     monkeypatch.setitem(registry.OVERRIDES, "fiftyone", tool)
-    monkeypatch.setattr(annotate_api, "prepare_dataset", lambda project, state: SimpleNamespace())
+    monkeypatch.setattr(
+        annotate_api, "prepare_dataset", lambda project, state, on_progress=None: SimpleNamespace()
+    )
     monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: SimpleNamespace())
     body = {"name": "p", "task": "detection", "classes": ["cat"]}
     pid = client.post("/api/projects", json=body).json()["id"]
@@ -114,6 +116,7 @@ def test_send_requires_a_selection(env):
 def test_full_flow(env):
     job = wait(env, start(env, scope="all").json())
     assert job["status"] == "done", job
+    assert (job["done"], job["total"]) == (100, 100)  # the bar ends full
     session = job["result"]["session"]
     assert job["result"]["links"][0]["url"] == "http://cvat/tasks/1"
     assert session["status"] == "open" and session["images"] == 2 and "image_ids" not in session

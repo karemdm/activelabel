@@ -9,6 +9,7 @@ import { api } from '../shell/api.js';
 import { confirmDialog, openModal } from '../shell/dialogs.js';
 import { el, fill, icon } from '../shell/dom.js';
 import { fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
+import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
 /** The CVAT and FiftyOne tabs of the Annotations step (tasks to annotate, edit sessions, the sync block).
@@ -284,11 +285,14 @@ export function annotateBlock(page) {
     if (state.scope === 'selected') body.ids = selectedIds();
     if (state.scope === 'issue') body.issue = state.issue;
     button.disabled = true;
+    const tab = reserveTab(t('cur.fo_waiting'));
     try {
       const job = await api('POST', `/projects/${projectId}/annotate`, { json: body });
+      if (job && job.id) ctx.openWhenDone.set(job.id, tab); else dropTab(tab);
       toast(t('annotate.send_started', { tool: toolName(tool) }), 'info', 4000);
       await jobStarted(job);
     } catch (err) {
+      dropTab(tab);
       if (!fiftyoneError(err)) toastError(err);
     } finally {
       drawSend();

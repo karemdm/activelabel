@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from activelabel import annotations as ann
 from activelabel import fiftyone_bridge
 from activelabel.backups import make_backup
+from activelabel.constants import DATASET_STEPS, PROGRESS_STEPS
 from activelabel.curation import issues, quality
 from activelabel.curation import summary as curation_summary
 from activelabel.datasets import DatasetNotFound, DatasetStore
@@ -1346,14 +1347,17 @@ def _open_fiftyone_job(
     Returns:
         ``{url, view, step}``: the address of the App and the view opened.
     """
-    progress.update(message="Preparing the FiftyOne dataset")
-    dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
-    progress.update(message="Opening the FiftyOne App")
-    return {
-        "url": fiftyone_bridge.launch_app(dataset, view, task=task_id, job=job_no),
-        "view": view or "",
-        "step": "curation",
-    }
+    progress.update(done=0, total=PROGRESS_STEPS, message="Preparing the FiftyOne dataset")
+    dataset = fiftyone_bridge.sync_dataset(
+        project,
+        manifest,
+        load_annotations(project_dir),
+        on_progress=progress.share(0, DATASET_STEPS, "Preparing the FiftyOne dataset"),
+    )
+    progress.update(done=DATASET_STEPS + 5, message="Opening the FiftyOne App")
+    url = fiftyone_bridge.launch_app(dataset, view, task=task_id, job=job_no)
+    progress.update(done=PROGRESS_STEPS)
+    return {"url": url, "view": view or "", "step": "curation"}
 
 
 @router.post("/projects/{project_id}/fiftyone")

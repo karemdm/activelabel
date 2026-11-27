@@ -55,7 +55,7 @@ test('the CVAT row is a link to the chosen scope and how the edits come back, or
 test('FiftyOne opens only with images; a keypoints project says FiftyOne shows its points without editing them', () => {
   assert.equal(fiftyoneReason({ counts: { active: 3 } }), null);
   assert.equal(fiftyoneReason({ counts: { active: 0 } }), 'open.fo_no_images');
-  const page = { projectId: 4, ctx: { project: { task: 'detection', counts: { active: 3 } }, links: [], openWhenDone: new Set() } };
+  const page = { projectId: 4, ctx: { project: { task: 'detection', counts: { active: 3 } }, links: [], openWhenDone: new Map() } };
   const row = fiftyoneOpenRow(page);
   assert.equal(row.querySelector('#fo-open').disabled, false);
   assert.match(row.textContent, /Edits come back through an edit session\./);
