@@ -376,6 +376,7 @@ def _send_job(
 
     Returns:
         ``{session, links, step}``, plus ``kept_fiftyone_edits`` when some images keep edits made in FiftyOne.
+        An open session with the same scope and images is reused, not duplicated.
     """
     project_dir = state.store.dir(project.id)
     progress.update(done=0, total=PROGRESS_STEPS, message="Preparing the FiftyOne dataset")
@@ -383,19 +384,25 @@ def _send_job(
         project, state, progress.share(0, DATASET_STEPS, "Preparing the FiftyOne dataset")
     )
     progress.update(done=DATASET_STEPS + 5, message=f"Sending to {body.tool}")
-    session_id = sessions.new_id()
+    task = body.task if body.scope == "task" else None
+    job = body.job if body.scope == "task" else None
+    existing = sessions.find_open(project_dir, body.tool, body.scope, image_ids, task, job)
+    session_id = existing["id"] if existing else sessions.new_id()  # the same images: the same session (#699)
     sent = tool.send(dataset, image_ids, project, settings, session_id)
-    session = sessions.create(
-        project_dir,
-        body.tool,
-        body.scope,
-        image_ids,
-        sent.links,
-        sent.ref,
-        session_id=session_id,
-        task=body.task if body.scope == "task" else None,
-        job=body.job if body.scope == "task" else None,
-    )
+    if existing:
+        session = sessions.update(project_dir, session_id, links=sent.links, ref=sent.ref)
+    else:
+        session = sessions.create(
+            project_dir,
+            body.tool,
+            body.scope,
+            image_ids,
+            sent.links,
+            sent.ref,
+            session_id=session_id,
+            task=task,
+            job=job,
+        )
     result: dict[str, Any] = {
         "session": sessions.public(session),
         "links": sent.links,

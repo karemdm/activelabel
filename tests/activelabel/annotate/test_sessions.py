@@ -91,3 +91,13 @@ def test_protected_images_are_those_of_open_fiftyone_sessions(proj):
     assert "base" not in sessions.public(sessions.get(project_dir, fo_open["id"]))
     sessions.close(project_dir, fo_open["id"])
     assert sessions.protected_images(project_dir) == set()
+
+
+def test_find_open_matches_the_tool_scope_and_exact_images(tmp_path):
+    made = sessions.create(tmp_path, "fiftyone", "all", ["a", "b"], [], {})
+    assert sessions.find_open(tmp_path, "fiftyone", "all", ["b", "a"])["id"] == made["id"]
+    assert sessions.find_open(tmp_path, "fiftyone", "all", ["a"]) is None
+    assert sessions.find_open(tmp_path, "fiftyone", "selected", ["a", "b"]) is None
+    assert sessions.find_open(tmp_path, "fiftyone", "all", ["a", "b"], task=1) is None
+    sessions.update(tmp_path, made["id"], status=sessions.PULLED)
+    assert sessions.find_open(tmp_path, "fiftyone", "all", ["a", "b"]) is None

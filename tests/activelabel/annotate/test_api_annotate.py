@@ -325,3 +325,17 @@ def test_summary_source_says_the_labels_were_last_sessiond_by_a_fiftyone_session
     assert source["format"] == "coco" and source["files"] == ["a.json"]  # the import is still told
     assert source["last_session"]["tool"] == "fiftyone" and source["last_session"]["session"] == session["id"]
     assert source["last_session"]["at"]
+
+
+def test_sending_the_same_images_again_reuses_the_open_session(env):
+    """#699: "Edit in FiftyOne" twice does not make a second session; a pulled one is not reused."""
+    first = wait(env, start(env, scope="all").json())["result"]["session"]
+    again = wait(env, start(env, scope="all").json())["result"]
+    assert again["session"]["id"] == first["id"]
+    listed = env.client.get(f"/api/projects/{env.pid}/annotate").json()["sessions"]
+    assert [s["id"] for s in listed] == [first["id"]]
+    other = wait(env, start(env, scope="selected", ids=env.ids[:1]).json())["result"]["session"]
+    assert other["id"] != first["id"]  # other images: another session
+    wait(env, env.client.post(f"/api/projects/{env.pid}/annotate/{first['id']}/pull").json())
+    third = wait(env, start(env, scope="all").json())["result"]["session"]
+    assert third["id"] not in (first["id"], other["id"])  # the first one was pulled: a new one is opened
