@@ -332,6 +332,7 @@
   "threshold.min_side": "Small: shortest side below (px)",
   "threshold.max_aspect": "Odd aspect: long side / short side above",
   "threshold.phash_distance": "Near duplicate: largest difference between two images (0 = identical)",
+  "threshold.embedding_distance": "Near duplicate from the similarity map: largest distance (0 = off; at most 0.1)",
   "cur.open_fo": "Open in FiftyOne (view only)",
   "cur.pull_fo": "Bring exclusions from FiftyOne",
   "cur.fo_hint": "In FiftyOne, tag images with exclude, then click here.",

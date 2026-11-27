@@ -132,6 +132,9 @@ project is its *type*.)
    tab, *Restore selected*) or *Delete permanently* (asks first). The limits of each issue can be
    changed under *Thresholds* without measuring again, and *Reset analysis* forgets the
    measures, flags and near-duplicate groups (images, exclusions and annotations stay).
+   With a similarity map, pairs of images the network sees as almost the same (crops, brightness
+   changes, neighbouring video frames the hash misses) are near duplicates too; the limit is
+   *Near duplicate from the similarity map* under *Thresholds* (0 turns it off).
    *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
    be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
    rejected when uploaded. *Analyze images* also checks that each stored file is still the imported one:

@@ -20,7 +20,7 @@ import numpy as np
 
 from activelabel import fiftyone_bridge, optional
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
-from activelabel.curation import similarity, similarity_fiftyone
+from activelabel.curation import issues, similarity, similarity_fiftyone
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, Progress, readable_error
 from activelabel.labels import load_annotations
@@ -219,6 +219,7 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, device: str
             fiftyone_error=fiftyone_error,
             clustering={},  # a new map has its own groups (``auto``): a regrouping no longer applies
         )
+        refresh_duplicates(manifest)
     except Cancelled:
         store.update(status=CANCELLED, finished=now(), phase="")
     except Exception as exc:  # noqa: BLE001 - shown to the person
@@ -227,6 +228,23 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, device: str
     finally:
         if tmp is not None:
             remove_tree(tmp)
+
+
+def refresh_duplicates(manifest: Manifest) -> None:
+    """Flag the issues again after a new map, so its near pairs join the near duplicates (#608).
+
+    Nothing is done for a project whose images were never analysed (they have no measures yet). A failure
+    is logged: the map is ready either way.
+
+    Args:
+        manifest: The images of the project.
+    """
+    if not any(r.metrics for r in manifest.active()):
+        return
+    try:
+        issues.flag_issues(manifest)
+    except Exception:  # noqa: BLE001 - the map stays usable; the next analysis flags them
+        LOG.warning("The near duplicates could not be flagged again after the map", exc_info=True)
 
 
 def _tell(store: similarity.SimilarityStore, message: str) -> None:

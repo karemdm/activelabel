@@ -128,3 +128,41 @@ def test_typical_images_ignores_the_noise():
     groups = similarity.typical_images(ids, vectors, labels)
     assert [(g["group"], g["size"]) for g in groups] == [(0, 5), (1, 3)]
     assert all(g["typical"] != "i8" for g in groups)
+
+
+def test_near_pairs_finds_almost_equal_embeddings_once():
+    rng = np.random.default_rng(1)
+    base = rng.normal(size=(4, 32))
+    vectors = np.vstack([base, base[0] + 1e-3 * rng.normal(size=32), base[1] * 3.0])  # a copy, a rescaled one
+    ids = ["a", "b", "c", "d", "a2", "b3"]
+    pairs = similarity.near_pairs(ids, vectors)
+    assert {(p[0], p[1]) for p in pairs} == {("a", "a2"), ("b", "b3")}
+    assert all(0 <= p[2] <= similarity.PAIR_LIMIT for p in pairs)
+    assert pairs == sorted(pairs, key=lambda p: p[2])
+
+
+def test_near_pairs_respects_the_limit_and_small_sets():
+    vectors = np.array([[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]])
+    assert similarity.near_pairs(["x"], vectors[:1]) == []
+    assert similarity.near_pairs(["x", "y", "z"], vectors, limit=0.0) == []
+    close = similarity.near_pairs(["x", "y", "z"], vectors, limit=0.1)
+    assert [p[:2] for p in close] == [["x", "y"]]
+
+
+def test_near_pairs_in_blocks_gives_the_same_pairs(monkeypatch):
+    rng = np.random.default_rng(2)
+    base = rng.normal(size=(10, 8))
+    vectors = np.vstack([base, base + 1e-4])
+    ids = [f"i{n}" for n in range(20)]
+    whole = similarity.near_pairs(ids, vectors)
+    monkeypatch.setattr(similarity, "PAIR_BLOCK", 20)  # one row at a time
+    assert similarity.near_pairs(ids, vectors) == whole
+    assert len(whole) == 10
+
+
+def test_build_map_keeps_the_near_pairs():
+    rng = np.random.default_rng(3)
+    base = rng.normal(size=(6, 16))
+    vectors = np.vstack([base, base[:1]])
+    result = similarity.build_map([f"i{n}" for n in range(7)], vectors)
+    assert [p[:2] for p in result["near_pairs"]] == [["i0", "i6"]]

@@ -332,6 +332,7 @@
   "threshold.min_side": "Pequena: menor lado abaixo de (px)",
   "threshold.max_aspect": "Proporção estranha: lado maior / menor acima de",
   "threshold.phash_distance": "Quase duplicata: diferença máxima entre duas imagens (0 = idênticas)",
+  "threshold.embedding_distance": "Quase duplicata pelo mapa de semelhança: distância máxima (0 = desligado; máximo 0,1)",
   "cur.open_fo": "Abrir no FiftyOne (só olhar)",
   "cur.pull_fo": "Trazer exclusões do FiftyOne",
   "cur.fo_hint": "No FiftyOne, marque as imagens com a tag exclude e depois clique aqui.",
