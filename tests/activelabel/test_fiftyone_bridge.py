@@ -508,6 +508,29 @@ def test_the_app_shows_only_ground_truth_and_hides_the_internal_fields(tmp_path,
     assert [(g.name, list(g.paths)) for g in dataset.app_config.sidebar_groups] == before
 
 
+def test_a_refreshed_dataset_is_reloaded_in_the_open_app(tmp_path, project, monkeypatch):
+    """#699: after a refresh the App that shows the dataset reloads it, so the person does not press F5."""
+    manifest = build(tmp_path, 1)
+    labels = AnnotationSet(Task.DETECTION, ["cat"], {}, {})
+    dataset = bridge.sync_dataset(project, manifest, labels)
+    calls = []
+    app = SimpleNamespace(dataset=dataset, port=1, refresh=lambda: calls.append("refresh"))
+    monkeypatch.setattr(bridge, "_session", app)
+    monkeypatch.setattr(bridge, "port_answers", lambda port: True)
+    bridge.sync_dataset(project, manifest, labels)
+    assert calls == ["refresh"]
+    app.dataset = SimpleNamespace(name="another dataset")  # the App shows another dataset: left alone
+    assert bridge.refresh_app(dataset) is False and calls == ["refresh"]
+    app.dataset = dataset
+    monkeypatch.setattr(bridge, "port_answers", lambda port: False)  # the App is gone
+    assert bridge.refresh_app(dataset) is False and calls == ["refresh"]
+    monkeypatch.setattr(bridge, "port_answers", lambda port: True)
+    app.refresh = lambda: 1 / 0  # a failing App never fails the refresh of the dataset
+    assert bridge.refresh_app(dataset) is False
+    monkeypatch.setattr(bridge, "_session", None)
+    assert bridge.refresh_app(dataset) is False
+
+
 def test_keypoints_are_shown_but_not_editable_in_the_app(tmp_path, project):
     """The FiftyOne App (1.22) cannot edit keypoints: no label schema, the labels are only shown."""
     project.task = Task.KEYPOINTS
