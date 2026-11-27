@@ -68,7 +68,9 @@ named in `missing` (`projects` or `tasks`), the rest is shown; when neither list
 When the person compares (*Synchronise*) with a linked project that was deleted in CVAT, nothing is
 changed: the comparison fails with the code `remote_gone` and the *CVAT* tab of *Annotations* says, in the
 interface language, that the project no longer exists, with an *Unlink* (*Desvincular*) button; after
-unlinking, a new comparison creates a new project in CVAT.
+unlinking, a new comparison creates a new project in CVAT. While the last comparison found the project
+deleted, the card shows its name as plain text ("deleted in CVAT"), not as a link, and the *Open* row says
+what to do in that tab: unlink, or compare again to create the project (#695).
 
 A job that fails with a coded error (`remote_gone` here; `sync_remote_changed`, `sync_local_changed`,
 `sync_link_changed`, `sync_task_has_new_images` or `plan_not_found` when something changed after the

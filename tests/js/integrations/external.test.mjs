@@ -44,3 +44,30 @@ test('the CVAT and FiftyOne tabs load the tools, sessions, tasks, pre-annotation
   }
   assert.deepEqual([...new Set(asked)].sort(), Object.keys(ANSWERS).sort());
 });
+
+test('the CVAT card shows no link to a project deleted in CVAT, and the open row says what to do here (#695)', async () => {
+  setMessages({ 'annotate.tool.cvat': 'CVAT', 'sync.remote_deleted': '{name} (deleted in CVAT)', 'sync.remote_project': 'Project in {tool}', 'open.cvat_remote_gone': 'Use Unlink, or compare again.' }, 'en');
+  const link = { tool: 'cvat', url: 'http://cvat.test/projects/7', remote_id: '7', remote_name: 'Pets', images: 3 };
+  const failed = { id: 'j1', kind: 'sync_plan', status: 'failed', created: '2026-11-27T10:00:00', error_code: 'remote_gone' };
+  const ctx = { project: { id: 2, task: 'detection', classes: ['cat'], counts: { active: 3 } }, jobs: [failed], links: [link], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} };
+  const page = {
+    ctx, projectId: 2, isActive: () => false, isRemoteGone: (job) => job.error_code === 'remote_gone', jobStarted: async () => {}, refreshProject: async () => true,
+    startSync: async () => {}, syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+    diffView: () => null, issueName: (x) => x,
+  };
+  const answers = { ...ANSWERS, '/api/annotation-tools': [{ tool: 'cvat', configured: true, url: 'http://cvat.test', username: 'u' }, { tool: 'fiftyone', configured: true }] };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: answers[url] !== undefined, status: answers[url] !== undefined ? 200 : 404, text: async () => JSON.stringify(answers[url] ?? {}) });
+  try {
+    const block = annotateBlock(page);
+    document.body.append(block.cvatSection);
+    await block.mount();
+    const facts = block.cvatSection.querySelector('.link-facts');
+    assert.equal(facts.querySelector('a'), null);
+    assert.match(facts.textContent, /Pets \(deleted in CVAT\)/);
+    assert.match(block.cvatSection.querySelector('#cvat-open-reason').textContent, /Use Unlink, or compare again\./);
+  } finally {
+    globalThis.fetch = real;
+    document.body.replaceChildren();
+  }
+});

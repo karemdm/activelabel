@@ -69,6 +69,8 @@ Everything below goes into the first release, 0.1.0.
 
 ### Changed
 
+- **CVAT: project deleted there.** The CVAT tab says what to do there (unlink, or compare again to create the
+  project) and no longer links to the deleted project (#695).
 - **CVAT: task deleted there.** The review of a task deleted in CVAT names the task next to "Images to remove", and
   the task list stops offering "Open in CVAT" for it right after the comparison (the cached state is dropped).
 
