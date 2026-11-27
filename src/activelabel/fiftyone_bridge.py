@@ -29,6 +29,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+from activelabel import fiftyone_plugin
 from activelabel.annotate import sessions
 from activelabel.annotate.fo_labels import fingerprint
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
@@ -43,6 +44,8 @@ from activelabel.tasks import Task
 from activelabel.tasks_store import ImageTask, TaskStore, jobs
 
 GROUND_TRUTH = "ground_truth"
+#: Dataset info key: True when the App can edit ``ground_truth``, so its image window opens in Annotate mode.
+EDITABLE_INFO = "activelabel_editable"
 WRITTEN = "activelabel_written"  # fingerprint of the ground_truth ActiveLabel last wrote
 WRITTEN_LABELS = "activelabel_labels"  # label_hash of the project labels it was written from
 EXCLUDED_TAG = "excluded"
@@ -808,9 +811,14 @@ def sync_dataset(
         )
 
     dataset.classes = {GROUND_TRUTH: list(project.classes)}
-    dataset.info = {**dataset.info, "project_id": project.id, "project_name": project.name}
+    editable = enable_editing(dataset, project)
+    dataset.info = {
+        **dataset.info,
+        "project_id": project.id,
+        "project_name": project.name,
+        EDITABLE_INFO: editable,  # the App plugin opens the image window ready to edit (Annotate mode)
+    }
     dataset.save()
-    enable_editing(dataset, project)
     tidy_app(dataset)
     _save_views(dataset, tasks)
     report(total, total)
@@ -1107,6 +1115,7 @@ def launch_app(
         OSError: no port was free, or the App did not answer in time (:class:`AppTimeout`).
     """
     global _session
+    fiftyone_plugin.use_plugins()  # the image window opens ready to edit (Annotate mode)
     if task is not None:
         view = task_view_name(task) if task_view_name(task) in dataset.list_saved_views() else None
     else:

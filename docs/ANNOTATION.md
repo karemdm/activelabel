@@ -31,9 +31,30 @@ disabled, with the reason written under it, while *View in FiftyOne* stays (docs
 
 **How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
 gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
-in a list), so nothing has to be set up: click *Edit in FiftyOne*, click an image, choose the *Annotate*
-tab of the image window and draw, move, relabel or delete. Edits are saved in the dataset as you make
-them; review and apply them from the *FiftyOne* tab.
+in a list), so nothing has to be set up: click *Edit in FiftyOne* and click an image. The image window opens
+in the *Annotate* tab, ready to edit, with the mouse alone:
+
+| To | Do |
+| --- | --- |
+| Select a box or polygon | Click it (or its row in the *LABELS* list) |
+| Move it | Drag it |
+| Resize a box, move a polygon point | Drag a corner or a point |
+| Change the class | Pick another *label* in the panel on the right |
+| Delete it | Press *Delete*, or *⋮ → Delete label* in the panel |
+| Draw a new box or polygon | Pick the rectangle or polygon tool under *Create*, then drag (or click the points) on the image |
+| Undo / redo | The arrows next to *Create*, or Ctrl+Z / Ctrl+Shift+Z |
+
+After a deletion or a new shape the App picks the drawing tool: click the arrow under *Create* before
+clicking another box, or a click draws a new one. Edits are saved in the dataset as you make them; review
+and apply them from the *FiftyOne* tab.
+
+**Why the window opens in Annotate.** The App's own default is *Explore*, where the labels are only shown
+(hovering a box shows its class and id, nothing moves), and it remembers the tab per dataset in the
+browser. ActiveLabel turns on its App plugin `@activelabel/annotate` (`src/activelabel/fiftyone_plugin/`, plain
+script, no build) for the App it starts: FiftyOne's plugins folder is set for the ActiveLabel process
+only, never in `~/.fiftyone`. When a dataset that ActiveLabel marked editable (`activelabel_editable` in the
+dataset info, set by `enable_editing`) opens, the plugin switches the image window to *Annotate*; the
+*Explore* tab is still one click away. A keypoints dataset is not marked, so it opens in *Explore*.
 
 **What the App shows.** Only `ground_truth` is drawn on an image (the other fields can be turned on in the
 sidebar), and the fields ActiveLabel keeps for itself (`activelabel_written`, `activelabel_labels`,

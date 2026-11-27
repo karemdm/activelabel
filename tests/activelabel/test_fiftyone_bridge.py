@@ -25,6 +25,14 @@ from activelabel.tasks_store import TaskStore
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def plugins(monkeypatch):
+    """The App plugins are not turned on for the test process (no FiftyOne setting leaks to other tests)."""
+    calls = []
+    monkeypatch.setattr(bridge.fiftyone_plugin, "use_plugins", lambda: calls.append("plugins"))
+    return calls
+
+
 @pytest.fixture
 def project(monkeypatch):
     unique = f"test-activelabel-{uuid.uuid4().hex[:8]}"
@@ -256,7 +264,9 @@ class FakeSession:
 
 
 @pytest.mark.parametrize("problem", ["stopped", "hung"])
-def test_a_dead_or_hung_session_is_dropped_and_a_new_app_started(tmp_path, project, monkeypatch, problem):
+def test_a_dead_or_hung_session_is_dropped_and_a_new_app_started(
+    tmp_path, project, monkeypatch, problem, plugins
+):
     manifest = build(tmp_path, 1)
     dataset = bridge.sync_dataset(project, manifest, None)
     hang = threading.Event() if problem == "hung" else None
@@ -267,6 +277,7 @@ def test_a_dead_or_hung_session_is_dropped_and_a_new_app_started(tmp_path, proje
     monkeypatch.setattr(bridge, "_launched", {5161})
     monkeypatch.setattr(bridge.fo, "launch_app", lambda target, port, remote: FakeSession(port))
     url = bridge.launch_app(dataset)
+    assert plugins == ["plugins"]  # the App it starts loads ActiveLabel's plugins
     assert old.closed and bridge._session is not old
     assert url.startswith(f"http://localhost:{bridge._session.port}/datasets/")
     if hang is not None:
@@ -539,6 +550,16 @@ def test_keypoints_are_shown_but_not_editable_in_the_app(tmp_path, project):
     dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.KEYPOINTS, ["cat"], kp, {}))
     assert bridge.enable_editing(dataset, project) is False
     assert bridge.GROUND_TRUTH not in dataset.active_label_schemas
+    assert dataset.info[bridge.EDITABLE_INFO] is False  # the App plugin leaves it in Explore mode
+
+
+def test_an_editable_dataset_is_marked_for_the_annotate_mode_plugin(tmp_path, project):
+    """The App plugin opens the image window in Annotate mode only for a dataset marked editable."""
+    manifest = build(tmp_path, 1)
+    cat = {"i0": [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], cat, {}))
+    assert dataset.info[bridge.EDITABLE_INFO] is True
+    assert dataset.info["project_id"] == project.id
 
 
 def test_an_edit_made_outside_a_session_is_kept(tmp_path, project):
