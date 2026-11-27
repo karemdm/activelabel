@@ -271,6 +271,31 @@ def test_the_step_bar_contains_its_hidden_texts():
     assert "overflow-x: auto" in rule.group(1)
 
 
+def test_the_step_cards_use_equal_columns_whatever_the_text():
+    """Each card (data, model) is a grid of three equal columns, so the gap between steps does not depend on
+    the length of a summary; a long summary wraps in its own cell (two lines, then an ellipsis)."""
+    group = re.search(r"^\.step-group \{([^}]*)\}", CSS, re.M)
+    assert group, "the .step-group rule is gone"
+    assert "display: grid" in group.group(1)
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in group.group(1)
+    assert "align-items: start" in group.group(1)
+    assert "flex-wrap" not in group.group(1)
+    assert re.search(r"^\.step-group-title \{[^}]*grid-column: 1 / -1", CSS, re.M)
+    assert re.search(r"^\.stepper \{[^}]*align-items: stretch", CSS, re.M)  # both cards have the same height
+    status = re.search(r"^\.step-status \{([^}]*)\}", CSS, re.M)
+    assert status and "-webkit-line-clamp: 2" in status.group(1) and "nowrap" not in status.group(1)
+    assert "title: stepStatus(step)" in JS  # the full text stays in a tooltip
+
+
+def test_the_step_cards_stack_without_sideways_scroll_on_small_screens():
+    """Under 900 px the cards stack; under 560 px each card's steps stack in one column."""
+    narrow = re.search(r"@media \(max-width: 900px\) \{(.*?)^\}", CSS, re.S | re.M)
+    assert narrow and ".stepper { flex-direction: column" in narrow.group(1)
+    assert "overflow-x: visible" in narrow.group(1)
+    phone = re.search(r"@media \(max-width: 560px\) \{\s*\.step-group \{([^}]*)\}", CSS)
+    assert phone and "grid-template-columns: minmax(0, 1fr)" in phone.group(1)
+
+
 def test_the_split_screen_uses_the_protections_the_api_offers():
     """The names the JavaScript reads and sends exist in the API: the preview's ``empty_parts`` and
     ``max_kfold``, the ``allow_empty`` and ``confirm_runs`` flags, and the codes that ask for them."""

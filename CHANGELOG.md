@@ -94,6 +94,7 @@ Everything below goes into the first release, 0.1.0.
 
 ### Fixed
 
+- **The steps of the project page keep the same spacing whatever their text.** Each card (data, model) is a grid of three equal columns, so a long summary (for example the annotations count) no longer pushes a step to a second row; the summary wraps inside its own cell (two lines, then an ellipsis, with the full text in a tooltip) and both cards have the same height. Under 900 px the two cards stack, and on a phone the steps stack in one column, with no sideways scroll.
 - **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
   (images written to the dataset, then the App; the activity pill also names the stage), and the App really
   opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened
