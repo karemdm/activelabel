@@ -62,6 +62,30 @@ export function initNew() {
       name: form.elements.name.value, description: form.elements.description.value, task: picker.get(), classes: chips.get(),
     });
   });
+  /* a name that is taken stays marked on its field (not only in a toast that fades) until the name changes (#637) */
+  const nameField = form.elements.name;
+  const nameError = document.createElement('p');
+  nameError.className = 'hint';
+  nameError.id = 'f-name-error';
+  nameError.setAttribute('role', 'alert');
+  nameError.style.color = 'var(--danger)';
+  nameError.hidden = true;
+  nameField.insertAdjacentElement('afterend', nameError);
+  const clearNameError = () => {
+    nameField.removeAttribute('aria-invalid');
+    nameField.removeAttribute('aria-describedby');
+    nameField.style.borderColor = '';
+    nameError.hidden = true;
+  };
+  const markNameError = (message) => {
+    nameField.setAttribute('aria-invalid', 'true');
+    nameField.setAttribute('aria-describedby', nameError.id);
+    nameField.style.borderColor = 'var(--danger)';
+    nameError.textContent = message;
+    nameError.hidden = false;
+    nameField.focus();
+  };
+  nameField.addEventListener('input', clearNameError);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = form.elements.name.value.trim();
@@ -70,6 +94,7 @@ export function initNew() {
       form.elements.name.focus();
       return;
     }
+    clearNameError();
     btn.disabled = true;
     try {
       const project = await api('POST', '/projects', {
@@ -80,7 +105,8 @@ export function initNew() {
       location.href = `/projects/${project.id}`;
     } catch (err) {
       btn.disabled = false;
-      toastError(err);
+      if (err && err.code === 'project_name_taken') markNameError(err.message);
+      else toastError(err);
     }
   });
   form.elements.name.focus();

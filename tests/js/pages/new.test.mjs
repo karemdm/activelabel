@@ -77,7 +77,16 @@ test('the project is sent with its name, task and classes; an error gives the bu
   globalThis.fetch = real;
   assert.deepEqual(body, { name: 'Cats', description: '', task: 'segmentation', classes: ['cat', 'dog'] });
   assert.equal(document.getElementById('create-btn').disabled, false);
-  assert.equal(lastToast().dataset.text, 'That name is taken');
+  /* the taken name stays marked on its field, not only in a toast (#637) */
+  const nameError = document.getElementById('f-name-error');
+  assert.equal(form.elements.name.getAttribute('aria-invalid'), 'true');
+  assert.equal(nameError.hidden, false);
+  assert.equal(nameError.textContent, 'That name is taken');
+  assert.equal(form.elements.name.getAttribute('aria-describedby'), 'f-name-error');
+  assert.equal(document.activeElement, form.elements.name);
+  form.elements.name.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.equal(form.elements.name.hasAttribute('aria-invalid'), false);
+  assert.equal(nameError.hidden, true);
   box.remove();
 });
 
