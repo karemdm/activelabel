@@ -5,6 +5,7 @@ from ann_helpers import make_project
 
 from activelabel.annotate import diff as d
 from activelabel.annotate.base import Pulled
+from activelabel.images.tags import load_tags, set_tags
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
@@ -201,3 +202,77 @@ def test_clean_labels_drops_a_second_value_of_a_target(tmp_path) -> None:
     out, dropped = d.clean_labels(project, labels)
     assert [(lb.label, lb.value) for lb in out] == [("age", 31.0), ("height", 170.0)]
     assert dropped["repeated_target"] == 1 and dropped["multiple_classes"] == 0
+
+
+# -- tags -------------------------------------------------------------------------
+def tagged(name, *tags, x=0.1):
+    return Label(name, bbox=[x, 0.1, 0.4, 0.4], tags=list(tags) or None)
+
+
+def test_tag_changes_counts_label_tags_as_a_multiset():
+    old = [tagged("cat", "a", "b"), tagged("dog", "a")]
+    assert d.tag_changes(old, old, [], None) == (0, 0)
+    assert d.tag_changes(old, [tagged("cat", "a"), tagged("dog", "a", "c")], [], None) == (1, 1)
+    assert d.tag_changes([box("cat")], [tagged("cat", "a"), tagged("dog", "a")], [], None) == (2, 0)
+    assert d.tag_changes(old, [], [], None) == (0, 3)
+
+
+def test_tag_changes_of_the_image_tags():
+    assert d.tag_changes([], [], ["a"], None) == (0, 0)  # the tool has no image tags: nothing changes
+    assert d.tag_changes([], [], ["a"], []) == (0, 1)  # the tool has none for this image
+    assert d.tag_changes([], [], ["a", "b"], ["b", "c", "excluded", "exclude"]) == (1, 1)
+    assert d.tag_changes([], [], [], ["x", "x"]) == (1, 0)
+    assert d.tag_changes([tagged("c", "a")], [tagged("c", "b")], ["i"], ["j"]) == (2, 2)
+
+
+def test_a_tag_only_change_is_in_the_diff(proj):
+    _, project, _, ids, folder = proj
+    keep = {ids[0]: [box("cat"), box("dog", 0.6, 0.6, 0.2, 0.2)], ids[1]: []}
+    quiet = d.diff(folder, ids, keep, project, image_tags={ids[0]: [], ids[1]: []})
+    assert quiet["images_changed"] == 0 and quiet["tags"] == {"added": 0, "removed": 0}
+    result = d.diff(folder, ids, keep, project, image_tags={ids[0]: [], ids[1]: ["check", "excluded"]})
+    assert result["images_changed"] == 1
+    assert (result["added"], result["removed"], result["edited"]) == (0, 0, 0)
+    assert result["tags"] == {"added": 1, "removed": 0}
+    (example,) = result["examples"]
+    assert example["image_id"] == ids[1] and (example["tags_added"], example["tags_removed"]) == (1, 0)
+    assert result["per_class"] == {}
+
+
+def test_label_tags_and_image_tags_in_the_summary(proj):
+    _, project, _, ids, folder = proj
+    d.apply(
+        store=proj[0],
+        project_id=project.id,
+        manifest=proj[2],
+        image_ids=ids,
+        new_labels={},
+        image_tags={ids[0]: ["old"]},
+    )
+    new = {ids[0]: [tagged("cat", "hard"), box("dog", 0.6, 0.6, 0.2, 0.2)], ids[1]: []}
+    result = d.diff(folder, ids, new, project, image_tags={ids[0]: ["new"]})
+    assert result["images_changed"] == 1
+    assert result["tags"] == {"added": 2, "removed": 1}
+    (example,) = result["examples"]
+    assert (example["tags_added"], example["tags_removed"]) == (2, 1)
+    assert d.diff(folder, ids, new, project)["tags"] == {"added": 1, "removed": 0}  # no image tags given
+
+
+def test_apply_writes_the_image_tags_and_the_label_tags(proj):
+    store, project, manifest, ids, folder = proj
+    new = {ids[0]: [tagged("cat", "hard"), box("dog", 0.6, 0.6, 0.2, 0.2)], ids[1]: [box("dog")]}
+    counts = d.apply(store, project.id, manifest, ids, new, image_tags={ids[0]: ["check"], "other": ["x"]})
+    assert counts["tags"] == {"added": 2, "removed": 0}
+    assert load_tags(folder) == {ids[0]: ["check"]}  # only the images of the session
+    assert load_annotations(folder).images[ids[0]][0].tags == ["hard"]
+    again = d.apply(store, project.id, manifest, ids, new, image_tags={ids[0]: []})
+    assert again["tags"] == {"added": 0, "removed": 1}
+    assert load_tags(folder) == {}
+
+
+def test_apply_without_image_tags_leaves_tags_json_alone(proj):
+    store, project, manifest, ids, folder = proj
+    set_tags(folder, {ids[0]: ["keep"]})
+    counts = d.apply(store, project.id, manifest, ids, {ids[0]: [box("cat")], ids[1]: []}, image_tags=None)
+    assert counts["tags"] == {"added": 0, "removed": 0}
+    assert load_tags(folder) == {ids[0]: ["keep"]}

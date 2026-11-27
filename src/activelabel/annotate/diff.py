@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 from activelabel.annotate.base import Pulled
 from activelabel.backups import make_backup
 from activelabel.images.manifest import Manifest
+from activelabel.images.tags import image_tags as clean_tags
+from activelabel.images.tags import load_tags, set_tags
 from activelabel.labels import (
     REPEATED_TARGET,
     AnnotationSet,
@@ -317,6 +320,29 @@ def settle(
     return labels, conflicts
 
 
+def tag_changes(
+    old_labels: list[Label], new_labels: list[Label], old_tags: list[str], new_tags: list[str] | None
+) -> tuple[int, int]:
+    """How many tags one image gains and loses: its own tags and the tags of its labels.
+
+    Args:
+        old_labels: the labels in the project.
+        new_labels: the labels brought back.
+        old_tags: the image's tags in the project.
+        new_tags: the image's tags in the tool, or None when the tool has no image tags.
+
+    Returns:
+        ``(added, removed)``.
+    """
+    before = Counter(t for lb in old_labels for t in lb.tags or [])
+    after = Counter(t for lb in new_labels for t in lb.tags or [])
+    added, removed = sum((after - before).values()), sum((before - after).values())
+    if new_tags is not None:
+        mine, theirs = set(old_tags), set(clean_tags(new_tags))
+        added, removed = added + len(theirs - mine), removed + len(mine - theirs)
+    return added, removed
+
+
 # -- diff -----------------------------------------------------------------------
 PROBLEM_MESSAGES = {
     "unknown_class": "Labels with classes that are not in the project (added to the project on apply).",
@@ -376,6 +402,7 @@ def _compare_all(
     project: Project,
     conflicts: list[str] | None = None,
     tool_problems: dict[str, dict[str, int]] | None = None,
+    image_tags: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Label]]]:
     """Clean the new labels and compare them with the ground truth, image by image.
 
@@ -387,6 +414,7 @@ def _compare_all(
         conflicts: images edited both in the tool and in the project (see :func:`settle`).
         tool_problems: ``{image_id: {code: count}}`` for shapes the tool held that could not be read as
             they are (``Pulled.problems``).
+        image_tags: the image tags in the tool (``Pulled.tags``), or None when it has none.
 
     Returns:
         The summary (see :func:`diff`) and the cleaned labels of each image present in ``new_labels``.
@@ -397,6 +425,8 @@ def _compare_all(
     known = {c.lower() for c in project.classes}
     tally = _Tally(names)
     totals = {"added": 0, "removed": 0, "edited": 0}
+    tag_totals = {"added": 0, "removed": 0}
+    stored_tags = load_tags(project_dir)
     unknown: dict[str, None] = {}
     examples: list[dict[str, Any]] = []
     cleaned: dict[str, list[Label]] = {}
@@ -422,7 +452,13 @@ def _compare_all(
                 unknown.setdefault(label.label)
                 tally.problem("unknown_class", image_id)
         changes = compare_image(project.task, old_all.get(image_id, []), labels)
-        if changes:
+        theirs = image_tags.get(image_id) if image_tags is not None else None
+        tags_added, tags_removed = tag_changes(
+            old_all.get(image_id, []), labels, stored_tags.get(image_id, []), theirs
+        )
+        tag_totals["added"] += tags_added
+        tag_totals["removed"] += tags_removed
+        if changes or tags_added or tags_removed:
             changed += 1
             for kind in ("added", "removed", "edited"):
                 items = getattr(changes, kind)
@@ -437,12 +473,15 @@ def _compare_all(
                         "added": len(changes.added),
                         "removed": len(changes.removed),
                         "edited": len(changes.edited),
+                        "tags_added": tags_added,
+                        "tags_removed": tags_removed,
                     }
                 )
     result = {
         "images_changed": changed,
         **totals,
         "per_class": tally.per_class,
+        "tags": tag_totals,
         "unknown_classes": list(unknown),
         "problems": [
             {"level": "warning", "code": code, "message": PROBLEM_MESSAGES[code], **entry}
@@ -460,6 +499,7 @@ def diff(
     project: Project,
     conflicts: list[str] | None = None,
     tool_problems: dict[str, dict[str, int]] | None = None,
+    image_tags: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Summary of the changes between the project ground truth and ``new_labels`` for these images.
 
@@ -470,12 +510,15 @@ def diff(
         project: the project (task and class list).
         conflicts: images edited both in the tool and in the project (``edited_on_both_sides``).
         tool_problems: ``{image_id: {code: count}}`` for shapes the tool could not give as they are.
+        image_tags: the image tags in the tool by image id (``Pulled.tags``), or None.
 
     Returns:
-        ``{images_changed, added, removed, edited, per_class, unknown_classes, problems, examples}``
-        (see docs/ANNOTATION.md).
+        ``{images_changed, added, removed, edited, per_class, tags, unknown_classes, problems, examples}``
+        (see docs/ANNOTATION.md); ``tags`` is ``{added, removed}``: the tags of the images and of their labels
+        gained and lost, also given per image in ``examples`` (``tags_added``, ``tags_removed``). An image
+        whose only change is its tags counts in ``images_changed``.
     """
-    return _compare_all(project_dir, image_ids, new_labels, project, conflicts, tool_problems)[0]
+    return _compare_all(project_dir, image_ids, new_labels, project, conflicts, tool_problems, image_tags)[0]
 
 
 # -- apply ----------------------------------------------------------------------
@@ -487,6 +530,7 @@ def apply(
     new_labels: dict[str, list[Label]],
     reason: str = "apply",
     last_session: dict[str, Any] | None = None,
+    image_tags: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Make ``new_labels`` the ground truth of these images (after a backup of ``annotations.json``).
 
@@ -503,16 +547,24 @@ def apply(
             session, ``sync`` for a CVAT synchronisation.
         last_session: the edit session applied (``{tool, session, at}``), recorded in the annotations'
             ``source`` as ``last_session`` next to the original import information; None records nothing.
+        image_tags: the image tags brought back from the tool, by image id: they become the tags of those
+            images in the project (``tags.json``); None leaves the image tags as they are.
 
     Returns:
-        Counts: the diff counts plus ``images_updated``, ``new_classes``, ``skipped`` and ``backup``.
+        Counts: the diff counts plus ``tags`` (``{added, removed}``), ``images_updated``, ``new_classes``,
+        ``skipped`` and ``backup``.
     """
     project = store.get(project_id)
     project_dir = store.dir(project_id)
     existing = {r.id for r in manifest.all()}
     ids = [i for i in image_ids if i in existing]
     with annotations_lock(project_dir):
-        return _apply_locked(store, project_id, project, project_dir, ids, new_labels, reason, last_session)
+        counts = _apply_locked(
+            store, project_id, project, project_dir, ids, new_labels, reason, last_session, image_tags
+        )
+        if image_tags:
+            set_tags(project_dir, {i: image_tags[i] for i in ids if i in image_tags})
+        return counts
 
 
 def _apply_locked(
@@ -524,6 +576,7 @@ def _apply_locked(
     new_labels: dict[str, list[Label]],
     reason: str,
     last_session: dict[str, Any] | None = None,
+    image_tags: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Do the work of :func:`apply` while the annotations file is locked.
 
@@ -536,11 +589,12 @@ def _apply_locked(
         new_labels: labels brought back from the tool, by image id.
         reason: why the backup is made, as in :func:`apply`.
         last_session: the applied session, as in :func:`apply`.
+        image_tags: the image tags brought back, as in :func:`apply` (only counted here).
 
     Returns:
         The same counts as :func:`apply`.
     """
-    summary, cleaned = _compare_all(project_dir, ids, new_labels, project)
+    summary, cleaned = _compare_all(project_dir, ids, new_labels, project, image_tags=image_tags)
     annotations = load_annotations(project_dir)
     backup = ""
     if annotations is None:
@@ -563,6 +617,7 @@ def _apply_locked(
         "added": summary["added"],
         "removed": summary["removed"],
         "edited": summary["edited"],
+        "tags": summary["tags"],
         "images_updated": len(cleaned),
         "new_classes": new_classes,
         "skipped": skipped,

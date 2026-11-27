@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from activelabel.errors import CodedError
+from activelabel.images.tags import load_tags
 from activelabel.labels import (
     BOX_INVALID,
     KEYPOINTS_COUNT_MISMATCH,
@@ -89,7 +90,7 @@ def revision(labels: list[Label]) -> str:
 
 
 def image_labels(project: Project, project_dir: Any, image_id: str) -> dict[str, Any]:
-    """The labels of one image with the project's classes and their revision.
+    """The labels of one image with the project's classes, their revision and the image's tags.
 
     Args:
         project: the project (its classes).
@@ -97,7 +98,7 @@ def image_labels(project: Project, project_dir: Any, image_id: str) -> dict[str,
         image_id: id of the image (an image without labels gives an empty list).
 
     Returns:
-        ``{labels, classes, revision}``.
+        ``{labels, classes, revision, tags}`` (``tags``: the image's own tags).
     """
     annotations = load_annotations(project_dir)
     labels = annotations.images.get(image_id, []) if annotations else []
@@ -105,6 +106,7 @@ def image_labels(project: Project, project_dir: Any, image_id: str) -> dict[str,
         "labels": [lb.as_dict() for lb in labels],
         "classes": list(project.classes),
         "revision": revision(labels),
+        "tags": load_tags(project_dir).get(image_id, []),
     }
 
 

@@ -68,7 +68,8 @@ Principles (from what went wrong in the previous tool):
   annotate/<session>/pulled.json   the annotations brought back by a session, until applied or discarded
   origin.json         where an imported project came from (docs/IMPORT.md)
   fiftyone.json       {"dataset": "<name>"}: the project's FiftyOne dataset (see below)
-  annotations.json    ground truth in the internal format (activelabel.labels)
+  annotations.json    ground truth in the internal format (activelabel.labels); a label may carry `tags`
+  tags.json           {"images": {"<image id>": [tags]}}: image tags brought back from FiftyOne (docs/ANNOTATION.md)
   annotations.<UTC time>Z[.<reason>].bak.json   backup made before a change that removes or rewrites annotations (a replacing import, class removal, a task change that discards labels, FiftyOne or CVAT apply, a class renamed in CVAT, a restore); the newest 20 are kept; see activelabel/backups.py
   curation.json       thresholds and near-duplicate groups
   datasets/v<N>.json  frozen dataset versions: train/val/test split + label copy (docs/DATASETS.md)
@@ -244,7 +245,7 @@ running.
 | GET | `/projects/{id}/images` | `status` (`active` default, `excluded`, `all`), `issue` (a flag, or `any` for every flagged image), `ids` (comma separated), `task`, `job` (needs `task`), `dataset`, `part` and `fold` (need `dataset`), `offset`, `limit` (60 by default, at most 500) | `{total, items}` (classification projects: each item has `classes`) |
 | GET | `/projects/{id}/images/{image_id}/thumb` | | JPEG |
 | GET | `/projects/{id}/images/{image_id}/file` | | original file |
-| GET, PUT | `/projects/{id}/images/{image_id}/labels` | PUT: `{labels, revision, add_classes?}` (docs/ANNOTATION.md) | `{labels, classes, revision}` / `{labels, revision, classes}` |
+| GET, PUT | `/projects/{id}/images/{image_id}/labels` | PUT: `{labels, revision, add_classes?}` (docs/ANNOTATION.md) | `{labels, classes, revision, tags}` / `{labels, revision, classes}` |
 | POST | `/projects/{id}/images/exclude` | `{ids, reason}` | `{changed}` |
 | POST | `/projects/{id}/images/restore` | `{ids}` | `{changed}` |
 | POST | `/projects/{id}/images/delete` | `{ids, confirm: true}` | `{deleted}` |

@@ -6,6 +6,8 @@ cheap to import and easy to test with stand-in objects.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from typing import Any
 
@@ -71,6 +73,19 @@ def _track(value: Any) -> int | None:
     return None if index is None or _is_nan(index) else int(index)
 
 
+def _tags(value: Any) -> list[str] | None:
+    """Tags of a FiftyOne label (None when it has none).
+
+    Args:
+        value: a FiftyOne label that may have ``tags``.
+
+    Returns:
+        The tags in their order, each once, or None.
+    """
+    tags = [str(t) for t in getattr(value, "tags", None) or [] if str(t).strip()]
+    return list(dict.fromkeys(tags)) or None
+
+
 def _classification(value: Any) -> list[Label]:
     """Labels of a ``Classification`` or ``Classifications`` (the first one).
 
@@ -85,7 +100,7 @@ def _classification(value: Any) -> list[Label]:
         value = items[0] if items else None
     if value is None or not getattr(value, "label", None):
         return []
-    return [Label(str(value.label))]
+    return [Label(str(value.label), tags=_tags(value))]
 
 
 def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
@@ -105,7 +120,7 @@ def _detections(value: Any, notes: dict[str, int]) -> list[Label]:
         box = [_r(v) for v in det.bounding_box]
         if getattr(det, "mask", None) is not None:
             _note(notes, "mask_only")  # kept as a box: masks are not converted
-        out.append(Label(str(det.label), bbox=box, track=_track(det)))
+        out.append(Label(str(det.label), bbox=box, track=_track(det), tags=_tags(det)))
     return out
 
 
@@ -150,7 +165,9 @@ def _polylines(value: Any, notes: dict[str, int]) -> list[Label]:
         if not rings:
             continue
         flat = [p for ring in rings for p in ring]
-        out.append(Label(str(poly.label), bbox=_box_of(flat), polygons=rings, track=_track(poly)))
+        out.append(
+            Label(str(poly.label), bbox=_box_of(flat), polygons=rings, track=_track(poly), tags=_tags(poly))
+        )
     return out
 
 
@@ -198,7 +215,7 @@ def _keypoints(value: Any) -> list[Label]:
         kept = getattr(kp, "box", None)  # the original box (a pose box is often larger than its points)
         if box and kept and len(kept) == 4 and _inside(box, [float(v) for v in kept]):
             box = [_r(float(v)) for v in kept]
-        out.append(Label(str(kp.label), bbox=box, keypoints=points, track=_track(kp)))
+        out.append(Label(str(kp.label), bbox=box, keypoints=points, track=_track(kp), tags=_tags(kp)))
     return out
 
 
@@ -261,7 +278,9 @@ def fingerprint(value: Any, task: Task) -> str:
     """Fingerprint of the labels a FiftyOne value holds, to tell later whether someone changed it.
 
     The value is read the way a pull reads it, then hashed with :func:`activelabel.sync.links.label_hash`,
-    so differences FiftyOne does not keep (float noise below the hash's rounding, scores) do not count.
+    so differences FiftyOne does not keep (float noise below the hash's rounding, scores) do not count. The
+    tags of the labels count too when there are any (a label tagged in the App is an edit), so a value
+    without tags keeps the fingerprint it always had.
 
     Args:
         value: the FiftyOne label field value, a ``{target: value}`` dict (regression), or None.
@@ -270,4 +289,10 @@ def fingerprint(value: Any, task: Task) -> str:
     Returns:
         The SHA-256 digest, as 64 hex characters.
     """
-    return label_hash(labels_from_fo(value, task))
+    labels = labels_from_fo(value, task)
+    base = label_hash(labels)
+    tags = sorted(sorted(lb.tags) for lb in labels if lb.tags)
+    if not tags:
+        return base
+    body = json.dumps([base, tags], ensure_ascii=False)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()

@@ -25,3 +25,12 @@ def test_pulled_is_the_labels_plus_what_the_tool_knows():
     assert dict(pulled) == {"a": [Label("cat")], "b": []}
     assert pulled.edited == {"a"} and pulled.written == {"a": "h"}
     assert Pulled({}, set()).written == {}
+
+
+def test_pulled_tags_are_the_image_tags_or_none():
+    assert Pulled({}, set()).tags is None
+    source = {"a": ["check"]}
+    pulled = Pulled({"a": []}, set(), tags=source)
+    assert pulled.tags == {"a": ["check"]}
+    source["b"] = ["x"]
+    assert pulled.tags == {"a": ["check"]}  # a copy

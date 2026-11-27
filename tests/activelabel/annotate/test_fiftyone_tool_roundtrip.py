@@ -28,6 +28,7 @@ from activelabel.annotate import sessions
 from activelabel.annotate.base import ToolSettings
 from activelabel.annotate.fiftyone_tool import FiftyOneTool
 from activelabel.images.manifest import EXCLUDED
+from activelabel.images.tags import load_tags
 from activelabel.labels import AnnotationSet, Label, load_annotations, save_annotations
 from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
@@ -937,6 +938,38 @@ def test_exclude_tag_is_pulled_and_kept(det_scene):
     result = send(det_scene)
     assert result["session"]["images"] == COUNT - 1
     assert bridge.EXCLUDED_TAG in sample_of(det_scene, 1).tags
+
+
+def tag_img0(sample: Any) -> None:
+    """Tag the sample and its first detection, as the App does, for ``test_tags_made_in_fiftyone_come_back``.
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.tags.append("check")
+    sample.ground_truth.detections[0].tags = ["hard"]
+
+
+def test_tags_made_in_fiftyone_come_back(det_scene):
+    session, _ = flow(det_scene)
+    edit(det_scene, 0, tag_img0)
+    diff = pull(det_scene, session)
+    assert diff["tags"] == {"added": 2, "removed": 0}
+    assert (diff["added"], diff["removed"], diff["edited"], diff["images_changed"]) == (0, 0, 0, 1)
+    (example,) = diff["examples"]
+    assert example["image_id"] == det_scene.ids[0] and example["tags_added"] == 2
+    assert load_tags(det_scene.folder) == {}  # nothing is stored before the apply
+    reply = apply(det_scene, session)
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["applied"]["tags"] == {"added": 2, "removed": 0}
+    assert load_tags(det_scene.folder) == {det_scene.ids[0]: ["check"]}
+    assert [lb.tags for lb in det_scene.labels()[det_scene.ids[0]]] == [["hard"], None]
+    saved = json.loads((det_scene.folder / "annotations.json").read_text(encoding="utf-8"))
+    assert saved["images"][det_scene.ids[0]][0]["tags"] == ["hard"]
+    project = det_scene.state.project(det_scene.pid)
+    bridge.sync_dataset(project, det_scene.state.manifest(det_scene.pid), load_annotations(det_scene.folder))
+    kept = sample_of(det_scene, 0)
+    assert kept.ground_truth.detections[0].tags == ["hard"] and "check" in kept.tags
 
 
 def test_two_sessions_back_to_back_after_apply(det_scene):

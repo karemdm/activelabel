@@ -38,3 +38,12 @@ def test_same_value() -> None:
     assert same_value(1.0, 1.0 + 1e-12)
     assert not same_value(1.0, 1.001)
     assert same_value(0, 0)
+
+
+def test_tags_in_dict_round_trip(tmp_path):
+    label = Label("cat", bbox=[0, 0, 1, 1], tags=["check", "hard"])
+    assert label.as_dict()["tags"] == ["check", "hard"] and Label.from_dict(label.as_dict()) == label
+    assert "tags" not in Label("cat").as_dict() and Label.from_dict({"label": "cat"}).tags is None
+    assert Label.from_dict({"label": "cat", "tags": []}).tags is None
+    save_annotations(tmp_path, AnnotationSet(Task.DETECTION, ["cat"], {"a": [label]}, {}))
+    assert load_annotations(tmp_path).images["a"][0].tags == ["check", "hard"]

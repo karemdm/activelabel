@@ -16,6 +16,7 @@ from activelabel.annotate import sessions
 from activelabel.fiftyone_bridge import resolve_view
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
+from activelabel.images.tags import set_tags
 from activelabel.labels import AnnotationSet, Label
 from activelabel.projects import Project
 from activelabel.sync.links import label_hash
@@ -154,6 +155,36 @@ def test_sync_is_idempotent_and_removes(tmp_path, project):
     assert len(again) == 2
     assert len(again.match_tags("excluded")) == 1
     assert len(again.load_saved_view("curation - excluded")) == 1
+
+
+def test_sample_tags_leave_out_the_tags_activelabel_uses(tmp_path, project):
+    manifest = build(tmp_path)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample.tags = ["check", "excluded", "exclude", "blurry"]
+    sample.save()
+    assert bridge.sample_tags(dataset, ["i0", "i1", "nope"]) == {"i0": ["check", "blurry"], "i1": []}
+    assert bridge.sample_tags(dataset, []) == {}
+
+
+def test_a_new_sample_starts_with_the_stored_tags(tmp_path, project):
+    manifest = build(tmp_path)
+    set_tags(tmp_path, {"i0": ["check", "hard"]})
+    dataset = bridge.sync_dataset(project, manifest, None)
+    assert bridge.sample_tags(dataset, ["i0", "i1"]) == {"i0": ["check", "hard"], "i1": []}
+    set_tags(tmp_path, {"i0": ["other"], "i1": ["new"]})  # an existing sample keeps the tags it has
+    again = bridge.sync_dataset(project, manifest, None)
+    assert bridge.sample_tags(again, ["i0", "i1"]) == {"i0": ["check", "hard"], "i1": []}
+
+
+def test_label_tags_are_written_into_fiftyone(tmp_path, project):
+    manifest = build(tmp_path)
+    labels = {"i0": [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], tags=["hard"]), Label("dog", bbox=[0, 0, 1, 1])]}
+    dataset = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], labels, {})
+    )
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    assert [list(d.tags) for d in sample.ground_truth.detections] == [["hard"], []]
 
 
 def test_pull_exclusions(tmp_path, project):
