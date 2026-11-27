@@ -322,3 +322,24 @@ def test_a_linked_project_deleted_in_the_tool_says_remote_gone(env):
     with pytest.raises(RemoteNotFound) as gone:
         plan(env)
     assert gone.value.code == "remote_gone"
+
+
+def test_before_renames_gives_the_renamed_classes_their_old_name_back():
+    labels = {"a": [box("Kitten"), box("dog")], "b": []}
+    assert engine._before_renames(labels, []) is labels
+    back = engine._before_renames(labels, [{"from": "cat", "to": "kitten"}])
+    assert [lb.label for lb in back["a"]] == ["cat", "dog"]  # case-insensitive, the others untouched
+    assert back["b"] == []
+    assert [lb.label for lb in labels["a"]] == ["Kitten", "dog"]  # the input is not changed
+
+
+def test_a_class_renamed_in_the_tool_is_neither_new_nor_edited_in_the_comparison(env):
+    env.remote.projects[env.rid]["classes"][0] = "kitten"
+    for i in range(3):
+        set_remote(env, f"img{i}.png", [box("kitten")])
+    p = plan(env)
+    assert p["renamed_classes"] == [{"from": "cat", "to": "kitten"}]
+    assert p["diff_pull"]["unknown_classes"] == []
+    assert p["diff_pull"]["edited"] == 0
+    assert p["diff_pull"]["images_changed"] == 0
+    assert "kitten" not in p["diff_pull"]["per_class"]

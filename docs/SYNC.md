@@ -107,7 +107,12 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
    plans are kept). `images_new` and `labels_new` count what is sent to CVAT for the first time (the
    images of tasks created there and the added images, and their labels); the review lists them as *New
-   labels to send* (*Rótulos novos a enviar*), next to the images with annotation changes. A comparison that
+   labels to send* (*Rótulos novos a enviar*), next to the images with annotation changes. The column of what
+   comes from CVAT also lists the classes renamed there (`diff_pull` shows their labels under the old name,
+   so they are not a new class nor an edited label) and, from `not_converted`, the shapes CVAT keeps as they
+   are and the project cannot hold (ellipses, masks, open lines, cuboids, tracks; rotated boxes, read here as
+   their enclosing box), by kind. A conflict whose two sides have the same classes and counts says that the
+   position or the shape of an object differs. A comparison that
    finds nothing to bring, send, rename or decide says "Everything is already in sync" (*Tudo já está
    sincronizado*) in the review, with nothing to apply, and raises no "comparison ready" notice; the job
    result reads "Already in sync". Discarding a comparison in the review deletes the saved plan on the server

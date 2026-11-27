@@ -99,3 +99,58 @@ test('the review shows task, class and project renames in their direction, and n
   assert.match(block.node.textContent, /Renamed on both sides:.*here "A", in CVAT "B"/);
   block.node.remove();
 });
+
+/** Draws a review with `plan` (merged over a plan with no changes) and returns the block. */
+function drawPlan(plan) {
+  setMessages({
+    'annotate.tool.cvat': 'CVAT', 'sync.push': 'To {tool}', 'sync.pull': 'From {tool}', 'sync.dir_empty': 'Nothing',
+    'sync.row_not_converted': 'Shapes that stay only in {tool}', 'sync.not_converted_item': '{kind}: {n}',
+    'sync.shape.ellipse': 'ellipses', 'sync.shape.mask': 'masks', 'sync.kind_geometry': 'Same classes: the position differs.',
+    'sync.kind_labels': 'Edited on both sides', 'sync.kind_removed_local': 'Removed here', 'sync.kind_removed_remote': 'Removed in {tool}',
+    'sync.no_labels': 'no labels', 'sync.side_local': 'Here',
+  }, 'en');
+  const { ctx, sync } = makePage();
+  ctx.jobs = [{
+    id: 'p2', kind: 'sync_plan', status: 'done', created: '2026-11-26T10:00:00',
+    result: { plan_id: 'x2', tool: 'cvat', remote: { name: 'P' }, scope: { kind: 'project' }, direction: 'both', ...plan },
+  }];
+  const block = sync.syncBlock();
+  document.body.append(block.node);
+  block.draw(true);
+  return block;
+}
+
+test('the review lists the shapes that stay in the tool, with the total and each kind (#519)', () => {
+  const block = drawPlan({ not_converted: { ellipse: 2, mask: 3, spiral: 1, cuboid: 0 } });
+  const pull = block.node.querySelectorAll('.sync-dir')[1].textContent;
+  assert.match(pull, /Shapes that stay only in CVAT.*6/);
+  assert.match(pull, /ellipses: 2/);
+  assert.match(pull, /masks: 3/);
+  assert.match(pull, /spiral: 1/); // a kind without a text shows its raw name
+  assert.doesNotMatch(pull, /cuboid/); // a zero count is left out
+  assert.doesNotMatch(block.node.querySelectorAll('.sync-dir')[0].textContent, /Shapes that stay/);
+  block.node.remove();
+});
+
+test('the review has no line for shapes that stay in the tool when there are none', () => {
+  for (const not_converted of [{}, undefined, { mask: 0 }]) {
+    const block = drawPlan({ not_converted });
+    assert.doesNotMatch(block.node.textContent, /Shapes that stay/);
+    block.node.remove();
+  }
+});
+
+test('a conflict with the same classes on both sides says that the position differs (#684)', () => {
+  const side = (n) => ({ per_class: { car: n } });
+  const block = drawPlan({ conflicts: [
+    { image_id: 'a', name: 'a.png', kind: 'labels', local: side(2), remote: side(2) },
+    { image_id: 'b', name: 'b.png', kind: 'labels', local: side(2), remote: side(3) },
+    { image_id: 'c', name: 'c.png', kind: 'removed_local', local: side(2), remote: side(2) },
+    { image_id: 'd', name: 'd.png', kind: 'removed_remote', local: side(2), remote: side(2) },
+  ] });
+  const rows = [...block.node.querySelectorAll('li.conflict')];
+  assert.equal(rows.length, 4);
+  const why = rows.map((r) => r.querySelector('.conflict-why')?.textContent ?? null);
+  assert.deepEqual(why, ['Same classes: the position differs.', null, null, null]);
+  block.node.remove();
+});
