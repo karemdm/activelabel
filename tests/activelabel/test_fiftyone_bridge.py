@@ -493,6 +493,21 @@ def test_ground_truth_can_be_edited_in_the_app_with_the_projects_classes(tmp_pat
     assert again.label_schemas[bridge.GROUND_TRUTH]["classes"] == ["cat", "dog", "bird"]
 
 
+def test_the_app_shows_only_ground_truth_and_hides_the_internal_fields(tmp_path, project):
+    """#699: only ground_truth is drawn; the fields ActiveLabel keeps go to a collapsed group."""
+    manifest = build(tmp_path, 2)
+    labels = {"i0": [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat"], labels, {}))
+    assert list(dataset.app_config.active_fields.paths) == [bridge.GROUND_TRUTH]
+    groups = {g.name: g for g in dataset.app_config.sidebar_groups}
+    internal = groups[bridge.INTERNAL_GROUP]
+    assert bridge.WRITTEN in internal.paths and internal.expanded is False
+    assert all(bridge.WRITTEN not in g.paths for g in groups.values() if g.name != bridge.INTERNAL_GROUP)
+    before = [(g.name, list(g.paths)) for g in dataset.app_config.sidebar_groups]
+    bridge.tidy_app(dataset)  # a second call changes nothing
+    assert [(g.name, list(g.paths)) for g in dataset.app_config.sidebar_groups] == before
+
+
 def test_keypoints_are_shown_but_not_editable_in_the_app(tmp_path, project):
     """The FiftyOne App (1.22) cannot edit keypoints: no label schema, the labels are only shown."""
     project.task = Task.KEYPOINTS

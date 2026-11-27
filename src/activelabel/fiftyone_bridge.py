@@ -31,7 +31,7 @@ from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
-from activelabel.optional import F, fo, to_slug
+from activelabel.optional import ActiveFields, F, SidebarGroupDocument, fo, to_slug
 from activelabel.projects import Project
 from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
@@ -62,6 +62,20 @@ _launched: set[int] = set()  # ports where this process started the App (its own
 DATASET_PREFIX = "activelabel"  # datasets are ``<prefix>-<project id>[-<random>]``
 
 _session: Any = None
+INTERNAL_GROUP = (
+    "internal (do not edit)"  # collapsed sidebar group of the fields ActiveLabel keeps for itself
+)
+INTERNAL_FIELDS = (
+    WRITTEN,
+    WRITTEN_LABELS,
+    "duplicate_group",
+    "position",
+    "task",
+    "job",
+    "video",
+    "video_name",
+    "frame_number",
+)
 _names_lock = threading.Lock()
 log = logging.getLogger(__name__)
 
@@ -659,6 +673,7 @@ def sync_dataset(
     dataset.info = {**dataset.info, "project_id": project.id, "project_name": project.name}
     dataset.save()
     enable_editing(dataset, project)
+    tidy_app(dataset)
     _save_views(dataset, tasks)
     report(total, total)
     return dataset
@@ -710,6 +725,41 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
         log.warning("Could not enable editing of ground_truth in the FiftyOne App", exc_info=True)
         return False
     return True
+
+
+def tidy_app(dataset: fo.Dataset) -> None:
+    """Make the App show only ``ground_truth`` and keep the fields ActiveLabel uses itself out of the way.
+
+    Only ``ground_truth`` is drawn on an image (the others can be turned on in the sidebar), and the internal
+    fields (:data:`INTERNAL_FIELDS`) go to a collapsed sidebar group at the bottom. Nothing is saved when
+    the dataset already looks like this.
+
+    Args:
+        dataset: the project's dataset.
+    """
+    try:
+        visible = [GROUND_TRUTH]
+        current = dataset.app_config.active_fields
+        changed = False
+        if current is None or list(current.paths or []) != visible or current.exclude:
+            dataset.app_config.active_fields = ActiveFields(paths=visible, exclude=False)
+            changed = True
+        groups = fo.DatasetAppConfig.default_sidebar_groups(dataset)
+        internal: list[str] = []
+        for group in groups:
+            internal += [p for p in group.paths if p in INTERNAL_FIELDS]
+            group.paths = [p for p in group.paths if p not in INTERNAL_FIELDS]
+        if internal:
+            groups.append(SidebarGroupDocument(name=INTERNAL_GROUP, paths=internal, expanded=False))
+        wanted = [(g.name, list(g.paths), g.expanded) for g in groups]
+        have = [(g.name, list(g.paths), g.expanded) for g in (dataset.app_config.sidebar_groups or [])]
+        if wanted != have:
+            dataset.app_config.sidebar_groups = groups
+            changed = True
+        if changed:
+            dataset.save()
+    except Exception:  # noqa: BLE001 - only the look of the App: the labels can still be seen and edited
+        log.warning("Could not tidy the FiftyOne App for this dataset", exc_info=True)
 
 
 def resolve_view(dataset: fo.Dataset, requested: str | None) -> str | None:
