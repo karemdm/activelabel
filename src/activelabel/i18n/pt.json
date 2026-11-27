@@ -31,6 +31,7 @@
   "classes.placeholder": "ex.: trinca, porosidade, respingo",
   "targets.placeholder": "ex.: idade, contagem",
   "classes.help": "Enter ou vírgula adiciona a classe digitada; uma lista colada vira uma classe por nome. Backspace com o campo vazio remove a última.",
+  "classes.repeated": "Não adicionado, já está na lista: {names}",
   "classes.remove": "Remover a classe {name}",
   "task.classification": "Classificação",
   "task.classification.help": "Uma classe por imagem",

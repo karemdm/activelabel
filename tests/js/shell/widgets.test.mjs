@@ -15,7 +15,7 @@ const { chipsInput, classList, classLine, problemRow, progressBar, emptyState } 
   '../../../src/activelabel/web/static/js/shell/widgets.js'
 );
 
-setMessages({ 'field.classes': 'Classes', 'classes.less': 'Less', 'classes.see_all': 'See all', 'common.progress': 'Progress' }, 'en');
+setMessages({ 'field.classes': 'Classes', 'classes.repeated': 'Not added, already in the list: {names}', 'classes.less': 'Less', 'classes.see_all': 'See all', 'common.progress': 'Progress' }, 'en');
 
 const key = (input, name) => input.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true }));
 
@@ -32,6 +32,33 @@ test('chipsInput adds names on Enter or comma, once each, and Backspace removes 
   assert.deepEqual(chips.get(), ['cat', 'dog', 'fish']);
   chips.node.querySelector('.chip-x').click();
   assert.deepEqual(chips.get(), ['dog', 'fish']);
+  chips.node.remove();
+});
+
+test('chipsInput says which names it left out as repeated, and hides the example once there is a chip (#637)', () => {
+  const chips = chipsInput('c-note', []);
+  document.body.appendChild(chips.node);
+  const input = chips.node.querySelector('input');
+  const note = () => chips.node.querySelector('[role="status"]').textContent;
+  const paste = (text) => {
+    const event = new window.Event('paste', { cancelable: true, bubbles: true });
+    event.clipboardData = { getData: () => text };
+    input.dispatchEvent(event);
+  };
+  chips.setPlaceholder('e.g. crack');
+  assert.equal(input.placeholder, 'e.g. crack');
+  paste('gato\n\ncachorro; Gato\tgato,\nave');
+  assert.deepEqual(chips.get(), ['gato', 'cachorro', 'ave']);
+  assert.equal(note(), 'Not added, already in the list: Gato');
+  assert.equal(input.placeholder, '');
+  input.value = 'rato';
+  key(input, 'Enter');
+  assert.equal(note(), '');
+  chips.node.querySelector('.chip-x').click();
+  chips.node.querySelector('.chip-x').click();
+  chips.node.querySelector('.chip-x').click();
+  chips.node.querySelector('.chip-x').click();
+  assert.equal(input.placeholder, 'e.g. crack');
   chips.node.remove();
 });
 

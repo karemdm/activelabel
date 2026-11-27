@@ -47,8 +47,7 @@ export function initNew() {
     const targets = picker.get() === 'regression';
     if (label) label.textContent = t(targets ? 'field.targets' : 'field.classes');
     if (hint) hint.textContent = t(targets ? 'new.targets_hint' : 'new.classes_hint');
-    const input = document.getElementById('classes-input');
-    if (input) input.placeholder = t(targets ? 'targets.placeholder' : 'classes.placeholder');
+    chips.setPlaceholder(t(targets ? 'targets.placeholder' : 'classes.placeholder'));
   };
   picker.node.addEventListener('change', wording);
   wording();

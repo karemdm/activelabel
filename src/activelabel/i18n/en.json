@@ -31,6 +31,7 @@
   "classes.placeholder": "e.g. crack, porosity, spatter",
   "targets.placeholder": "e.g. age, count",
   "classes.help": "Enter or a comma adds the class you typed; a pasted list becomes one class per name. Backspace on the empty field removes the last one.",
+  "classes.repeated": "Not added, already in the list: {names}",
   "classes.remove": "Remove class {name}",
   "task.classification": "Classification",
   "task.classification.help": "One class per image",
