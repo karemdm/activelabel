@@ -1,5 +1,6 @@
 /* Step 4, Data split: the frozen dataset versions (train / validation / test or k folds), making a new one
  * with its checks, and what changed in the labels since a version was made. */
+import { partBalance } from './distributions.js';
 import { partName, taskBadge } from './names.js';
 import { api, errorParams } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
@@ -509,14 +510,17 @@ export function datasetsPanel(page) {
             : el('td', { title: sum ? t('ds.class_share', { pct: pctOf(n, sum) }) : null }, num(n), el('small', { class: 'ds-share' }, sum ? `${pctOf(n, sum)}%` : '')))));
       };
       /* the rarest classes first (those missing from a part before the others): they are the ones at risk */
-      const classRows = names.map((c) => {
+      const ranked = names.map((c) => {
         const cells = per.map((s) => (s.objects || {})[c] || 0);
         const zero = cells.some((n, i) => n === 0 && items[i].n > 0);
         return { c, cells, zero, sum: cells.reduce((a, n) => a + n, 0) };
-      }).sort((a, b) => (Number(b.zero) - Number(a.zero)) || (a.sum - b.sum) || a.c.localeCompare(b.c)).map((r) => classRow(r.c, r.cells, r.zero));
+      }).sort((a, b) => (Number(b.zero) - Number(a.zero)) || (a.sum - b.sum) || a.c.localeCompare(b.c));
+      const classList = ranked.map((r) => r.c);
+      const classRows = ranked.map((r) => classRow(r.c, r.cells, r.zero));
       const SHOWN = 8;
       let all = false;
       const body = el('tbody');
+      const balanceBox = el('div', { class: 'ds-balance' });
       const more = el('button', { type: 'button', class: 'btn small', 'aria-expanded': 'false', onclick: () => { all = !all; paint(); } });
       function paint() {
         fill(body,
@@ -524,6 +528,9 @@ export function datasetsPanel(page) {
           bgTotal > 0 ? row(t('ds.background'), per.map((s) => s.background || 0)) : null,
           classRows.length ? el('tr', { class: 'sub' }, el('th', { scope: 'colgroup', colspan: String(items.length + 1) }, cls ? t('ds.images_per_class') : t('ds.objects_per_class'))) : null,
           ...(all ? classRows : classRows.slice(0, SHOWN)));
+        const shown = (all ? classRows : classRows.slice(0, SHOWN)).length;
+        const chart = partBalance(items, per, classList.slice(0, shown));
+        fill(balanceBox, chart ? el('h4', { class: 'section-title' }, t('dist.balance_title')) : null, chart ? el('p', { class: 'muted ds-help' }, t('dist.balance_help')) : null, chart);
         more.hidden = classRows.length <= SHOWN;
         more.textContent = all ? t('ds.show_less') : t('ds.show_all', { n: num(classRows.length) });
         more.setAttribute('aria-expanded', String(all));
@@ -539,6 +546,7 @@ export function datasetsPanel(page) {
         legend(items),
         el('div', { class: 'ds-table-wrap' }, el('table', { class: 'ds-table' }, el('thead', null, head), body)),
         more,
+        balanceBox,
         sharedAlert(sharedVideos(d.warnings)),
         warns.length || emptyNote ? el('ul', { class: 'ds-warns', 'aria-label': t('ds.warnings') }, emptyNote, ...warns) : el('p', { class: 'report-line ds-ok' }, icon('check'), t('ds.no_warnings')),
         infos.length ? el('ul', { class: 'ds-warns ds-infos' }, ...infos) : null);

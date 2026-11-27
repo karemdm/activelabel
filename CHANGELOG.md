@@ -13,6 +13,11 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ### Added
 
+- **Distributions of the annotations (#623).** *Curation* shows *Distribution of the annotations* (objects and images
+  per class, images by number of objects, box sizes by share of the image) from
+  `GET /projects/{id}/curation/distributions`; the split preview draws the class balance of every part as bars; and
+  the FiftyOne App gets the saved workspace *ActiveLabel: distribuições* (grid, Histograms and, with the similarity
+  map, Embeddings), saved when the App is opened and never made the default.
 - **Near duplicates from the similarity map (#608).** A new similarity map keeps the pairs of images whose
   embeddings are almost the same (cosine distance up to 0.1) and the curation adds them to its near duplicates:
   crops, brightness changes and neighbouring video frames the perceptual hash misses. The threshold is

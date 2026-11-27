@@ -384,3 +384,34 @@ def test_asking_for_the_analysis_again_while_it_waits_gives_the_same_job(tmp_pat
     third = client.post("/api/projects/1/curation/analyze", json={}).json()
     assert third["id"] != first["id"]  # once finished, a new analysis can be asked
     wait_job(client, 1, third["id"])
+
+
+def test_curation_distributions_of_the_project_and_of_a_part(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["a", "b"]})
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(10)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = [r.id for r in state.manifest(1).all()]
+    labels = {i: [Label("a" if k % 2 else "b", bbox=[0, 0, 0.5, 0.5])] for k, i in enumerate(ids[:6])}
+    save_annotations(state.store.dir(1), AnnotationSet(Task.DETECTION, ["a", "b"], labels, {}))
+    whole = client.get("/api/projects/1/curation/distributions")
+    assert whole.status_code == 200
+    body = whole.json()
+    assert body["images"] == 10 and body["without_annotations"] == 4
+    assert {c["name"]: c["objects"] for c in body["classes"]} == {"a": 3, "b": 3}
+    assert {b["key"]: b["objects"] for b in body["box_area"]}["large"] == 6
+    assert client.post("/api/projects/1/datasets", json={}).status_code == 200
+    parts = [
+        client.get("/api/projects/1/curation/distributions", params={"dataset": 1, "part": p}).json()
+        for p in ("train", "val", "test")
+    ]
+    assert sum(p["images"] for p in parts) == 6 and sum(p["boxes"] for p in parts) == 6
+    errors = {
+        "dataset_required": {"part": "train"},
+        "dataset_not_found": {"dataset": 9},
+        "part_unknown": {"dataset": 1, "part": "x"},
+    }
+    for code, params in errors.items():
+        response = client.get("/api/projects/1/curation/distributions", params=params)
+        assert response.json()["code"] == code, response.text
+    assert client.get("/api/projects/9/curation/distributions").status_code == 404

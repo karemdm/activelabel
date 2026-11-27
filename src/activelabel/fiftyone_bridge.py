@@ -33,6 +33,7 @@ from typing import Any
 from activelabel import fiftyone_plugin
 from activelabel.annotate import sessions
 from activelabel.annotate.fo_labels import fingerprint, labels_and_notes
+from activelabel.curation.fiftyone_workspace import save_workspace
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
@@ -1272,6 +1273,7 @@ def launch_app(
     global _session
     fiftyone_plugin.use_plugins()  # the image window opens ready to edit (Annotate mode)
     fiftyone_plugin.record_server(dataset)  # the App's "Enviar ao ActiveLabel" calls this server (#703)
+    save_workspace(dataset)  # the charts workspace (#623): in the workspace menu, never opened for the person
     if task is not None:
         view = task_view_name(task) if task_view_name(task) in dataset.list_saved_views() else None
     else:

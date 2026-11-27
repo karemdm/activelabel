@@ -222,6 +222,7 @@ def test_launch_app_returns_url(tmp_path, project):
         url = bridge.launch_app(dataset, "curation - dark", port=port)
         slug = "curation-dark"  # FiftyOne's slug of the view name
         assert url == f"http://localhost:{port}/datasets/{dataset.name}?view={slug}"
+        assert dataset.has_workspace("ActiveLabel: distribuições")  # the charts workspace (#623)
         assert (
             bridge.launch_app(dataset, None, port=port) == f"http://localhost:{port}/datasets/{dataset.name}"
         )

@@ -1,5 +1,6 @@
 /* Step 3, Curation: measure the images, flag the ones that may hurt the dataset, exclude or restore them, and
  * the thresholds of the checks. */
+import { distributionsBlock } from './distributions.js';
 import { imageGrid, openLightbox } from './grid.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { ISSUES, issueName } from './names.js';
@@ -17,6 +18,7 @@ export function curationPanel(page) {
   const node = el('section', { class: 'panel', id: 'panel-curation', hidden: true, 'aria-labelledby': 'h-curation' });
   const panel = { node, mounted: false };
   let summary = null;
+  let dists = null;
   let issue = '';
   let view = 'active';
   let limitsOpen = false;
@@ -25,6 +27,7 @@ export function curationPanel(page) {
   const noticeBox = el('div', { class: 'cur-notice' });
   const chipsBox = el('div', { class: 'issue-chips', role: 'group', 'aria-label': t('cur.filter') });
   const histBox = el('div', { class: 'hists' });
+  const distBox = el('div', { class: 'dist-box' });
   const advBox = el('div', { class: 'advanced', id: 'cur-limits', hidden: true });
   const actionsBar = el('div', { class: 'cur-actions' });
   const toolbar = el('div', { class: 'toolbar' });
@@ -83,7 +86,20 @@ export function curationPanel(page) {
     } catch (err) { toastError(err); }
   }
 
+  /* the distribution of the annotations (#623): it does not depend on the analysis, a failure only hides it */
+  async function loadDistributions() {
+    try {
+      dists = await api('GET', `/projects/${projectId}/curation/distributions`);
+    } catch {
+      dists = null;
+    }
+    const block = distributionsBlock(dists);
+    fill(distBox, block);
+    distBox.hidden = !block;
+  }
+
   async function load() {
+    loadDistributions();
     try {
       summary = await api('GET', `/projects/${projectId}/curation`);
     } catch (err) {
@@ -343,6 +359,7 @@ export function curationPanel(page) {
     advBox,
     histBox,
     uniq.node,
+    distBox,
     sim.node,
     el('div', { class: 'cur-main' },
       tabs, chipsBox, uniq.controls, mapBox, toolbar, grid.node));

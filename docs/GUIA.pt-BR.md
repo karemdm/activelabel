@@ -158,7 +158,11 @@ definitivamente* (pede confirmação). Os limites de cada problema ficam em *Lim
 mudam sem medir de novo; *Zerar análise* esquece as medidas, os problemas apontados e os grupos
 de quase duplicatas (imagens, exclusões e anotações ficam). *Abrir no FiftyOne* abre o mesmo
 filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *Trazer exclusões
-do FiftyOne*. Arquivos corrompidos não chegam até aqui: são rejeitados no envio. O *Mapa de
+do FiftyOne*. A *Distribuição das anotações* mostra, em barras, os objetos e as imagens por classe, as imagens
+por número de objetos e o tamanho das caixas (minúsculas até 1% da imagem, pequenas até 5%, médias até 25%,
+grandes acima disso), para ver cedo se as classes estão desequilibradas; imagens excluídas não contam.
+No App do FiftyOne, o menu de workspaces tem *ActiveLabel: distribuições* (grade, painel Histograms e, com o
+mapa de semelhança, Embeddings); ele só fica disponível, não abre sozinho. Arquivos corrompidos não chegam até aqui: são rejeitados no envio. O *Mapa de
 semelhança* agrupa as imagens parecidas: *Calcular mapa* lê cada imagem ativa com uma rede pequena
 do ImageNet no ambiente de treino (instalado no primeiro uso, na mesma fila dos treinos), coloca as
 imagens num mapa 2-D (t-SNE, ou PCA em conjuntos muito pequenos ou grandes) e as divide em grupos
@@ -194,7 +198,8 @@ validação e teste; desligado, as métricas ficam otimistas.
 A prévia mostra os avisos antes de salvar. A tabela de classes começa pelas mais raras, marca com um
 ícone o zero de uma classe ausente de uma parte e mostra a fatia de cada classe em cada parte; o aviso de
 classe ausente diz quantas imagens têm a classe e se daria para colocá-la em todas as partes (com outra
-semente ou outras proporções). Rótulos que o modelo não conseguiria usar ficam de fora, com aviso, e uma
+semente ou outras proporções). Abaixo da tabela, *Equilíbrio das classes em cada parte* mostra uma barra por
+parte para cada classe: partes equilibradas têm barras de tamanho parecido. Rótulos que o modelo não conseguiria usar ficam de fora, com aviso, e uma
 versão cujo treino ou validação ficaria vazio é recusada. Se os rótulos mudarem depois de criada a
 versão, o cartão avisa "Rótulos mudaram depois desta versão" e oferece *Nova versão a partir desta*.
 Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md).

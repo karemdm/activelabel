@@ -36,7 +36,8 @@ test('the Curation step loads the analysis, updates the step bar and draws the n
   } finally {
     globalThis.fetch = real;
   }
-  assert.equal(asked[0], '/api/projects/6/curation');
+  assert.ok(asked.includes('/api/projects/6/curation'));
+  assert.ok(asked.includes('/api/projects/6/curation/distributions'));
   assert.ok(asked.includes('/api/projects/6/images'));
   assert.equal(stepper, 1);
   assert.equal(ctx.project.counts.analyzed, 0);
@@ -97,6 +98,34 @@ test('#667: the step sorts and filters the grid by uniqueness and by the images 
     panel.node.querySelector('[data-act="no-group"]').click();
     await wait();
     assert.equal(last().group, undefined);
+  } finally {
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});
+
+test('the Curation step shows the distribution of the annotations, also before the analysis, and hides it without them', async () => {
+  setMessages({ 'step.curation': 'Curation', 'dist.title': 'Distribution', 'dist.objects_per_class': 'Objects per class' }, 'en');
+  const real = globalThis.fetch;
+  const answer = (distributions) => async (url) => {
+    const path = url.split('?')[0];
+    const body = path.endsWith('/distributions') ? distributions : path.endsWith('/images') ? { total: 0, items: [] } : { totals: { measured: 0 }, issue_ids: {}, thresholds: {} };
+    return { ok: path !== '/api/projects/7/curation/distributions' || !!distributions, status: distributions ? 200 : 500, text: async () => JSON.stringify(body) };
+  };
+  const ctx = { project: { id: 7, counts: {} }, jobs: [], panels: {}, watchers: [] };
+  const panel = curationPanel({ ctx, projectId: 7, renderStepper() {}, refreshProject: async () => true, jobStarted: async () => {}, kindActive: () => false });
+  document.body.appendChild(panel.node);
+  try {
+    globalThis.fetch = answer({ task: 'detection', images: 3, annotated: 2, without_annotations: 1, boxes: 0, classes: [{ name: 'car', objects: 2, images: 2 }], objects_per_image: [], box_area: [] });
+    await panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const box = panel.node.querySelector('.dist-box');
+    assert.equal(box.hidden, false);
+    assert.match(box.textContent, /Distribution/);
+    globalThis.fetch = answer(null);
+    await panel.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(box.hidden, true);
   } finally {
     globalThis.fetch = real;
     panel.node.remove();
