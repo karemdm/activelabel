@@ -105,7 +105,7 @@ def remote_name(project: Project) -> str:
 def _plan_project_rename(
     project: Project, link: dict[str, Any] | None, info: RemoteInfo | None, direction: str
 ) -> tuple[dict[str, str] | None, dict[str, str] | None, str]:
-    """Compare the name of the project with its remote project (docs/SYNC.md, *Names*).
+    """Compare the name of the project with its remote project (docs/SYNC.md, *Synchronise*).
 
     Three-way against the remote name recorded in the link at the last synchronisation: only here changed
     -> sent; only there changed -> taken; both changed to different names -> kept and reported. ``push``

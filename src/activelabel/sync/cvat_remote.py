@@ -11,7 +11,7 @@ Conversions (relative 0..1 <-> pixels of the frame, from ``GET /api/tasks/{id}/d
   polygon -> polygon ring + bbox (polygons of one class sharing a CVAT group are one object with
   several rings, and an object with several rings is written as grouped polygons, see :func:`join_parts`);
   points -> one keypoints object (all the points
-  of the shape; a point at the top-left corner is "not labeled", as in ``cvat_tool``) + bbox; tag ->
+  of the shape; a point at the top-left corner is "not labeled") + bbox; tag ->
   image class (classification projects only); in a regression project, tag with the text attribute
   ``value`` -> the value of that target for the image (see :mod:`activelabel.sync.cvat_values`).
 * Visibility of keypoints: CVAT has one ``occluded`` flag per points shape. A pose whose labeled points

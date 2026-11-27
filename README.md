@@ -97,11 +97,11 @@ project is its *type*.)
    Files are stored unchanged (the kind of an image is decided by its content, not its extension),
    identical images are added once and unreadable files are listed with the reason. Each task and job has
    an open menu: *Edit in FiftyOne* (*Editar no FiftyOne*) and *Open in CVAT* (*Abrir no CVAT*), an entry
-   that cannot be used yet being disabled with the reason (for example, project not linked to CVAT); FiftyOne does not edit keypoints, so a keypoints project offers *View in
+   that cannot be used yet being disabled with the reason (for example, CVAT not set up); FiftyOne does not edit keypoints, so a keypoints project offers *View in
    FiftyOne* and is edited in CVAT. See [docs/TASKS.md](docs/TASKS.md) and [docs/VIDEO.md](docs/VIDEO.md).
 2. **Annotations** (optional) has five tabs. *Open in CVAT* (*Abrir no CVAT*), in the CVAT tab, opens the linked CVAT
    project (or the task or job chosen there), and *Edit in FiftyOne* (*Editar no FiftyOne*), in the FiftyOne tab, sends the images and opens the App to edit them;
-   before the project is in CVAT the button says why and leads to the CVAT tab. The edits come back as before:
+   when the project cannot be opened in CVAT yet (not set up, not linked, not in CVAT yet), the tab says why in one line instead of a button. The edits come back:
    through *Compare with CVAT* and through a FiftyOne edit session.
    - *Summary* (*Resumo*): what the project has, as tiles (images annotated, annotations, classes with
      annotations, to review) and the top classes, with a search and *Show all*.

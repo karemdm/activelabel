@@ -68,7 +68,7 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/api/projects/{id}/tasks` | query `refresh=true` (optional) | `{tasks: [task view]}`, each with `last_session: {tool, at, status}` when an edit session was made for it; closes the tasks whose upload was cut off (see below); `refresh` reads the CVAT job states again instead of reusing a read of the last minute |
+| GET | `/api/projects/{id}/tasks` | query `refresh=true` (optional) | `{tasks: [task view]}`, each with `last_session: {tool, at, status}` when an edit session was made for it (a synchronisation with CVAT is not an edit session and does not count); closes the tasks whose upload was cut off (see below); `refresh` reads the CVAT job states again instead of reusing a read of the last minute |
 | POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <n>", see above), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
 | PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task and, when it holds no image, removes it: the answer has `removed: true`; reopening a closed task is refused: 409 `task_closed`) | task view |
@@ -84,8 +84,8 @@ counted until it is reviewed, and an image reviewed with no objects is counted a
 otherwise the reason the task cannot be opened in CVAT: `not_configured` (no CVAT connection),
 `not_linked` (the project is not linked), `not_synchronised` (the task is not in CVAT yet), `removed_remote`
 (CVAT answered without it: it was deleted there), `remote_gone` (the CVAT project itself was deleted) or
-`unreachable` (it is there, but CVAT did not answer). In the *Open in…* menu of a task or job, the first four
-lead to *Annotations → CVAT* (*Go to CVAT in Annotations*), where a comparison creates the project or the
+`unreachable` (it is there, but CVAT did not answer). In the *Open in…* menu of a task or job, `not_linked`,
+`not_synchronised`, `removed_remote` and `remote_gone` lead to *Annotations → CVAT* (*Go to CVAT in Annotations*), where a comparison creates the project or the
 task in CVAT, or decides what to do with what was deleted there; `not_configured` and `unreachable` keep the
 item disabled with the reason. The CVAT tab's *Open the project in CVAT* row does the same once the last comparison
 found the CVAT project deleted, and its address is built on the CVAT server set up now
