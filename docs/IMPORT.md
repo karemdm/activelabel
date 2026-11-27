@@ -42,7 +42,10 @@ Images keep their remote file names; identical files are added once (content has
 unreadable files are listed in the report (`images_rejected`), and a project import says when fewer images
 were added than CVAT listed (`images_missing`). It also counts what it cannot bring instead of dropping it
 silently: CVAT shapes that are not converted, by kind (ellipses, masks, tracks...: `shapes_not_converted`; they
-stay in CVAT), and the annotations of images left out as identical or unreadable (`duplicate_labels_dropped`).
+stay in CVAT), rotated rectangles, which are imported as the box around them (`rotated_boxes_flattened`; the
+rotation stays in CVAT), a task whose original video could not be downloaded or used and so stays as images
+(`video_as_images`, with the task names), and the annotations of images left out as identical or unreadable
+(`duplicate_labels_dropped`).
 Nothing is changed on the remote server.
 
 ## Annotation files (the *Import annotations* tab)

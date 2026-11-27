@@ -352,8 +352,14 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 
 .problems { margin: 0.4rem 0; }
 .problem { border-bottom: 1px solid var(--border); padding: 0.4rem 0; }
-.problem summary { cursor: pointer; }
-.problem-head { display: inline-flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.problem summary { cursor: pointer; display: flex; gap: var(--space-2); align-items: flex-start; list-style: none; }
+.problem summary::-webkit-details-marker { display: none; }
+.problem summary::before { content: "\25B8"; flex: none; line-height: 1.5; }
+.problem details[open] > summary::before { content: "\25BE"; }
+.problem-head { display: flex; gap: var(--space-2); align-items: flex-start; flex: 1 1 auto; min-width: 0; }
+.problem-head .icon { flex: none; margin-top: 0.2em; }
+.problem-msg { flex: 1 1 0; min-width: 0; }
+.problem-head .count { flex: none; }
 .problem-head.bad .icon { color: var(--danger); }
 .problem-head.warn .icon { color: var(--warn); }
 .count { display: inline-block; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0 var(--space-2); font-size: var(--font-xs); font-weight: 700; color: var(--text); }

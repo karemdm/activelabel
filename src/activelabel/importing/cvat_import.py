@@ -44,6 +44,7 @@ PAGE = 100
 MAX_TASKS = 1000  # tasks read to add up the images of projects
 LABEL_CLASSES = ("Classification", "Classifications", "Detections", "Polylines", "Keypoints")
 KINDS = ("project", "task")
+ROTATED = "rotated_rectangle"  # the kind the remote adapter gives to a turned rectangle
 
 
 @dataclass
@@ -432,13 +433,19 @@ def _left_behind(project_dir: Path, plan: common.TaskPlan, skipped: dict[str, in
         skipped: Shapes CVAT has that are not converted, by kind (``ellipse``, ``mask``, ``tracks``...).
 
     Returns:
-        ``shapes_not_converted`` (one detail line per kind) and ``duplicate_labels_dropped`` (labels of
-        items whose image was identical to another one, or unreadable, so it was not added), when any.
+        ``shapes_not_converted`` (one detail line per kind), ``rotated_boxes_flattened`` (rotated
+        rectangles kept as their enclosing box) and ``duplicate_labels_dropped`` (labels of items whose
+        image was identical to another one, or unreadable, so it was not added), when any.
     """
     out: list[Problem] = []
-    if skipped:
+    rotated = int(skipped.get(ROTATED, 0))
+    left_out = {kind: n for kind, n in skipped.items() if kind != ROTATED}
+    if left_out:
         message = "Some CVAT shapes cannot be converted (ellipses, masks, tracks...) and were left out."
-        out.append(common.counted_problem("shapes_not_converted", message, Counter(skipped)))
+        out.append(common.counted_problem("shapes_not_converted", message, Counter(left_out)))
+    if rotated:
+        message = "Rotated boxes were imported as the box around them; the rotation stays in CVAT."
+        out.append(Problem("warning", "rotated_boxes_flattened", message, rotated))
     link = links.get_link(project_dir, "cvat") or {}
     linked = {str(entry.get("key")) for entry in (link.get("items") or {}).values()}
     lost = sum(len(items) for key, items in plan.labels.items() if key not in linked)
@@ -520,6 +527,10 @@ def _import_with_tasks(
         saved = load_annotations(project_dir)
         added = len(Manifest(project_dir).all())
         problems = list(plan.problems) + _left_behind(project_dir, plan, summary.get("not_converted") or {})
+        as_images = applied.get("videos_as_images") or []
+        if as_images:
+            message = "The original video of some tasks could not be used: they stay as images."
+            problems.append(Problem("warning", "video_as_images", message, len(as_images), list(as_images)))
         if added < len(labels):
             message = "Identical or unreadable images were not added."
             problems.append(Problem("info", "images_missing", message, len(labels) - added))
