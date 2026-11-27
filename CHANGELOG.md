@@ -15,6 +15,14 @@ Everything below goes into the first release, 0.1.0.
 
 ### Added
 
+- **Uniqueness and regrouping in the Curation step (#667).** *Compute uniqueness* (progress, Cancel, disabled with
+  its reason until the similarity map exists) scores the images; the grid sorts by it (most unique or most repeated
+  first), keeps only the images below a value to find near-repeated ones, shows the value on the card and in the
+  image detail, and a notice says when the scores are outdated. *Regroup* on the map opens a dialog (*Automatic*,
+  *Number of groups*, *Groups of any size* with the *Smallest group*) with progress and Cancel; the images HDBSCAN
+  leaves without a group are drawn in a neutral colour and have their own *No group* filter. `GET
+  /projects/{id}/images` gained `sort`, `unique_below` and `group`, and each scored image has `uniqueness`
+  (README, docs/DESIGN.md, docs/GUIA.pt-BR.md).
 - **Editing in FiftyOne is one click (#699).** The *FiftyOne* tab has one *Edit in FiftyOne* button that sends the
   images chosen (all, by default; the choice is folded under *Choose images*) and opens the App; *Open in
   FiftyOne (view only)* stays in *Curation* and in a keypoints project. Sending the same images again reuses the

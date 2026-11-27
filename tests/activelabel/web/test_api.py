@@ -6,6 +6,7 @@ from pymongo.errors import ServerSelectionTimeoutError
 from sample_images import make_corrupt, make_image
 
 from activelabel import fiftyone_bridge, optional
+from activelabel.curation import similarity, uniqueness
 from activelabel.fiftyone_names import record_name
 from activelabel.images.tags import load_tags, set_tags
 from activelabel.web import api
@@ -220,3 +221,41 @@ def test_opening_fiftyone_reports_stages_up_to_the_whole_bar(tmp_path, monkeypat
     assert progress.calls[-1] == (100, None, None)
     seen["on_progress"](5, 10)  # the dataset stage fills the first 70 of the 100
     assert progress.calls[-1] == (0, 70, "Preparing the FiftyOne dataset", 5, 10)
+
+
+def test_images_sort_and_filter_by_uniqueness(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["a"]})
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(4)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = [r.id for r in state.manifest(1).active()]
+    url = "/api/projects/1/images"
+    assert "uniqueness" not in client.get(url).json()["items"][0]
+    scores = {ids[0]: 0.9, ids[1]: 0.1, ids[2]: 0.5}  # the fourth image has no score
+    uniqueness.UniquenessStore(state.store.dir(1)).update(status="done", scores=scores)
+
+    def order(query):
+        return [i["id"] for i in client.get(f"{url}?{query}").json()["items"]]
+
+    assert order("sort=uniqueness_desc") == [ids[0], ids[2], ids[1], ids[3]]
+    assert order("sort=uniqueness_asc") == [ids[1], ids[2], ids[0], ids[3]]
+    below = client.get(f"{url}?unique_below=0.6&sort=uniqueness_asc").json()
+    assert below["total"] == 2 and [i["id"] for i in below["items"]] == [ids[1], ids[2]]
+    assert below["items"][0]["uniqueness"] == 0.1
+    assert client.get(f"{url}?sort=nope").status_code == 422
+    assert client.get(f"{url}?unique_below=2").status_code == 422
+
+
+def test_images_filter_by_group_of_the_map(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification", "classes": ["a"]})
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(4)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = [r.id for r in state.manifest(1).active()]
+    url = "/api/projects/1/images"
+    assert client.get(f"{url}?group=-1").json()["total"] == 0  # no map yet
+    points = {"ids": ids[:3], "xy": [[0, 0]] * 3, "group": [0, -1, -1]}
+    similarity.SimilarityStore(state.store.dir(1)).update(points=points)
+    assert [i["id"] for i in client.get(f"{url}?group=-1").json()["items"]] == ids[1:3]
+    assert [i["id"] for i in client.get(f"{url}?group=0").json()["items"]] == [ids[0]]
+    assert client.get(f"{url}?group=-2").status_code == 422

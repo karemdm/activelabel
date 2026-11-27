@@ -6,6 +6,7 @@ export let LOCALE = 'en';
 export let I18N = {};
 export let nf = new Intl.NumberFormat(LOCALE);
 export let nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+export let nf2 = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export let nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
 export let nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
 /** A number exactly as it is (no rounding, no thousands separator): a learning rate of 0.0001 stays 0.0001 (0,0001 in pt). */
@@ -17,6 +18,7 @@ export function setMessages(messages, locale) {
   LOCALE = locale || 'en';
   nf = new Intl.NumberFormat(LOCALE);
   nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+  nf2 = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   nf3 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 3 });
   nf4 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 4 });
   nfExact = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 20, useGrouping: false });
