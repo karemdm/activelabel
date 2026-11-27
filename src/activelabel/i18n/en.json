@@ -502,6 +502,7 @@
   "annotate.diff_added": "Added",
   "annotate.diff_edited": "Edited",
   "annotate.diff_removed": "Removed",
+  "annotate.diff_tags": "Tags",
   "annotate.diff_class": "Class",
   "annotate.diff_per_class": "Changes per class",
   "annotate.diff_examples": "Examples",

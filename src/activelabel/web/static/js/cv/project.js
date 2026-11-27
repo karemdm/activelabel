@@ -30,6 +30,11 @@ export function diffView(projectId, diff) {
   const items = examples.map((x) => ({ id: x.image_id, name: x.name }));
   const unknown = d.unknown_classes || [];
   const problems = d.problems || [];
+  const tags = d.tags || {};
+  const tagsChanged = (tags.added || 0) + (tags.removed || 0) > 0;
+  const tagChip = (x) => ((x.tags_added || 0) + (x.tags_removed || 0) > 0
+    ? el('span', { class: 'tags-chip', title: t('annotate.diff_tags') }, `${t('annotate.diff_tags')} ${sign(x.tags_added || 0, '+')} ${sign(x.tags_removed || 0, '−')}`)
+    : null);
 
   const table = rows.length
     ? el('div', { class: 'table-wrap' },
@@ -51,7 +56,8 @@ export function diffView(projectId, diff) {
       stat('images', d.images_changed || 0, t('annotate.diff_images')),
       stat('add', d.added || 0, t('annotate.diff_added')),
       stat('edit', d.edited || 0, t('annotate.diff_edited')),
-      stat('del', d.removed || 0, t('annotate.diff_removed'))),
+      stat('del', d.removed || 0, t('annotate.diff_removed')),
+      tagsChanged ? el('div', { class: 'stat tags' }, el('strong', null, `${sign(tags.added || 0, '+')} ${sign(tags.removed || 0, '−')}`), el('span', null, t('annotate.diff_tags'))) : null),
     !(d.images_changed || 0) ? el('p', { class: 'report-line ok' }, icon('check'), t('annotate.diff_none')) : null,
     el('div', { class: 'diff-cols' },
       table ? el('div', null, el('h4', null, t('annotate.diff_per_class')), table) : null,
@@ -62,6 +68,7 @@ export function diffView(projectId, diff) {
               el('button', { type: 'button', class: 'example-btn', title: x.name, onclick: () => openLightbox(projectId, items, i) },
                 el('span', { class: 'example-name' }, x.name),
                 el('span', { class: 'example-counts' },
+                  tagChip(x),
                   el('span', { class: 'add', title: t('annotate.diff_added') }, sign(x.added || 0, '+')),
                   el('span', { class: 'edit', title: t('annotate.diff_edited') }, sign(x.edited || 0, '~')),
                   el('span', { class: 'del', title: t('annotate.diff_removed') }, sign(x.removed || 0, '−'))))))))

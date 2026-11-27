@@ -83,6 +83,8 @@ Everything below goes into the first release, 0.1.0.
 - **A box moved far in FiftyOne is an edit.** Brought-back labels are paired with the project label they
   were written from by the id FiftyOne keeps (`activelabel_label_refs`), so a box or polygon moved far, resized
   or reclassified counts as *edited* in the review and on apply, not as *added* plus *removed* (#588). The
+- **Tags in the review.** The summary of a brought-back session shows the tags gained and lost, and the
+  images that changed them show a `Tags +n −m` chip (#588).
 - **Tags from FiftyOne.** Sample tags and label tags made in the App come back with *Bring annotations
   back*, are counted in the review (`tags: {added, removed}`) and are kept in the project (`tags.json`,
   the labels' `tags`), and written back into FiftyOne (#588). The stored format is now version 2 (new

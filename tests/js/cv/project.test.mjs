@@ -21,6 +21,18 @@ test('diffView lists the classes that changed, and only those', () => {
   assert.match(rows[0].textContent, /cat/);
 });
 
+test('diffView shows the tags gained and lost, in the totals and on the image that changed them', () => {
+  const view = diffView(3, {
+    images_changed: 1, tags: { added: 2, removed: 1 },
+    examples: [{ image_id: 'a', name: 'a.png', added: 0, edited: 0, removed: 0, tags_added: 2, tags_removed: 1 }],
+  });
+  assert.match(view.querySelector('.stat.tags').textContent, /\+2.*−1/);
+  assert.match(view.querySelector('.diff-examples .tags-chip').textContent, /\+2.*−1/);
+  const none = diffView(3, { images_changed: 1, tags: { added: 0, removed: 0 }, examples: [{ image_id: 'a', name: 'a.png' }] });
+  assert.equal(none.querySelector('.stat.tags'), null);
+  assert.equal(none.querySelector('.tags-chip'), null);
+});
+
 test('a project that does not exist (404) shows the "no longer exists" card', async () => {
   const page = document.getElementById('project-root');  // a page that already has one (a browser run)
   if (page) page.id = '';

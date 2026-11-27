@@ -147,7 +147,8 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    tags of each label. The summary counts the tags gained and lost (`tags: {added, removed}`, and `tags_added` / `tags_removed` per image in
    `examples`); an image whose only change is its tags counts as changed. A label tag is an edit of the
    label (the fingerprint of a `ground_truth` with tags covers them), so the image brings FiftyOne's
-   version.
+   version. The review shows the tags gained and lost as one more figure next to the counts, and a small
+   `Tags +n −m` chip on each example image that changed its tags.
 4. **Review and apply**: the session card has one main button, *Review and apply*, that reads the changes
    (step 3) and shows the summary (counts per class, images changed, problems) on the card; it can be clicked
    again to read the changes again. Applying stays a separate step, because it writes to the project: the
