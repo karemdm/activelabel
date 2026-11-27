@@ -15,6 +15,12 @@ Everything below goes into the first release, 0.1.0.
 
 ### Added
 
+- **Editing in FiftyOne is one click (#699).** The *FiftyOne* tab has one *Edit in FiftyOne* button that sends the
+  images chosen (all, by default; the choice is folded under *Choose images*) and opens the App; *Open in
+  FiftyOne (view only)* stays in *Curation* and in a keypoints project. Sending the same images again reuses the
+  open session; the session card has one *Review and apply* that reads the changes and shows the difference (applying
+  stays a separate step); the App shows only `ground_truth`, keeps the internal fields in a collapsed group, and
+  reloads itself after the dataset is refreshed, so F5 is not needed (docs/ANNOTATION.md).
 - **Light install.** `pip install activelabel` is the core (projects, images, curation, annotations, tasks,
   videos, CVAT synchronisation, datasets, training and pre-annotation); `pip install "activelabel[fiftyone]"`
   (or `[all]`) adds the FiftyOne App, its annotation tool, the import of CVAT projects and the similarity map
