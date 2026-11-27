@@ -319,7 +319,7 @@
   "threshold.min_side": "Small: shortest side below (px)",
   "threshold.max_aspect": "Odd aspect: long side / short side above",
   "threshold.phash_distance": "Near duplicate: largest difference between two images (0 = identical)",
-  "cur.open_fo": "Open in FiftyOne",
+  "cur.open_fo": "Open in FiftyOne (view only)",
   "cur.pull_fo": "Bring exclusions from FiftyOne",
   "cur.fo_hint": "In FiftyOne, tag images with exclude, then click here.",
   "cur.fo_starting": "Preparing FiftyOne. It opens in a new tab when ready.",
@@ -428,7 +428,6 @@
   "annotate.scope_selected": "Images selected in Curation",
   "annotate.scope_issue": "Images with one issue",
   "annotate.scope_issue_pick": "Curation issue",
-  "annotate.send": "Send to {tool}",
   "annotate.will_send_one": "{n} image will be sent to {tool}.",
   "annotate.will_send_other": "{n} images will be sent to {tool}.",
   "annotate.nothing_to_send": "There are no images to send with this choice.",
@@ -1867,7 +1866,6 @@
   "open.cvat_not_synced": "The project is not in CVAT yet: compare with CVAT once (below) to create it there.",
   "open.cvat_no_address": "The CVAT link has no address: compare with CVAT again.",
   "open.cvat_remote_gone": "The CVAT project was deleted. Use Unlink, or compare again to create a new project in CVAT.",
-  "open.fo_back": "Opens the project's dataset, with its classes to edit. The edits come back to the project through an edit session (below): send the images, edit and bring them back.",
   "open.fo_no_images": "Add images to open the project in FiftyOne.",
   "tr.compare": "Comparison of the runs",
   "cmp.per_class": "Per class · {metric}",
@@ -1927,5 +1925,7 @@
   "features.env_remove_title": "Remove the training environment?",
   "features.env_remove_text": "Frees {size}. Runs, models and projects are not deleted; the packages are installed again by the next training, pre-annotation or export.",
   "features.env_removed": "Training environment removed ({size} freed).",
-  "open.fo_not_installed": "FiftyOne is not installed."
+  "open.fo_not_installed": "FiftyOne is not installed.",
+  "open.fo_edit": "Edit in {tool}",
+  "annotate.choose": "Choose images"
 }

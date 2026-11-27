@@ -319,7 +319,7 @@
   "threshold.min_side": "Pequena: menor lado abaixo de (px)",
   "threshold.max_aspect": "Proporção estranha: lado maior / menor acima de",
   "threshold.phash_distance": "Quase duplicata: diferença máxima entre duas imagens (0 = idênticas)",
-  "cur.open_fo": "Abrir no FiftyOne",
+  "cur.open_fo": "Abrir no FiftyOne (só olhar)",
   "cur.pull_fo": "Trazer exclusões do FiftyOne",
   "cur.fo_hint": "No FiftyOne, marque as imagens com a tag exclude e depois clique aqui.",
   "cur.fo_starting": "Preparando o FiftyOne. Ele abre em uma nova aba quando estiver pronto.",
@@ -428,7 +428,6 @@
   "annotate.scope_selected": "Imagens selecionadas na Curadoria",
   "annotate.scope_issue": "Imagens com um problema",
   "annotate.scope_issue_pick": "Problema da curadoria",
-  "annotate.send": "Enviar para {tool}",
   "annotate.will_send_one": "{n} imagem será enviada para {tool}.",
   "annotate.will_send_other": "{n} imagens serão enviadas para {tool}.",
   "annotate.nothing_to_send": "Não há imagens para enviar com esta escolha.",
@@ -1867,7 +1866,6 @@
   "open.cvat_not_synced": "O projeto ainda não está no CVAT: compare com o CVAT uma vez (abaixo) para criá-lo lá.",
   "open.cvat_no_address": "O vínculo com o CVAT não tem endereço: compare com o CVAT de novo.",
   "open.cvat_remote_gone": "O projeto no CVAT foi excluído. Use Desvincular, ou compare de novo para criar um novo projeto no CVAT.",
-  "open.fo_back": "Abre o dataset do projeto, com as classes para editar. As edições voltam ao projeto por uma sessão de edição (abaixo): envie as imagens, edite e traga de volta.",
   "open.fo_no_images": "Adicione imagens para abrir o projeto no FiftyOne.",
   "tr.compare": "Comparação dos treinos",
   "cmp.per_class": "Por classe · {metric}",
@@ -1927,5 +1925,7 @@
   "features.env_remove_title": "Remover o ambiente de treino?",
   "features.env_remove_text": "Libera {size}. Treinos, modelos e projetos não são apagados; os pacotes são instalados de novo no próximo treino, pré-anotação ou exportação.",
   "features.env_removed": "Ambiente de treino removido ({size} liberados).",
-  "open.fo_not_installed": "O FiftyOne não está instalado."
+  "open.fo_not_installed": "O FiftyOne não está instalado.",
+  "open.fo_edit": "Editar no {tool}",
+  "annotate.choose": "Escolher imagens"
 }

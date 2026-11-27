@@ -28,7 +28,8 @@ export function annotateBlock(page) {
   const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatOpenBox, cvatDirBox, cvatSendBox);
   const foOpenBox = el('div', { class: 'fo-open' });
   const scopeBox = el('div', { class: 'scope-wrap' });
-  const sendBox = el('div', { class: 'send-row' });
+  const chooseBox = el('details', { class: 'choose-images', id: 'annotate-choose' },
+    el('summary', null, t('annotate.choose')), scopeBox);
   const sessionsBox = el('div', { class: 'sessions' });
   const sync = syncBlock();
   const cvatSection = el('section', { class: 'annot-section', id: 'annotate-cvat', 'aria-labelledby': 'h-cvat' },
@@ -36,7 +37,7 @@ export function annotateBlock(page) {
     cvatCtaBox, cvatCard, sync.node);
   const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
     el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-    foOpenBox, scopeBox, sendBox,
+    foOpenBox, chooseBox,
     el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
       el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
       sessionsBox));
@@ -115,7 +116,6 @@ export function annotateBlock(page) {
     const c = state.cvat;
     const task = c.scope === 'project' ? null : cvatTask();
     fill(cvatOpenBox, cvatOpenRow({ link: cvatLink(), configured: isReady('cvat'), task, job: c.scope === 'job' ? c.job : null, gone: !!cvatLink() && cvatProjectGone(page) }));
-    fill(foOpenBox, fiftyoneOpenRow(page));
   }
 
   function drawSend() {
@@ -269,22 +269,19 @@ export function annotateBlock(page) {
   }
 
   function drawSendDefault() {
-    if (!state.loaded) { fill(sendBox); return; }
-    const tool = 'fiftyone';
-    const n = scopeCount(state.scope);
-    fill(sendBox,
-      fiftyoneButton(el('button', { type: 'button', class: 'btn primary big', id: 'annotate-send', disabled: n === 0, onclick: (e) => send(e.currentTarget) },
-        icon(tool, 20), t('annotate.send', { tool: toolName(tool) }))),
-      el('p', { class: 'muted', 'aria-live': 'polite' }, n ? tn('annotate.will_send', n, { tool: toolName(tool) }) : t('annotate.nothing_to_send')));
+    const n = state.loaded ? scopeCount(state.scope) : 0;
+    fill(foOpenBox, fiftyoneOpenRow(page, { edit: send, count: n }));
   }
 
-  async function send(button) {
+  /** "Edit in FiftyOne": sends the images chosen (all, unless chosen otherwise) and opens the App in a new tab. */
+  async function send() {
     if (sayFiftyoneMissing()) return;   // #658
     const tool = 'fiftyone';
     const body = { tool, scope: state.scope };
     if (state.scope === 'selected') body.ids = selectedIds();
     if (state.scope === 'issue') body.issue = state.issue;
-    button.disabled = true;
+    const button = document.getElementById('fo-open');
+    if (button) button.disabled = true;
     const tab = reserveTab(t('cur.fo_waiting'));
     try {
       const job = await api('POST', `/projects/${projectId}/annotate`, { json: body });
@@ -464,6 +461,6 @@ export function annotateBlock(page) {
     /** the CVAT tab with one task chosen (review of its pre-annotations) */
     focusCvatTask: (taskId) => { state.cvat.scope = 'task'; state.cvat.task = taskId; state.cvat.job = null; drawScope(); drawSend(); },
     /** the FiftyOne tab with a scope chosen */
-    focusScope: async (scope) => { await loadPre(); state.scope = scope; drawScope(); drawSend(); },
+    focusScope: async (scope) => { await loadPre(); state.scope = scope; chooseBox.open = true; drawScope(); drawSend(); },
   };
 }
