@@ -5,7 +5,7 @@ import { isHttp, toolName } from './tools.js';
 import { api } from '../shell/api.js';
 import { fiftyoneButton, fiftyoneError, fiftyoneMissing, fiftyoneMissingNote, sayFiftyoneMissing } from '../shell/features.js';
 import { el, icon } from '../shell/dom.js';
-import { t } from '../shell/i18n.js';
+import { t, tn } from '../shell/i18n.js';
 import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
@@ -84,17 +84,25 @@ export function cvatOpenRow({ link, configured, task, job, gone = false }) {
     el('p', { class: 'muted small' }, t('open.cvat_back')));
 }
 
-/** The open row of the FiftyOne tab, the one place that opens the project's dataset in FiftyOne (#602): open it (to
- *  look at and edit), and how the edits come back; or why not, with what to do. */
-export function fiftyoneOpenRow(page) {
+/** The one button of the FiftyOne tab (#699): "Edit in FiftyOne" sends the images chosen (all, by default) and opens
+ *  the App; a keypoints project (the App cannot edit them), a project without images or without FiftyOne gets the
+ *  button disabled, or dimmed, with the reason.
+ *  `page` is the project page; `edit` sends the images and opens the App (it brings its own new tab) and `count` is
+ *  how many images it sends. */
+export function fiftyoneOpenRow(page, { edit = () => openInFiftyOne(page), count = 0 } = {}) {
   const reason = fiftyoneReason(page.ctx.project);
   const keypoints = page.ctx.project && page.ctx.project.task === 'keypoints';
+  const missing = reason === 'open.fo_not_installed';
+  const go = () => (sayFiftyoneMissing() ? null : edit());
+  const label = t('open.fo_edit', { tool: toolName('fiftyone') });
+  const help = reason || (keypoints ? 'tasks.fo_no_keypoints' : null);
   return el('div', { class: 'open-row' },
     /* without FiftyOne: dimmed, not disabled, so a tap says how to install it (#675); without images: disabled */
-    fiftyoneButton(el('button', { type: 'button', class: `btn${reason === 'open.fo_not_installed' ? ' is-unavailable' : ''}`, id: 'fo-open', disabled: !!reason && reason !== 'open.fo_not_installed',
-      'aria-disabled': reason === 'open.fo_not_installed' ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: () => (sayFiftyoneMissing() ? null : openInFiftyOne(page)) },
-      icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') }))),
-    reason === 'open.fo_not_installed'
+    fiftyoneButton(el('button', { type: 'button', class: `btn primary big${missing ? ' is-unavailable' : ''}`, id: 'fo-open',
+      disabled: (!!reason && !missing) || keypoints || (!reason && count === 0), 'aria-disabled': missing ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: go },
+      icon('fiftyone', 20), label)),
+    missing
       ? el('div', { id: 'fo-open-help' }, fiftyoneMissingNote())
-      : el('p', { class: 'muted small', id: 'fo-open-help' }, t(reason || (keypoints ? 'tasks.fo_no_keypoints' : 'open.fo_back'))));
+      : el('p', { class: 'muted small', id: 'fo-open-help', 'aria-live': 'polite' },
+        help ? t(help) : (count ? tn('annotate.will_send', count, { tool: toolName('fiftyone') }) : t('annotate.nothing_to_send'))));
 }

@@ -948,7 +948,7 @@ def test_open_in_cvat_and_fiftyone_live_in_their_tabs_not_in_the_header():
     for gone in ("export function headerCvatButton", "export function headerFiftyoneButton"):
         assert gone not in open_js, gone
     assert "fill(cvatOpenBox, cvatOpenRow(" in external_js
-    assert "fill(foOpenBox, fiftyoneOpenRow(page))" in external_js
+    assert "fill(foOpenBox, fiftyoneOpenRow(page," in external_js
 
 
 def test_the_import_report_uses_the_whole_width_and_its_summary_lines_up():
