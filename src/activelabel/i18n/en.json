@@ -460,6 +460,7 @@
   "annotate.status.closed": "Closed",
   "annotate.open_in": "Open in {tool}",
   "annotate.pull_hint": "Edit in FiftyOne. When you are done, click Review and apply to see what changed.",
+  "annotate.fo_mouse_hint": "In the image window: click a box or polygon to select it; drag to move it; drag a corner or a point to adjust it; change the class in label; the Delete key removes it; Ctrl+Z undoes. To draw, pick the rectangle or polygon under Create.",
   "annotate.pull": "Review and apply",
   "annotate.pull_again": "Review again",
   "annotate.pull_started": "Reading the changes from FiftyOne…",

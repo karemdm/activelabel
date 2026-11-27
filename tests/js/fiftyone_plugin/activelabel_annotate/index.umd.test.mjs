@@ -19,9 +19,10 @@ class OperatorConfig {
   }
 }
 
-function app(info) {
-  const calls = { registered: [], executed: [], annotate: 0 };
+function app(info, controller) {
+  const calls = { registered: [], executed: [], annotate: 0, warnings: [] };
   const window = {
+    console: { warn: (...args) => calls.warnings.push(args) },
     __foo__: {
       Operator,
       OperatorConfig,
@@ -30,7 +31,8 @@ function app(info) {
     },
     __fos__: {
       dataset: "dataset-atom",
-      useModalModeController: () => ({ activateAnnotateMode: () => (calls.annotate += 1) }),
+      useModalModeController:
+        controller ?? (() => ({ activateAnnotateMode: () => (calls.annotate += 1) })),
     },
     recoil: { useRecoilValue: (atom) => (atom === "dataset-atom" ? { info } : null) },
   };
@@ -68,7 +70,28 @@ test("a dataset the App cannot edit (keypoints) or not made by ActiveLabel stays
   }
 });
 
-test("another version of the App, without the modules it needs, is left alone", () => {
-  const window = { __foo__: undefined, __fos__: {}, recoil: {} };
+test("another version of the App, without the modules it needs, is left alone with a warning", () => {
+  const warnings = [];
+  const window = { __foo__: undefined, __fos__: {}, recoil: {}, console: { warn: (m) => warnings.push(m) } };
   assert.doesNotThrow(() => vm.runInNewContext(SCRIPT, { window }));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /click the Annotate tab/);
+});
+
+test("an App whose mode controller changed (no activateAnnotateMode) warns and stays usable", async () => {
+  const calls = app({ activelabel_editable: true }, () => ({}));
+  await assert.doesNotReject(run(calls));
+  assert.equal(calls.annotate, 0);
+  assert.equal(calls.warnings.length, 1);
+});
+
+test("an App whose mode switch fails warns instead of breaking", async () => {
+  const failing = () => ({
+    activateAnnotateMode: () => {
+      throw new Error("changed");
+    },
+  });
+  const calls = app({ activelabel_editable: true }, failing);
+  await assert.doesNotReject(run(calls));
+  assert.equal(calls.warnings.length, 1);
 });

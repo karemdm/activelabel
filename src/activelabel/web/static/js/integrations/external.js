@@ -363,6 +363,7 @@ export function annotateBlock(page) {
         : null,
       legacy ? el('p', { class: 'muted' }, t('annotate.legacy_note')) : null,
       s.status === 'open' && !legacy ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
+      s.status === 'open' && tool === 'fiftyone' ? el('p', { class: 'muted small fo-mouse-hint' }, t('annotate.fo_mouse_hint')) : null,
       diffShown ? diffView(projectId, s.diff) : null,
       el('div', { class: 'session-actions' }, ...buttons));
   }
