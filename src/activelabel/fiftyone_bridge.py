@@ -826,6 +826,24 @@ def sync_dataset(
     return dataset
 
 
+#: Label attributes FiftyOne puts in a generated schema that a person never edits by hand. They are left
+#: out, so the App's edit panel shows only the class (and, for polygons, closed/filled); the values stay on
+#: the labels.
+HIDDEN_ATTRIBUTES = frozenset({"attributes", "confidence", "index", "mask_path"})
+
+
+def _without_noise(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The attributes of a generated label schema without :data:`HIDDEN_ATTRIBUTES`.
+
+    Args:
+        attributes: the ``attributes`` of the generated label schema.
+
+    Returns:
+        A copy without the attributes a person does not edit.
+    """
+    return [a for a in attributes if a.get("name") not in HIDDEN_ATTRIBUTES]
+
+
 def _closed_and_filled(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The attributes of a polyline schema with ``closed`` and ``filled`` defaulting to True.
 
@@ -888,6 +906,7 @@ def enable_editing(dataset: fo.Dataset, project: Project) -> bool:
         schema = dict(dataset.generate_label_schemas(GROUND_TRUTH, scan_samples=False))
         if project.classes:
             schema.update(classes=list(project.classes), component="dropdown")
+        schema["attributes"] = _without_noise(schema.get("attributes", []))
         if project.task is Task.SEGMENTATION:
             schema["attributes"] = _closed_and_filled(schema.get("attributes", []))
         dataset.update_label_schema(GROUND_TRUTH, schema)

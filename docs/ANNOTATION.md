@@ -39,7 +39,7 @@ in the *Annotate* tab, ready to edit, with the mouse alone:
 | Select a box or polygon | Click it (or its row in the *LABELS* list) |
 | Move it | Drag it |
 | Resize a box, move a polygon point | Drag a corner or a point |
-| Change the class | Pick another *label* in the panel on the right |
+| Change the class | Pick another *label* in the panel on the right (the panel shows only *label* and *tags*: the fields a person never edits, `confidence`, `index`, `mask_path` and the free `attributes`, are left out of the label schema, `fiftyone_bridge.HIDDEN_ATTRIBUTES`; their values stay on the labels) |
 | Delete it | Press *Delete*, or *⋮ → Delete label* in the panel |
 | Draw a new box or polygon | Pick the rectangle or polygon tool under *Create*, then drag (or click the points) on the image |
 | Undo / redo | The arrows next to *Create*, or Ctrl+Z / Ctrl+Shift+Z |

@@ -100,6 +100,8 @@ Everything below goes into the first release, 0.1.0.
   started in *Explore* again. ActiveLabel's App plugin `@activelabel/annotate` now switches the image window
   to *Annotate* for every editable dataset: a click selects a box or polygon, and dragging moves it, its
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
+- **The App's edit panel shows only the class and the tags.** `confidence`, `index`, `mask_path` and the free
+  `attributes` are left out of the label schema of `ground_truth`; their values stay on the labels (#706).
 
 - **Class field and IME (#637).** The Enter and comma that confirm a character in an input method (Japanese,
   Chinese, Korean) no longer add a half-typed class.
