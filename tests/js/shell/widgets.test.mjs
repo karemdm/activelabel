@@ -62,6 +62,19 @@ test('chipsInput says which names it left out as repeated, and hides the example
   chips.node.remove();
 });
 
+test('chipsInput ignores Enter while an IME is composing (#637)', () => {
+  const chips = chipsInput('c-ime', []);
+  document.body.appendChild(chips.node);
+  const input = chips.node.querySelector('input');
+  input.value = 'ね';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+  assert.equal(input.value, 'ね');
+  assert.deepEqual([...chips.node.querySelectorAll('.chip')], []);
+  key(input, 'Enter');
+  assert.deepEqual(chips.get(), ['ね']);
+  chips.node.remove();
+});
+
 test('classList shows the first 12 classes and a button for the rest', () => {
   const names = Array.from({ length: 15 }, (_, i) => `c${i}`);
   const box = classList(names);

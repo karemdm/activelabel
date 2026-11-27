@@ -43,6 +43,7 @@ export function chipsInput(id, initial) {
     );
   };
   input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;   // an IME is choosing characters: its Enter and comma are not ours (#637)
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
       if (input.value.trim()) { add(input.value); input.value = ''; }

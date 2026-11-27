@@ -101,6 +101,8 @@ Everything below goes into the first release, 0.1.0.
   to *Annotate* for every editable dataset: a click selects a box or polygon, and dragging moves it, its
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 
+- **Class field and IME (#637).** The Enter and comma that confirm a character in an input method (Japanese,
+  Chinese, Korean) no longer add a half-typed class.
 - **The API refuses what the form could not type (#637).** Creating or changing a project with a class name that has
   a comma (`a,b`) or that is `background` / `__background__` answers HTTP 400 `class_name_has_comma` or
   `class_name_reserved`; a project that already has such a name keeps it.
