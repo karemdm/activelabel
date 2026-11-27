@@ -1,6 +1,7 @@
 import uuid
 
 import fiftyone as fo
+import numpy as np
 import pytest
 
 from activelabel.curation import similarity_fiftyone as sf
@@ -49,3 +50,14 @@ def test_noise_has_no_group(dataset):
     sf.publish(dataset, result(["i0", "i1", "i2", "i3"], [0, -1, 1, -1]))
     by_image = dict(zip(dataset.values("image_id"), dataset.values(sf.GROUP_FIELD), strict=True))
     assert by_image == {"i0": 1, "i1": None, "i2": 2, "i3": None}
+
+
+def test_with_the_embeddings_the_app_can_sort_by_similarity(dataset):
+    vectors = np.array([[1.0, 0.0], [0.99, 0.05], [0.0, 1.0], [0.5, 0.5]])
+    sf.publish(dataset, result(["i0", "i1", "i2", "gone"], [0, 0, 1, 0]), vectors)
+    assert sf.SIMILAR_KEY in dataset.list_brain_runs()
+    first = dataset.match(fo.ViewField("image_id") == "i0").first().id
+    nearest = dataset.sort_by_similarity(first, k=2, brain_key=sf.SIMILAR_KEY).values("image_id")
+    assert nearest[0] == "i0" and nearest[1] == "i1"
+    sf.publish(dataset, result(["i0", "i1"], [0, 0]))  # a map without embeddings drops the old index
+    assert sf.SIMILAR_KEY not in dataset.list_brain_runs()

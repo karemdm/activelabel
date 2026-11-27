@@ -289,5 +289,7 @@ export function similarityBlock(page) {
   }
 
   draw();
-  return { node, load };
+  /* the map has embeddings: "Show similar" can use them (#613) */
+  const hasMap = () => !!(state.points && (state.points.ids || []).length > 0);
+  return { node, load, ready: hasMap };
 }

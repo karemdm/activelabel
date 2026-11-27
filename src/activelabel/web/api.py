@@ -48,6 +48,7 @@ from activelabel.web.state import AppState, get_state
 LOG = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
+SIMILAR_COUNT = 24  # images shown by "Show similar" (#613)
 MAX_PAGE = 500
 JOB_GONE = "This activity no longer exists (the list of finished jobs was cleared or the server restarted)."
 UPLOADS = Annotated[list[UploadFile], File()]
@@ -687,6 +688,8 @@ def list_images(
     sort: str = Query("", pattern="^(|uniqueness_desc|uniqueness_asc)$"),
     unique_below: float | None = Query(None, ge=0, le=1),
     group: int | None = Query(None, ge=-1),
+    similar_to: str = "",
+    similar_count: int = Query(SIMILAR_COUNT, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=MAX_PAGE),
     state: AppState = STATE,
@@ -716,13 +719,20 @@ def list_images(
             are left out.
         group: Keep the images of this group of the similarity map (``-1``: the ones HDBSCAN left without a
             group); an image that is not on the map is left out.
+        similar_to: Keep this image and the ``similar_count`` images whose embeddings (similarity map) are
+            closest to it, nearest first (#613); each of them gets ``distance``.
+        similar_count: With ``similar_to``: how many similar images.
         offset: Items to skip.
         limit: Items to return.
         state: The shared state of the application.
 
     Returns:
         ``{total, items}``: how many images match and the requested page; an item has ``uniqueness`` when
-        it was scored.
+        it was scored, and ``distance`` with ``similar_to``.
+
+    Raises:
+        ApiError: 409 ``similarity_map_needed`` without the embeddings of a similarity map, 404
+            ``image_not_on_map`` when ``similar_to`` is not on it (plus the errors of the other filters).
     """
     manifest = state.manifest(project_id)
     records = manifest.all()
@@ -771,7 +781,12 @@ def list_images(
     scores = _uniqueness_scores(state, project_id)
     if unique_below is not None:
         records = [r for r in records if r.id in scores and scores[r.id] < unique_below]
-    if sort:
+    distance: dict[str, float] = {}
+    if similar_to:  # the order of the similarity map wins over the sort
+        distance = _similar(state, project_id, similar_to, similar_count)
+        by_id = {r.id: r for r in records}
+        records = [by_id[i] for i in distance if i in by_id]
+    elif sort:
         sign = -1 if sort == "uniqueness_desc" else 1
         records = sorted(records, key=lambda r: (r.id not in scores, sign * scores.get(r.id, 0.0)))
     annotations = load_annotations(state.store.dir(project_id))
@@ -795,8 +810,36 @@ def list_images(
         original = duplicate_of.get(record.id)
         if original and "near_duplicate" in record.issues:
             item["duplicate_of"], item["duplicate_of_name"] = original, names.get(original, "")
+        if record.id in distance:
+            item["distance"] = distance[record.id]
         items.append(item)
     return {"total": len(records), "items": items}
+
+
+def _similar(state: AppState, project_id: int, image_id: str, count: int) -> dict[str, float]:
+    """An image and the images most similar to it on the similarity map, nearest first.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        image_id: The image to compare with.
+        count: How many similar images.
+
+    Returns:
+        ``{image id: cosine distance}``, the image itself first (distance 0).
+
+    Raises:
+        ApiError: 409 ``similarity_map_needed`` without embeddings, 404 ``image_not_on_map``.
+    """
+    saved = similarity.SimilarityStore(state.store.dir(project_id)).load_vectors()
+    if saved is None:
+        raise ApiError(409, "similarity_map_needed", "Compute the similarity map first.")
+    ids, vectors, _ = saved
+    try:
+        near = similarity.similar_to(ids, vectors, image_id, count)
+    except KeyError:
+        raise ApiError(404, "image_not_on_map", "This image is not on the similarity map.") from None
+    return {image_id: 0.0, **dict(near)}
 
 
 def _record(state: AppState, project_id: int, image_id: str) -> tuple[Any, ImageRecord]:

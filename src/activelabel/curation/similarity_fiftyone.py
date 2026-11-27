@@ -2,7 +2,9 @@
 
 After the map is computed, the project's dataset gets the brain run ``BRAIN_KEY`` (the same 2-D points as the
 map of the curation, so both show the same picture) and every mapped sample gets ``GROUP_FIELD``, its group
-numbered from 1, to colour the points or filter the grid by group. Nothing here needs PyTorch.
+numbered from 1, to colour the points or filter the grid by group. With the embeddings, it also gets the
+similarity index ``SIMILAR_KEY`` (scikit-learn backend, the saved embeddings): the App's "sort by similarity"
+works on it (#613). Nothing here needs PyTorch.
 """
 
 from __future__ import annotations
@@ -15,20 +17,24 @@ from activelabel.optional import fo, fob
 
 BRAIN_KEY = "activelabel_similarity"
 GROUP_FIELD = "similarity_group"
+SIMILAR_KEY = "activelabel_similar"  # the similarity index of the App (sort by similarity, #613)
 
 
-def publish(dataset: fo.Dataset, result: dict[str, Any]) -> int:
+def publish(dataset: fo.Dataset, result: dict[str, Any], vectors: np.ndarray | None = None) -> int:
     """Write the map and the groups of ``result`` into the dataset, replacing the previous ones.
 
     Args:
         dataset: The project's FiftyOne dataset (samples carry ``image_id``).
         result: The map (see :func:`activelabel.curation.similarity.build_map`).
+        vectors: The embeddings, one row per image of ``result["points"]["ids"]``; with them the dataset also
+            gets the similarity index :data:`SIMILAR_KEY`.
 
     Returns:
         How many samples were placed on the map (images no longer in the dataset are left out).
     """
-    if BRAIN_KEY in dataset.list_brain_runs():
-        dataset.delete_brain_run(BRAIN_KEY)
+    for key in (BRAIN_KEY, SIMILAR_KEY):
+        if key in dataset.list_brain_runs():
+            dataset.delete_brain_run(key)
     if dataset.has_sample_field(GROUP_FIELD):
         dataset.set_values(GROUP_FIELD, [None] * len(dataset))
     sample_of = dict(zip(dataset.values("image_id"), dataset.values("id"), strict=True))
@@ -51,4 +57,12 @@ def publish(dataset: fo.Dataset, result: dict[str, Any]) -> int:
         brain_key=BRAIN_KEY,
         progress=False,
     )
+    if vectors is not None:
+        fob.compute_similarity(
+            dataset.select(sample_ids, ordered=True),
+            embeddings=np.asarray(vectors)[rows],
+            backend="sklearn",
+            brain_key=SIMILAR_KEY,
+            progress=False,
+        )
     return len(rows)

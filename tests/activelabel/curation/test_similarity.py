@@ -166,3 +166,13 @@ def test_build_map_keeps_the_near_pairs():
     vectors = np.vstack([base, base[:1]])
     result = similarity.build_map([f"i{n}" for n in range(7)], vectors)
     assert [p[:2] for p in result["near_pairs"]] == [["i0", "i6"]]
+
+
+def test_similar_to_gives_the_nearest_images_first():
+    vectors = np.array([[1.0, 0.0], [0.0, 1.0], [0.9, 0.1], [0.7, 0.7]])
+    near = similarity.similar_to(["a", "b", "c", "d"], vectors, "a", 2)
+    assert [i for i, _ in near] == ["c", "d"]
+    assert 0 <= near[0][1] < near[1][1]
+    assert len(similarity.similar_to(["a", "b", "c", "d"], vectors, "a", 50)) == 3  # never itself
+    with pytest.raises(KeyError):
+        similarity.similar_to(["a"], vectors[:1], "zzz", 3)

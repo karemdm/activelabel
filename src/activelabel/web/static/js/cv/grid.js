@@ -13,6 +13,7 @@ function filterParams(q, offset, limit) {
   const params = new URLSearchParams({ status: q.status || 'active', offset: String(offset), limit: String(limit) });
   if (q.issue) params.set('issue', q.issue);
   if (q.ids) params.set('ids', q.ids.join(','));
+  if (q.similar) params.set('similar_to', q.similar);  // #613
   if (q.task != null) params.set('task', String(q.task));
   if (q.job != null) params.set('job', String(q.job));
   if (q.dataset) {
@@ -219,8 +220,9 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
 let lightbox = null;  // one lightbox dialog, reused
 
 /** Opens image `index` of `items` in the lightbox. `edit(img)`, when given, adds "Edit in FiftyOne" for that image
- *  (the App opens on it, ready to edit); it is left out for an excluded image. */
-export function openLightbox(projectId, items, index, { edit = null } = {}) {
+ *  (the App opens on it, ready to edit); it is left out for an excluded image. `similar(img)`, when given, adds
+ *  "Show similar" (#613): the images closest to it on the similarity map. */
+export function openLightbox(projectId, items, index, { edit = null, similar = null } = {}) {
   if (!lightbox) {
     lightbox = el('dialog', { class: 'lightbox', 'aria-label': t('lightbox.title') });
     document.body.appendChild(lightbox);
@@ -243,10 +245,19 @@ export function openLightbox(projectId, items, index, { edit = null } = {}) {
           el('div', { class: 'lightbox-head' },
             el('h2', null, img.name),
             el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
-          edit && img.status !== 'excluded'
+          (edit && img.status !== 'excluded') || similar
             ? el('p', { class: 'lightbox-actions' },
-              el('button', { type: 'button', class: 'btn primary', 'data-action': 'edit-fo', onclick: () => { lightbox.close(); edit(img); } },
-                icon('fiftyone', 18), t('lightbox.edit_fo')))
+              edit && img.status !== 'excluded'
+                ? el('button', { type: 'button', class: 'btn primary', 'data-action': 'edit-fo', onclick: () => { lightbox.close(); edit(img); } },
+                  icon('fiftyone', 18), t('lightbox.edit_fo'))
+                : null,
+              similar
+                ? el('button', { type: 'button', class: 'btn', 'data-action': 'similar', onclick: () => { lightbox.close(); similar(img); } },
+                  t('lightbox.similar'))
+                : null)
+            : null,
+          typeof img.distance === 'number' && img.distance > 0
+            ? el('p', { class: 'muted small' }, t('lightbox.distance', { d: nf1.format(img.distance * 100) }))
             : null,
           img.width ? el('p', { class: 'muted' }, `${img.width} × ${img.height} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
           img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,

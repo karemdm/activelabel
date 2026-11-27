@@ -1,5 +1,6 @@
 import time
 
+import numpy as np
 from api_client import make_client, upload
 from fastapi.testclient import TestClient
 from pymongo.errors import ServerSelectionTimeoutError
@@ -259,3 +260,23 @@ def test_images_filter_by_group_of_the_map(tmp_path):
     assert [i["id"] for i in client.get(f"{url}?group=-1").json()["items"]] == ids[1:3]
     assert [i["id"] for i in client.get(f"{url}?group=0").json()["items"]] == [ids[0]]
     assert client.get(f"{url}?group=-2").status_code == 422
+
+
+def test_the_images_most_similar_to_one_come_nearest_first(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["cat"]})
+    paths = [make_image(tmp_path / f"in/{i}.png", seed=i) for i in range(4)]
+    upload(client, 1, paths)
+    ids = [item["id"] for item in client.get("/api/projects/1/images").json()["items"]]
+    no_map = client.get(f"/api/projects/1/images?similar_to={ids[0]}")
+    assert no_map.status_code == 409 and no_map.json()["code"] == "similarity_map_needed"
+    vectors = np.array([[1.0, 0.0], [0.0, 1.0], [0.95, 0.05], [0.6, 0.6]])
+    similarity.SimilarityStore(state.store.dir(1)).save_vectors(ids, vectors, "test")
+    page = client.get(f"/api/projects/1/images?similar_to={ids[0]}&similar_count=2").json()
+    assert [i["id"] for i in page["items"]] == [ids[0], ids[2], ids[3]]  # the image itself, then the nearest
+    assert page["total"] == 3 and page["items"][0]["distance"] == 0.0 and page["items"][1]["distance"] > 0
+    client.post("/api/projects/1/images/exclude", json={"ids": [ids[2]], "reason": "x"})
+    active = client.get(f"/api/projects/1/images?similar_to={ids[0]}&similar_count=2").json()
+    assert ids[2] not in [i["id"] for i in active["items"]]  # the status filter still applies
+    gone = client.get("/api/projects/1/images?similar_to=nothere")
+    assert gone.status_code == 404 and gone.json()["code"] == "image_not_on_map"

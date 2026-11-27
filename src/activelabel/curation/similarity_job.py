@@ -275,7 +275,8 @@ def _publish(project: Project, manifest: Manifest, project_dir: Path, result: di
         )
     try:
         dataset = fiftyone_bridge.sync_dataset(project, manifest, load_annotations(project_dir))
-        similarity_fiftyone.publish(dataset, result)
+        saved = similarity.SimilarityStore(project_dir).load_vectors()
+        similarity_fiftyone.publish(dataset, result, saved[1] if saved else None)
     except Exception as exc:  # noqa: BLE001 - the map is still useful without FiftyOne
         LOG.exception("Could not write the similarity map of project %s to FiftyOne", project.id)
         return readable_error(exc)

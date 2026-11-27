@@ -171,7 +171,9 @@ mapa de novo sem recalculá-lo: *Automático*, um *Número de grupos* à sua esc
 (HDBSCAN, com o *Menor grupo*); neste, as imagens que não cabem em grupo nenhum aparecem numa cor neutra e têm
 um filtro próprio, *Sem grupo*, acima da grade. O mesmo mapa abre no App do FiftyOne (painel
 Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`). Com o mapa pronto,
-pares de imagens quase iguais para a rede (recortes, mudança de brilho, quadros vizinhos de vídeo, que o
+*Mostrar parecidas*, na janela de uma imagem da Curadoria, deixa na grade essa imagem e as 24 mais
+parecidas com ela, da mais parecida para a menos (*Mostrar todas* volta); no App, a ordenação por
+semelhança também funciona (índice `activelabel_similar`). Pares de imagens quase iguais para a rede (recortes, mudança de brilho, quadros vizinhos de vídeo, que o
 hash perceptual não pega) também viram quase duplicatas; o limite fica em *Limites* ("Quase duplicata
 pelo mapa de semelhança", 0 desliga). Arquivos idênticos nunca chegam a ser duas imagens: o envio os
 reconhece pelo conteúdo.
