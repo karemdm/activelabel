@@ -1,6 +1,7 @@
 import pytest
 
-from activelabel.projects import ProjectNotFound, ProjectStore, clean_classes
+from activelabel.errors import CodedError
+from activelabel.projects import ProjectNotFound, ProjectStore, check_class_spelling, clean_classes
 from activelabel.tasks import Task
 
 
@@ -37,6 +38,19 @@ def test_update_and_delete(tmp_path):
     store.delete(project.id)
     with pytest.raises(ProjectNotFound):
         store.get(project.id)
+
+
+def test_class_spelling_refuses_a_comma_and_the_background_names():
+    check_class_spelling(["cat", "dog"])
+    for names, code in (
+        (["a,b"], "class_name_has_comma"),
+        (["__background__"], "class_name_reserved"),
+        ([" Background "], "class_name_reserved"),
+    ):
+        with pytest.raises(CodedError) as err:
+            check_class_spelling(names)
+        assert err.value.code == code
+    check_class_spelling(["background", "cat"], existing=["Background"])  # already in the project: left alone
 
 
 def test_clean_classes():

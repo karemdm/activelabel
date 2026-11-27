@@ -1575,6 +1575,8 @@
   "error.project_not_found": "Este projeto não existe (talvez tenha sido excluído).",
   "error.description_too_long": "A descrição é longa demais (no máximo {max} caracteres).",
   "error.control_characters": "O nome e a descrição não podem ter caracteres de controle.",
+  "error.class_name_has_comma": "O nome de uma classe não pode ter vírgula: uma classe por nome.",
+  "error.class_name_reserved": "'{name}' é reservado ao fundo dos modelos: escolha outro nome.",
   "error.class_name_invalid": "O nome de uma classe não pode ter caracteres de controle.",
   "error.class_name_too_long": "O nome da classe '{name}...' é longo demais (no máximo {max} caracteres).",
   "error.too_many_classes": "Há classes demais ({count}); o máximo é {max}.",

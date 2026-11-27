@@ -1575,6 +1575,8 @@
   "error.project_not_found": "This project does not exist (it may have been deleted).",
   "error.description_too_long": "The description is too long (at most {max} characters).",
   "error.control_characters": "The name and description cannot contain control characters.",
+  "error.class_name_has_comma": "A class name cannot contain a comma: one class per name.",
+  "error.class_name_reserved": "'{name}' is kept for the background of the models: choose another name.",
   "error.class_name_invalid": "Class names cannot contain control characters.",
   "error.class_name_too_long": "The class name '{name}...' is too long (at most {max} characters).",
   "error.too_many_classes": "There are too many classes ({count}); the most allowed is {max}.",

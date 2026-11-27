@@ -101,6 +101,9 @@ Everything below goes into the first release, 0.1.0.
   to *Annotate* for every editable dataset: a click selects a box or polygon, and dragging moves it, its
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 
+- **The API refuses what the form could not type (#637).** Creating or changing a project with a class name that has
+  a comma (`a,b`) or that is `background` / `__background__` answers HTTP 400 `class_name_has_comma` or
+  `class_name_reserved`; a project that already has such a name keeps it.
 - **A taken project name stays marked (#637).** In the new-project form the message stays under the name field,
   the field is marked as invalid and focused, until the name is edited; it was only a toast that faded.
 - **Repeated class names are no longer dropped silently (#637).** Pasting or typing a name already in the list
