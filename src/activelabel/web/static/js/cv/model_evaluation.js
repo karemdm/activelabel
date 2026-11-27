@@ -58,7 +58,7 @@ export function classTable(rows, kind) {
 }
 
 /** The confusion matrix (real class in rows, predicted in columns); `other` and `missing` are the extra last ones. */
-export function confusionTable(confusion) {
+export function confusionTable(confusion, kind = 'detection') {
   const names = [...confusion.classes];
   if (confusion.other) names.push(t('md.eval_other_classes'));
   if (confusion.missing) names.push(t('md.eval_none'));
@@ -72,7 +72,7 @@ export function confusionTable(confusion) {
   };
   return el('div', { class: 'tr-block md-eval-matrix' },
     el('h4', null, t('tr.confusion')),
-    el('p', { class: 'muted tr-note' }, t('tr.confusion_help'), confusion.missing ? ` ${t('md.eval_none_help')}` : ''),
+    el('p', { class: 'muted tr-note' }, t('tr.confusion_help'), confusion.missing ? ` ${t(kind === 'classification' ? 'md.eval_none_help_class' : 'md.eval_none_help')}` : ''),
     el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table tr-confusion' },
       el('caption', { class: 'sr-only' }, t('tr.confusion')),
       el('thead', null, el('tr', null, el('th', { scope: 'col', class: 'corner' }, t('tr.actual_vs_pred')), ...names.map((n) => el('th', { scope: 'col', title: n }, n)))),
@@ -155,7 +155,7 @@ export function evaluationResult(m, state, ways) {
       (r.unreadable || []).length ? ` · ${tn('md.eval_unreadable_n', r.unreadable.length)}` : ''),
     metricCards(r),
     r.kind === 'detection' && r.metrics ? el('p', { class: 'muted tr-note' }, t('md.eval_counts', { tp: num(r.metrics.tp), fp: num(r.metrics.fp), fn: num(r.metrics.fn) })) : null,
-    el('div', { class: 'md-eval-grid' }, classTable(r.classes || [], r.kind), confusionTable(r.confusion || {})),
+    el('div', { class: 'md-eval-grid' }, classTable(r.classes || [], r.kind), confusionTable(r.confusion || {}, r.kind)),
     el('div', { class: 'tr-actions md-eval-actions' },
       worst.length
         ? el('button', { type: 'button', class: 'btn small', 'data-act': 'eval-worst', onclick: () => ways.worst(worst, m.number) }, t('md.eval_worst', { n: worst.length }))

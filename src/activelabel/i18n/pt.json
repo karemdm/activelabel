@@ -2106,6 +2106,7 @@
   "md.eval_other_classes": "(outras classes)",
   "md.eval_none": "(nenhum)",
   "md.eval_none_help": "Na linha (nenhum): o modelo achou um objeto que não existe; na coluna (nenhum): ele deixou passar um objeto que existe.",
+  "md.eval_none_help_class": "Na coluna (nenhum): imagens às quais o modelo não deu nenhuma classe.",
   "md.eval_worst": "Ver as piores imagens ({n})",
   "md.eval_no_worst": "Nenhuma imagem com erros.",
   "md.eval_worst_chip": "Piores imagens do m{n} · {count}",
