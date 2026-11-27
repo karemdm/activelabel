@@ -41,6 +41,8 @@ in the *Annotate* tab, ready to edit, with the mouse alone:
 | Resize a box, move a polygon point | Drag a corner or a point |
 | Change the class | Pick another *label* in the panel on the right (the panel shows only *label* and *tags*: the fields a person never edits, `confidence`, `index`, `mask_path` and the free `attributes`, are left out of the label schema, `fiftyone_bridge.HIDDEN_ATTRIBUTES`; their values stay on the labels) |
 | Delete it | Press *Delete*, or *⋮ → Delete label* in the panel |
+| Delete several at once | The trash button in the image window's toolbar (*Apagar rótulos* / *Delete labels*): tick the labels, then *Execute*. Outside the image window it lists the labels selected in the App |
+| Undo that deletion | The trash-with-an-arrow button next to it (*Desfazer a remoção* / *Undo the deletion*), shown while there is one to undo; the labels come back with their ids |
 | Draw a new box or polygon | Pick the rectangle or polygon tool under *Create*, then drag (or click the points) on the image |
 | Undo / redo | The arrows next to *Create*, or Ctrl+Z / Ctrl+Shift+Z |
 
@@ -50,6 +52,12 @@ picks the select tool (the arrow) again after a deletion (*Delete*/*Backspace* o
 menu), so the next click selects a box instead of drawing one. Backspace while drawing a polygon still removes
 its last point. After drawing a new shape the rectangle or polygon tool stays on, to draw the next one. Edits
 are saved in the dataset as you make them; review and apply them from the *FiftyOne* tab.
+
+**Deleting several labels.** The two buttons above are Python operators of the same plugin
+(`activelabel_annotate/__init__.py`). The deletion is done on the server, so the App's own Ctrl+Z does not
+see it: the labels deleted last are kept in the dataset's execution store (`activelabel_annotate`,
+`last_deleted`) for *Undo the deletion*, and the page reloads after each of them (the image window comes
+back in Annotate mode) so the App shows the change. Nothing reaches the project before *Review and apply*.
 
 **Why the window opens in Annotate.** The App's own default is *Explore*, where the labels are only shown
 (hovering a box shows its class and id, nothing moves), and it remembers the tab per dataset in the

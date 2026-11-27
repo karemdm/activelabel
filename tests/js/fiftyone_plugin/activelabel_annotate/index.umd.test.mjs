@@ -20,8 +20,9 @@ class OperatorConfig {
 }
 
 function app(info, controller) {
-  const calls = { registered: [], executed: [], annotate: 0, warnings: [] };
+  const calls = { registered: [], executed: [], annotate: 0, warnings: [], reloaded: 0 };
   const window = {
+    location: { reload: () => (calls.reloaded += 1) },
     console: { warn: (...args) => calls.warnings.push(args) },
     __foo__: {
       Operator,
@@ -41,15 +42,15 @@ function app(info, controller) {
 }
 
 async function run(calls) {
-  const operator = new calls.registered[0].cls();
+  const operator = new calls.registered[1].cls();
   await operator.execute({ hooks: operator.useHooks() });
 }
 
 test("registers an unlisted operator that runs when a dataset opens, and runs it once at load", () => {
   const calls = app({ activelabel_editable: true });
-  assert.equal(calls.registered.length, 1);
-  assert.equal(calls.registered[0].plugin, "@activelabel/annotate");
-  const config = new calls.registered[0].cls().config;
+  assert.equal(calls.registered.length, 2);
+  assert.ok(calls.registered.every((r) => r.plugin === "@activelabel/annotate"));
+  const config = new calls.registered[1].cls().config;
   assert.equal(config.name, "open_in_annotate");
   assert.equal(config.unlisted, true);
   assert.equal(config.onDatasetOpen, true);
@@ -170,4 +171,12 @@ test("other keys and clicks are ignored", () => {
   app.state.list = true;
   app.settle();
   assert.deepEqual(app.clicks, []);
+});
+
+test("reload_page reloads the page, so the App reads images changed by the Python operators", async () => {
+  const calls = app({});
+  const reload = calls.registered.find((r) => new r.cls().config.name === "reload_page");
+  assert.ok(reload && new reload.cls().config.unlisted);
+  await new reload.cls().execute({});
+  assert.equal(calls.reloaded, 1);
 });

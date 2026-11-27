@@ -117,7 +117,22 @@
     }
   }
 
+  /**
+   * Reload the page, so the App reads the images again after ActiveLabel's Python operators changed them.
+   * The image window comes back (its id is in the address) in the mode it had.
+   */
+  class ReloadPage extends operators.Operator {
+    get config() {
+      return new operators.OperatorConfig({ name: "reload_page", label: "ActiveLabel: reload", unlisted: true });
+    }
+
+    async execute() {
+      window.location.reload();
+    }
+  }
+
   try {
+    operators.registerOperator(ReloadPage, "@activelabel/annotate");
     operators.registerOperator(OpenInAnnotate, "@activelabel/annotate");
     operators.executeOperator("@activelabel/annotate/open_in_annotate");
   } catch (error) {
