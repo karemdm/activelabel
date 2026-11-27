@@ -189,3 +189,25 @@ test('#706: the lightbox offers "Edit in FiftyOne" for the image shown, not for 
   assert.equal(box.querySelector('[data-action="edit-fo"]'), null);
   box.close();
 });
+
+test('#613: the grid asks for the images similar to one, and the lightbox offers "Show similar"', async () => {
+  let grid;
+  const asked = await withImages(3, async () => {
+    grid = imageGrid({ projectId: 7, query: () => ({ status: 'active', similar: 'i0' }) });
+    await grid.reload();
+  });
+  assert.equal(new URL(asked[0], 'http://localhost').searchParams.get('similar_to'), 'i0');
+  setMessages({ 'lightbox.similar': 'Show similar', 'lightbox.distance': 'Difference: {d}%' }, 'en');
+  const items = images(2);
+  items[1].distance = 0.123;
+  openLightbox(3, items, 0);
+  const box = document.querySelector('dialog.lightbox');
+  assert.equal(box.querySelector('[data-action="similar"]'), null);  // no map: nothing offered
+  box.close();
+  const chosen = [];
+  openLightbox(3, items, 1, { similar: (img) => chosen.push(img.id) });
+  assert.match(box.textContent, /12/);  // the difference to the chosen image, in percent
+  box.querySelector('[data-action="similar"]').click();
+  assert.deepEqual(chosen, ['i1']);
+  assert.equal(box.hasAttribute('open'), false);
+});

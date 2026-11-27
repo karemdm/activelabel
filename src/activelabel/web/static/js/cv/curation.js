@@ -20,6 +20,7 @@ export function curationPanel(page) {
   let summary = null;
   let dists = null;
   let issue = '';
+  let similar = null;  // {id, name}: the grid shows the images most similar to this one (#613)
   let view = 'active';
   let limitsOpen = false;
   let firstLoad = true;
@@ -48,12 +49,30 @@ export function curationPanel(page) {
   const grid = imageGrid({
     projectId,
     selectable: true,
-    query: () => ({ ...uniq.query(), group: noGroup ? NO_GROUP : null, status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
+    query: () => (similar && view === 'active'
+      ? { status: 'active', similar: similar.id, emptyText: t('cur.no_match') }
+      : { ...uniq.query(), group: noGroup ? NO_GROUP : null, status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
     onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
-    onOpen: (items, i) => openLightbox(projectId, items, i),
+    onOpen: (items, i) => openLightbox(projectId, items, i, { similar: sim.ready() ? showSimilar : null }),
     targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
     onValue: () => refreshProject(),
   });
+  const similarBox = el('div', { class: 'similar-line', hidden: true, 'aria-live': 'polite' });
+
+  /** "Show similar" (#613): the grid keeps this image and the ones closest to it on the similarity map. */
+  function showSimilar(img) {
+    similar = { id: img.id, name: img.name };
+    view = 'active';
+    drawSimilar();
+    grid.reload();
+  }
+  function drawSimilar() {
+    similarBox.hidden = !similar;
+    fill(similarBox, similar
+      ? [el('span', null, t('cur.similar_to', { name: similar.name })),
+        el('button', { type: 'button', class: 'btn small', onclick: () => { similar = null; drawSimilar(); grid.reload(); } }, t('cur.similar_clear'))]
+      : []);
+  }
 
   ctx.curationSelected = () => [...grid.selected];
 
@@ -168,7 +187,7 @@ export function curationPanel(page) {
       el('button', {
         type: 'button', class: `chip-btn${issue === key ? ' active' : ''}`, 'aria-pressed': issue === key ? 'true' : 'false',
         title: help || null, 'data-issue': key, 'data-act': key,
-        onclick: () => { issue = key; drawChips(); grid.reload(); },
+        onclick: () => { issue = key; similar = null; drawSimilar(); drawChips(); grid.reload(); },
       }, el('span', null, label), el('span', { class: 'count' }, num(n)));
     const flagged = flaggedIds();
     redraw(chipsBox,
@@ -255,7 +274,7 @@ export function curationPanel(page) {
       ...['active', 'excluded'].map((v) =>
         el('button', {
           type: 'button', class: `tab${view === v ? ' active' : ''}`, 'aria-pressed': view === v ? 'true' : 'false', 'data-view': v, 'data-act': v,
-          onclick: () => { view = v; draw(); grid.reload(); },
+          onclick: () => { view = v; similar = null; drawSimilar(); draw(); grid.reload(); },
         }, v === 'active' ? t('cur.tab_active') : `${t('cur.tab_excluded')} (${num(excluded)})`)));
   }
 
@@ -362,7 +381,7 @@ export function curationPanel(page) {
     distBox,
     sim.node,
     el('div', { class: 'cur-main' },
-      tabs, chipsBox, uniq.controls, mapBox, toolbar, grid.node));
+      tabs, similarBox, chipsBox, uniq.controls, mapBox, toolbar, grid.node));
   panel.mount = () => { load(); sim.load(); uniq.load(); };
   panel.refresh = () => { load(); sim.load(); uniq.load(); };
   return panel;

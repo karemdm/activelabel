@@ -253,6 +253,32 @@ def near_pairs(ids: list[str], vectors: np.ndarray, limit: float = PAIR_LIMIT) -
     return sorted(pairs, key=lambda p: (p[2], p[0], p[1]))
 
 
+def similar_to(ids: list[str], vectors: np.ndarray, image_id: str, limit: int) -> list[tuple[str, float]]:
+    """The images whose embeddings are closest to one image's, nearest first (#613).
+
+    Args:
+        ids: Image id of each row.
+        vectors: Embeddings, one row per image.
+        image_id: The image to compare with.
+        limit: How many images to return at most (the image itself not counted).
+
+    Returns:
+        ``(id, cosine distance)`` per image, nearest first, the distance rounded to 4 decimals.
+
+    Raises:
+        KeyError: ``image_id`` is not on the map.
+    """
+    row = ids.index(image_id) if image_id in ids else -1
+    if row < 0:
+        raise KeyError(image_id)
+    unit = vectors.astype(np.float32)
+    unit /= np.maximum(np.linalg.norm(unit, axis=1, keepdims=True), 1e-12)
+    distances = np.clip(1.0 - unit @ unit[row], 0.0, 2.0)
+    distances[row] = np.inf
+    order = np.argsort(distances, kind="stable")[: max(0, min(limit, len(ids) - 1))]
+    return [(ids[int(i)], round(float(distances[int(i)]), 4)) for i in order]
+
+
 def build_map(ids: list[str], vectors: np.ndarray) -> dict[str, Any]:
     """The map and the groups of a set of embeddings.
 

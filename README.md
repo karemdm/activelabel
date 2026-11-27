@@ -151,7 +151,9 @@ project is its *type*.)
    groups* you choose, or *Groups of any size* (HDBSCAN, with the *Smallest group*), where images that fit no group are
    drawn in a neutral colour and have their own filter, *No group*, above the grid. The same
    map opens in the FiftyOne App (Embeddings panel, run `activelabel_similarity`, coloured by the
-   field `similarity_group`).
+   field `similarity_group`). With a map, *Show similar* in an image's window (Curation) keeps that image and
+   the 24 closest to it in the grid, nearest first; the App sorts by similarity too (index
+   `activelabel_similar`, scikit-learn, no PyTorch).
    *Uniqueness* scores each active image from 0 (it has a near twin) to 1 (the most unique) from the
    embeddings the map saved (compute the map first; the button says so while there is no map): *Compute uniqueness*
    is a CPU job of the global queue, with progress and Cancel, and the scores also go to the field `uniqueness` in

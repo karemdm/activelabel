@@ -8,6 +8,9 @@ for (const [name, value] of Object.entries({
 })) {
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
+const proto = window.HTMLDialogElement.prototype;
+if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
+if (!proto.close) proto.close = function close() { this.removeAttribute('open'); };
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { curationPanel } = await import('../../../src/activelabel/web/static/js/cv/curation.js');
 
@@ -126,6 +129,47 @@ test('the Curation step shows the distribution of the annotations, also before t
     await panel.refresh();
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(box.hidden, true);
+  } finally {
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});
+
+test('#613: "Show similar" filters the grid by the image and "Show all" clears it', async () => {
+  setMessages({ 'cur.similar_to': 'Similar to {name}', 'cur.similar_clear': 'Show all', 'lightbox.similar': 'Show similar' }, 'en');
+  const ctx = { project: { id: 6, counts: { active: 2 } }, jobs: [], panels: {}, watchers: [] };
+  const page = { ctx, projectId: 6, renderStepper: () => {}, refreshProject: async () => true, jobStarted: async () => {}, kindActive: () => false };
+  const panel = curationPanel(page);
+  document.body.appendChild(panel.node);
+  const asked = [];
+  const real = globalThis.fetch;
+  const map = { status: 'done', points: { ids: ['i0', 'i1'], xy: [[0, 0], [1, 1]], group: [0, 0] }, groups: [] };
+  globalThis.fetch = async (url) => {
+    asked.push(url);
+    let body = { totals: { measured: 0 }, issue_ids: {}, thresholds: {} };
+    if (url.includes('/images')) body = { total: 2, items: [{ id: 'i0', name: 'a.png', status: 'active' }, { id: 'i1', name: 'b.png', status: 'active' }] };
+    else if (url.includes('/similarity/requirements')) body = { images: 2, min_images: 2, devices: ['auto'] };
+    else if (url.includes('/similarity')) body = map;
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    await panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    panel.node.querySelector('.thumb-btn').click();
+    const button = document.querySelector('dialog.lightbox [data-action="similar"]');
+    assert.ok(button, 'with a map the lightbox offers Show similar');
+    asked.length = 0;
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(asked.some((u) => u.includes('similar_to=i0')));
+    const line = panel.node.querySelector('.similar-line');
+    assert.equal(line.hidden, false);
+    assert.match(line.textContent, /Similar to a\.png/);
+    asked.length = 0;
+    [...line.querySelectorAll('button')].find((b) => b.textContent === 'Show all').click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(line.hidden, true);
+    assert.ok(asked.some((u) => u.includes('/images') && !u.includes('similar_to')));
   } finally {
     globalThis.fetch = real;
     panel.node.remove();
