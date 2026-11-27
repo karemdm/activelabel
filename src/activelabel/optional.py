@@ -20,12 +20,15 @@ try:
     import fiftyone as fo
     import fiftyone.brain as fob
     from fiftyone import ViewField as F
+    from fiftyone.core.odm.dataset import ActiveFields, SidebarGroupDocument
     from fiftyone.core.utils import to_slug
     from fiftyone.utils import cvat as fouc
 except ImportError:  # the light install: FiftyOne is an extra
     fo = None
     fob = None
     F = None
+    ActiveFields = None
+    SidebarGroupDocument = None
     to_slug = None
     fouc = None
 
