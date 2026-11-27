@@ -566,6 +566,40 @@ def test_import_project_reports_what_it_could_not_bring(tasks_remote, tmp_path):
     assert problems["duplicate_labels_dropped"]["count"] == 1  # the bus box of b0
 
 
+def test_a_video_that_could_not_be_used_is_reported(tasks_remote, tmp_path, monkeypatch):
+    """The tasks stay as images and the report names them with a code, not only the server log."""
+    tasks_remote.mark_video("10", frames=4)
+    tasks_remote.mark_video("11")
+
+    def refuse(*args, **kwargs):
+        raise ToolError("backup refused")
+
+    monkeypatch.setattr(tasks_remote, "video_source", refuse)
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="project", remote_id="1")
+    problems = {p["code"]: p for p in result["problems"]}
+    assert problems["video_as_images"]["level"] == "warning"
+    assert problems["video_as_images"]["count"] == 2
+    assert problems["video_as_images"]["examples"] == ["t1", "t2"]
+    assert result["tasks"] == 2
+
+
+def test_a_video_that_is_used_is_not_reported(tasks_remote, tmp_path):
+    tasks_remote.mark_video("10", frames=4)
+    result = run(ProjectStore(tmp_path / "projects"), tmp_path, kind="project", remote_id="1")
+    assert "video_as_images" not in {p["code"] for p in result["problems"]}
+
+
+def test_rotated_boxes_are_reported_apart_from_the_shapes_left_out(tasks_remote, tmp_path):
+    items = tasks_remote.projects["1"]["items"]
+    items["10:2"].not_converted = {"rotated_rectangle": 2}
+    items["10:3"].not_converted = {"ellipse": 1}
+    result = run(ProjectStore(tmp_path / "projects"), tmp_path, kind="project", remote_id="1")
+    problems = {p["code"]: p for p in result["problems"]}
+    assert problems["rotated_boxes_flattened"]["count"] == 2
+    assert problems["shapes_not_converted"]["examples"] == ["ellipse: 1"]
+
+
 def test_download_without_fiftyone_stops_before_reading(monkeypatch, tmp_path):
     monkeypatch.setattr(optional, "FIFTYONE", False)
     settings = ToolSettings("cvat", url="http://cvat", username="u", secret="s")

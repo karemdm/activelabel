@@ -221,6 +221,8 @@
   "problem.images_missing": "Imagens idênticas ou ilegíveis não foram adicionadas.",
   "problem.shapes_not_converted": "Algumas formas do CVAT não podem ser convertidas (elipses, máscaras, tracks...) e ficaram de fora; elas continuam no CVAT.",
   "problem.duplicate_labels_dropped": "Anotações de imagens idênticas ou ilegíveis não foram importadas (cada imagem idêntica entra uma vez, com as anotações da primeira cópia).",
+  "problem.video_as_images": "O vídeo original de algumas tasks não pôde ser usado: elas ficam como imagens (os quadros foram importados, mas não o vídeo).",
+  "problem.rotated_boxes_flattened": "Caixas rotacionadas foram importadas como a caixa que as envolve; a rotação continua no CVAT.",
   "problem.images_rejected": "Alguns arquivos não são imagens legíveis e foram ignorados.",
   "problem.images_duplicate": "Imagens idênticas foram adicionadas uma só vez.",
   "problem.yolo_pose_ambiguous": "Algumas linhas YOLO podem ser polígono ou pose; adicione um data.yaml com kpt_shape para resolver.",

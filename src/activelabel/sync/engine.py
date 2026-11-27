@@ -1059,7 +1059,8 @@ def apply_plan(
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
         ``tasks_deleted``, ``tasks_renamed``, ``conflicts_left``, ``unchanged``, ``new_classes``,
         ``renamed_classes`` (classes renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``,
-        ``skipped``, ``warnings``.
+        ``skipped``, ``warnings``, ``videos_as_images`` (names of the imported tasks whose original video
+        could not be used, so they stay as images).
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -1239,6 +1240,7 @@ def apply_plan(
         manifest.set_status(restored_here, ACTIVE)
 
     imported = 0
+    videos_as_images: list[str] = []
     remote_jobs: dict[str, dict[str, str]] = {}
     if plan.get("tasks_new"):
         remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
@@ -1263,6 +1265,7 @@ def apply_plan(
             remote_jobs.get(str(spec["remote_task"]), {}),
             warnings,
             counter,
+            videos_as_images,
         )
 
     final = _local_labels(project_dir)
@@ -1323,6 +1326,7 @@ def apply_plan(
         "backup": counts["backup"],
         "skipped": counts["skipped"],
         "warnings": warnings,
+        "videos_as_images": videos_as_images,
     }
 
 
@@ -1613,6 +1617,7 @@ def _import_remote_task(
     remote_jobs: dict[str, str] | None = None,
     warnings: list[str] | None = None,
     on_frame: Callable[[], None] | None = None,
+    as_images: list[str] | None = None,
 ) -> int:
     """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0.
 
@@ -1633,6 +1638,7 @@ def _import_remote_task(
         remote_jobs: ``{job number: remote job id}`` of the task.
         warnings: list that receives notes about problems that do not stop the import.
         on_frame: called after each frame is downloaded (the job's progress).
+        as_images: list that receives the name of the task when its video was expected but not used.
 
     Returns:
         1 when a local task was created, 0 when there was nothing to import.
@@ -1658,7 +1664,9 @@ def _import_remote_task(
             return 0
         task = tstore.create(str(spec["name"] or "") or None, spec.get("job_size"), ids)
         placed = _placed(ordered, report.per_file)
-        _attach_video(project_dir, tstore, manifest, remote, settings, spec, task, ids, placed, warnings)
+        _attach_video(
+            project_dir, tstore, manifest, remote, settings, spec, task, ids, placed, warnings, as_images
+        )
     pulled: dict[str, list[Label]] = {}
     removed: list[str] = []
     for image_id, x in placed.items():
@@ -1716,6 +1724,7 @@ def _attach_video(
     ids: list[str],
     placed: dict[str, dict[str, Any]],
     warnings: list[str] | None,
+    as_images: list[str] | None = None,
 ) -> None:
     """Bring the original video of a remote video task and make the local task a task from a video.
 
@@ -1734,6 +1743,8 @@ def _attach_video(
         ids: Ids of the images of that task.
         placed: The remote item of every image (see :func:`_placed`).
         warnings: List that receives notes when the video is not used; None to skip them.
+        as_images: List that receives the task name when the video was expected but not used (the import
+            report turns it into the ``video_as_images`` problem); None to skip it.
     """
     name = str(spec.get("name") or spec["remote_task"])
     folder = Path(tempfile.mkdtemp(prefix="activelabel-video-"))
@@ -1743,6 +1754,8 @@ def _attach_video(
         except Exception as err:  # noqa: BLE001 - the frames are already imported
             log.warning("video of remote task %s not downloaded: %s", spec["remote_task"], err)
             found = None
+            if as_images is not None:
+                as_images.append(name)
             if warnings is not None:
                 warnings.append(
                     f"The original video of task '{name}' could not be downloaded: it stays as images."
@@ -1767,6 +1780,8 @@ def _attach_video(
             info = videos.add(path.name, path.suffix.lower() or ".mp4", tmp, video_id, path.stat().st_size)
         except (ValueError, KeyError, TypeError, OSError, ZeroDivisionError) as err:
             log.warning("video of remote task %s not usable: %s", spec["remote_task"], err)
+            if as_images is not None:
+                as_images.append(name)
             if warnings is not None:
                 warnings.append(f"The original video of task '{name}' could not be used: it stays as images.")
             return
