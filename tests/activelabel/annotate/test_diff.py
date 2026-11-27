@@ -276,3 +276,72 @@ def test_apply_without_image_tags_leaves_tags_json_alone(proj):
     counts = d.apply(store, project.id, manifest, ids, {ids[0]: [box("cat")], ids[1]: []}, image_tags=None)
     assert counts["tags"] == {"added": 0, "removed": 0}
     assert load_tags(folder) == {ids[0]: ["keep"]}
+
+
+def _hash(label):
+    return label_hash([label])
+
+
+def test_a_box_moved_far_with_its_origin_is_edited_not_added_and_removed():
+    old, far = box("cat", 0.0, 0.0, 0.2, 0.2), box("cat", 0.7, 0.7, 0.2, 0.2)
+    changes = d.compare_image(Task.DETECTION, [old], [far], [_hash(old)])
+    assert (len(changes.added), len(changes.removed), changes.edited) == (0, 0, [far])
+    plain = d.compare_image(Task.DETECTION, [old], [far])
+    assert (len(plain.added), len(plain.removed), len(plain.edited)) == (1, 1, 0)
+
+
+def test_an_origin_that_matches_no_project_label_falls_back_to_overlap():
+    old = box("cat")
+    moved = box("cat", 0.15, 0.1, 0.4, 0.4)
+    changes = d.compare_image(Task.DETECTION, [old], [moved], ["not-a-hash"])
+    assert (len(changes.added), len(changes.removed), changes.edited) == (0, 0, [moved])
+    far = box("cat", 0.8, 0.8, 0.1, 0.1)
+    changes = d.compare_image(Task.DETECTION, [old], [far], [None])
+    assert (len(changes.added), len(changes.removed), len(changes.edited)) == (1, 1, 0)
+
+
+def test_a_class_change_with_an_origin_is_edited_and_an_unchanged_label_is_not():
+    old = box("cat")
+    changes = d.compare_image(Task.DETECTION, [old], [box("dog")], [_hash(old)])
+    assert [x.label for x in changes.edited] == ["dog"] and not changes.added and not changes.removed
+    same = d.compare_image(Task.DETECTION, [old], [box("cat", 0.102)], [_hash(old)])
+    assert not same
+
+
+def test_origins_shorter_than_the_new_labels_leave_the_rest_to_overlap():
+    first, second = box("cat", 0.0, 0.0, 0.2, 0.2), box("dog", 0.6, 0.6, 0.2, 0.2)
+    new = [box("cat", 0.4, 0.4, 0.2, 0.2), second, box("cat", 0.0, 0.9, 0.05, 0.05)]
+    changes = d.compare_image(Task.DETECTION, [first, second], new, [_hash(first)])
+    assert len(changes.edited) == 1 and len(changes.added) == 1 and not changes.removed
+
+
+def test_an_origin_of_a_label_already_paired_is_used_once():
+    old = box("cat")
+    new = [box("cat", 0.6, 0.6, 0.2, 0.2), box("cat", 0.0, 0.9, 0.05, 0.05)]
+    changes = d.compare_image(Task.DETECTION, [old], new, [_hash(old), _hash(old)])
+    assert len(changes.edited) == 1 and len(changes.added) == 1
+
+
+def test_clean_indexed_keeps_the_positions_and_clean_labels_the_plain_labels(proj):
+    _, project, _, _, _ = proj
+    labels = [box("cat", w=0), box("CAT"), Label("dog"), box("dog", 0.5, 0.5, 0.2, 0.2)]
+    kept, dropped = d.clean_indexed(project, labels)
+    assert [(i, x.label) for i, x in kept] == [(1, "cat"), (3, "dog")]
+    assert dropped["box_invalid"] == 1 and dropped["no_geometry"] == 1
+    plain, same_dropped = d.clean_labels(project, labels)
+    assert plain == [x for _, x in kept] and same_dropped == dropped
+
+
+def test_diff_and_apply_map_origins_through_a_dropped_label(proj):
+    store, project, manifest, ids, folder = proj
+    cat, dog = box("cat"), box("dog", 0.6, 0.6, 0.2, 0.2)
+    far = box("dog", 0.0, 0.8, 0.1, 0.1)
+    new = {ids[0]: [box("cat", w=0), box("cat"), far], ids[1]: []}
+    origins = {ids[0]: [None, _hash(cat), _hash(dog)]}
+    r = d.diff(folder, ids, new, project, origins=origins)
+    assert (r["added"], r["removed"], r["edited"]) == (0, 0, 1)
+    without = d.diff(folder, ids, new, project)
+    assert (without["added"], without["removed"]) == (1, 1)
+    counts = d.apply(store, project.id, manifest, ids, new, origins=origins)
+    assert (counts["added"], counts["removed"], counts["edited"]) == (0, 0, 1)
+    assert load_annotations(folder).images[ids[0]] == [box("cat"), far]

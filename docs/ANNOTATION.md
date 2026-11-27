@@ -61,7 +61,7 @@ a test fails until the plugin is checked again, and if the hook is gone the plug
 and the App opens images in *Explore* as usual (click *Annotate* to edit).
 
 **What the App shows.** Only `ground_truth` is drawn on an image (the other fields can be turned on in the
-sidebar), and the fields ActiveLabel keeps for itself (`activelabel_written`, `activelabel_labels`,
+sidebar), and the fields ActiveLabel keeps for itself (`activelabel_written`, `activelabel_labels`, `activelabel_label_refs`,
 `duplicate_group`, `position`, `task`, `job`, `video`, `video_name`, `frame_number`) sit in a collapsed
 sidebar group, *internal (do not edit)* (`fiftyone_bridge.tidy_app`, the same idea as the first CVAT-FiftyOne
 project). When ActiveLabel refreshes a dataset that the App has open (a send, an open, a new session), it
@@ -135,6 +135,13 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under
    the problem `edited_on_both_sides`; applying gives it FiftyOne's version, so the person decides on the
    summary (apply, or discard and send again).
+   **Pairing.** A label is matched with the project label it was written from by the id FiftyOne keeps for
+   it (ActiveLabel records, in `activelabel_label_refs` on each sample, which project label each FiftyOne
+   label shows), so a box or polygon moved far in the App, resized, or given another class is one **edited**
+   label, not an added one plus a removed one. Only the labels without a known origin (drawn in the App, or
+   brought by a project that was not sent with this version) are paired by overlap as before, and a label
+   drawn where another one used to be stays an addition. After an apply the labels FiftyOne holds exactly as
+   the project does keep their reference, so the next session starts from the same pairing.
    **Tags** come back too: the tags of each sample (except `excluded`, which ActiveLabel sets, and
    `exclude`, which asks for an exclusion through `POST /projects/{id}/fiftyone/pull-exclusions`) and the
    tags of each label. The summary counts the tags gained and lost (`tags: {added, removed}`, and `tags_added` / `tags_removed` per image in

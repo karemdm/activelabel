@@ -1418,3 +1418,101 @@ def test_no_dataset_is_left_behind(fiftyone_env):
     assert [
         n for n in fo.list_datasets() if n.startswith(ROOT_PREFIX) and not n.startswith(fiftyone_env)
     ] == []
+
+
+# =====================================================================================
+# 9. A label moved far in the App is an edit, not an addition and a removal (#588)
+# =====================================================================================
+def move_cat_far(sample: Any) -> None:
+    """Move the first detection of img0 so far that it shares no area with where it was.
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.ground_truth.detections[0].bounding_box = [0.1, 0.6, 0.3, 0.375]
+
+
+def move_cat_far_again(sample: Any) -> None:
+    """Move the first detection of img0 far once more, to another empty place.
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.ground_truth.detections[0].bounding_box = [0.8, 0.05, 0.15, 0.2]
+
+
+def move_polygon_far(sample: Any) -> None:
+    """Move the first polygon of img0 (and its ring) far from where it was.
+
+    Args:
+        sample: the sample to change in place.
+    """
+    sample.ground_truth.polylines[0].points = [[(0.6, 0.7), (0.9, 0.7), (0.75, 0.95)]]
+
+
+def test_a_box_moved_far_in_the_app_is_one_edit_and_the_next_round_trip_agrees(det_scene):
+    session, _ = flow(det_scene)
+    edit(det_scene, 0, move_cat_far)
+    diff = pull(det_scene, session)
+    assert_counts(diff, added=0, removed=0, edited=1, images=1)
+    assert per_class(diff) == {"cat": (0, 0, 1)}
+    reply = apply(det_scene, session)
+    assert reply.status_code == 200, reply.text
+    applied = reply.json()["applied"]
+    assert (applied["added"], applied["removed"], applied["edited"]) == (0, 0, 1)
+    truth = det_truth()
+    moved = Label("cat", bbox=[0.1, 0.6, 0.3, 0.375], track=3)
+    assert_project(det_scene, {**truth, 0: [moved, truth[0][1]]})
+    # the sample after the apply is the project: nothing is left to bring back, and a second far move
+    # of the same label is again one edit
+    session2, _ = flow(det_scene)
+    assert_counts(pull(det_scene, session2), 0, 0, 0, 0)
+    edit(det_scene, 0, move_cat_far_again)
+    again = pull(det_scene, session2)
+    assert_counts(again, added=0, removed=0, edited=1, images=1)
+    assert apply(det_scene, session2).status_code == 200
+    assert scene_boxes(det_scene, 0)[0] == pytest.approx([0.8, 0.05, 0.15, 0.2], abs=EPS)
+
+
+def scene_boxes(scene: Scene, index: int) -> list[list[float]]:
+    """The boxes of one image in the project.
+
+    Args:
+        scene: the project.
+        index: image index.
+
+    Returns:
+        The box of each label of the image.
+    """
+    return [lb.bbox for lb in scene.labels()[scene.ids[index]]]
+
+
+def test_a_polygon_moved_far_in_the_app_is_one_edit(seg_scene):
+    session, _ = flow(seg_scene)
+    edit(seg_scene, 0, move_polygon_far)
+    diff = pull(seg_scene, session)
+    assert_counts(diff, added=0, removed=0, edited=1, images=1)
+    assert per_class(diff) == {"cat": (0, 0, 1)}
+    assert apply(seg_scene, session).status_code == 200
+    saved = seg_scene.labels()[seg_scene.ids[0]]
+    assert [lb.label for lb in saved] == ["cat", "dog"]
+    assert saved[0].polygons[0] == [[0.6, 0.7], [0.9, 0.7], [0.75, 0.95]]
+    assert_same([saved[1]], [seg_truth()[0][1]], "the untouched dog")
+    session2, _ = flow(seg_scene)
+    assert_counts(pull(seg_scene, session2), 0, 0, 0, 0)
+
+
+def move_cat_and_draw_one_where_it_was(sample: Any) -> None:
+    """Move the first detection of img0 far and draw a new box in the place it left.
+
+    Args:
+        sample: the sample to change in place.
+    """
+    move_cat_far(sample)
+    sample.ground_truth.detections.append(fo.Detection(label="cat", bounding_box=[0.1, 0.125, 0.3, 0.375]))
+
+
+def test_a_box_drawn_in_the_app_next_to_a_moved_one_is_still_an_addition(det_scene):
+    session, _ = flow(det_scene)
+    edit(det_scene, 0, move_cat_and_draw_one_where_it_was)
+    assert_counts(pull(det_scene, session), added=1, removed=0, edited=1, images=1)

@@ -767,3 +767,73 @@ def test_a_removed_target_loses_its_field_and_a_new_type_its_fields(tmp_path, pr
     schema = dataset.get_field_schema()
     assert "ground_truth_age" not in schema and bridge.GROUND_TRUTH in schema
     assert bridge.fields_of(dataset) == {}
+
+
+def _sample(dataset, image_id):
+    return dataset.match(fo.ViewField("image_id") == image_id).first()
+
+
+def test_the_refs_map_each_detection_to_the_hash_of_its_project_label(tmp_path, project):
+    manifest = build(tmp_path, 2)
+    cat, dog = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2]), Label("dog", bbox=[0.5, 0.5, 0.2, 0.2])
+    no_box = Label("cat")  # nothing to draw: not written, not in the refs
+    labels = {"i0": [cat, no_box, dog]}
+    dataset = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], labels, {})
+    )
+    sample = _sample(dataset, "i0")
+    detections = sample[bridge.GROUND_TRUTH].detections
+    assert len(detections) == 2
+    assert sample[bridge.LABEL_REFS] == {
+        detections[0].id: label_hash([cat]),
+        detections[1].id: label_hash([dog]),
+    }
+    assert label_hash([no_box]) not in sample[bridge.LABEL_REFS].values()
+    assert not _sample(dataset, "i1")[bridge.LABEL_REFS]
+
+
+def test_label_origins_follow_the_ids_and_leave_out_images_without_any(tmp_path, project):
+    manifest = build(tmp_path, 3)
+    cat, dog = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2]), Label("dog", bbox=[0.5, 0.5, 0.2, 0.2])
+    labels = {"i0": [cat, dog], "i1": [cat]}
+    dataset = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], labels, {})
+    )
+    sample = _sample(dataset, "i0")
+    sample[bridge.GROUND_TRUTH].detections.append(fo.Detection(label="cat", bounding_box=[0, 0, 0.1, 0.1]))
+    sample[bridge.GROUND_TRUTH].detections[0].bounding_box = [0.7, 0.7, 0.2, 0.2]  # moved far, same id
+    sample.save()
+    origins = bridge.label_origins(dataset, ["i0", "i1", "i2"], Task.DETECTION)
+    assert origins == {"i0": [label_hash([cat]), label_hash([dog]), None], "i1": [label_hash([cat])]}
+    assert bridge.label_origins(dataset, [], Task.DETECTION) == {}
+
+
+def test_label_origins_of_a_classification_are_empty(tmp_path, project):
+    project.task = Task.CLASSIFICATION
+    manifest = build(tmp_path, 1)
+    labels = {"i0": [Label("cat")]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.CLASSIFICATION, ["cat"], labels, {}))
+    assert bridge.label_origins(dataset, ["i0"], Task.CLASSIFICATION) == {}
+    assert not _sample(dataset, "i0")[bridge.LABEL_REFS]
+
+
+def test_mark_applied_refs_the_labels_read_exactly_as_project_labels(tmp_path, project):
+    manifest = build(tmp_path, 2)
+    cat, dog = Label("cat", bbox=[0.1, 0.1, 0.2, 0.2]), Label("dog", bbox=[0.5, 0.5, 0.2, 0.2])
+    dataset = bridge.sync_dataset(
+        project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], {"i0": [cat, dog]}, {})
+    )
+    sample = _sample(dataset, "i0")
+    detections = sample[bridge.GROUND_TRUTH].detections
+    detections[0].bounding_box = [0.7, 0.7, 0.2, 0.2]  # moved in the App
+    sample.save()
+    moved = Label("cat", bbox=[0.7, 0.7, 0.2, 0.2])
+    assert bridge.mark_applied(dataset, ["i0", "i1"], Task.DETECTION, {"i0": [moved, dog]}) == 2
+    sample = _sample(dataset, "i0")
+    ids = [d.id for d in sample[bridge.GROUND_TRUTH].detections]
+    assert sample[bridge.LABEL_REFS] == {ids[0]: label_hash([moved]), ids[1]: label_hash([dog])}
+    assert sample[bridge.WRITTEN_LABELS] == label_hash([moved, dog])
+    # a label the project did not take as it is has no ref
+    assert bridge.mark_applied(dataset, ["i0"], Task.DETECTION, {"i0": [dog]}) == 1
+    assert _sample(dataset, "i0")[bridge.LABEL_REFS] == {ids[1]: label_hash([dog])}
+    assert not _sample(dataset, "i1")[bridge.LABEL_REFS]

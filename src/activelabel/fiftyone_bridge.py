@@ -31,7 +31,7 @@ from typing import Any
 
 from activelabel import fiftyone_plugin
 from activelabel.annotate import sessions
-from activelabel.annotate.fo_labels import fingerprint
+from activelabel.annotate.fo_labels import fingerprint, labels_and_notes
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
@@ -49,6 +49,7 @@ GROUND_TRUTH = "ground_truth"
 EDITABLE_INFO = "activelabel_editable"
 WRITTEN = "activelabel_written"  # fingerprint of the ground_truth ActiveLabel last wrote
 WRITTEN_LABELS = "activelabel_labels"  # label_hash of the project labels it was written from
+LABEL_REFS = "activelabel_label_refs"  # FiftyOne id of each label -> label_hash of the project label it shows
 EXCLUDED_TAG = "excluded"
 TARGETS_INFO = "activelabel_targets"  # dataset info: the float field of each target (regression projects)
 VIEW_ALL_ISSUES = "curation - quality issues"
@@ -78,6 +79,7 @@ INTERNAL_GROUP = (
 INTERNAL_FIELDS = (
     WRITTEN,
     WRITTEN_LABELS,
+    LABEL_REFS,
     "duplicate_group",
     "position",
     "task",
@@ -327,6 +329,7 @@ def _declare_fields(dataset: fo.Dataset, task: Task, targets: list[str] | None =
     }
     for name, kind in scalars.items():
         dataset.add_sample_field(name, kind)
+    dataset.add_sample_field(LABEL_REFS, fo.DictField)
     dataset.add_sample_field("image_size", fo.ListField, subfield=fo.IntField)
     dataset.add_sample_field("quality_issues", fo.ListField, subfield=fo.StringField)
     fields = target_fields(list(targets or [])) if task is Task.REGRESSION else {}
@@ -443,6 +446,65 @@ def fo_label(task: Task, labels: list[Label]) -> Any:
     return _ground_truth(task, labels)
 
 
+def _label_refs(task: Task, labels: list[Label], value: Any) -> dict[str, str]:
+    """Which project label each FiftyOne label of a ``ground_truth`` just written from ``labels`` shows.
+
+    Args:
+        task: task of the project.
+        labels: the project labels the value was written from (:func:`_ground_truth`).
+        value: the ``ground_truth`` written.
+
+    Returns:
+        ``{FiftyOne label id: label_hash([project label])}``; empty for classification or no labels.
+    """
+    if value is None or task is Task.CLASSIFICATION:
+        return {}
+    items, shape = {
+        Task.DETECTION: (getattr(value, "detections", None), "bbox"),
+        Task.SEGMENTATION: (getattr(value, "polylines", None), "polygons"),
+        Task.KEYPOINTS: (getattr(value, "keypoints", None), "keypoints"),
+    }[task]
+    written = [lb for lb in labels if getattr(lb, shape)]
+    return {str(item.id): label_hash([lb]) for item, lb in zip(items or [], written, strict=False)}
+
+
+def _matching_refs(task: Task, value: Any, labels: list[Label]) -> dict[str, str]:
+    """Which project label each FiftyOne label shows, when the project took them from FiftyOne (an apply).
+
+    Args:
+        task: task of the project.
+        value: the ``ground_truth`` of the sample.
+        labels: the project labels now.
+
+    Returns:
+        ``{FiftyOne label id: label_hash}`` for the FiftyOne labels read exactly as one of ``labels``.
+    """
+    ids: list[str] = []
+    read, _ = labels_and_notes(value, task, ids)
+    hashes = {label_hash([lb]) for lb in labels}
+    pairs = ((i, label_hash([lb])) for i, lb in zip(ids, read, strict=False))
+    return {i: h for i, h in pairs if i and h in hashes}
+
+
+def _write_project_labels(
+    sample: fo.Sample, task: Task, labels: list[Label], fields: dict[str, str] | None = None
+) -> None:
+    """Write the project labels of one image into its sample, with their fingerprint, hash and references.
+
+    Args:
+        sample: the sample (saved by the caller).
+        task: task of the project.
+        labels: the project labels of the image.
+        fields: the float field of each target (regression projects).
+    """
+    fields = fields or {}
+    _write_truth(sample, task, labels, fields)
+    sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
+    sample[WRITTEN_LABELS] = label_hash(labels)
+    if task is not Task.REGRESSION:  # regression values have no label ids
+        sample[LABEL_REFS] = _label_refs(task, labels, sample[GROUND_TRUTH])
+
+
 def _apply(
     sample: fo.Sample,
     record: ImageRecord,
@@ -494,10 +556,7 @@ def _apply(
     sample.tags = [*tags, EXCLUDED_TAG] if record.status == EXCLUDED else tags
     if is_edited(sample, task, fields) if protected else edited_outside_session(sample, task, fields):
         return  # edits not brought back yet: FiftyOne keeps its version
-    labels = annotations.images.get(record.id, []) if annotations else []
-    _write_truth(sample, task, labels, fields)
-    sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
-    sample[WRITTEN_LABELS] = label_hash(labels)
+    _write_project_labels(sample, task, annotations.images.get(record.id, []) if annotations else [], fields)
 
 
 def edited_outside_session(sample: fo.Sample, task: Task, fields: dict[str, str] | None = None) -> bool:
@@ -566,6 +625,36 @@ def sample_tags(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, list[str
     return {image_id: image_tags(tags or []) for image_id, tags in pairs if image_id}
 
 
+def label_origins(dataset: fo.Dataset, image_ids: list[str], task: Task) -> dict[str, list[str | None]]:
+    """For each label a pull reads, the project label it was written from (by its FiftyOne id), if any.
+
+    FiftyOne keeps the id of a label that is moved, resized or given another class in the App, so the
+    comparison can pair it with its project label however far it moved (``activelabel_label_refs``).
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images to look at.
+        task: task of the project.
+
+    Returns:
+        By image id, one entry per label read (in the order of :func:`labels_and_notes`): the
+        ``label_hash`` of its project label, or None for a label drawn in FiftyOne. Images without any
+        known label are left out.
+    """
+    if task in (Task.CLASSIFICATION, Task.REGRESSION) or LABEL_REFS not in dataset.get_field_schema():
+        return {}
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    rows = zip(view.values("image_id"), view.values(GROUND_TRUTH), view.values(LABEL_REFS), strict=True)
+    out: dict[str, list[str | None]] = {}
+    for image_id, value, refs in rows:
+        ids: list[str] = []
+        labels_and_notes(value, task, ids)
+        found = [(refs or {}).get(i) for i in ids]
+        if any(found):
+            out[image_id] = found
+    return out
+
+
 def written_labels(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, str]:
     """Hash of the project labels ActiveLabel last wrote into each sample (``activelabel_labels``).
 
@@ -605,8 +694,12 @@ def mark_applied(
     fields = fields_of(dataset)
     count = 0
     for sample in view.iter_samples(autosave=True):
+        mine = labels.get(sample["image_id"], [])
         sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
-        sample[WRITTEN_LABELS] = label_hash(labels.get(sample["image_id"], []))
+        sample[WRITTEN_LABELS] = label_hash(mine)
+        sample[LABEL_REFS] = (
+            _matching_refs(task, sample[GROUND_TRUTH], mine) if task is not Task.REGRESSION else {}
+        )
         count += 1
     return count
 
@@ -629,10 +722,7 @@ def restore_project_labels(
     fields = fields_of(dataset)
     count = 0
     for sample in view.iter_samples(autosave=True):
-        project_labels = labels.get(sample["image_id"], [])
-        _write_truth(sample, task, project_labels, fields)
-        sample[WRITTEN] = fingerprint(truth_of(sample, task, fields), task)
-        sample[WRITTEN_LABELS] = label_hash(project_labels)
+        _write_project_labels(sample, task, labels.get(sample["image_id"], []), fields)
         count += 1
     return count
 
@@ -654,11 +744,10 @@ def show_project_labels(dataset: fo.Dataset, image_id: str, task: Task, labels: 
     """
     found = list(dataset.match(F("image_id") == image_id).limit(1))
     sample = found[0] if found else None
-    if sample is None or is_edited(sample, task):
+    fields = fields_of(dataset)
+    if sample is None or is_edited(sample, task, fields):
         return False
-    sample[GROUND_TRUTH] = _ground_truth(task, labels)
-    sample[WRITTEN] = fingerprint(sample[GROUND_TRUTH], task)
-    sample[WRITTEN_LABELS] = label_hash(labels)
+    _write_project_labels(sample, task, labels, fields)
     sample.save()
     return True
 

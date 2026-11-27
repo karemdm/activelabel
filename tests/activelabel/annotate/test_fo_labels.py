@@ -172,3 +172,41 @@ def test_fingerprint_without_tags_is_the_label_hash_and_tags_change_it():
         detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4], tags=["check"])]
     )
     assert fingerprint(tagged, Task.DETECTION) == fingerprint(again, Task.DETECTION)
+
+
+def test_ids_are_filled_in_read_order_and_skipped_labels_give_none():
+    dets = fo.Detections(
+        detections=[
+            fo.Detection(label="a", bounding_box=[0.1, 0.1, 0.2, 0.2]),
+            fo.Detection(label="", bounding_box=[0.1, 0.1, 0.2, 0.2]),
+            fo.Detection(label="c", bounding_box=[0.5, 0.5, 0.2, 0.2]),
+        ]
+    )
+    ids: list[str] = []
+    labels, _ = labels_and_notes(dets, Task.DETECTION, ids)
+    assert [x.label for x in labels] == ["a", "c"]
+    assert ids == [dets.detections[0].id, dets.detections[2].id]
+    assert labels_and_notes(dets, Task.DETECTION)[0] == labels  # ids are optional
+
+
+def test_ids_of_polylines_and_keypoints():
+    ring = [[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]]
+    polys = fo.Polylines(
+        polylines=[
+            fo.Polyline(label="a", points=[[(0.1, 0.1), (0.2, 0.2)]], closed=False),
+            fo.Polyline(label="b", points=ring, filled=True, closed=True),
+        ]
+    )
+    ids: list[str] = []
+    labels, _ = labels_and_notes(polys, Task.SEGMENTATION, ids)
+    assert [x.label for x in labels] == ["b"] and ids == [polys.polylines[1].id]
+    kps = fo.Keypoints(keypoints=[fo.Keypoint(label="p", points=[(0.1, 0.1), (0.2, 0.2)])])
+    ids = []
+    labels, _ = labels_and_notes(kps, Task.KEYPOINTS, ids)
+    assert len(labels) == 1 and ids == [kps.keypoints[0].id]
+
+
+def test_no_ids_for_a_classification():
+    ids: list[str] = []
+    labels, _ = labels_and_notes(fo.Classification(label="cat"), Task.CLASSIFICATION, ids)
+    assert [x.label for x in labels] == ["cat"] and ids == []

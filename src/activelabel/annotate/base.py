@@ -89,6 +89,8 @@ class Pulled(dict[str, list[Label]]):
         problems: ``{image_id: {code: count}}`` for shapes found in the tool that could not be read as
             labels, or were changed to be read.
         tags: the tags of each image in the tool, by image id; None when the tool has no image tags.
+        origins: for the labels of each image, the ``label_hash`` of the project label each one was written
+            from (None for a label made in the tool), by image id; images without such labels are absent.
     """
 
     def __init__(
@@ -98,6 +100,7 @@ class Pulled(dict[str, list[Label]]):
         written: dict[str, str] | None = None,
         problems: dict[str, dict[str, int]] | None = None,
         tags: dict[str, list[str]] | None = None,
+        origins: dict[str, list[str | None]] | None = None,
     ) -> None:
         """Wrap the labels of a pull.
 
@@ -107,12 +110,14 @@ class Pulled(dict[str, list[Label]]):
             written: hash of the project labels written into the tool, by image id.
             problems: problem counts by image id.
             tags: the image tags in the tool by image id, or None.
+            origins: the origin of each label by image id, or None.
         """
         super().__init__(labels)
         self.edited = set(edited)
         self.written = dict(written or {})
         self.problems = dict(problems or {})
         self.tags = None if tags is None else dict(tags)
+        self.origins = dict(origins or {})
 
 
 class AnnotationTool(Protocol):

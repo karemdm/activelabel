@@ -496,7 +496,11 @@ def _pull_job(
     new_labels, conflicts = diffing.settle(pulled, annotations.images if annotations else {})
     problems = pulled.problems if isinstance(pulled, Pulled) else {}
     tags = pulled.tags if isinstance(pulled, Pulled) else None
-    summary = diffing.diff(project_dir, image_ids, new_labels, project, conflicts, problems, tags)
+    known = pulled.origins if isinstance(pulled, Pulled) else {}
+    origins = {
+        i: o for i, o in known.items() if i in getattr(pulled, "edited", ())
+    }  # others keep the project's
+    summary = diffing.diff(project_dir, image_ids, new_labels, project, conflicts, problems, tags, origins)
     write_json(
         _pulled_file(state, project.id, session_id),
         {i: [lb.as_dict() for lb in labels] for i, labels in new_labels.items()},
@@ -508,6 +512,7 @@ def _pull_job(
         diff=summary,
         base=_local_hashes(project_dir, image_ids),
         image_tags=tags,
+        origins=origins,
     )
     return {"session": sessions.public(updated), "diff": summary}
 
@@ -589,6 +594,7 @@ def apply_session(project_id: int, session_id: str, state: AppState = STATE) -> 
             new_labels,
             last_session={"tool": session["tool"], "session": session_id, "at": now()},
             image_tags=session.get("image_tags"),
+            origins=session.get("origins"),
         )
         sessions.update(project_dir, session_id, status=sessions.APPLIED, applied=counts)
         _tell_tool(state, project_id, session, applied=True)

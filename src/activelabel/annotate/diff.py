@@ -180,14 +180,21 @@ def _compare_values(old: list[Label], new: list[Label]) -> ImageChanges:
     return changes
 
 
-def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChanges:
+def compare_image(
+    task: Task, old: list[Label], new: list[Label], origins: list[str | None] | None = None
+) -> ImageChanges:
     """Match old and new labels of one image and sort them into added, removed and edited.
+
+    Labels whose origin is known (the tool kept the identity of the label it was given) are paired with
+    that project label first, however far they moved; the others are paired by overlap.
 
     Args:
         task: task of the project (classification compares only the first label; regression matches
             the values by target, see :func:`_compare_values`).
         old: the labels in the project.
         new: the labels brought back from the tool.
+        origins: for each label of ``new``, the ``label_hash`` of the project label it was written from, or
+            None (drawn in the tool, or not known); None for no origins at all.
 
     Returns:
         The added, removed and edited labels (edited ones in their new version).
@@ -206,6 +213,15 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
     if task is Task.REGRESSION:
         return _compare_values(old, new)
     free_old, free_new = list(range(len(old))), list(range(len(new)))
+    hashes = [label_hash([lb]) for lb in old]
+    for j, origin in enumerate(origins or []):
+        i = next((i for i in free_old if origin and hashes[i] == origin), None)
+        if i is None or j >= len(new):
+            continue
+        free_old.remove(i)
+        free_new.remove(j)
+        if old[i].label != new[j].label or _moved(old[i], new[j]):
+            changes.edited.append(new[j])
     for min_iou, same_class in ((SAME_CLASS_IOU, True), (OTHER_CLASS_IOU, False)):
         pairs = sorted(
             (
@@ -231,6 +247,23 @@ def compare_image(task: Task, old: list[Label], new: list[Label]) -> ImageChange
 def clean_labels(
     project: Project, labels: list[Label], keypoints: dict[str, int] | None = None
 ) -> tuple[list[Label], dict[str, int]]:
+    """Labels that fit the project (see :func:`clean_indexed`), without their positions.
+
+    Args:
+        project: the project (task and class list).
+        labels: labels brought back from the tool.
+        keypoints: how many points a pose label of each class (lower case) must have.
+
+    Returns:
+        The usable labels and counts of what was dropped.
+    """
+    kept, dropped = clean_indexed(project, labels, keypoints)
+    return [label for _, label in kept], dropped
+
+
+def clean_indexed(
+    project: Project, labels: list[Label], keypoints: dict[str, int] | None = None
+) -> tuple[list[tuple[int, Label]], dict[str, int]]:
     """Labels that fit the project: class names match the class list ignoring case, usable geometry.
 
     Args:
@@ -240,29 +273,29 @@ def clean_labels(
             not in it, or None, is not checked (a CVAT skeleton of another class may have other points).
 
     Returns:
-        The usable labels and counts of what was dropped: ``multiple_classes``, ``repeated_target``
-        (regression: a second value of one target) and the codes of
+        The usable labels, each with its position in ``labels``, and counts of what was dropped:
+        ``multiple_classes``, ``repeated_target`` (regression: a second value of one target) and the codes of
         :func:`activelabel.labels.geometry_problem` (``no_geometry``, ``box_invalid``,
         ``polygon_too_few_points``, ``keypoints_count_mismatch``).
     """
     known = {c.lower(): c for c in project.classes}
     dropped = {"no_geometry": 0, "multiple_classes": 0}
-    out: list[Label] = []
-    for label in labels:
+    out: list[tuple[int, Label]] = []
+    for index, label in enumerate(labels):
         expected = (keypoints or {}).get(label.label.lower())
         problem = geometry_problem(project.task, label, expected)
         if problem is not None:
             dropped[problem] = dropped.get(problem, 0) + 1
             continue
-        out.append(Label(**{**label.__dict__, "label": known.get(label.label.lower(), label.label)}))
+        out.append((index, Label(**{**label.__dict__, "label": known.get(label.label.lower(), label.label)})))
     if project.task is Task.CLASSIFICATION and len(out) > 1:
         dropped["multiple_classes"] = len(out) - 1
         out = out[:1]
     if project.task is Task.REGRESSION:  # one value per target: the first is kept
-        first: list[Label] = []
-        for lb in out:
-            if not any(f.label == lb.label for f in first):
-                first.append(lb)
+        first: list[tuple[int, Label]] = []
+        for item in out:
+            if not any(f.label == item[1].label for _, f in first):
+                first.append(item)
         if len(first) < len(out):
             dropped[REPEATED_TARGET] = len(out) - len(first)
         out = first
@@ -403,6 +436,7 @@ def _compare_all(
     conflicts: list[str] | None = None,
     tool_problems: dict[str, dict[str, int]] | None = None,
     image_tags: dict[str, list[str]] | None = None,
+    origins: dict[str, list[str | None]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Label]]]:
     """Clean the new labels and compare them with the ground truth, image by image.
 
@@ -415,6 +449,8 @@ def _compare_all(
         tool_problems: ``{image_id: {code: count}}`` for shapes the tool held that could not be read as
             they are (``Pulled.problems``).
         image_tags: the image tags in the tool (``Pulled.tags``), or None when it has none.
+        origins: for the labels of each image, the project label each was written from (``Pulled.origins``,
+            see :func:`compare_image`), or None.
 
     Returns:
         The summary (see :func:`diff`) and the cleaned labels of each image present in ``new_labels``.
@@ -442,7 +478,10 @@ def _compare_all(
         if image_id not in new_labels:
             tally.problem("missing_images", image_id)
             continue
-        labels, dropped = clean_labels(project, new_labels[image_id], keypoints)
+        kept, dropped = clean_indexed(project, new_labels[image_id], keypoints)
+        labels = [label for _, label in kept]
+        known_origins = (origins or {}).get(image_id) or []
+        image_origins = [known_origins[i] if i < len(known_origins) else None for i, _ in kept]
         cleaned[image_id] = labels
         for code, count in dropped.items():
             if count:
@@ -451,7 +490,7 @@ def _compare_all(
             if label.label.lower() not in known:
                 unknown.setdefault(label.label)
                 tally.problem("unknown_class", image_id)
-        changes = compare_image(project.task, old_all.get(image_id, []), labels)
+        changes = compare_image(project.task, old_all.get(image_id, []), labels, image_origins)
         theirs = image_tags.get(image_id) if image_tags is not None else None
         tags_added, tags_removed = tag_changes(
             old_all.get(image_id, []), labels, stored_tags.get(image_id, []), theirs
@@ -500,6 +539,7 @@ def diff(
     conflicts: list[str] | None = None,
     tool_problems: dict[str, dict[str, int]] | None = None,
     image_tags: dict[str, list[str]] | None = None,
+    origins: dict[str, list[str | None]] | None = None,
 ) -> dict[str, Any]:
     """Summary of the changes between the project ground truth and ``new_labels`` for these images.
 
@@ -511,6 +551,7 @@ def diff(
         conflicts: images edited both in the tool and in the project (``edited_on_both_sides``).
         tool_problems: ``{image_id: {code: count}}`` for shapes the tool could not give as they are.
         image_tags: the image tags in the tool by image id (``Pulled.tags``), or None.
+        origins: the project label each label was written from, by image id (``Pulled.origins``), or None.
 
     Returns:
         ``{images_changed, added, removed, edited, per_class, tags, unknown_classes, problems, examples}``
@@ -518,7 +559,9 @@ def diff(
         gained and lost, also given per image in ``examples`` (``tags_added``, ``tags_removed``). An image
         whose only change is its tags counts in ``images_changed``.
     """
-    return _compare_all(project_dir, image_ids, new_labels, project, conflicts, tool_problems, image_tags)[0]
+    return _compare_all(
+        project_dir, image_ids, new_labels, project, conflicts, tool_problems, image_tags, origins
+    )[0]
 
 
 # -- apply ----------------------------------------------------------------------
@@ -531,6 +574,7 @@ def apply(
     reason: str = "apply",
     last_session: dict[str, Any] | None = None,
     image_tags: dict[str, list[str]] | None = None,
+    origins: dict[str, list[str | None]] | None = None,
 ) -> dict[str, Any]:
     """Make ``new_labels`` the ground truth of these images (after a backup of ``annotations.json``).
 
@@ -549,6 +593,8 @@ def apply(
             ``source`` as ``last_session`` next to the original import information; None records nothing.
         image_tags: the image tags brought back from the tool, by image id: they become the tags of those
             images in the project (``tags.json``); None leaves the image tags as they are.
+        origins: the project label each brought-back label was written from (see :func:`compare_image`), so
+            the counts pair them as the review did; None pairs by overlap only.
 
     Returns:
         Counts: the diff counts plus ``tags`` (``{added, removed}``), ``images_updated``, ``new_classes``,
@@ -560,7 +606,16 @@ def apply(
     ids = [i for i in image_ids if i in existing]
     with annotations_lock(project_dir):
         counts = _apply_locked(
-            store, project_id, project, project_dir, ids, new_labels, reason, last_session, image_tags
+            store,
+            project_id,
+            project,
+            project_dir,
+            ids,
+            new_labels,
+            reason,
+            last_session,
+            image_tags,
+            origins,
         )
         if image_tags:
             set_tags(project_dir, {i: image_tags[i] for i in ids if i in image_tags})
@@ -577,6 +632,7 @@ def _apply_locked(
     reason: str,
     last_session: dict[str, Any] | None = None,
     image_tags: dict[str, list[str]] | None = None,
+    origins: dict[str, list[str | None]] | None = None,
 ) -> dict[str, Any]:
     """Do the work of :func:`apply` while the annotations file is locked.
 
@@ -590,11 +646,14 @@ def _apply_locked(
         reason: why the backup is made, as in :func:`apply`.
         last_session: the applied session, as in :func:`apply`.
         image_tags: the image tags brought back, as in :func:`apply` (only counted here).
+        origins: the origins of the labels brought back, as in :func:`apply`.
 
     Returns:
         The same counts as :func:`apply`.
     """
-    summary, cleaned = _compare_all(project_dir, ids, new_labels, project, image_tags=image_tags)
+    summary, cleaned = _compare_all(
+        project_dir, ids, new_labels, project, image_tags=image_tags, origins=origins
+    )
     annotations = load_annotations(project_dir)
     backup = ""
     if annotations is None:
