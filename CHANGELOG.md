@@ -101,6 +101,9 @@ Everything below goes into the first release, 0.1.0.
   to *Annotate* for every editable dataset: a click selects a box or polygon, and dragging moves it, its
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 
+- **Repeated class names are no longer dropped silently (#637).** Pasting or typing a name already in the list
+  (in any case) leaves it out and a note under the field says which names were not added; the example text
+  of the field hides once there is a chip.
 - **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
   (images written to the dataset, then the App; the activity pill also names the stage), and the App really
   opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened

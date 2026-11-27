@@ -9,14 +9,23 @@ export function chipsInput(id, initial) {
   const list = el('ul', { class: 'chips' });
   const input = el('input', { type: 'text', id, autocomplete: 'off', placeholder: t('classes.placeholder'), 'aria-describedby': `${id}-help` });
   const wrap = el('div', { class: 'chips-box' }, list, input);
+  const note = el('p', { class: 'hint', role: 'status' });
+  let hint = input.placeholder;   // the example text, shown only while there is no chip
+  /* a name that is already in the list (any case) is not added twice: the note says which ones were left out (#637) */
   const add = (raw) => {
+    const repeated = [];
     for (const part of String(raw).split(',')) {
       const name = part.trim();
-      if (name && !items.some((i) => i.toLowerCase() === name.toLowerCase())) items.push(name);
+      if (!name) continue;
+      if (items.some((i) => i.toLowerCase() === name.toLowerCase())) {
+        if (!repeated.some((r) => r.toLowerCase() === name.toLowerCase())) repeated.push(name);
+      } else items.push(name);
     }
+    note.textContent = repeated.length ? t('classes.repeated', { names: repeated.join(', ') }) : '';
     draw();
   };
   const draw = () => {
+    input.placeholder = items.length ? '' : hint;
     fill(list,
       ...items.map((name, i) =>
         el(
@@ -27,7 +36,7 @@ export function chipsInput(id, initial) {
             type: 'button',
             class: 'chip-x',
             'aria-label': t('classes.remove', { name }),
-            onclick: () => { items.splice(i, 1); draw(); input.focus(); },
+            onclick: () => { items.splice(i, 1); note.textContent = ''; draw(); input.focus(); },
           }, icon('close', 12)),
         ),
       ),
@@ -53,9 +62,11 @@ export function chipsInput(id, initial) {
   });
   wrap.addEventListener('click', () => input.focus());
   draw();
-  const node = el('div', null, wrap, el('p', { id: `${id}-help`, class: 'sr-only' }, t('classes.help')));
+  const node = el('div', null, wrap, note, el('p', { id: `${id}-help`, class: 'sr-only' }, t('classes.help')));
   return {
     node,
+    /** The example text of the empty field (it hides while there are chips). */
+    setPlaceholder: (text) => { hint = text; draw(); },
     get: () => {
       if (input.value.trim()) { add(input.value); input.value = ''; }
       return [...items];
