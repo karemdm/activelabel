@@ -562,6 +562,16 @@ def test_an_editable_dataset_is_marked_for_the_annotate_mode_plugin(tmp_path, pr
     assert dataset.info["project_id"] == project.id
 
 
+def test_the_edit_panel_shows_only_what_a_person_edits(tmp_path, project):
+    """confidence, index, mask_path and the free attributes dict are not offered in the App's edit panel."""
+    manifest = build(tmp_path, 1)
+    cat = {"i0": [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2])]}
+    dataset = bridge.sync_dataset(project, manifest, AnnotationSet(Task.DETECTION, ["cat", "dog"], cat, {}))
+    names = {a["name"] for a in dataset.label_schemas[bridge.GROUND_TRUTH]["attributes"]}
+    assert not names & bridge.HIDDEN_ATTRIBUTES
+    assert dataset.label_schemas[bridge.GROUND_TRUTH]["classes"] == ["cat", "dog"]
+
+
 def test_an_edit_made_outside_a_session_is_kept(tmp_path, project):
     """A task opened for a look can be edited in the App too: the next refresh must not overwrite it."""
     manifest = build(tmp_path, 2)
