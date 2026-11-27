@@ -1927,5 +1927,7 @@
   "features.env_removed": "Training environment removed ({size} freed).",
   "open.fo_not_installed": "FiftyOne is not installed.",
   "open.fo_edit": "Edit in {tool}",
-  "annotate.choose": "Choose images"
+  "annotate.choose": "Choose images",
+  "open.fo_view": "Open in {tool} (view only)",
+  "open.fo_keypoints": "Keypoints can only be viewed here: edit them in CVAT."
 }

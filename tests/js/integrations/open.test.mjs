@@ -16,7 +16,7 @@ setMessages({
   'open.cvat_project': 'Open the project in CVAT', 'open.cvat_task': 'Open task {task} in CVAT', 'open.cvat_job': 'Open job {n} of task {task} in CVAT',
   'open.cvat_back': 'Edits come back through the comparison.', 'open.cvat_not_configured': 'CVAT is not set up.',
   'open.cvat_not_synced': 'Not in CVAT yet.',
-  'open.fo_edit': 'Edit in {tool}', 'annotate.will_send_one': '{n} image opens in {tool}.', 'annotate.will_send_other': '{n} images open in {tool}.', 'annotate.nothing_to_send': 'No images.', 'open.fo_no_images': 'Add images first.',
+  'open.fo_edit': 'Edit in {tool}', 'open.fo_view': 'Open in {tool} (view only)', 'open.fo_keypoints': 'Keypoints can only be viewed here.', 'annotate.will_send_one': '{n} image opens in {tool}.', 'annotate.will_send_other': '{n} images open in {tool}.', 'annotate.nothing_to_send': 'No images.', 'open.fo_no_images': 'Add images first.',
   'tasks.cvat_not_synced': 'Synchronise to create this task there', 'open.cvat_remote_gone': 'The CVAT project was deleted.', 'tasks.fo_no_keypoints': 'FiftyOne does not edit keypoints',
 }, 'en');
 
@@ -52,7 +52,7 @@ test('the CVAT row is a link to the chosen scope and how the edits come back, or
   assert.equal(sentence('Done.'), 'Done.');
 });
 
-test('one FiftyOne button edits the chosen images (#699)', () => {
+test('one FiftyOne button edits the chosen images; keypoints only look, with the reason on one line (#699)', () => {
   assert.equal(fiftyoneReason({ counts: { active: 3 } }), null);
   assert.equal(fiftyoneReason({ counts: { active: 0 } }), 'open.fo_no_images');
   const page = { projectId: 4, ctx: { project: { task: 'detection', counts: { active: 3 } }, links: [], openWhenDone: new Map() } };
@@ -66,9 +66,10 @@ test('one FiftyOne button edits the chosen images (#699)', () => {
   assert.equal(edited, 1);
   assert.equal(fiftyoneOpenRow(page, { edit: () => {}, count: 0 }).querySelector('#fo-open').disabled, true);
   page.ctx.project = { task: 'keypoints', counts: { active: 3 } };
-  const kp = fiftyoneOpenRow(page, { edit: () => {}, count: 3 });
-  assert.equal(kp.querySelector('#fo-open').disabled, true);
-  assert.match(kp.textContent, /does not edit keypoints/);
+  const view = fiftyoneOpenRow(page, { edit: () => { edited += 1; } });
+  assert.match(view.querySelector('#fo-open').textContent, /view only/);
+  assert.equal(view.querySelector('#fo-open').disabled, false);
+  assert.match(view.textContent, /Keypoints can only be viewed here\./);
   page.ctx.project = { task: 'detection', counts: { active: 0 } };
   const empty = fiftyoneOpenRow(page);
   assert.equal(empty.querySelector('#fo-open').disabled, true);

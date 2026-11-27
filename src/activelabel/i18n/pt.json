@@ -1927,5 +1927,7 @@
   "features.env_removed": "Ambiente de treino removido ({size} liberados).",
   "open.fo_not_installed": "O FiftyOne não está instalado.",
   "open.fo_edit": "Editar no {tool}",
-  "annotate.choose": "Escolher imagens"
+  "annotate.choose": "Escolher imagens",
+  "open.fo_view": "Abrir no {tool} (só olhar)",
+  "open.fo_keypoints": "Pontos só podem ser vistos aqui: para editar, use o CVAT."
 }

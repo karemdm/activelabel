@@ -85,21 +85,21 @@ export function cvatOpenRow({ link, configured, task, job, gone = false }) {
 }
 
 /** The one button of the FiftyOne tab (#699): "Edit in FiftyOne" sends the images chosen (all, by default) and opens
- *  the App; a keypoints project (the App cannot edit them), a project without images or without FiftyOne gets the
- *  button disabled, or dimmed, with the reason.
+ *  the App; a keypoints project, which the App cannot edit, gets "Open in FiftyOne" to look, with the reason on one
+ *  line; without images or without FiftyOne the button says why not.
  *  `page` is the project page; `edit` sends the images and opens the App (it brings its own new tab) and `count` is
  *  how many images it sends. */
 export function fiftyoneOpenRow(page, { edit = () => openInFiftyOne(page), count = 0 } = {}) {
   const reason = fiftyoneReason(page.ctx.project);
   const keypoints = page.ctx.project && page.ctx.project.task === 'keypoints';
   const missing = reason === 'open.fo_not_installed';
-  const go = () => (sayFiftyoneMissing() ? null : edit());
-  const label = t('open.fo_edit', { tool: toolName('fiftyone') });
-  const help = reason || (keypoints ? 'tasks.fo_no_keypoints' : null);
+  const go = () => (sayFiftyoneMissing() ? null : (keypoints ? openInFiftyOne(page) : edit()));
+  const label = keypoints ? t('open.fo_view', { tool: toolName('fiftyone') }) : t('open.fo_edit', { tool: toolName('fiftyone') });
+  const help = reason || (keypoints ? 'open.fo_keypoints' : null);
   return el('div', { class: 'open-row' },
     /* without FiftyOne: dimmed, not disabled, so a tap says how to install it (#675); without images: disabled */
     fiftyoneButton(el('button', { type: 'button', class: `btn primary big${missing ? ' is-unavailable' : ''}`, id: 'fo-open',
-      disabled: (!!reason && !missing) || keypoints || (!reason && count === 0), 'aria-disabled': missing ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: go },
+      disabled: (!!reason && !missing) || (!keypoints && !reason && count === 0), 'aria-disabled': missing ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: go },
       icon('fiftyone', 20), label)),
     missing
       ? el('div', { id: 'fo-open-help' }, fiftyoneMissingNote())
