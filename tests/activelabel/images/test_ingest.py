@@ -102,6 +102,8 @@ def test_zip_with_subfolders_and_other_files(manifest, tmp_path):
             "set/deep/b.jpg": b,
             "set/labels.json": b"{}",
             "set/notes.txt": b"hi",
+            "set/README.txt": b"0 1 2 3 4",
+            "set/labels/a.txt": b"0 0.5 0.5 0.2 0.2\n",
             "set/readme.pdf": b"%PDF",
             "__MACOSX/set/._a.jpg": b"junk",
             "set/.hidden.jpg": a,
@@ -113,7 +115,10 @@ def test_zip_with_subfolders_and_other_files(manifest, tmp_path):
     report = ingest_files(manifest, [("data.zip", archive)])
     assert report.added == 2
     assert {r.name for r in manifest.all()} == {"set/a.jpg", "set/deep/b.jpg"}
-    assert sorted(report.other_files) == ["set/labels.json", "set/notes.txt"]
+    assert sorted(report.other_files) == [
+        "set/labels.json",
+        "set/labels/a.txt",
+    ]  # notes and a README are no annotations
     assert report.rejected == [{"name": "set/readme.pdf", "reason": "unsupported"}]
     assert report.duplicates == []
 
@@ -217,6 +222,20 @@ def test_report_as_dict_caps_lists():
 def test_annotation_files_sent_with_images_are_listed(tmp_path):
     report = ingest_files(Manifest(tmp_path / "p"), [("labels.json", io.BytesIO(b"{}"))])
     assert report.other_files == ["labels.json"] and report.rejected == []
+
+
+def test_a_text_file_sent_with_images_counts_only_with_yolo_lines(tmp_path):
+    files = [
+        ("README.txt", io.BytesIO(b"0 0.5 0.5 0.2 0.2\n")),
+        ("LICENSE", io.BytesIO(b"MIT")),
+        ("notes.txt", io.BytesIO(b"how this was made\n")),
+        ("empty.txt", io.BytesIO(b"")),
+        ("a.txt", io.BytesIO(b"3 0.5 0.5 0.2 0.2\n")),
+        ("classes.txt", io.BytesIO(b"cat\ndog\n")),
+    ]
+    report = ingest_files(Manifest(tmp_path / "p"), files)
+    assert report.other_files == ["a.txt"]
+    assert [r["name"] for r in report.rejected] == ["LICENSE"]
 
 
 def test_report_ids_are_exactly_the_images_stored_in_order(tmp_path):
