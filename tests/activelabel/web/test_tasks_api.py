@@ -7,8 +7,10 @@ from api_client import make_client, upload
 from sample_images import make_image
 from sync_fakes import FakeRemote
 
+from activelabel.annotate.base import ToolError
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import Manifest
+from activelabel.importing.common import RemoteNotFound
 from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.sync import links, registry
 from activelabel.tasks import Task
@@ -257,9 +259,9 @@ def test_a_task_says_why_it_cannot_be_opened_in_cvat(tmp_path, monkeypatch, remo
     link["tasks"] = {"1": {"remote_task": tid}}  # task 2 was never synchronised
     links.save_link(state.store.dir(1), "cvat", link)
     assert reasons() == ["ready", "not_synchronised"]
-    link["tasks"]["2"] = {"remote_task": 999}  # synchronised once, but CVAT does not list it now
+    link["tasks"]["2"] = {"remote_task": 999}  # synchronised once, but CVAT answers without it: deleted there
     links.save_link(state.store.dir(1), "cvat", link)
-    assert reasons() == ["ready", "unreachable"]
+    assert reasons() == ["ready", "removed_remote"]
 
 
 def test_bad_job_size_is_a_readable_400(tmp_path):
@@ -385,3 +387,64 @@ def test_annotated_is_the_same_number_on_the_step_bar_and_in_the_tasks(tmp_path)
     assert counts["annotated"] == task["annotated"] == sum(j["annotated"] for j in task["jobs"]) == 2
     assert (counts["empty"], counts["preannotated"]) == (2, 1)
     assert client.get("/api/projects/1").json()["steps"]["annotations"] == "loaded"
+
+
+def _linked_task_without_remote(tmp_path, monkeypatch, tasks=1):
+    """A project whose task 1 was synchronised with CVAT task 999, which CVAT does not list."""
+    client, state, paths = _setup(tmp_path, 2)
+    client.post("/api/projects/1/tasks", files=_files(paths), data={"name": "A", "open": "false"})
+    fake = FakeRemote("cvat")
+    monkeypatch.setitem(registry.OVERRIDES, "cvat", fake)
+    monkeypatch.setattr(tasks_api, "_remote_cache", {})
+    rid = fake.seed("P").id
+    link = links.new_link("http://cvat", rid, "P")
+    link["tasks"] = {"1": {"remote_task": 999}}
+    links.save_link(state.store.dir(1), "cvat", link)
+    body = {"url": "http://cvat", "username": "u", "secret": "pw"}
+    assert client.put("/api/annotation-tools/cvat", json=body).status_code == 200
+    return client, state, fake, rid
+
+
+def _listed(client, monkeypatch):
+    monkeypatch.setattr(tasks_api, "_remote_cache", {})
+    (task,) = client.get("/api/projects/1/tasks").json()["tasks"]
+    return task
+
+
+def test_a_task_of_a_project_deleted_in_cvat_says_remote_gone(tmp_path, monkeypatch, remotes, fake_keyring):
+    client, _, fake, rid = _linked_task_without_remote(tmp_path, monkeypatch)
+    assert _listed(client, monkeypatch)["cvat"] == "removed_remote"  # the project is there, the task is not
+    del fake.projects[rid]  # CVAT lists no task and answers 404 for the project
+    task = _listed(client, monkeypatch)
+    assert task["cvat"] == "remote_gone" and "remote" not in task
+
+
+def test_a_cvat_that_does_not_answer_is_unreachable_not_deleted(tmp_path, monkeypatch, remotes, fake_keyring):
+    client, _, fake, _ = _linked_task_without_remote(tmp_path, monkeypatch)
+    fake.fail = "Cannot reach CVAT"  # the list of tasks fails: nothing is known about the task
+    task = _listed(client, monkeypatch)
+    assert task["cvat"] == "unreachable" and "remote" not in task
+
+
+def test_a_failing_project_read_keeps_the_old_reason(tmp_path, monkeypatch, remotes, fake_keyring):
+    client, _, fake, _ = _linked_task_without_remote(tmp_path, monkeypatch)
+
+    def broken(settings, remote_id):
+        raise ToolError("CVAT is busy")
+
+    monkeypatch.setattr(fake, "get", broken)  # the tasks answer (none), the project does not
+    assert _listed(client, monkeypatch)["cvat"] == "unreachable"
+
+
+def test_missing_reason_tells_gone_from_removed_and_unknown(monkeypatch):
+    fake = FakeRemote("cvat")
+    rid = fake.seed("P").id
+    assert tasks_api._missing_reason(fake, None, rid) == "removed_remote"
+    assert tasks_api._missing_reason(fake, None, "404") == "remote_gone"
+    fake.fail = "down"
+    assert tasks_api._missing_reason(fake, None, rid) == ""
+    other = MagicMock()
+    other.get.side_effect = RemoteNotFound("gone")
+    assert tasks_api._missing_reason(other, None, rid) == "remote_gone"
+    other.get.side_effect = RuntimeError("boom")
+    assert tasks_api._missing_reason(other, None, rid) == ""

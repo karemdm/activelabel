@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from activelabel.annotate import credentials
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
+from activelabel.importing.common import RemoteNotFound
 from activelabel.labels import load_annotations
 from activelabel.preannotate import annotated_ids
 from activelabel.sync import links
@@ -166,8 +167,12 @@ def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) 
     configured = credentials.is_configured(credentials.load_settings(state.settings.workspace, "cvat"))
     link = links.get_link(state.store.dir(project_id), "cvat")
     for view in views:
-        if str(view["id"]) in remote:
-            view["remote"] = remote[str(view["id"])]
+        found = remote.get(str(view["id"]))
+        if found and found.get("missing"):  # CVAT answered without it: deleted there (#684)
+            view["cvat"] = found["missing"]
+            continue
+        if found:
+            view["remote"] = found
         view["cvat"] = "ready" if "remote" in view else cvat_reason(view["id"], configured, link)
     return {"tasks": views}
 
@@ -183,7 +188,8 @@ def cvat_reason(task_id: int, configured: bool, link: dict[str, Any] | None) -> 
     Returns:
         ``not_configured`` (no CVAT connection), ``not_linked`` (the project is not linked with a CVAT
         project), ``not_synchronised`` (the task is not in CVAT yet) or ``unreachable`` (it is, but CVAT
-        did not answer).
+        did not answer). A task CVAT answered without is ``removed_remote`` (``remote_gone`` when the CVAT
+        project itself is gone): :func:`remote_status` says so.
     """
     if not configured:
         return "not_configured"
@@ -211,7 +217,9 @@ def remote_status(state: AppState, project_id: int, refresh: bool = False) -> di
         refresh: Ignore what was read in the last minute and ask CVAT again.
 
     Returns:
-        ``{task id: {...}}``: the remote state of each linked task (empty when unknown).
+        ``{task id: {...}}``: the remote state of each linked task (empty when unknown). A linked task CVAT
+        answered without is ``{"missing": "removed_remote"}``, or ``{"missing": "remote_gone"}`` when the
+        CVAT project itself is gone.
     """
     link = links.get_link(state.store.dir(project_id), "cvat")
     tmap: dict[str, Any] = (link or {}).get("tasks") or {}
@@ -231,10 +239,13 @@ def remote_status(state: AppState, project_id: int, refresh: bool = False) -> di
     except Exception:  # noqa: BLE001 - unreachable, slow, login refused...: the list shows without CVAT
         _remote_cache[key] = (time.monotonic(), {})
         return {}
+    missing = "removed_remote" if found else _missing_reason(remote, settings, str(link["remote_id"]))
     out: dict[str, Any] = {}
     for local_id, entry in tmap.items():
         rt = found.get(str((entry or {}).get("remote_task", "")))
         if rt is None:
+            if missing:
+                out[str(local_id)] = {"missing": missing}
             continue
         out[str(local_id)] = {
             "task": rt.id,
@@ -253,6 +264,27 @@ def remote_status(state: AppState, project_id: int, refresh: bool = False) -> di
         }
     _remote_cache[key] = (time.monotonic(), out)
     return out
+
+
+def _missing_reason(remote: Any, settings: Any, remote_id: str) -> str:
+    """Why CVAT listed no task of the linked project: the project is gone, or its tasks were deleted.
+
+    Args:
+        remote: The CVAT adapter.
+        settings: Address and login of the CVAT server.
+        remote_id: The CVAT project id.
+
+    Returns:
+        ``remote_gone`` (CVAT answered 404 for the project), ``removed_remote`` (it is there), or an empty
+        text when CVAT did not answer (nothing is known).
+    """
+    try:
+        _remote_pool.submit(remote.get, settings, remote_id).result(timeout=REMOTE_TIMEOUT)
+    except RemoteNotFound:
+        return "remote_gone"
+    except Exception:  # noqa: BLE001 - unreachable or slow: say nothing rather than something wrong
+        return ""
+    return "removed_remote"
 
 
 def _whole_number(text: str) -> int | None:

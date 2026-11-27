@@ -82,8 +82,14 @@ one reviewed label, the same number as on the step bar: an image whose labels ar
 counted until it is reviewed, and an image reviewed with no objects is counted apart in the step status
 (*sem objetos*, docs/ANNOTATION.md). `cvat` is `ready` when `remote` is there,
 otherwise the reason the task cannot be opened in CVAT: `not_configured` (no CVAT connection),
-`not_linked` (the project is not linked), `not_synchronised` (the task is not in CVAT yet) or
-`unreachable` (it is, but CVAT did not answer).
+`not_linked` (the project is not linked), `not_synchronised` (the task is not in CVAT yet), `removed_remote`
+(CVAT answered without it: it was deleted there), `remote_gone` (the CVAT project itself was deleted) or
+`unreachable` (it is there, but CVAT did not answer). In the *Open in…* menu of a task or job, the first four
+lead to *Annotations → CVAT* (*Go to CVAT in Annotations*), where a comparison creates the project or the
+task in CVAT, or decides what to do with what was deleted there; `not_configured` and `unreachable` keep the
+item disabled with the reason. The project header's *Open in CVAT* does the same once the last comparison
+found the CVAT project deleted, and its address is built on the CVAT server set up now
+(`GET /projects/{id}/links`), so it follows a change of that address.
 
 Chunked upload: the browser sends big uploads in chunks. The first chunk creates the task
 (`POST …/tasks` returns its id), later chunks append with `POST …/tasks/{tid}/images` while the

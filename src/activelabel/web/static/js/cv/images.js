@@ -2,7 +2,8 @@
  * new-task dialog) and the videos. */
 import { imageGrid, openLightbox } from './grid.js';
 import { CHUNK, SKIP_FILES, nextTaskNumber, partName } from './names.js';
-import { isHttp, jobMessage, toolName } from '../integrations/tools.js';
+import { CVAT_FIXABLE, cvatTarget } from '../integrations/open.js';
+import { jobMessage, toolName } from '../integrations/tools.js';
 import { api, errorMessage } from '../shell/api.js';
 import { fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { confirmDialog, menuButton } from '../shell/dialogs.js';
@@ -442,19 +443,29 @@ export function imagesPanel(page) {
   /** What a task (or one of its jobs) can be opened in. A disabled item says why. */
   function openItems(task, job) {
     const keypoints = ctx.project && ctx.project.task === 'keypoints';
-    const remote = task.remote || {};
-    const remoteJob = job ? (remote.jobs || []).find((x) => x.n === job) : null;
-    const cvatUrl = (remoteJob && remoteJob.url) || remote.url;
-    const cvatOk = task.cvat === 'ready' && isHttp(cvatUrl);
-    const cvatReasons = { not_configured: 'tasks.cvat_not_configured', not_linked: 'tasks.cvat_not_linked', unreachable: 'tasks.cvat_unreachable' };
+    const link = (ctx.links || []).find((l) => l.tool === 'cvat') || null;
+    /* a task always says its own reason (not the project's), linked or not */
+    const target = cvatTarget({ link: link || {}, configured: true, task, job: job || null });
     const items = [keypoints
       ? { label: t('tasks.menu_edit_fo'), disabled: true, reason: t('tasks.fo_no_keypoints') }
       : { label: t('tasks.menu_edit_fo'), onclick: () => editInFiftyOne(task, job) }];
     if (keypoints) items.push({ label: t('tasks.menu_view_fo'), onclick: () => openTaskInFiftyOne(task, job) });
-    items.push(cvatOk
-      ? { label: t('tasks.menu_cvat'), href: cvatUrl }
-      : { label: t('tasks.menu_cvat'), disabled: true, reason: t(cvatReasons[task.cvat] || 'tasks.cvat_not_synced') });
+    /* what a comparison can fix (not in CVAT yet, deleted there) leads to the CVAT tab with the reason; a
+       connection not set up or CVAT down cannot be fixed there, so the item stays disabled with why (#684) */
+    if (target.url) items.push({ label: t('tasks.menu_cvat'), href: target.url });
+    else if (CVAT_FIXABLE.has(task.cvat)) {
+      items.push({ label: t('tasks.menu_cvat_go'), reason: t(target.reason), onclick: () => goToCvat(task) });
+    } else items.push({ label: t('tasks.menu_cvat'), disabled: true, reason: t(target.reason) });
     return items;
+  }
+
+  /** Annotations → CVAT with this task chosen: the comparison there creates it in CVAT, or decides what to do
+   *  with what was deleted there. */
+  function goToCvat(task) {
+    showTab('annotations', true);
+    const panel = ctx.panels && ctx.panels.annotations;
+    if (panel && panel.focusCvatTask) panel.focusCvatTask(task.id);
+    if (panel && panel.reveal) panel.reveal('sync');
   }
 
   /** The FiftyOne view of a task or job, to look at (a video task shows each video as an ordered sequence). */

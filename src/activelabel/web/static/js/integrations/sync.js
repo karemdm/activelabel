@@ -73,6 +73,7 @@ export function createSync(page) {
           toast(removed ? t('sync.unlinked_removed') : t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
           await refreshProject();
           draw(true);
+          if (ctx.cvatDraw) ctx.cvatDraw(true);  // the CVAT card stops showing the link (#684)
         } catch (err) { toastError(err); }
       } }, t('sync.unlink'));
       return el('li', { class: 'link-card card', 'data-tool': tool },
@@ -360,6 +361,7 @@ export function createSync(page) {
             toast(t('sync.unlinked', { tool: toolName(tool) }), 'success', 4000);
             await refreshProject();
             draw(true);
+            if (ctx.cvatDraw) ctx.cvatDraw(true);  // the CVAT card stops showing the link (#684)
           } catch (err) { toastError(err); }
         } }, t('sync.unlink')), el('button', { type: 'button', class: 'btn', onclick: close }, t('common.close'))];
       } else {

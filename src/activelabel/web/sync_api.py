@@ -120,7 +120,8 @@ def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """Links of a project with remote projects.
 
     A link written for a tool that cannot be synchronised any more (an old workspace) is listed with
-    ``supported: false``: it can only be unlinked.
+    ``supported: false``: it can only be unlinked. The ``url`` of a CVAT project is built on the server
+    address set up now, so it follows a change of that address.
 
     Args:
         project_id: Id of the project.
@@ -131,11 +132,16 @@ def list_links(project_id: int, state: AppState = STATE) -> dict[str, Any]:
     """
     state.project(project_id)
     found = links.load_links(state.store.dir(project_id))
-    return {
-        "links": [
-            {**links.public_view(tool, link), "supported": tool in SYNC_TOOLS} for tool, link in found.items()
-        ]
-    }
+    out = []
+    for tool, link in found.items():
+        view = {**links.public_view(tool, link), "supported": tool in SYNC_TOOLS}
+        server = credentials.server_url(state.settings.workspace, tool) if tool in SYNC_TOOLS else ""
+        if (
+            server and view["remote_id"]
+        ):  # the address set up now, not the one of the day it was linked (#684)
+            view["url"] = f"{server}/projects/{view['remote_id']}"
+        out.append(view)
+    return {"links": out}
 
 
 @router.delete("/projects/{project_id}/links/{tool}")

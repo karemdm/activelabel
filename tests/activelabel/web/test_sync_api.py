@@ -285,3 +285,20 @@ def test_discarding_is_refused_for_an_unknown_tool_or_plan(env):
     assert (other.status_code, other.json()["code"]) == (404, "tool_unknown")
     wrong = env.client.delete(f"/api/projects/{env.pid}/sync/cvat/not-a-plan")
     assert (wrong.status_code, wrong.json()["code"]) == (404, "plan_not_found")
+
+
+def test_a_link_url_follows_the_address_set_up_now(env):
+    project_dir = env.state.store.dir(env.pid)
+    links.save_link(project_dir, "cvat", links.new_link("http://old-host", env.rid, "Pets remote"))
+    body = {"url": "http://new-host/", "username": "u", "secret": "pw-123"}
+    assert env.client.put("/api/annotation-tools/cvat", json=body).status_code == 200
+    (shown,) = env.client.get(f"/api/projects/{env.pid}/links").json()["links"]
+    assert shown["url"] == f"http://new-host/projects/{env.rid}"
+
+
+def test_a_link_keeps_its_stored_url_when_nothing_is_set_up(env):
+    project_dir = env.state.store.dir(env.pid)
+    links.save_link(project_dir, "cvat", links.new_link("http://old-host", env.rid, "Pets remote"))
+    (shown,) = env.client.get(f"/api/projects/{env.pid}/links").json()["links"]
+    assert shown["url"] == links.public_view("cvat", links.load_links(project_dir)["cvat"])["url"]
+    assert "new-host" not in shown["url"]

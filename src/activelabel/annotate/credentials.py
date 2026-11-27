@@ -80,6 +80,20 @@ def _get_secret(tool: str, url: str) -> str:
         return ""
 
 
+def server_url(workspace: Path, tool: str) -> str:
+    """The server address saved for a tool, without reading the keyring.
+
+    Args:
+        workspace: the workspace folder holding ``tools.json``.
+        tool: name of the tool.
+
+    Returns:
+        The address without a trailing slash, or an empty text when none was saved.
+    """
+    entry = (read_json(_file(workspace), {}) or {}).get(tool, {})
+    return str(entry.get("url", "") if isinstance(entry, dict) else "").rstrip("/")
+
+
 def load_settings(workspace: Path, tool: str) -> ToolSettings:
     """Settings of a tool, with the secret from the keyring when present.
 

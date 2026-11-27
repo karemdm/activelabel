@@ -14,7 +14,20 @@ const TASK_REASONS = {
   not_linked: 'tasks.cvat_not_linked',
   unreachable: 'tasks.cvat_unreachable',
   not_synchronised: 'tasks.cvat_not_synced',
+  removed_remote: 'tasks.cvat_removed_remote',
+  remote_gone: 'tasks.cvat_remote_gone',
 };
+
+/* the reasons the CVAT tab can do something about: a comparison creates the project or the task there, or
+   decides what to do with what was deleted there (#684); the others (not set up, CVAT down) cannot */
+export const CVAT_FIXABLE = new Set(['not_linked', 'not_synchronised', 'removed_remote', 'remote_gone']);
+
+/** Whether the last comparison with CVAT found the linked CVAT project deleted (`page.isRemoteGone` tells a job). */
+export function cvatProjectGone(page) {
+  const plans = (page.ctx.jobs || []).filter((j) => j.kind === 'sync_plan' && (j.status === 'done' || j.status === 'failed'));
+  const last = plans.sort((a, b) => String(b.created).localeCompare(String(a.created)))[0];
+  return !!last && last.status === 'failed' && !!page.isRemoteGone && page.isRemoteGone(last);
+}
 
 /** What "Open in CVAT" opens: the linked project, or one of its tasks or jobs.
  *  `link` is the project's CVAT link (or null), `configured` whether the CVAT connection is set up, `task` a
@@ -61,7 +74,8 @@ const openLink = (id, url, tool, text) => el('a', { class: 'btn', id, href: url,
  *  linked, it takes the person to Annotations → CVAT (set up the connection, compare) and says so. */
 export function headerCvatButton(page) {
   const link = page.ctx.links.find((l) => l.tool === 'cvat') || null;
-  const target = cvatTarget({ link, configured: true });
+  const gone = !!link && cvatProjectGone(page);  // the stored address leads to a deleted project (#684)
+  const target = gone ? { reason: 'open.cvat_remote_gone' } : cvatTarget({ link, configured: true });
   const text = t('annotate.open_in', { tool: toolName('cvat') });
   if (target.url) return openLink('head-open-cvat', target.url, 'cvat', text);
   const why = t(link ? target.reason : 'open.cvat_go');
