@@ -1446,6 +1446,19 @@ class CvatRemote:
         """
         self._api(settings).request("PATCH", f"/api/tasks/{task_id}", json={"name": name})
 
+    def rename_project(self, settings: ToolSettings, project_id: str, name: str) -> None:
+        """Change the name of a CVAT project (``PATCH /api/projects/{id}`` with the name only).
+
+        Args:
+            settings: Address and login of the CVAT server.
+            project_id: The CVAT project id.
+            name: The new name.
+
+        Raises:
+            ToolError: CVAT refuses the request, the project is gone or CVAT cannot be reached.
+        """
+        self._api(settings).request("PATCH", f"/api/projects/{project_id}", json={"name": name})
+
     def frame(self, settings: ToolSettings, task_id: str, frame: int) -> bytes:
         """The original image of one frame.
 

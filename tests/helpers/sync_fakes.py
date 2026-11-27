@@ -219,6 +219,11 @@ class FakeRemote:
             if str(task_id) in metas:
                 metas[str(task_id)]["name"] = name
 
+    def rename_project(self, settings, project_id, name):
+        self._check()
+        self.calls.append(("rename_project", str(project_id), name))
+        self.projects[str(project_id)]["name"] = name
+
     def mark_video(self, task_id, start=0, step=1, frames=None, fps=30.0):
         """Test helper: the remote task counts as a video task (``video_source`` gives a small video)."""
         self.videos[str(task_id)] = {"start": start, "step": step, "frames": frames, "fps": fps}

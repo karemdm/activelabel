@@ -85,6 +85,7 @@ test('the review shows task, class and project renames in their direction, and n
       renamed_classes: [{ from: 'car', to: 'vehicle' }],
       project_rename: { old: 'Street', new: 'Streets', direction: 'push' },
       tasks_rename_conflicts: [{ task: 3, remote_task: '9', local: 'A', remote: 'B' }],
+      project_rename_conflict: { local: 'Roads', remote: 'Streets 2' },
     },
   }];
   const block = sync.syncBlock();
@@ -97,6 +98,7 @@ test('the review shows task, class and project renames in their direction, and n
   assert.match(pull, /Task names.*b → Birds/);
   assert.match(pull, /Renamed classes.*car → vehicle/);
   assert.match(block.node.textContent, /Renamed on both sides:.*here "A", in CVAT "B"/);
+  assert.match(block.node.textContent, /here "Roads", in CVAT "Streets 2"/);
   block.node.remove();
 });
 

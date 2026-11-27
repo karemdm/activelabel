@@ -101,7 +101,8 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
    add, images_new, labels_new, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
    tasks_new, tasks_delete, tasks_rename: [{task, remote_task, old, new, direction: "push"|"pull"}],
-   tasks_rename_conflicts: [{task, remote_task, local, remote}], conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
+   tasks_rename_conflicts: [{task, remote_task, local, remote}], project_rename: {old, new, direction: "push"|"pull"}|null,
+   project_rename_conflict: {local, remote}|null, conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
    per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], not_converted: {kind: n},
    diff_pull: <diff as in ANNOTATION.md>, diff_push:
    <same shape>}` saved in `<project>/sync/<plan_id>.json` with the remote labels it read (the last 10
@@ -125,11 +126,18 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    project ground truth; write pushed labels to the remote; upload added images; update the
    link (`base` hashes, keys, `last_sync`). Result: counts (`pulled`, `pushed`, `added`, `images_new` and
    `labels_new` sent for the first time, `removed_*`, `restored_*`, `tasks_created`, `tasks_imported`,
-   `tasks_deleted`, `tasks_renamed`, `conflicts_left`, `unchanged`, `new_classes`, `renamed_classes`,
+   `tasks_deleted`, `tasks_renamed`, `project_renamed`, `conflicts_left`, `unchanged`, `new_classes`, `renamed_classes`,
    `backup`, `skipped`, `warnings`); the result card shows *Images sent to CVAT* and *Labels sent to CVAT*
    from `images_new` and `labels_new`.
    Task renames follow docs/TASKS.md (*CVAT mirror*): the local name is sent, or the remote one pulled,
    against the name recorded at the last synchronisation; both changed = both kept and a warning.
+   The **project name** follows the same rule against the `remote_name` of the link (project scope only):
+   renamed only here, the CVAT project is renamed (`PATCH /api/projects/{id}`); renamed only in CVAT, the
+   project takes that name here. A project made here is called `ActiveLabel <id> - <name>` in CVAT, and the
+   prefix is added or removed on the way; a project imported from CVAT keeps the plain name on both sides.
+   A name typed differently at the import counts as a rename made here and is offered on the first
+   synchronisation. Renaming is never blocked while CVAT is down: the name is sent at the next
+   synchronisation that can reach it. A rename that fails is a warning, tried again next time.
 
 Classes: classes found remotely but missing locally are added to the project; local classes
 missing in the remote project are added to it (CVAT labels). Class names are compared ignoring case,
@@ -241,6 +249,7 @@ class RemoteProject(Protocol):          # activelabel/sync/remote.py
               updates: dict[str, list[Label]]) -> None                # key -> labels the item must end with
     def set_frames(self, settings, task_id: str, delete: list[int], restore: list[int]) -> None
     def rename_task(self, settings, task_id: str, name: str) -> None
+    def rename_project(self, settings, project_id: str, name: str) -> None
     def delete_task(self, settings, task_id: str) -> None
     def frames(self, settings, task_id: str) -> list[tuple[str, bool]]   # (file name, deleted) in order
     def frame(self, settings, task_id: str, frame: int) -> bytes
