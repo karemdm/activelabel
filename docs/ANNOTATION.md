@@ -105,6 +105,9 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    (A discard cannot reach FiftyOne when its dataset is missing; the edits then stay.)
    Applying also records the session in the annotations' `source` (`GET /projects/{id}/annotations`) as
    `last_session: {tool, session, at}`, next to the import information (`format`, `files`), which is kept.
+   Each task card in *Tasks and jobs* shows the newest edit session made for that task (or one of its
+   jobs): the tool, when it started and how it stands (open, ready to review, applied, discarded);
+   `GET /projects/{id}/tasks` gives it as `last_session: {tool, at, status}`.
 5. **Close** a session (*Close session*): forget it.
 
 ## Safety copies

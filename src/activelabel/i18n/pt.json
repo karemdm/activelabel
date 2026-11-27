@@ -726,6 +726,7 @@
   "tasks.rename": "Renomear",
   "tasks.rename_label": "Novo nome da task {name}",
   "tasks.renamed": "Task renomeada.",
+  "tasks.last_session": "Última sessão de edição: {tool}, {when} ({status})",
   "tasks.delete": "Excluir",
   "tasks.delete_title": "Excluir a task \"{name}\"?",
   "tasks.delete_text_one": "A task e a sua {n} imagem serão excluídas, com os arquivos e as anotações. Não é possível desfazer.",
