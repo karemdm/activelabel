@@ -102,6 +102,12 @@ Everything below goes into the first release, 0.1.0.
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 - **The App's edit panel shows only the class and the tags.** `confidence`, `index`, `mask_path` and the free
   `attributes` are left out of the label schema of `ground_truth`; their values stay on the labels (#706).
+- **How to edit is on screen.** The card of an open FiftyOne session says, in one line, how to select, move,
+  resize, relabel, delete, undo and draw with the mouse (#706).
+- **The Annotate-mode plugin fails quietly.** If a later FiftyOne App lacks the hook it uses, the plugin writes
+  one console warning and the App works as usual (images open in *Explore*); ActiveLabel logs a warning when the
+  installed FiftyOne is not the version the plugin was checked with (`fiftyone_plugin.VERIFIED_FIFTYONE`, 1.22.1),
+  and a test fails until an upgrade is checked again (#706).
 
 - **Class field and IME (#637).** The Enter and comma that confirm a character in an input method (Japanese,
   Chinese, Korean) no longer add a half-typed class.

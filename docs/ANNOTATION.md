@@ -44,7 +44,8 @@ in the *Annotate* tab, ready to edit, with the mouse alone:
 | Draw a new box or polygon | Pick the rectangle or polygon tool under *Create*, then drag (or click the points) on the image |
 | Undo / redo | The arrows next to *Create*, or Ctrl+Z / Ctrl+Shift+Z |
 
-After a deletion or a new shape the App picks the drawing tool: click the arrow under *Create* before
+The card of an open FiftyOne session repeats these moves in one line (*annotate.fo_mouse_hint*), so no
+shortcut is hidden. After a deletion or a new shape the App picks the drawing tool: click the arrow under *Create* before
 clicking another box, or a click draws a new one. Edits are saved in the dataset as you make them; review
 and apply them from the *FiftyOne* tab.
 
@@ -54,7 +55,10 @@ browser. ActiveLabel turns on its App plugin `@activelabel/annotate` (`src/activ
 script, no build) for the App it starts: FiftyOne's plugins folder is set for the ActiveLabel process
 only, never in `~/.fiftyone`. When a dataset that ActiveLabel marked editable (`activelabel_editable` in the
 dataset info, set by `enable_editing`) opens, the plugin switches the image window to *Annotate*; the
-*Explore* tab is still one click away. A keypoints dataset is not marked, so it opens in *Explore*.
+*Explore* tab is still one click away. A keypoints dataset is not marked, so it opens in *Explore*. The plugin uses an App hook that is not a public API (`useModalModeController`); it was checked
+with FiftyOne 1.22.1 (`fiftyone_plugin.VERIFIED_FIFTYONE`). With another version ActiveLabel logs a warning,
+a test fails until the plugin is checked again, and if the hook is gone the plugin writes one console warning
+and the App opens images in *Explore* as usual (click *Annotate* to edit).
 
 **What the App shows.** Only `ground_truth` is drawn on an image (the other fields can be turned on in the
 sidebar), and the fields ActiveLabel keeps for itself (`activelabel_written`, `activelabel_labels`,

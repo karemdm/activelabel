@@ -460,6 +460,7 @@
   "annotate.status.closed": "Encerrada",
   "annotate.open_in": "Abrir no {tool}",
   "annotate.pull_hint": "Edite no FiftyOne. Quando terminar, clique em Revisar e aplicar para ver o que mudou.",
+  "annotate.fo_mouse_hint": "Na janela da imagem: clique numa caixa ou polígono para selecionar; arraste para mover; arraste um canto ou um ponto para ajustar; troque a classe em label; a tecla Delete apaga; Ctrl+Z desfaz. Para desenhar, escolha o retângulo ou o polígono em Create.",
   "annotate.pull": "Revisar e aplicar",
   "annotate.pull_again": "Revisar de novo",
   "annotate.pull_started": "Lendo as alterações do FiftyOne…",

@@ -45,6 +45,32 @@ test('the CVAT and FiftyOne tabs load the tools, sessions, tasks, pre-annotation
   assert.deepEqual([...new Set(asked)].sort(), Object.keys(ANSWERS).sort());
 });
 
+test('an open FiftyOne session says how to edit with the mouse, a pulled one does not (#706)', async () => {
+  setMessages({ 'annotate.tool.fiftyone': 'FiftyOne', 'annotate.fo_mouse_hint': 'Click a box to select it; drag to move it.' }, 'en');
+  const ctx = { project: { id: 2, task: 'detection', classes: ['cat'], counts: { active: 3 } }, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} };
+  const page = {
+    ctx, projectId: 2, isActive: () => false, jobStarted: async () => {}, refreshProject: async () => true,
+    startSync: async () => {}, syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+    diffView: () => null, issueName: (x) => x,
+  };
+  const session = (id, status) => ({ id, tool: 'fiftyone', scope: 'all', status, images: 3, links: [{ url: 'http://localhost:5161/datasets/d' }] });
+  const answers = { ...ANSWERS, '/api/projects/2/annotate': { sessions: [session('a', 'open'), session('b', 'pulled')] } };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: answers[url] !== undefined, status: answers[url] !== undefined ? 200 : 404, text: async () => JSON.stringify(answers[url] ?? {}) });
+  try {
+    const block = annotateBlock(page);
+    document.body.append(block.fiftyoneSection);
+    await block.mount();
+    const open = block.fiftyoneSection.querySelector('#session-a .fo-mouse-hint');
+    assert.ok(open, 'the open session shows the hint');
+    assert.match(open.textContent, /drag to move/);
+    assert.equal(block.fiftyoneSection.querySelector('#session-b .fo-mouse-hint'), null);
+  } finally {
+    globalThis.fetch = real;
+    document.body.replaceChildren();
+  }
+});
+
 test('the CVAT card shows no link to a project deleted in CVAT, and the open row says what to do here (#695)', async () => {
   setMessages({ 'annotate.tool.cvat': 'CVAT', 'sync.remote_deleted': '{name} (deleted in CVAT)', 'sync.remote_project': 'Project in {tool}', 'open.cvat_remote_gone': 'Use Unlink, or compare again.' }, 'en');
   const link = { tool: 'cvat', url: 'http://cvat.test/projects/7', remote_id: '7', remote_name: 'Pets', images: 3 };

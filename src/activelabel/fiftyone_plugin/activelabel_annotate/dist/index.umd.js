@@ -9,14 +9,20 @@
  * The App runs the ``onDatasetOpen`` operators it knows when a dataset is opened; the first dataset is often
  * opened before this script is loaded, so the script also runs the operator once itself.
  *
- * Plain script, no build step: it uses the modules the App puts on ``window``.
+ * Plain script, no build step: it uses the modules the App puts on ``window``. Verified with FiftyOne
+ * 1.22.1 (``fiftyone_plugin.VERIFIED_FIFTYONE``). ``useModalModeController`` is not a public API: when a
+ * later App lacks it or it fails, the plugin only writes a warning in the console and the App works as
+ * usual (images open in Explore).
  */
 (function () {
   var operators = window.__foo__;
   var state = window.__fos__;
   var recoil = window.recoil;
+  var WARNING = "ActiveLabel: this FiftyOne App version cannot open images in Annotate mode; click the Annotate tab to edit.";
   if (!operators || !state || !recoil || !state.useModalModeController || !operators.registerOperator) {
-    return; // another version of the App: it keeps its own default
+    // another version of the App: it keeps its own default (Explore), everything else works
+    window.console.warn(WARNING);
+    return;
   }
 
   class OpenInAnnotate extends operators.Operator {
@@ -38,12 +44,24 @@
 
     async execute(ctx) {
       var info = (ctx.hooks.dataset && ctx.hooks.dataset.info) || {};
-      if (info.activelabel_editable === true) {
-        ctx.hooks.mode.activateAnnotateMode();
+      if (info.activelabel_editable !== true) return;
+      var mode = ctx.hooks.mode;
+      if (!mode || typeof mode.activateAnnotateMode !== "function") {
+        window.console.warn(WARNING);
+        return;
+      }
+      try {
+        mode.activateAnnotateMode();
+      } catch (error) {
+        window.console.warn(WARNING, error);
       }
     }
   }
 
-  operators.registerOperator(OpenInAnnotate, "@activelabel/annotate");
-  operators.executeOperator("@activelabel/annotate/open_in_annotate");
+  try {
+    operators.registerOperator(OpenInAnnotate, "@activelabel/annotate");
+    operators.executeOperator("@activelabel/annotate/open_in_annotate");
+  } catch (error) {
+    window.console.warn(WARNING, error);
+  }
 })();
