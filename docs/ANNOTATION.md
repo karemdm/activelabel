@@ -45,9 +45,11 @@ in the *Annotate* tab, ready to edit, with the mouse alone:
 | Undo / redo | The arrows next to *Create*, or Ctrl+Z / Ctrl+Shift+Z |
 
 The card of an open FiftyOne session repeats these moves in one line (*annotate.fo_mouse_hint*), so no
-shortcut is hidden. After a deletion or a new shape the App picks the drawing tool: click the arrow under *Create* before
-clicking another box, or a click draws a new one. Edits are saved in the dataset as you make them; review
-and apply them from the *FiftyOne* tab.
+shortcut is hidden. The App keeps its drawing tool on while a label is open and after it is deleted; the plugin
+picks the select tool (the arrow) again after a deletion (*Delete*/*Backspace* or *Delete label* in the label's
+menu), so the next click selects a box instead of drawing one. Backspace while drawing a polygon still removes
+its last point. After drawing a new shape the rectangle or polygon tool stays on, to draw the next one. Edits
+are saved in the dataset as you make them; review and apply them from the *FiftyOne* tab.
 
 **Why the window opens in Annotate.** The App's own default is *Explore*, where the labels are only shown
 (hovering a box shows its class and id, nothing moves), and it remembers the tab per dataset in the

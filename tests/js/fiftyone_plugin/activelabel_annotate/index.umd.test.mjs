@@ -95,3 +95,79 @@ test("an App whose mode switch fails warns instead of breaking", async () => {
   await assert.doesNotReject(run(calls));
   assert.equal(calls.warnings.length, 1);
 });
+
+/** A page of the App with the image window open: the label list or the edit form, and the select tool. */
+function page({ list = false, select = true } = {}) {
+  const listeners = { keydown: [], click: [] };
+  const clicks = [];
+  const timers = [];
+  const state = { list };
+  const document = {
+    addEventListener: (type, fn, capture) => {
+      assert.equal(capture, true);
+      listeners[type].push(fn);
+    },
+    querySelector: (selector) => {
+      if (selector.includes('sidebar-group-Labels-field-count')) return state.list ? {} : null;
+      if (selector.includes('select-action')) return select ? { click: () => clicks.push('select') } : null;
+      return null;
+    },
+  };
+  const window = {
+    document,
+    console: { warn: () => {} },
+    setTimeout: (fn) => timers.push(fn),
+    __foo__: undefined,
+    __fos__: {},
+    recoil: {},
+  };
+  vm.runInNewContext(SCRIPT, { window });
+  const fire = (type, event) => listeners[type].forEach((fn) => fn(event));
+  const settle = () => timers.splice(0).forEach((fn) => fn());
+  return { state, clicks, fire, settle };
+}
+
+test("after Delete on an open label the select tool is picked again", () => {
+  const app = page({ list: false });
+  app.fire("keydown", { key: "Delete", target: { tagName: "CANVAS" } });
+  app.state.list = true; // the label is gone: the list shows again
+  app.settle();
+  assert.ok(app.clicks.length >= 1);
+});
+
+test("after Delete label in the menu the select tool is picked again", () => {
+  const app = page({ list: false });
+  const item = { closest: (sel) => (sel.includes("label-menu-delete") ? {} : null) };
+  app.fire("click", { target: item });
+  app.state.list = true;
+  app.settle();
+  assert.ok(app.clicks.length >= 1);
+});
+
+test("Backspace while drawing a polygon (the form stays open) keeps the drawing tool", () => {
+  const app = page({ list: false });
+  app.fire("keydown", { key: "Backspace", target: { tagName: "CANVAS" } });
+  app.settle(); // the form is still shown: a point was removed, not a label
+  assert.deepEqual(app.clicks, []);
+});
+
+test("Delete with no label open, or typed in a text field, changes nothing", () => {
+  const listShown = page({ list: true });
+  listShown.fire("keydown", { key: "Delete", target: { tagName: "CANVAS" } });
+  listShown.settle();
+  assert.deepEqual(listShown.clicks, []);
+  const typing = page({ list: false });
+  typing.fire("keydown", { key: "Backspace", target: { tagName: "INPUT" } });
+  typing.state.list = true;
+  typing.settle();
+  assert.deepEqual(typing.clicks, []);
+});
+
+test("other keys and clicks are ignored", () => {
+  const app = page({ list: false });
+  app.fire("keydown", { key: "a", target: { tagName: "CANVAS" } });
+  app.fire("click", { target: { closest: () => null } });
+  app.state.list = true;
+  app.settle();
+  assert.deepEqual(app.clicks, []);
+});

@@ -13,8 +13,67 @@
  * 1.22.1 (``fiftyone_plugin.VERIFIED_FIFTYONE``). ``useModalModeController`` is not a public API: when a
  * later App lacks it or it fails, the plugin only writes a warning in the console and the App works as
  * usual (images open in Explore).
+ *
+ * After a label is deleted the App keeps its drawing tool on, so the next click on the image draws a new box
+ * instead of selecting one. ``watchDeletions`` picks the select tool (the arrow) again after a deletion. It
+ * only reads the page (the ``data-cy`` names of the App's elements); when they are missing it does nothing.
  */
+
 (function () {
+  /**
+   * Pick the App's select tool again after a label is deleted.
+   *
+   * A deletion is the *Delete* or *Backspace* key, or *Delete label* in the label's menu, while a label is
+   * open in the edit form (the list of labels is hidden); it is done when the list shows again. Backspace
+   * while drawing a polygon removes its last point and keeps the form open, so it is not taken for a
+   * deletion. A key typed in a text field is left alone.
+   *
+   * @param {Window} win the App's window.
+   */
+  function watchDeletions(win) {
+    var doc = win.document;
+    if (!doc || typeof doc.addEventListener !== "function") return;
+    var LIST = '[data-cy="sidebar-group-Labels-field-count"]';
+    var SELECT = '[data-cy="select-action"]';
+    var listShown = function () {
+      return doc.querySelector(LIST) !== null;
+    };
+    var formShown = function () {
+      return doc.querySelector(SELECT) !== null && !listShown();
+    };
+    var selectWhenDone = function () {
+      [250, 700].forEach(function (ms) {
+        win.setTimeout(function () {
+          var select = doc.querySelector(SELECT);
+          if (select && listShown()) select.click();
+        }, ms);
+      });
+    };
+    doc.addEventListener(
+      "keydown",
+      function (event) {
+        if (event.key !== "Delete" && event.key !== "Backspace") return;
+        var target = event.target || {};
+        if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName || "")) return;
+        if (formShown()) selectWhenDone();
+      },
+      true,
+    );
+    doc.addEventListener(
+      "click",
+      function (event) {
+        var target = event.target;
+        if (target && target.closest && target.closest('[data-cy="label-menu-delete"]')) selectWhenDone();
+      },
+      true,
+    );
+  }
+
+  try {
+    watchDeletions(window);
+  } catch (error) {
+    window.console.warn("ActiveLabel: could not watch deletions in the App.", error);
+  }
   var operators = window.__foo__;
   var state = window.__fos__;
   var recoil = window.recoil;

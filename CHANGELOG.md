@@ -115,6 +115,9 @@ Everything below goes into the first release, 0.1.0.
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 - **The App's edit panel shows only the class and the tags.** `confidence`, `index`, `mask_path` and the free
   `attributes` are left out of the label schema of `ground_truth`; their values stay on the labels (#706).
+- **After a deletion the App selects again.** The App kept its drawing tool on after a label was deleted, so the
+  next click on the image drew a new box; the ActiveLabel plugin now picks the select tool again after *Delete*,
+  *Backspace* or *Delete label* (#706).
 - **How to edit is on screen.** The card of an open FiftyOne session says, in one line, how to select, move,
   resize, relabel, delete, undo and draw with the mouse (#706).
 - **The Annotate-mode plugin fails quietly.** If a later FiftyOne App lacks the hook it uses, the plugin writes
