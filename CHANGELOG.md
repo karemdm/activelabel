@@ -67,6 +67,11 @@ Everything below goes into the first release, 0.1.0.
   and a migration at start-up copies the files first, only adds fields and can run again safely
   (docs/DESIGN.md, *Format version*).
 
+### Changed
+
+- **Open in CVAT and in FiftyOne** moved from the project header into the CVAT and FiftyOne tabs of
+  Annotations; the menu of each task keeps its own (#602).
+
 ### Removed
 
 - **Label Studio support.** Importing a project from Label Studio, its synchronisation, its edit sessions

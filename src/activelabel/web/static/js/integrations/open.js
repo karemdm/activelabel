@@ -3,7 +3,7 @@
  * through the CVAT comparison and the FiftyOne edit sessions, as before. */
 import { isHttp, toolName } from './tools.js';
 import { api } from '../shell/api.js';
-import { fiftyoneError, fiftyoneMissing, fiftyoneMissingNote, sayFiftyoneMissing } from '../shell/features.js';
+import { fiftyoneButton, fiftyoneError, fiftyoneMissing, fiftyoneMissingNote, sayFiftyoneMissing } from '../shell/features.js';
 import { el, icon } from '../shell/dom.js';
 import { t } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
@@ -70,36 +70,11 @@ export const sentence = (text) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 const openLink = (id, url, tool, text) => el('a', { class: 'btn', id, href: url, target: '_blank', rel: 'noopener' },
   icon(tool, 18), text, ' ', icon('external', 14));
 
-/** The "Open in CVAT" button of the project header: the linked project in a new tab; before the project is
- *  linked, it takes the person to Annotations → CVAT (set up the connection, compare) and says so. */
-export function headerCvatButton(page) {
-  const link = page.ctx.links.find((l) => l.tool === 'cvat') || null;
-  const gone = !!link && cvatProjectGone(page);  // the stored address leads to a deleted project (#684)
-  const target = gone ? { reason: 'open.cvat_remote_gone' } : cvatTarget({ link, configured: true });
-  const text = t('annotate.open_in', { tool: toolName('cvat') });
-  if (target.url) return openLink('head-open-cvat', target.url, 'cvat', text);
-  const why = t(link ? target.reason : 'open.cvat_go');
-  return el('button', { type: 'button', class: 'btn', id: 'head-open-cvat', title: why, onclick: () => {
-    page.showTab('annotations');
-    page.ctx.panels.annotations.reveal('sync');
-  } }, icon('cvat', 18), text);
-}
-
-/** The "Open in FiftyOne" button of the project header. While it cannot open (FiftyOne not installed, or no
- *  images) it is marked as not available (aria-disabled, dimmed) but still answers a tap with why, since a title is
- *  never seen on a touch screen (#602, #675); without FiftyOne the answer has the command that installs it. */
-export function headerFiftyoneButton(page) {
-  const reason = fiftyoneReason(page.ctx.project);
-  return el('button', {
-    type: 'button', class: `btn${reason ? ' is-unavailable' : ''}`, id: 'head-open-fiftyone', 'aria-disabled': reason ? 'true' : null, title: reason ? t(reason) : null,
-    onclick: () => (sayFiftyoneMissing() ? null : reason ? toast(t(reason), 'info', 5000) : openInFiftyOne(page)),
-  }, icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') }));
-}
-
-/** The open row of the CVAT tab: the project, task or job chosen below opens in CVAT, or a clear line says why
- *  not; then one line on how the edits come back. Arguments as in cvatTarget. */
-export function cvatOpenRow({ link, configured, task, job }) {
-  const target = cvatTarget({ link, configured, task, job });
+/** The open row of the CVAT tab, the one place (with the menu of each task) that opens CVAT (#602): the project,
+ *  task or job chosen below opens in CVAT, or a clear line says why not; then one line on how the edits come back.
+ *  Arguments as in cvatTarget; `gone` when the last comparison found the linked CVAT project deleted (#684). */
+export function cvatOpenRow({ link, configured, task, job, gone = false }) {
+  const target = gone && !task ? { reason: 'open.cvat_remote_gone' } : cvatTarget({ link, configured, task, job });
   /* the way back is said only when there is something to open; a reason stands alone, as a sentence (#602) */
   if (!target.url) return el('div', { class: 'open-row' }, el('p', { class: 'open-reason', id: 'cvat-open-reason' }, icon('info', 16), sentence(t(target.reason))));
   return el('div', { class: 'open-row' },
@@ -107,15 +82,16 @@ export function cvatOpenRow({ link, configured, task, job }) {
     el('p', { class: 'muted small' }, t('open.cvat_back')));
 }
 
-/** The open row of the FiftyOne tab: open the project's dataset (to look at and edit), and how the edits come back. */
+/** The open row of the FiftyOne tab, the one place that opens the project's dataset in FiftyOne (#602): open it (to
+ *  look at and edit), and how the edits come back; or why not, with what to do. */
 export function fiftyoneOpenRow(page) {
   const reason = fiftyoneReason(page.ctx.project);
   const keypoints = page.ctx.project && page.ctx.project.task === 'keypoints';
   return el('div', { class: 'open-row' },
     /* without FiftyOne: dimmed, not disabled, so a tap says how to install it (#675); without images: disabled */
-    el('button', { type: 'button', class: `btn${reason === 'open.fo_not_installed' ? ' is-unavailable' : ''}`, id: 'fo-open', disabled: !!reason && reason !== 'open.fo_not_installed',
+    fiftyoneButton(el('button', { type: 'button', class: `btn${reason === 'open.fo_not_installed' ? ' is-unavailable' : ''}`, id: 'fo-open', disabled: !!reason && reason !== 'open.fo_not_installed',
       'aria-disabled': reason === 'open.fo_not_installed' ? 'true' : null, 'aria-describedby': 'fo-open-help', onclick: () => (sayFiftyoneMissing() ? null : openInFiftyOne(page)) },
-      icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') })),
+      icon('fiftyone', 18), t('annotate.open_in', { tool: toolName('fiftyone') }))),
     reason === 'open.fo_not_installed'
       ? el('div', { id: 'fo-open-help' }, fiftyoneMissingNote())
       : el('p', { class: 'muted small', id: 'fo-open-help' }, t(reason || (keypoints ? 'tasks.fo_no_keypoints' : 'open.fo_back'))));

@@ -937,3 +937,15 @@ def test_the_start_help_says_only_what_is_true_of_the_model():
         assert "propost" not in general and "proposal" not in general  # said only for R-CNN
         assert "fator" not in general and "factor" not in general  # said only where it applies
         assert texts["tr.err_list_sep"].count("{example}") == 1
+
+
+def test_open_in_cvat_and_fiftyone_live_in_their_tabs_not_in_the_header():
+    """#602 (owner's request): the header has no Open buttons; the CVAT and FiftyOne tabs open the tools."""
+    project_js = (SRC / "web" / "static" / "js" / "cv" / "project.js").read_text(encoding="utf-8")
+    open_js = (SRC / "web" / "static" / "js" / "integrations" / "open.js").read_text(encoding="utf-8")
+    external_js = (SRC / "web" / "static" / "js" / "integrations" / "external.js").read_text(encoding="utf-8")
+    assert "headerCvatButton" not in project_js and "headerFiftyoneButton" not in project_js
+    for gone in ("export function headerCvatButton", "export function headerFiftyoneButton"):
+        assert gone not in open_js, gone
+    assert "fill(cvatOpenBox, cvatOpenRow(" in external_js
+    assert "fill(foOpenBox, fiftyoneOpenRow(page))" in external_js

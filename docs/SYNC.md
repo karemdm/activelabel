@@ -36,7 +36,7 @@ A link is created:
 **After an import from CVAT.** A CVAT project, or a task that belongs to one, is imported through the
 synchronisation engine and is **linked right away**: one local task per CVAT task (same jobs), every image
 mapped, nothing to do in the next comparison. From the project page the person can at once:
-- open the project, a task or a job in CVAT (the links of the *Tasks and jobs* list);
+- open the project, a task or a job in CVAT (the *CVAT* tab, or the menu of each task in *Tasks and jobs*);
 - *Compare* in the *CVAT* tab and synchronise in **both directions** (edits made in CVAT come back,
   edits made here go there, conflicts are shown before anything changes);
 - *Edit in FiftyOne* (the FiftyOne tab of a task or job): the FiftyOne dataset is made on the first

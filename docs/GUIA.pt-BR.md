@@ -103,8 +103,8 @@ interface chama de *Tipo*.
   no CVAT. Se um envio for interrompido no meio, a task fica fechada e marcada como incompleta; as imagens
   que faltam vão numa task nova. Detalhes: [TASKS.md](TASKS.md) e [VIDEO.md](VIDEO.md).
 
-**2. Anotações** (opcional). Cinco abas. *Abrir no CVAT* e *Abrir no FiftyOne*, no topo do projeto e nas
-abas CVAT e FiftyOne, abrem o projeto vinculado no CVAT (ou a task ou o job escolhido na aba CVAT) e o dataset
+**2. Anotações** (opcional). Cinco abas. *Abrir no CVAT* e *Abrir no FiftyOne*, nas abas
+CVAT e FiftyOne, abrem o projeto vinculado no CVAT (ou a task ou o job escolhido na aba CVAT) e o dataset
 do projeto no FiftyOne para ver e editar; enquanto o projeto não está no CVAT, o botão diz por quê e leva à aba
 CVAT. As edições voltam como antes: por *Comparar com o CVAT* e por uma sessão de edição do FiftyOne.
 
