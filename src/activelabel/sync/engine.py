@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,28 @@ def _theirs(
         The cleaned labels, with the boxes of unchanged poses carried over.
     """
     return links.carry_pose_boxes([*mine, *(base or [])], _clean(project, labels))
+
+
+def _before_renames(labels: dict[str, list[Label]], renames: list[dict[str, str]]) -> dict[str, list[Label]]:
+    """The labels read from the tool with the classes renamed there given their names here again.
+
+    The review lists the renamed classes on their own line, so the labels of a renamed class are neither
+    a new class nor an edited label in the comparison of the annotations (#519).
+
+    Args:
+        labels: The labels read from the tool, by image id.
+        renames: ``[{"from": class here, "to": name there}]`` (:func:`renamed_classes`).
+
+    Returns:
+        ``labels`` itself when nothing was renamed, else a copy with the old names.
+    """
+    if not renames:
+        return labels
+    back = {r["to"].casefold(): r["from"] for r in renames}
+    return {
+        image_id: [replace(lb, label=back.get(lb.label.casefold(), lb.label)) for lb in items]
+        for image_id, items in labels.items()
+    }
 
 
 def renamed_classes(
@@ -852,7 +875,7 @@ def make_plan(
         "conflicts": conflicts,
         "remote_only": remote_only,
         "unchanged": count[SAME] + count[GONE],
-        "diff_pull": diffing.diff(project_dir, list(pull_new), pull_new, project),
+        "diff_pull": diffing.diff(project_dir, list(pull_new), _before_renames(pull_new, renames), project),
         "diff_push": _push_summary(project, names, push_changes),
         "renamed_classes": renames,
         "not_converted": not_converted(items),

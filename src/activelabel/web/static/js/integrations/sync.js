@@ -4,7 +4,7 @@ import { TOOLS, isHttp, toolName } from './tools.js';
 import { api } from '../shell/api.js';
 import { confirmDialog } from '../shell/dialogs.js';
 import { add, el, fill, icon } from '../shell/dom.js';
-import { fmtDateTime, num, t, tn } from '../shell/i18n.js';
+import { fmtDateTime, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 
 /** Builds the CVAT synchronisation of the project page and returns loadLinks, startSync and syncBlock (the
@@ -142,6 +142,10 @@ export function createSync(page) {
       const cRename = plan.renamed_classes || [];
       const pRename = plan.project_rename || null;
       const renameConflicts = plan.tasks_rename_conflicts || [];
+      /* shapes the tool has that the project cannot hold (ellipses, rotated boxes read as their box...): they stay there (#519) */
+      const notConverted = Object.entries(plan.not_converted || {}).filter(([, n]) => Number(n) > 0);
+      const ncTotal = notConverted.reduce((s, [, n]) => s + Number(n), 0);
+      const ncText = ([kind, n]) => t('sync.not_converted_item', { kind: tr(`sync.shape.${kind}`, kind), n: num(n) });
       const nothing = planIsEmpty(plan);
       const radios = [];
 
@@ -184,6 +188,7 @@ export function createSync(page) {
           pRename && pRename.direction === 'pull' ? line(t('sync.row_project_rename'), 1, sub([pRename], renameText)) : null,
           line(t('sync.row_tasks_rename'), tRenamePull.length, sub(tRenamePull, renameText)),
           line(t('sync.row_classes_rename'), cRename.length, sub(cRename, renameText)),
+          line(t('sync.row_not_converted', { tool: name }), ncTotal, sub(notConverted, ncText)),
           line(t('sync.row_annot'), plan.pull),
           line(t('sync.row_remove'), plan.remove_local),
           line(t('sync.row_restore'), plan.restore_local)]));
@@ -232,6 +237,9 @@ export function createSync(page) {
           el('div', { class: 'conflict-main' },
             el('strong', { class: 'conflict-name', title: c.name }, c.name),
             el('p', { class: 'conflict-kind' }, t(`sync.kind_${c.kind in { removed_local: 1, removed_remote: 1 } ? c.kind : 'labels'}`, { tool: name })),
+            /* the same classes and counts on both sides: what differs is where the objects are (#684) */
+            !(c.kind in { removed_local: 1, removed_remote: 1 }) && perClassText(c.local) === perClassText(c.remote)
+              ? el('p', { class: 'muted conflict-why' }, t('sync.kind_geometry')) : null,
             el('div', { class: 'conflict-sides' },
               el('p', null, el('span', { class: 'side-tag' }, t('sync.side_local')), perClassText(c.local)),
               el('p', null, el('span', { class: 'side-tag' }, name), perClassText(c.remote)))),
