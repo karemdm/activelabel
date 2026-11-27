@@ -659,7 +659,8 @@ def list_images(
     """A page of images, filtered by status, issue, task, job or a comma-separated list of ids.
 
     ``issue`` is one flag (blurry, dark, ...) or ``any`` for every image with at least one flag. In a
-    classification project every item also has ``classes``: the class names of its ground truth.
+    classification project every item also has ``classes``: the class names of its ground truth; in a
+    regression project it has ``values``: its number per target (``{target: value}``).
 
     With ``task`` the items are in task order; ``job`` (1-based) needs ``task``. ``dataset`` keeps the
     images of a dataset version, of one ``part`` (train, val, test) or ``fold`` (0-based).
@@ -725,6 +726,7 @@ def list_images(
     annotations = load_annotations(state.store.dir(project_id))
     counts = {k: len(v) for k, v in annotations.images.items()} if annotations else {}
     classified = annotations is not None and annotations.task == Task.CLASSIFICATION
+    measured = annotations is not None and annotations.task == Task.REGRESSION
     duplicate_of = issues.load_duplicate_of(state.store.dir(project_id))
     names = {r.id: r.name for r in manifest.all()} if duplicate_of else {}
     page = records[offset : offset + limit]
@@ -733,6 +735,10 @@ def list_images(
         item = _image_item(record, counts.get(record.id, 0))
         if classified and annotations:
             item["classes"] = sorted({lb.label for lb in annotations.images.get(record.id, [])})
+        if measured and annotations:
+            item["values"] = {
+                lb.label: lb.value for lb in annotations.images.get(record.id, []) if lb.value is not None
+            }
         original = duplicate_of.get(record.id)
         if original and "near_duplicate" in record.issues:
             item["duplicate_of"], item["duplicate_of_name"] = original, names.get(original, "")

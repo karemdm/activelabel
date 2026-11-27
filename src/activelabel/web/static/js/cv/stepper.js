@@ -18,7 +18,7 @@ export function createStepper(page) {
       const waiting = c.preannotated ? ` · ${tn('status.to_review', c.preannotated)}` : '';
       const none = c.empty ? ` · ${tn('status.empty', c.empty)}` : '';
       return c.annotated > 0 || c.empty > 0
-        ? `${annotationStatus(c)}${c.annotated > 0 ? none : ''}${waiting} · ${tn('status.classes', (ctx.project.classes || []).length)}`
+        ? `${annotationStatus(c)}${c.annotated > 0 ? none : ''}${waiting} · ${tn(ctx.project.task === 'regression' ? 'status.targets' : 'status.classes', (ctx.project.classes || []).length)}`
         : t('status.annotations_none');
     }
     if (step === 'training') {

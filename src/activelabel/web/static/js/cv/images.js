@@ -223,6 +223,7 @@ export function imagesPanel(page) {
       emptyText: filter.task != null || filter.dataset ? t('tasks.filter_empty') : t('grid.no_images'),
     }),
     onOpen: (items, i) => openLightbox(projectId, items, i),
+    targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
   });
   const gridTitle = el('h3', { class: 'section-title', id: 'h-images-grid', tabindex: '-1' }, t('images.grid_title'));
 

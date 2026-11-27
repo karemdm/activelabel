@@ -23,6 +23,7 @@ from activelabel.web import (
     tasks_api,
     training_api,
     uniqueness_api,
+    values_api,
     video_api,
 )
 from activelabel.web.errors import install_error_handlers
@@ -52,6 +53,7 @@ def make_client(tmp_path: Path, import_root: Path | None = None) -> tuple[TestCl
     app.include_router(mistakenness_api.router)
     app.include_router(fiftyone_runs_api.router)
     app.include_router(uniqueness_api.router)
+    app.include_router(values_api.router)
     app.include_router(video_api.router)
     app.include_router(queue_api.router)
     app.include_router(features_api.router)

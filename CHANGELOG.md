@@ -15,6 +15,7 @@ Everything below goes into the first release, 0.1.0.
 
 ### Added
 
+- Regression projects: the Images screen shows the values of each image and lets you edit one by clicking it (#619).
 - **Editing in FiftyOne is one click (#699).** The *FiftyOne* tab has one *Edit in FiftyOne* button that sends the
   images chosen (all, by default; the choice is folded under *Choose images*) and opens the App; *Open in
   FiftyOne (view only)* stays in *Curation* and in a keypoints project. Sending the same images again reuses the
