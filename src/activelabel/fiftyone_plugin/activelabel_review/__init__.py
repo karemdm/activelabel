@@ -33,6 +33,12 @@ TIMEOUT = 10.0  # seconds for one call to the server
 PULL_WAIT = 300.0  # seconds to wait for the pull job
 FINISHED = ("done", "failed", "cancelled")  # states of a finished job (activelabel.constants)
 TIMED_OUT = "timeout"
+#: Seconds to wait before reading the edits again when none came back: the App saves an edit a moment after
+#: the mouse is released, so a click on the button right after a drag can come first.
+SETTLE = 1.5
+PARAGRAPH = chr(10) * 2  # between the paragraphs of a Markdown output
+#: Why the server left the edits for the review (``review`` of the pull) -> the text that says so.
+REVIEW_TEXT = {"asked": "review_asked", "problems": "review_problems", "unknown_classes": "review_problems"}
 
 TEXT: dict[str, dict[str, str]] = {
     "pt": {
@@ -48,9 +54,15 @@ TEXT: dict[str, dict[str, str]] = {
         "none": "No ActiveLabel, envie imagens ao FiftyOne (Anotações) para criar uma sessão de edição.",
         "pick": "Sessão de edição",
         "session_item": "{id} ({status}, {scope})",
-        "intro_title": "Trazer as edições e abrir a revisão",
-        "intro": "O ActiveLabel lê o que você editou aqui e abre a página de revisão: lá você confere e "
-        "aplica ou descarta. Nada é aplicado antes disso.",
+        "intro_title": "Levar as edições ao projeto",
+        "intro": "O ActiveLabel lê o que você editou aqui e aplica no projeto. Se algo precisar de um olhar "
+        "(formas que não dá para ler, conflitos) ou se o projeto pede revisão antes, abre a revisão.",
+        "applied": "Aplicado ao projeto: {images} imagem(ns); {added} adicionado(s), {edited} editado(s), "
+        "{removed} removido(s). Para desfazer, use Desfazer no cartão da sessão no ActiveLabel.",
+        "applied_link": "Ver ou desfazer no ActiveLabel",
+        "review_asked": "O projeto pede revisão antes de aplicar: a revisão foi aberta no ActiveLabel.",
+        "review_problems": "Algumas edições precisam de um olhar: a revisão foi aberta no ActiveLabel.",
+        "review_nothing": "Nada mudou nas imagens desta sessão.",
         "failed": "Não foi possível trazer as edições: {why}",
         "timeout": "O ActiveLabel demorou demais para ler as edições. Abra a revisão e veja o andamento.",
         "done": "Edições lidas. A revisão foi aberta no ActiveLabel.",
@@ -69,9 +81,16 @@ TEXT: dict[str, dict[str, str]] = {
         "none": "In ActiveLabel, send images to FiftyOne (Annotations) to create an edit session.",
         "pick": "Edit session",
         "session_item": "{id} ({status}, {scope})",
-        "intro_title": "Bring the edits back and open the review",
-        "intro": "ActiveLabel reads what you edited here and opens the review page: there you check and "
-        "apply or discard. Nothing is applied before that.",
+        "intro_title": "Take the edits to the project",
+        "intro": "ActiveLabel reads what you edited here and applies it to the project. When something needs "
+        "a look (shapes it cannot read, conflicts) or the project asks for a review first, the review opens.",
+        "applied": "Applied to the project: {images} image(s); {added} added, {edited} edited, {removed} "
+        "removed. To undo, use Undo on the session card in ActiveLabel.",
+        "applied_link": "See or undo in ActiveLabel",
+        "review_asked": "The project asks for a review before applying: the review was opened in "
+        "ActiveLabel.",
+        "review_problems": "Some edits need a look: the review was opened in ActiveLabel.",
+        "review_nothing": "Nothing changed in the images of this session.",
         "failed": "The edits could not be brought back: {why}",
         "timeout": "ActiveLabel took too long to read the edits. Open the review and check its progress.",
         "done": "Edits read. The review was opened in ActiveLabel.",
@@ -178,22 +197,31 @@ def call(base: str, method: str, path: str) -> Any:
         raise ServerError(str(exc)) from exc
 
 
-def live_sessions(base: str, project: int) -> list[dict[str, Any]]:
+def live_sessions(base: str, project: int, also: str | None = None) -> list[dict[str, Any]]:
     """The FiftyOne edit sessions of the project that can still be read back, newest first.
 
     Args:
         base: the server address.
         project: the ActiveLabel project id.
+        also: a session that is listed when it was applied too: the one of the open view, whose image
+            the person may have edited again after sending it (it is applied again).
 
     Returns:
         The sessions.
     """
     answer = call(base, "GET", f"/api/projects/{project}/annotate")
     found = answer.get("sessions", []) if isinstance(answer, dict) else []
-    return [s for s in found if s.get("tool") == "fiftyone" and s.get("status") in LIVE]
+    return [
+        s
+        for s in found
+        if s.get("tool") == "fiftyone"
+        and (s.get("status") in LIVE or (s.get("status") == "applied" and s.get("id") == also))
+    ]
 
 
-def pull(base: str, project: int, session: str, wait: float | None = None) -> dict[str, Any]:
+def pull(
+    base: str, project: int, session: str, wait: float | None = None, apply_auto: bool = False
+) -> dict[str, Any]:
     """Ask the server to read the session's edits back and wait until it has.
 
     Args:
@@ -201,14 +229,16 @@ def pull(base: str, project: int, session: str, wait: float | None = None) -> di
         project: the ActiveLabel project id.
         session: the session id.
         wait: seconds to wait for the job (``PULL_WAIT`` when not given).
+        apply_auto: ask the server to apply the edits at once when nothing needs a review.
 
     Returns:
-        The result of the job (``{session, diff}``).
+        The result of the job (``{session, diff}``, with ``applied`` or ``review`` when ``apply_auto``).
 
     Raises:
         ServerError: the call or the job failed, or the job did not finish in time (message ``timeout``).
     """
-    job = call(base, "POST", f"/api/projects/{project}/annotate/{quote(session, safe='')}/pull")
+    query = "?apply=auto" if apply_auto else ""
+    job = call(base, "POST", f"/api/projects/{project}/annotate/{quote(session, safe='')}/pull{query}")
     deadline = time.monotonic() + (PULL_WAIT if wait is None else wait)
     while job.get("status") not in FINISHED:
         if time.monotonic() > deadline:
@@ -232,6 +262,26 @@ def review_url(base: str, project: int, session: str) -> str:
         The address of the project's Annotations step, with the session to show.
     """
     return f"{base}/projects/{project}?review={quote(session, safe='')}#annotations"
+
+
+def applied_text(counts: dict[str, Any]) -> str:
+    """What an apply changed, in one sentence.
+
+    Args:
+        counts: the counts the server returned (``images_changed`` or ``images``, ``added``, ``edited``,
+            ``removed``).
+
+    Returns:
+        The sentence, in the language of ActiveLabel.
+    """
+    images = counts.get("images_changed", counts.get("images", 0))
+    return say(
+        "applied",
+        images=images,
+        added=counts.get("added", 0),
+        edited=counts.get("edited", 0),
+        removed=counts.get("removed", 0),
+    )
 
 
 def warning(inputs: Any, title: str, text: str) -> Any:
@@ -335,23 +385,33 @@ class SendToActiveLabel(foo.Operator):
             ctx.ops.notify(say("no_url"), variant="error")
             return {}
         try:
-            ids = [s["id"] for s in live_sessions(base, project)]
             wanted = ctx.params.get("session") or session_of_view(getattr(ctx.view, "name", None))
+            ids = [s["id"] for s in live_sessions(base, project, also=wanted)]
             if not ids:
                 ctx.ops.notify(say("none"), variant="error")
                 return {}
             session = str(wanted) if wanted in ids else ids[0]
-            pull(base, project, session)
+            result = pull(base, project, session, apply_auto=True)
+            if result.get("review") == "nothing_changed":  # the App may still be saving the last drag
+                time.sleep(SETTLE)
+                result = pull(base, project, session, apply_auto=True)
         except ServerError as exc:
             why = say("timeout") if str(exc) == TIMED_OUT else say("failed", why=str(exc))
             ctx.ops.notify(why, variant="error")
             return {}
         url = review_url(base, project, session)
+        applied = result.get("applied")
+        if applied:
+            ctx.ops.notify(applied_text(applied), variant="success")
+            return {"url": url, "applied": applied}
+        if result.get("review") == "nothing_changed":
+            ctx.ops.notify(say("review_nothing"), variant="info")
+            return {"url": url}
         try:
             webbrowser.open(url)
         except webbrowser.Error:
             pass  # the link in the output still works
-        ctx.ops.notify(say("done"), variant="success")
+        ctx.ops.notify(say(REVIEW_TEXT.get(str(result.get("review")), "done")), variant="info")
         return {"url": url}
 
     def resolve_output(self, ctx: Any) -> Any:
@@ -364,16 +424,56 @@ class SendToActiveLabel(foo.Operator):
             The output description.
         """
         outputs = types.Object()
-        url = (ctx.results or {}).get("url")
+        results = ctx.results or {}
+        url = results.get("url")
+        lines = [applied_text(results["applied"])] if results.get("applied") else []
         if url:
-            outputs.md(f"[{say('link')}]({url})")
+            lines.append(f"[{say('applied_link' if results.get('applied') else 'link')}]({url})")
+        if lines:
+            outputs.md(PARAGRAPH.join(lines))
         return types.Property(outputs)
 
 
+class SendFromImage(SendToActiveLabel):
+    """The same as :class:`SendToActiveLabel`, as a button of the image window that runs at once (no dialog).
+
+    After editing a box the person is in the image window: this is the one click that takes the edit to the
+    project. It picks the session of the open view (or the only one).
+    """
+
+    @property
+    def config(self) -> Any:
+        """Operator settings (no dialog: one click)."""
+        return foo.OperatorConfig(name="send_from_image", label=say("label"), unlisted=True)
+
+    def resolve_placement(self, ctx: Any) -> Any:
+        """A text button in the image window's toolbar.
+
+        Args:
+            ctx: the operator context.
+
+        Returns:
+            The placement.
+        """
+        return types.Placement(types.Places.SAMPLES_VIEWER_ACTIONS, types.Button(label=say("label")))
+
+    def resolve_input(self, ctx: Any) -> Any:
+        """No dialog.
+
+        Args:
+            ctx: the operator context.
+
+        Returns:
+            None.
+        """
+        return None
+
+
 def register(p: Any) -> None:
-    """Register the operator with FiftyOne.
+    """Register the operators with FiftyOne.
 
     Args:
         p: the FiftyOne plugin context.
     """
     p.register(SendToActiveLabel)
+    p.register(SendFromImage)

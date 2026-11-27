@@ -13,6 +13,11 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ### Added
 
+- **Edits go to the project from the App in one click (#706, #703).** *Enviar ao ActiveLabel* is also a button of the
+  image window (no dialog). It applies the edits at once when nothing needs a look (no unreadable shape, conflict or
+  unknown class) and says what changed; otherwise, or with *Revisar antes de aplicar* on (FiftyOne tab), the review
+  opens as before. An applied session card has *Desfazer*. Fixing one box takes 5 clicks instead of 10.
+
 - **Edit one image in FiftyOne from its window (#706).** Clicking an image in the *Images* gallery shows *Edit in
   FiftyOne*: it sends that image and the App opens straight on it, ready to edit (fewer clicks for the common case).
 

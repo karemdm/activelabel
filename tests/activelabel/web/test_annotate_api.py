@@ -191,3 +191,97 @@ def test_origins_pair_a_moved_box_and_are_kept_only_for_the_edited_images(tmp_pa
     assert (applied["added"], applied["removed"], applied["edited"]) == (0, 0, 1)
     saved = load_annotations(folder).images
     assert saved[ids[0]][0].bbox == moved.bbox and saved[ids[1]] == [other]
+
+
+def _auto_pull(state, folder, sid, tool):
+    return annotate_api._pull_job(
+        state, state.project(1), tool, ToolSettings("fiftyone"), sessions.get(folder, sid), sid, Quiet(), True
+    )
+
+
+def test_a_pull_from_the_app_applies_at_once_and_the_apply_can_be_undone(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    result = _auto_pull(state, folder, sid, tool)
+    assert result["applied"]["images_changed"] == 1 and "review" not in result
+    assert result["session"]["status"] == "applied"
+    assert load_annotations(folder).images[ids[0]][0].label == "cat"
+    undone = client.post(f"/api/projects/1/annotate/{sid}/undo")
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["session"]["status"] == "pulled"  # can be applied again, or discarded
+    annotations = load_annotations(folder)
+    assert not (annotations and annotations.images.get(ids[0]))  # the project is as before the apply
+    again = client.post(f"/api/projects/1/annotate/{sid}/undo")
+    assert again.status_code == 409 and again.json()["code"] == "undo_not_applied"
+    assert client.post(f"/api/projects/1/annotate/{sid}/apply").status_code == 200
+
+
+def test_an_apply_cannot_be_undone_after_the_annotations_changed(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    _auto_pull(state, folder, sid, tool)
+    with annotations_lock(folder):
+        current = load_annotations(folder)
+        current.images[ids[1]] = [Label("cat", bbox=[0.5, 0.5, 0.2, 0.2])]
+        save_annotations(folder, current)
+    reply = client.post(f"/api/projects/1/annotate/{sid}/undo")
+    assert reply.status_code == 409 and reply.json()["code"] == "undo_changed_since"
+
+
+def test_a_project_that_asks_for_a_review_keeps_the_pull_for_the_review(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    assert client.get("/api/projects/1/annotate/prefs").json() == {"review_first": False}
+    assert client.put("/api/projects/1/annotate/prefs", json={"review_first": True}).json() == {
+        "review_first": True
+    }
+    result = _auto_pull(state, folder, sid, tool)
+    assert result["review"] == "asked" and "applied" not in result
+    assert sessions.get(folder, sid)["status"] == "pulled"
+
+
+@pytest.mark.parametrize(
+    ("summary", "why"),
+    [
+        ({"images_changed": 0}, "nothing_changed"),
+        ({"images_changed": 1, "problems": [{"code": "box_invalid"}]}, "problems"),
+        ({"images_changed": 1, "problems": [], "unknown_classes": ["dog"]}, "unknown_classes"),
+        ({"images_changed": 2, "problems": [], "unknown_classes": []}, ""),
+    ],
+)
+def test_what_needs_a_review(summary, why) -> None:
+    assert annotate_api._needs_review(summary) == why
+
+
+def test_an_apply_that_fails_leaves_the_edits_for_the_review(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+
+    def changed(*args):
+        raise ApiError(409, "annotations_changed", "changed")
+
+    monkeypatch.setattr(annotate_api, "_apply_pulled", changed)
+    result = _auto_pull(state, folder, sid, tool)
+    assert result["review"] == "annotations_changed" and "applied" not in result
+
+
+def test_a_session_whose_safety_copy_is_gone_cannot_be_undone(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    with annotations_lock(folder):  # the project has annotations before the apply: a safety copy is made
+        save_annotations(folder, AnnotationSet(Task.DETECTION, ["cat"], {ids[1]: []}, {}))
+    result = _auto_pull(state, folder, sid, tool)
+    (folder / result["applied"]["backup"]).unlink()
+    reply = client.post(f"/api/projects/1/annotate/{sid}/undo")
+    assert reply.status_code == 409 and reply.json()["code"] == "undo_not_applied"
+
+
+def test_an_applied_session_is_read_again_only_by_a_send_from_the_app(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, {})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    _auto_pull(state, folder, sid, tool)
+    monkeypatch.setattr(annotate_api, "_session_tool", lambda name: tool)
+    plain = client.post(f"/api/projects/1/annotate/{sid}/pull")
+    assert plain.status_code == 409 and plain.json()["code"] == "session_finished"
+    again = client.post(f"/api/projects/1/annotate/{sid}/pull?apply=auto")
+    assert again.status_code == 200, again.text  # the image was edited again after the send: read it again

@@ -34,6 +34,16 @@ disabled, with the reason written under it, while *View in FiftyOne* stays (docs
 straight on it, in Annotate mode (the session link carries `?id=<sample>`, `fiftyone_bridge.with_sample`).
 A keypoints project does not get the button.
 
+**Back to the project in one click.** The App has *Send to ActiveLabel* (*Enviar ao ActiveLabel*) in the image
+window's toolbar (no dialog) and in the grid toolbar (with a dialog to pick the session). It reads the edits
+back (`pull?apply=auto`) and applies them at once when nothing needs a look: no shape that cannot be read,
+no conflict, no unknown class, and the project does not ask for a review first. The App then says what was
+applied. Otherwise the review page opens, as before. *Review before applying* (*Revisar antes de aplicar*) in
+the *FiftyOne* tab keeps every send for the review. An applied session card has *Undo* (*Desfazer*): the
+safety copy made by the apply becomes the annotations again and the session is back to *pulled* (review and
+apply again, or discard). Fixing one box therefore takes 5 clicks: the image, *Edit in FiftyOne*, the box,
+the drag, *Send to ActiveLabel*.
+
 **How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
 gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
 in a list), so nothing has to be set up: click *Edit in FiftyOne* and click an image. The image window opens
@@ -300,8 +310,10 @@ a result message about an old value is cleared as soon as a field is edited.
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
 | POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}` (an open session with the same scope and images is reused, not duplicated); 400 `tool_unsupported` for any other tool; 400 `fiftyone_keypoints_not_editable` for a keypoints project (the App cannot edit keypoints) |
-| POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
+| POST | `/api/projects/{id}/annotate/{session}/pull` | query `apply=auto` (the App's *Send to ActiveLabel*) | job; result `{session, diff}`, with `applied` (the counts) when `apply=auto` applied at once, or `review` (`asked`, `problems`, `unknown_classes`, `nothing_changed` or the code of a refused apply) when the edits wait for the review; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
+| POST | `/api/projects/{id}/annotate/{session}/undo` | | `{session, restored}`: the safety copy made by the apply is the annotations again (none, when the project had none) and the session is `pulled` again; 409 `undo_not_applied`, 409 `undo_changed_since` when the annotations changed after the apply |
+| GET, PUT | `/api/projects/{id}/annotate/prefs` | `{review_first}` | `{review_first}` (`annotate_prefs.json`): edits sent from the App wait for the review instead of being applied at once |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; puts the session images in FiftyOne back to the project labels; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
 | DELETE | `/api/projects/{id}/annotate/{session}` | | `{closed: true}` (a session of a discontinued tool is only forgotten) |
 | GET | `/api/projects/{id}/images/{image_id}/labels` | | `{labels, classes, revision, tags}`; 404 `image_not_found` |

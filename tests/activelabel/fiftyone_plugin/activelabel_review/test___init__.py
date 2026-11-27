@@ -161,7 +161,7 @@ def test_pull_waits_for_the_job(server):
     base, routes, seen = server
     routes[("POST", "/api/projects/2/annotate/a/pull")] = (200, {"id": "j1", "status": "queued"})
     routes[("GET", "/api/jobs/j1")] = (200, {"id": "j1", "status": "done", "result": {"diff": {}}})
-    assert plugin.pull(base, 2, "a") == {"diff": {}}
+    assert plugin.pull(base, 2, "a") == {"diff": {}}  # without apply_auto: the plain pull
     assert seen == [("POST", "/api/projects/2/annotate/a/pull"), ("GET", "/api/jobs/j1")]
 
 
@@ -179,6 +179,13 @@ def test_pull_gives_up_after_the_wait(server):
     routes[("GET", "/api/jobs/j1")] = (200, {"id": "j1", "status": "running"})
     with pytest.raises(plugin.ServerError, match=plugin.TIMED_OUT):
         plugin.pull(base, 2, "a", wait=-1)
+
+
+def test_apply_auto_asks_the_server_to_apply(server):
+    base, routes, seen = server
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = (200, {"id": "j", "status": "done"})
+    plugin.pull(base, 2, "a", apply_auto=True)
+    assert seen == [("POST", "/api/projects/2/annotate/a/pull?apply=auto")]
 
 
 def test_the_session_id_cannot_change_the_path(server):
@@ -233,27 +240,30 @@ def test_one_session_needs_no_choice_and_several_default_to_the_open_view(server
 def test_running_it_pulls_the_session_and_opens_the_review(server, no_browser):
     base, routes, seen = server
     routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a"), session("b")]})
-    routes[("POST", "/api/projects/2/annotate/b/pull")] = (200, {"id": "j1", "status": "done", "result": {}})
+    routes[("POST", "/api/projects/2/annotate/b/pull?apply=auto")] = (
+        200,
+        {"id": "j1", "status": "done", "result": {}},
+    )
     ctx = Context(info_for(base), params={"session": "b"})
     result = plugin.SendToActiveLabel().execute(ctx)
     assert result == {"url": f"{base}/projects/2?review=b#annotations"}
     assert no_browser == [f"{base}/projects/2?review=b#annotations"]
-    assert ctx.ops.notes == [("success", plugin.TEXT["pt"]["done"])]
-    assert ("POST", "/api/projects/2/annotate/b/pull") in seen
+    assert ctx.ops.notes == [("info", plugin.TEXT["pt"]["done"])]  # no "review" said: the plain text
+    assert ("POST", "/api/projects/2/annotate/b/pull?apply=auto") in seen
 
 
 def test_without_a_choice_the_session_of_the_open_view_is_used(server):
     base, routes, seen = server
     routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a"), session("b")]})
-    routes[("POST", "/api/projects/2/annotate/b/pull")] = (200, {"id": "j1", "status": "done"})
+    routes[("POST", "/api/projects/2/annotate/b/pull?apply=auto")] = (200, {"id": "j1", "status": "done"})
     plugin.SendToActiveLabel().execute(Context(info_for(base), view_name="annotate - session b"))
-    assert ("POST", "/api/projects/2/annotate/b/pull") in seen
+    assert ("POST", "/api/projects/2/annotate/b/pull?apply=auto") in seen
 
 
 def test_a_failure_is_shown_in_the_app_and_nothing_is_opened(server, no_browser):
     base, routes, _ = server
     routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
-    routes[("POST", "/api/projects/2/annotate/a/pull")] = (409, {"detail": "project busy"})
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = (409, {"detail": "project busy"})
     ctx = Context(info_for(base))
     assert plugin.SendToActiveLabel().execute(ctx) == {}
     assert ctx.ops.notes[0][0] == "error"
@@ -264,7 +274,7 @@ def test_a_failure_is_shown_in_the_app_and_nothing_is_opened(server, no_browser)
 def test_a_timeout_has_its_own_text(server, monkeypatch):
     base, routes, _ = server
     routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
-    routes[("POST", "/api/projects/2/annotate/a/pull")] = (200, {"id": "j1", "status": "running"})
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = (200, {"id": "j1", "status": "running"})
     routes[("GET", "/api/jobs/j1")] = (200, {"id": "j1", "status": "running"})
     monkeypatch.setattr(plugin, "PULL_WAIT", -1)
     ctx = Context(info_for(base))
@@ -294,7 +304,89 @@ def test_the_operator_is_registered_and_placed_in_the_grid():
         register = registered.append
 
     plugin.register(Plugin)
-    assert registered == [plugin.SendToActiveLabel]
+    assert registered == [plugin.SendToActiveLabel, plugin.SendFromImage]
     op = plugin.SendToActiveLabel()
     assert op.config.name == "send_to_activelabel"
     assert op.resolve_placement(Context({})).view.label == "Enviar ao ActiveLabel"
+
+
+def pulled(review=None, applied=None):
+    result = {"session": session("a", "pulled"), "diff": {}}
+    if review:
+        result["review"] = review
+    if applied:
+        result["applied"] = applied
+    return (200, {"id": "j1", "status": "done", "result": result})
+
+
+def test_edits_that_need_no_look_are_applied_and_nothing_opens(server, no_browser):
+    base, routes, _ = server
+    routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
+    counts = {"images_changed": 1, "added": 0, "edited": 1, "removed": 2, "backup": "x.json"}
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = pulled(applied=counts)
+    ctx = Context(info_for(base))
+    result = plugin.SendToActiveLabel().execute(ctx)
+    assert result["applied"] == counts and result["url"].endswith("?review=a#annotations")
+    assert no_browser == []  # nothing to review: the person stays in the App
+    variant, text = ctx.ops.notes[0]
+    assert variant == "success" and "1 imagem(ns)" in text and "2 removido(s)" in text
+    ctx.results = result
+    text = plugin.SendToActiveLabel().resolve_output(ctx).type.properties["markdown"].default
+    assert "Aplicado ao projeto" in text and "Ver ou desfazer no ActiveLabel" in text
+
+
+@pytest.mark.parametrize(
+    ("review", "text"),
+    [("asked", "review_asked"), ("problems", "review_problems"), ("unknown_classes", "review_problems")],
+)
+def test_edits_that_need_a_look_open_the_review_and_say_why(server, no_browser, review, text):
+    base, routes, _ = server
+    routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = pulled(review=review)
+    ctx = Context(info_for(base))
+    plugin.SendToActiveLabel().execute(ctx)
+    assert no_browser == [f"{base}/projects/2?review=a#annotations"]
+    assert ctx.ops.notes == [("info", plugin.TEXT["pt"][text])]
+
+
+def test_nothing_changed_is_read_again_once_in_case_the_app_was_still_saving(server, no_browser):
+    base, routes, seen = server
+    routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = pulled(review="nothing_changed")
+    plugin.SendToActiveLabel().execute(Context(info_for(base)))
+    assert [s for s in seen if s[0] == "POST"] == [("POST", "/api/projects/2/annotate/a/pull?apply=auto")] * 2
+
+
+def test_an_applied_session_of_the_open_view_can_be_sent_again(server):
+    base, routes, seen = server
+    routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a"), session("b", "applied")]})
+    counts = {"images_changed": 1, "edited": 1}
+    routes[("POST", "/api/projects/2/annotate/b/pull?apply=auto")] = pulled(applied=counts)
+    result = plugin.SendToActiveLabel().execute(Context(info_for(base), view_name="annotate - session b"))
+    assert result["applied"] == counts
+    other = plugin.live_sessions(base, 2)  # without the open view, an applied session is not offered
+    assert [s["id"] for s in other] == ["a"]
+
+
+def test_nothing_changed_opens_nothing(server, no_browser):
+    base, routes, _ = server
+    routes[("GET", "/api/projects/2/annotate")] = (200, {"sessions": [session("a")]})
+    routes[("POST", "/api/projects/2/annotate/a/pull?apply=auto")] = pulled(review="nothing_changed")
+    ctx = Context(info_for(base))
+    plugin.SendToActiveLabel().execute(ctx)
+    assert no_browser == []
+    assert ctx.ops.notes == [("info", plugin.TEXT["pt"]["review_nothing"])]
+
+
+def test_the_image_window_button_runs_at_once():
+    op = plugin.SendFromImage()
+    assert op.config.name == "send_from_image" and op.config.unlisted
+    placement = op.resolve_placement(Context({}))
+    assert placement.view.label == "Enviar ao ActiveLabel" and not placement.view.prompt
+    assert op.resolve_input(Context({})) is None  # no dialog: one click
+
+
+def test_the_applied_text_reads_the_counts_of_either_name(monkeypatch):
+    monkeypatch.setenv("ACTIVELABEL_LANG", "en")
+    assert "3 image(s)" in plugin.applied_text({"images": 3})
+    assert "0 added, 0 edited, 0 removed" in plugin.applied_text({})

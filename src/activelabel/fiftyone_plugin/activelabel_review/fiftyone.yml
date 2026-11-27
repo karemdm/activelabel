@@ -5,3 +5,4 @@ fiftyone:
   version: "*"
 operators:
   - send_to_activelabel
+  - send_from_image
