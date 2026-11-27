@@ -177,7 +177,8 @@ def start_clustering(project_id: int, body: ClusteringBody, state: AppState = ST
     Raises:
         ApiError: 409 ``clustering_running`` while a regrouping is queued or running, 409
             ``similarity_running`` while the map is, 409 ``similarity_map_needed`` without a map, 400
-            ``cluster_invalid`` for a method or number out of range.
+            ``cluster_method_unknown``, ``cluster_groups_range`` or ``cluster_min_size_small`` for a method or
+            number out of range.
     """
     project = state.project(project_id)
     project_dir = state.store.dir(project_id)

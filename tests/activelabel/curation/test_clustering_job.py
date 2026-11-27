@@ -157,15 +157,20 @@ def test_without_the_map_it_needs_it(setup):
 
 
 @pytest.mark.parametrize(
-    ("method", "groups", "min_size"),
-    [("dbscan", 0, 5), ("kmeans", 1, 5), ("kmeans", 51, 5), ("hdbscan", 0, 1)],
+    ("method", "groups", "min_size", "code"),
+    [
+        ("dbscan", 0, 5, "cluster_method_unknown"),
+        ("kmeans", 1, 5, "cluster_groups_range"),
+        ("kmeans", 51, 5, "cluster_groups_range"),
+        ("hdbscan", 0, 1, "cluster_min_size_small"),
+    ],
 )
-def test_a_method_or_number_out_of_range_is_refused_before_queueing(setup, method, groups, min_size):
+def test_a_method_or_number_out_of_range_is_refused_before_queueing(setup, method, groups, min_size, code):
     client, state, runner, published = setup
     save_map(state)
     with pytest.raises(CodedError) as caught:
         clustering_job.start(runner, state.project(1), state.store.dir(1), method, groups, min_size)
-    assert caught.value.code == "cluster_invalid" and caught.value.params["reason"]
+    assert caught.value.code == code and caught.value.params  # the numbers the translated text needs
     assert entry(state) == {}
 
 

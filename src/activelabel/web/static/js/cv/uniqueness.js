@@ -123,7 +123,7 @@ export function uniquenessBlock(page) {
     const has = hasScores();
     const blocked = !mapReady && !active;
     const startBtn = el('button', {
-      type: 'button', class: `btn${has ? '' : ' primary'}`, disabled: active || !mapReady,
+      type: 'button', class: 'btn', disabled: active || !mapReady,
       'aria-describedby': blocked ? 'uniq-reason' : null, onclick: (e) => start(e.currentTarget),
     }, has ? t('uniq.recompute') : t('uniq.compute'));
     const actions = el('div', { class: 'cur-actions' }, startBtn,

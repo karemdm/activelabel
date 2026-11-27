@@ -86,6 +86,8 @@ test('without the similarity map the button is off and says why', async () => {
 
   block.setMap(true);
   assert.equal(button(block.node, 'Compute uniqueness').disabled, false);
+  // one primary action per screen (#340): this optional step is a secondary button
+  assert.equal(button(block.node, 'Compute uniqueness').classList.contains('primary'), false);
   assert.doesNotMatch(block.node.textContent, /Compute the similarity map first\./);
 });
 
