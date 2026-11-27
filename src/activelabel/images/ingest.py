@@ -30,6 +30,12 @@ from activelabel.storage import now
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"})
 ANNOTATION_EXTENSIONS = frozenset({".json", ".txt", ".xml", ".yaml", ".yml", ".csv"})
 IGNORED_NAMES = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
+#: Text files that come with a dataset but hold no annotations (compared with the lower-case stem).
+NOT_ANNOTATION_STEMS = frozenset(
+    {"readme", "license", "licence", "copying", "notice", "authors", "changelog"}
+)
+HEAD_BYTES = 8192  # how much of a text file is read to tell YOLO lines from prose
+YOLO_MIN_FIELDS = 5  # class, x, y, w, h
 
 MIN_SIDE = 8
 BATCH_SIZE = 200
@@ -118,6 +124,48 @@ def _clean_name(name: str) -> str | None:
     if not parts or ".." in parts:
         return None
     return "/".join(parts)
+
+
+def _looks_like_yolo(head: bytes) -> bool:
+    """Whether the start of a text file has a YOLO line (a class id and four or more numbers).
+
+    Args:
+        head: the first bytes of the file.
+
+    Returns:
+        True when at least one line is ``<integer> <number> <number> <number> <number> ...``.
+    """
+    for line in head.decode("utf-8", errors="ignore").splitlines():
+        fields = line.split()
+        if len(fields) < YOLO_MIN_FIELDS or not fields[0].isdigit():
+            continue
+        try:
+            for field_ in fields[1:]:
+                float(field_)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
+def _is_annotation_file(name: str, stream: IO[bytes]) -> bool:
+    """Whether a file sent with images is an annotation file (to be imported in step 2).
+
+    A ``.txt`` counts only when it has YOLO lines, and README, LICENSE and the like never count.
+
+    Args:
+        name: the cleaned relative name (``/`` separators).
+        stream: its content (a ``.txt`` is read for its first bytes).
+
+    Returns:
+        True for a json, xml, yaml or csv file and for a ``.txt`` with YOLO lines.
+    """
+    path = PurePosixPath(name)
+    if path.stem.lower() in NOT_ANNOTATION_STEMS:
+        return False
+    if path.suffix.lower() == ".txt":
+        return _looks_like_yolo(stream.read(HEAD_BYTES))
+    return True
 
 
 def _is_hidden(name: str) -> bool:
@@ -259,7 +307,8 @@ class _Ingester:
         elif ext in IMAGE_EXTENSIONS:
             self._store_image(clean, stream)
         elif ext in ANNOTATION_EXTENSIONS:
-            self.report.other_files.append(clean)  # annotation files sent with the images: step 2
+            if _is_annotation_file(clean, stream):
+                self.report.other_files.append(clean)  # annotation files sent with the images: step 2
         else:
             self.reject(clean, "unsupported")
 
@@ -409,7 +458,9 @@ class _Ingester:
                 self.reject(clean, "corrupt")
                 return 0
         if ext in ANNOTATION_EXTENSIONS:
-            self.report.other_files.append(clean)
+            with archive.open(info) as entry:
+                if _is_annotation_file(clean, entry):
+                    self.report.other_files.append(clean)
         elif ext == ".zip":
             self.reject(clean, "nested archive")
         else:

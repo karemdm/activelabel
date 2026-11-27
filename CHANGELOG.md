@@ -163,6 +163,9 @@ The first release.
   the report.
 - **A pending report tells whether the project has annotations now (#651).** `GET /annotations/pending` reads
   `has_annotations` again instead of returning the value of the moment of the check.
+- **A README sent with the images is not taken for annotations (#651).** In the images step, a `.txt` counts as
+  an annotation file only when it has YOLO lines, and README, LICENSE and similar files never do, so the
+  "looks like annotations" notice no longer appears for them.
 - **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
   (images written to the dataset, then the App; the activity pill also names the stage), and the App really
   opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened
