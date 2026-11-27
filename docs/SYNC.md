@@ -121,7 +121,8 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    longer exists answers 404 `plan_not_found` and the interface asks to compare again.
 2. **Apply** (job `sync_apply`) with `{plan_id, resolutions: {"<image_id>": "local"|"remote"},
    default: "local"|"remote"|null, delete_tasks: bool}` (`delete_tasks`: also delete in the tool the
-   tasks deleted here; false by default): re-reads only what it needs, refuses if the remote, the
+   tasks deleted here; false by default; a task left in the tool is remembered in the link as
+   `kept_remote` and is neither offered for deletion again nor imported back): re-reads only what it needs, refuses if the remote, the
    project's annotations or the link changed again since the plan ("Synchronise again"), then: backup + write pulled labels into the
    project ground truth; write pushed labels to the remote; upload added images; update the
    link (`base` hashes, keys, `last_sync`). Result: counts (`pulled`, `pushed`, `added`, `images_new` and

@@ -96,7 +96,7 @@ export function createSync(page) {
     }
 
     const RESULT_KEYS = ['pulled', 'pushed', 'images_new', 'labels_new', 'removed_remote', 'removed_local', 'restored_remote', 'restored_local',
-      'tasks_created', 'tasks_imported', 'tasks_deleted', 'conflicts_left'];
+      'tasks_created', 'tasks_imported', 'tasks_deleted', 'tasks_renamed', 'project_renamed', 'conflicts_left'];
     const resultJob = () => {
       const last = [...ctx.jobs].sort((a, b) => String(b.created).localeCompare(String(a.created))).find((j) => j.kind === 'sync_apply');
       if (!last || last.status !== 'done' || ctx.syncDismissed.has(last.id)) return null;

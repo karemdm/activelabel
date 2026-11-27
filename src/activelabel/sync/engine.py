@@ -684,6 +684,9 @@ def make_plan(
         items: list[RemoteItem] = []
     else:
         items = remote.items(settings, info.id, project.task, sorted(read) if read is not None else None)
+    # tasks deleted here that the person chose to keep in the tool: left alone, not offered again (#684)
+    kept_remote = {str(m.get("remote_task")) for m in tmap.values() if m.get("kept_remote")}
+    items = [it for it in items if _key_task(it.key) not in kept_remote]
     progress.update(message="Comparing")
 
     records = manifest.load()
@@ -839,11 +842,14 @@ def make_plan(
         {"task": int(tid), "remote_task": str(m.get("remote_task")), "name": str(m.get("name", ""))}
         for tid, m in tmap.items()
         if direction != PULL_ONLY  # the tool wins: its task stays
+        and not m.get("kept_remote")
         and tid not in local_ids
         and str(m.get("remote_task")) in rtask_ids
         and (read is None or str(m.get("remote_task")) in read)
     ]
-    mapped_remote = set(mapping.values()) | {_key_task(d["key"]) for d in decisions.values() if d["key"]}
+    mapped_remote = (
+        set(mapping.values()) | {_key_task(d["key"]) for d in decisions.values() if d["key"]} | kept_remote
+    )
     tasks_new: list[dict[str, Any]] = []
     if scope == "project" and direction != PUSH_ONLY:  # push: the tool's extra tasks stay
         tasks_new = [
@@ -1349,7 +1355,13 @@ def apply_plan(
     for image_id, d in decisions.items():  # conflicts left as they are keep their old base
         if image_id not in final_action and d["key"]:
             items.setdefault(image_id, {"key": d["key"]})
-    if dropping:  # images of tasks deleted on both sides: nothing left to link
+    if not delete_tasks:  # tasks deleted here and kept in the tool: remembered, so the next plan leaves them
+        for spec in plan.get("tasks_delete") or []:
+            tid = str(spec["task"])
+            if tid in tmap:
+                tmap[tid] = {**tmap[tid], "kept_remote": True}
+                dropping = {*dropping, str(spec["remote_task"])}
+    if dropping:  # images of tasks gone on both sides, or left in the tool: nothing here to link
         items = {i: e for i, e in items.items() if _key_task(str(e.get("key", ""))) not in dropping}
     if not recorded_name:  # a comparison of one task or job leaves the recorded name as it was
         recorded_name = str((old or {}).get("remote_name") or "") if old and keep else ""

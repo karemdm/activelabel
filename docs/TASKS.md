@@ -132,6 +132,11 @@ another local task) is a warning and is tried again at the next synchronisation.
 does not contact CVAT by itself: the new name reaches CVAT on the next synchronisation. The name of the
 project is compared the same way (docs/SYNC.md).
 
+**Deleting a task that is in CVAT.** The confirmation says that the CVAT task stays. The next comparison
+offers to delete it there too (a checkbox, off by default); when it is left, the link remembers the choice
+(`kept_remote`): the task is not offered again, not imported back as a new one and its images no longer
+count in the link. To delete it in CVAT later, delete it in CVAT.
+
 **Sending to CVAT is synchronising.** The annotation sessions that created separate 50-image CVAT
 tasks are replaced, for CVAT, by the sync with the mirror project. The person chooses the scope:
 

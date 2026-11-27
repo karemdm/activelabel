@@ -503,7 +503,8 @@ export function imagesPanel(page) {
   async function deleteTask(task) {
     const ok = await confirmDialog({
       title: t('tasks.delete_title', { name: task.name }),
-      text: tn('tasks.delete_text', task.images),
+      /* a task that is also in CVAT stays there unless the comparison with CVAT is told to delete it too (#684) */
+      text: [tn('tasks.delete_text', task.images), task.remote || task.cvat === 'ready' ? t('tasks.delete_text_cvat') : null].filter(Boolean).join(' '),
       confirmLabel: t('tasks.delete_confirm'),
     });
     if (!ok) return;
