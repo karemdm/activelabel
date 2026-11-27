@@ -165,17 +165,21 @@ def per_class(report: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["support"], row["class"]))[:REPORT_CLASSES]
 
 
-def confusion(results: Any, rows: list[dict[str, Any]], objects: bool) -> dict[str, Any]:
+def confusion(
+    results: Any, rows: list[dict[str, Any]], objects: bool, unpredicted: bool = False
+) -> dict[str, Any]:
     """The confusion matrix of the most frequent classes (ground truth in rows, predictions in columns).
 
     The classes that are left out are summed in one extra row and column (``other``); for objects one more
     (``missing``) counts the objects with no match: a prediction with no ground truth (row) and a ground
-    truth no prediction found (column).
+    truth no prediction found (column). For a classification it counts, in its column, the images the model
+    gave no class (``unpredicted``); without it those images would be missing from the matrix.
 
     Args:
         results: The FiftyOne evaluation results.
         rows: The classes with their metrics (:func:`per_class`), already in order of frequency.
         objects: Whether the evaluation is of objects (detections or polygons).
+        unpredicted: Whether some image of a classification got no prediction.
 
     Returns:
         ``{"classes": [...], "other": bool, "missing": bool, "matrix": [[int]]}``; the extra row and column
@@ -183,11 +187,12 @@ def confusion(results: Any, rows: list[dict[str, Any]], objects: bool) -> dict[s
     """
     names = [row["class"] for row in rows[:MATRIX_CLASSES]]
     other = len(rows) > len(names)
-    matrix = results.confusion_matrix(classes=names, include_other=other, include_missing=objects)
+    missing = objects or unpredicted
+    matrix = results.confusion_matrix(classes=names, include_other=other, include_missing=missing)
     return {
         "classes": names,
         "other": other,
-        "missing": objects,
+        "missing": missing,
         "matrix": [[int(value) for value in line] for line in matrix.tolist()],
     }
 
@@ -284,7 +289,7 @@ def evaluate(dataset: Any, task: Task, model: int, predictions: dict[str, list[L
         "images": len(view),
         "metrics": metrics,
         "classes": rows,
-        "confusion": confusion(results, rows, objects),
+        "confusion": confusion(results, rows, objects, unpredicted=any(v is None for v in values.values())),
         "worst": worst_images(view, key, field, objects),
         "fields": list(
             dict.fromkeys([field, key, *([f"{key}_tp", f"{key}_fp", f"{key}_fn"] if objects else [])])

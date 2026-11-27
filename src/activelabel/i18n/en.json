@@ -2106,6 +2106,7 @@
   "md.eval_other_classes": "(other classes)",
   "md.eval_none": "(none)",
   "md.eval_none_help": "On the (none) row: the model found an object that is not there; in the (none) column: it missed an object that is.",
+  "md.eval_none_help_class": "In the (none) column: images the model gave no class at all.",
   "md.eval_worst": "See the worst images ({n})",
   "md.eval_no_worst": "No image with errors.",
   "md.eval_worst_chip": "Worst images of m{n} · {count}",

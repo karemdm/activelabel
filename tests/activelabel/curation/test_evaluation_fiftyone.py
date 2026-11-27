@@ -147,6 +147,9 @@ def test_a_classification_the_model_did_not_make_counts_as_wrong(classification)
     result = ef.evaluate(classification, Task.CLASSIFICATION, 2, {"i0": [Label("a", score=0.9)], "i1": []})
     assert result["images"] == 2 and result["metrics"]["accuracy"] == 0.5
     assert result["worst"] == ["i1"]
+    # the image with no class is in the matrix, in the (none) column: every image is counted once
+    assert result["confusion"]["missing"] is True
+    assert sum(map(sum, result["confusion"]["matrix"])) == 2
 
 
 @pytest.mark.integration

@@ -254,3 +254,10 @@ test('opening the App asks for the saved view and registers the tab for the job'
   assert.ok(ctx.openWhenDone.has('job1'));
   assert.deepEqual(started, ['job1']);
 });
+
+test('a classification matrix with unpredicted images explains its (none) column', () => {
+  setMessages({ 'md.eval_none': '(none)', 'md.eval_none_help': 'objects', 'md.eval_none_help_class': 'no class given' }, 'en');
+  const table = ev.confusionTable({ classes: ['a', 'b'], other: false, missing: true, matrix: [[1, 0, 0], [0, 0, 1], [0, 0, 0]] }, 'classification');
+  assert.match(table.textContent, /no class given/);
+  assert.match(ev.confusionTable({ classes: ['a'], other: false, missing: true, matrix: [[1, 0], [0, 0]] }).textContent, /objects/);
+});
