@@ -115,6 +115,10 @@ Everything below goes into the first release, 0.1.0.
   corners or its points (docs/ANNOTATION.md, *How to edit in the App*).
 - **The App's edit panel shows only the class and the tags.** `confidence`, `index`, `mask_path` and the free
   `attributes` are left out of the label schema of `ground_truth`; their values stay on the labels (#706).
+- **Delete several labels at once in the App, and undo it.** A trash button in the image window (*Apagar
+  rótulos*) lists the boxes and polygons of the image with tick boxes and deletes the ticked ones; the button
+  next to it (*Desfazer a remoção*) puts them back. Outside the image window it works on the labels selected in
+  the App (#706).
 - **After a deletion the App selects again.** The App kept its drawing tool on after a label was deleted, so the
   next click on the image drew a new box; the ActiveLabel plugin now picks the select tool again after *Delete*,
   *Backspace* or *Delete label* (#706).

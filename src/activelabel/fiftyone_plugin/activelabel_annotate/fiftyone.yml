@@ -1,6 +1,9 @@
 name: "@activelabel/annotate"
-description: "Open the images of an ActiveLabel dataset ready to edit (Annotate mode), so a box is moved by dragging it"
+description: "Open the images of an ActiveLabel dataset ready to edit (Annotate mode), pick the select tool after a deletion, delete several labels at once and undo it"
 version: "1.0.0"
 js_bundle: "dist/index.umd.js"
 fiftyone:
   version: "*"
+operators:
+  - delete_labels
+  - restore_labels

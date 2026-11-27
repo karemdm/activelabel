@@ -120,7 +120,8 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
 - *FiftyOne*: *Editar no FiftyOne* envia as imagens (todas, ou as que você escolher em *Escolher imagens*) e abre o App
   do FiftyOne, que mostra só o `ground_truth`. Ao clicar numa imagem, a janela já abre na aba *Annotate*, pronta
   para editar só com o mouse: clique numa caixa para selecioná-la, arraste-a para mover, arraste um canto ou um
-  ponto do polígono para ajustar, troque a classe em *label* à direita, apague com a tecla *Delete* e desfaça
+  ponto do polígono para ajustar, troque a classe em *label* à direita, apague com a tecla *Delete* (vários de uma vez com a lixeira no alto da janela, *Apagar rótulos*, que se
+  desfaz com a lixeira com seta ao lado) e desfaça
   com as setas ao lado de *Create* (ou Ctrl+Z); depois *Revisar e aplicar* lê as alterações e mostra as diferenças, e você usa *Aplicar alterações* (ou
   *Descartar estas alterações*). O esquema de rótulos que o App exige para editar é gravado pelo
   ActiveLabel; só as imagens editadas no FiftyOne trazem a versão de lá. Geometrias inválidas que voltam
