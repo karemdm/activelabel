@@ -142,7 +142,7 @@ export function createSync(page) {
       const tRenamePull = renames.filter((x) => x.direction === 'pull');
       const cRename = plan.renamed_classes || [];
       const pRename = plan.project_rename || null;
-      const renameConflicts = plan.tasks_rename_conflicts || [];
+      const renameConflicts = [...(plan.project_rename_conflict ? [plan.project_rename_conflict] : []), ...(plan.tasks_rename_conflicts || [])];
       /* shapes the tool has that the project cannot hold (ellipses, rotated boxes read as their box...): they stay there (#519) */
       const notConverted = Object.entries(plan.not_converted || {}).filter(([, n]) => Number(n) > 0);
       const ncTotal = notConverted.reduce((s, [, n]) => s + Number(n), 0);

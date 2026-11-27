@@ -735,3 +735,95 @@ def test_a_task_rename_that_fails_is_a_warning(synced, monkeypatch):
     assert "Alpha two" in result["warnings"][0] and "CVAT refused" in result["warnings"][0]
     assert links.get_link(env.dir, "cvat")["tasks"]["1"]["name"] == "Alpha"  # still to send next time
     assert plan(env)["tasks_rename"][0]["new"] == "Alpha two"
+
+
+# -- project name (#587) ------------------------------------------------------------
+def remote_project_name(env):
+    return env.remote.projects[env.rid]["name"]
+
+
+def test_a_project_renamed_here_is_renamed_in_the_tool(synced):
+    env = synced
+    env.store.update(env.project.id, name="Renamed here")
+    p = plan(env)
+    assert p["project_rename"] == {
+        "old": f"ActiveLabel {env.project.id} - {env.project.name}",
+        "new": f"ActiveLabel {env.project.id} - Renamed here",
+        "direction": "push",
+    }
+    result = apply(env, p["plan_id"])
+    assert result["project_renamed"] is True and result["warnings"] == []
+    assert remote_project_name(env) == f"ActiveLabel {env.project.id} - Renamed here"
+    assert links.get_link(env.dir, "cvat")["remote_name"] == remote_project_name(env)
+    again = plan(env)
+    assert again["project_rename"] is None and again["project_rename_conflict"] is None
+
+
+def test_a_project_renamed_in_the_tool_is_renamed_here_without_the_prefix(synced):
+    env = synced
+    env.remote.projects[env.rid]["name"] = f"ActiveLabel {env.project.id} - Street"
+    p = plan(env)
+    assert (p["project_rename"]["new"], p["project_rename"]["direction"]) == ("Street", "pull")
+    result = apply(env, p["plan_id"])
+    assert result["project_renamed"] is True
+    assert env.store.get(env.project.id).name == "Street"
+    assert not any(c[0] == "rename_project" for c in env.remote.calls)
+    assert plan(env)["project_rename"] is None
+
+
+def test_a_project_renamed_on_both_sides_keeps_both_names_and_warns(synced):
+    env = synced
+    env.store.update(env.project.id, name="Here")
+    env.remote.projects[env.rid]["name"] = "There"
+    p = plan(env)
+    assert p["project_rename"] is None and p["project_rename_conflict"]["remote"] == "There"
+    result = apply(env, p["plan_id"])
+    assert result["project_renamed"] is False and len(result["warnings"]) == 1
+    assert env.store.get(env.project.id).name == "Here" and remote_project_name(env) == "There"
+    assert plan(env)["project_rename_conflict"]  # still reported until one side is changed
+
+
+def test_direction_decides_a_project_name_difference(synced):
+    env = synced
+    env.store.update(env.project.id, name="Here")
+    env.remote.projects[env.rid]["name"] = "There"
+    assert plan(env, direction="push")["project_rename"]["direction"] == "push"
+    pulled = plan(env, direction="pull")["project_rename"]
+    assert (pulled["new"], pulled["direction"]) == ("There", "pull")
+
+
+def test_a_project_imported_from_the_tool_keeps_the_plain_name_there(synced):
+    env = synced
+    link = links.get_link(env.dir, "cvat")
+    link["remote_name"] = "Street"  # imported: the remote project never had the ActiveLabel prefix
+    links.save_link(env.dir, "cvat", link)
+    env.remote.projects[env.rid]["name"] = "Street"
+    env.store.update(env.project.id, name="Street")
+    assert plan(env)["project_rename"] is None
+    env.store.update(env.project.id, name="Roads")
+    p = plan(env)
+    assert (p["project_rename"]["old"], p["project_rename"]["new"]) == ("Street", "Roads")
+    apply(env, p["plan_id"])
+    assert remote_project_name(env) == "Roads"
+
+
+def test_a_project_rename_that_fails_is_a_warning_and_stays_to_send(synced, monkeypatch):
+    env = synced
+    env.store.update(env.project.id, name="Renamed here")
+
+    def refuse(settings, project_id, name):
+        raise ToolError("CVAT refused the name.")
+
+    monkeypatch.setattr(env.remote, "rename_project", refuse)
+    result = apply(env, plan(env)["plan_id"])
+    assert result["project_renamed"] is False and "CVAT refused" in result["warnings"][0]
+    assert plan(env)["project_rename"]["direction"] == "push"
+
+
+def test_comparing_one_task_does_not_swallow_a_project_rename(synced):
+    env = synced
+    env.remote.projects[env.rid]["name"] = "Changed in the tool"
+    p = plan(env, scope="task", task_id=1)
+    assert p["project_rename"] is None
+    apply(env, p["plan_id"])
+    assert plan(env)["project_rename"]["direction"] == "pull"

@@ -102,6 +102,49 @@ def remote_name(project: Project) -> str:
     return f"ActiveLabel {project.id} - {project.name}"
 
 
+def _plan_project_rename(
+    project: Project, link: dict[str, Any] | None, info: RemoteInfo | None, direction: str
+) -> tuple[dict[str, str] | None, dict[str, str] | None, str]:
+    """Compare the name of the project with its remote project (docs/SYNC.md, *Names*).
+
+    Three-way against the remote name recorded in the link at the last synchronisation: only here changed
+    -> sent; only there changed -> taken; both changed to different names -> kept and reported. ``push``
+    always sends the local name, ``pull`` always takes the remote one. A project made here is called
+    ``ActiveLabel <id> - <name>`` in the tool; a project imported from it keeps the plain name there (the
+    style is the one of the recorded remote name).
+
+    Args:
+        project: The project.
+        link: The existing link, or None (nothing to compare before the first synchronisation).
+        info: The remote project, or None when it does not exist yet.
+        direction: ``both``, ``pull`` or ``push``.
+
+    Returns:
+        ``(rename, conflict, recorded)``: ``rename`` is ``{old, new, direction}`` (``push``: the remote name
+        ``old`` becomes ``new``; ``pull``: the local name does) or None; ``conflict`` is ``{local, remote}``
+        when both sides were renamed to different names, else None; ``recorded`` is the remote name to keep
+        in the link after the apply (the one both sides agree on, or the old one on a conflict).
+    """
+    if not link or info is None:
+        return None, None, info.name if info else ""
+    base = link.get("remote_name") or None
+    prefix = f"ActiveLabel {project.id} - "
+    styled = (base if base is not None else info.name).startswith(prefix)
+    mine = prefix + project.name if styled else project.name
+    if info.name == mine:
+        return None, None, info.name
+    here = base is not None and mine != base
+    there = base is not None and info.name != base
+    if direction == PULL_ONLY or (direction == BOTH and there and not here):
+        new = info.name.removeprefix(prefix) if info.name.startswith(prefix) else info.name
+        if new == project.name:
+            return None, None, info.name
+        return {"old": project.name, "new": new, "direction": PULL_ONLY}, None, info.name
+    if direction == PUSH_ONLY or not there:
+        return {"old": info.name, "new": mine, "direction": PUSH_ONLY}, None, mine
+    return None, {"local": mine, "remote": info.name}, str(base)
+
+
 def plans_dir(project_dir: Path) -> Path:
     """Folder with the saved plans.
 
@@ -811,6 +854,9 @@ def make_plan(
     tasks_rename, tasks_names, tasks_rename_conflicts = _plan_renames(
         scoped_tasks, mapping, tmap, rtasks, read, direction
     )
+    project_rename, project_conflict, project_name = (
+        _plan_project_rename(project, link, info, direction) if scope == "project" else (None, None, "")
+    )
     new_remote = {t["remote_task"] for t in tasks_new}
     leftovers = [it for it in items if it.key not in {d["key"] for d in decisions.values()}]
     unmatched = [it for it in leftovers if _key_task(it.key) not in new_remote]
@@ -838,6 +884,9 @@ def make_plan(
         "tasks_rename": tasks_rename,
         "tasks_names": tasks_names,
         "tasks_rename_conflicts": tasks_rename_conflicts,
+        "project_rename": project_rename,
+        "project_rename_conflict": project_conflict,
+        "project_name": project_name,
         "link": _link_token(link),
         "new_items": {rt: _new_task_items(remote, settings, project, rt, items) for rt in new_remote},
         "renamed_classes": renames,
@@ -872,6 +921,8 @@ def make_plan(
         "tasks_delete": tasks_delete,
         "tasks_rename": tasks_rename,
         "tasks_rename_conflicts": tasks_rename_conflicts,
+        "project_rename": project_rename,
+        "project_rename_conflict": project_conflict,
         "conflicts": conflicts,
         "remote_only": remote_only,
         "unchanged": count[SAME] + count[GONE],
@@ -1057,10 +1108,11 @@ def apply_plan(
         Counts: ``pulled``, ``pushed``, ``added``, ``images_new`` and ``labels_new`` (images and labels
         sent for the first time, in new tasks or added), ``removed_remote``, ``removed_local``,
         ``restored_remote``, ``restored_local``, ``tasks_created``, ``tasks_imported``,
-        ``tasks_deleted``, ``tasks_renamed``, ``conflicts_left``, ``unchanged``, ``new_classes``,
-        ``renamed_classes`` (classes renamed in the tool, renamed here too: ``[{from, to}]``), ``backup``,
-        ``skipped``, ``warnings``, ``videos_as_images`` (names of the imported tasks whose original video
-        could not be used, so they stay as images).
+        ``tasks_deleted``, ``tasks_renamed``, ``project_renamed`` (whether the project's name was sent or
+        taken), ``conflicts_left``, ``unchanged``, ``new_classes``, ``renamed_classes`` (classes renamed in
+        the tool, renamed here too: ``[{from, to}]``), ``backup``, ``skipped``, ``warnings``,
+        ``videos_as_images`` (names of the imported tasks whose original video could not be used, so they
+        stay as images).
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -1218,6 +1270,9 @@ def apply_plan(
             tmap.pop(str(spec["task"]), None)
 
     renamed_tasks = _apply_renames(tstore, remote, settings, plan, tmap, warnings)
+    recorded_name, renamed_project = _apply_project_rename(
+        store, project_id, remote, settings, plan, rid, warnings
+    )
 
     # Writing tracked objects makes the tool re-interpolate their neighbouring frames (and a tool may
     # give a track a new id): read the touched tasks again and take their tracked frames as they are now
@@ -1296,7 +1351,9 @@ def apply_plan(
             items.setdefault(image_id, {"key": d["key"]})
     if dropping:  # images of tasks deleted on both sides: nothing left to link
         items = {i: e for i, e in items.items() if _key_task(str(e.get("key", ""))) not in dropping}
-    record = links.new_link(info.url, rid, info.name, items)
+    if not recorded_name:  # a comparison of one task or job leaves the recorded name as it was
+        recorded_name = str((old or {}).get("remote_name") or "") if old and keep else ""
+    record = links.new_link(info.url, rid, recorded_name or info.name, items)
     record["tasks"] = tmap
     record["classes"] = remote.classes(settings, rid)  # to notice a class renamed there next time
     if old and keep:
@@ -1319,6 +1376,7 @@ def apply_plan(
         "tasks_imported": imported,
         "tasks_deleted": deleted_tasks,
         "tasks_renamed": renamed_tasks,
+        "project_renamed": renamed_project,
         "conflicts_left": conflicts_left,
         "unchanged": len(_ids_of(final_action, SAME, GONE)),
         "new_classes": counts["new_classes"],
@@ -1427,6 +1485,52 @@ def _apply_renames(
         if tid in tmap and tid not in failed:
             tmap[tid] = {**tmap[tid], "name": name}
     return done
+
+
+def _apply_project_rename(
+    store: ProjectStore,
+    project_id: int,
+    remote: RemoteProject,
+    settings: ToolSettings,
+    plan: dict[str, Any],
+    rid: str,
+    warnings: list[str],
+) -> tuple[str, bool]:
+    """Carry out the planned rename of the project, in the tool or here; a failure is a warning.
+
+    Args:
+        store: The projects.
+        project_id: The project.
+        remote: The tool's remote adapter.
+        settings: Login of the tool.
+        plan: The saved plan (``project_rename``, ``project_rename_conflict``, ``project_name``).
+        rid: Id of the remote project.
+        warnings: Receives the readable warnings.
+
+    Returns:
+        ``(recorded, renamed)``: the remote name to record in the link (empty when the plan does not
+        compare names: a task or job scope, or a project created now) and whether a rename was done.
+    """
+    recorded = str(plan.get("project_name") or "")
+    spec = plan.get("project_rename")
+    renamed = False
+    if spec:
+        try:
+            if spec["direction"] == PUSH_ONLY:
+                remote.rename_project(settings, rid, str(spec["new"]))
+            else:
+                store.update(project_id, name=str(spec["new"]))
+            renamed = True
+        except (ToolError, ValueError, KeyError) as err:  # CodedError and ProjectNotFound are among these
+            warnings.append(f"The project could not be renamed to '{spec['new']}': {err}")
+            recorded = str(spec["old"] if spec["direction"] == PUSH_ONLY else plan["remote"]["name"])
+    conflict = plan.get("project_rename_conflict")
+    if conflict:
+        warnings.append(
+            f"The project was renamed here ('{conflict['local']}') and in the tool ('{conflict['remote']}'): "
+            "both names are kept."
+        )
+    return recorded, renamed
 
 
 def _safe_drops(
