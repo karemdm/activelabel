@@ -19,6 +19,7 @@ from activelabel.backups import make_backup
 from activelabel.constants import DATASET_STEPS, PROGRESS_STEPS
 from activelabel.curation import issues, quality, similarity, uniqueness
 from activelabel.curation import summary as curation_summary
+from activelabel.curation.distributions import distributions
 from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.ingest import check_folder, ingest_files, ingest_folder, thumbnail
@@ -1337,6 +1338,46 @@ def curation_overview(project_id: int, state: AppState = STATE) -> dict[str, Any
         The curation summary (see :func:`_curation`).
     """
     return _curation(state, project_id)
+
+
+@router.get("/projects/{project_id}/curation/distributions")
+def curation_distributions(
+    project_id: int,
+    dataset: int | None = None,
+    part: str | None = None,
+    fold: int | None = None,
+    state: AppState = STATE,
+) -> dict[str, Any]:
+    """Class balance, objects per image and box sizes of the annotations of the active images (#623).
+
+    With ``dataset`` the numbers are of the images of that dataset version, of one ``part`` (train, val,
+    test) or ``fold`` (0-based).
+
+    Args:
+        project_id: Id of the project.
+        dataset: Number of a dataset version to count only its images.
+        part: With ``dataset``: ``train``, ``val`` or ``test``.
+        fold: With ``dataset``: a fold (0-based).
+        state: The shared state of the application.
+
+    Returns:
+        The distributions (see :func:`activelabel.curation.distributions.distributions`).
+    """
+    project = state.project(project_id)
+    project_dir = state.store.dir(project_id)
+    if (part is not None or fold is not None) and dataset is None:
+        raise ApiError(400, "dataset_required", "Give the dataset version of the part or fold.")
+    members = None
+    if dataset is not None:
+        try:
+            members = DatasetStore(project_dir).image_ids(dataset, part, fold)
+        except DatasetNotFound:
+            raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
+        except ValueError as error:
+            raise bad_request(error) from None
+    return distributions(
+        load_annotations(project_dir), state.manifest(project_id), project.classes, project.task, members
+    )
 
 
 @router.put("/projects/{project_id}/curation/thresholds")

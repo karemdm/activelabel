@@ -268,6 +268,7 @@ running.
 | POST | `/projects/{id}/annotations/backups/{name}/restore` | | makes that copy the annotations again (the current file is copied first; 409 while an activity runs; 400 `backup_name_invalid` / `backup_unreadable`, 404 `backup_not_found`) |
 | POST | `/projects/{id}/curation/analyze` | `{recompute}` | job |
 | GET | `/projects/{id}/curation` | | summary (counts, ids per issue, histograms, thresholds) |
+| GET | `/projects/{id}/curation/distributions` | query `dataset`, `part` or `fold` (optional) | distribution of the annotations of the active images (#623): `classes` (`objects`, `images`), `objects_per_image` and `box_area` buckets (null for classification), `annotated`, `without_annotations`; with `dataset` only the images of that version, part or fold (400 `dataset_required`, `part_unknown`, `version_has_no_folds`; 404 `dataset_not_found`) |
 | DELETE | `/projects/{id}/curation` | | `{reset}`: forgets measures, issues, hashes and duplicate groups; thresholds stay (409 while a job runs) |
 | PUT | `/projects/{id}/curation/thresholds` | thresholds | summary (re-flagged) |
 | GET | `/projects/{id}/curation/similarity/requirements` | | what the map needs before it is asked for (#664): `packages`, `missing` (what the training environment lacks), `install_needed`, `devices`, `images` (active) and `min_images`; the interface confirms the install with the training dialog's text. POST of the map answers 400 `similarity_too_few_images` below `min_images` and 400 for a device this computer does not have |

@@ -136,7 +136,10 @@ project is its *type*.)
    changes, neighbouring video frames the hash misses) are near duplicates too; the limit is
    *Near duplicate from the similarity map* under *Thresholds* (0 turns it off).
    *Open in FiftyOne* opens the same filter in the FiftyOne App; images tagged `exclude` there can
-   be brought back with *Bring exclusions from FiftyOne*. (Corrupt files never get here: they are
+   be brought back with *Bring exclusions from FiftyOne*. *Distribution of the annotations* shows, as bars,
+   the objects and images per class, the images by number of objects and the size of the boxes (#623); the FiftyOne
+   App has the workspace *ActiveLabel: distribuições* (grid, Histograms and, with the similarity map, Embeddings).
+   (Corrupt files never get here: they are
    rejected when uploaded. *Analyze images* also checks that each stored file is still the imported one:
    a file deleted or replaced outside ActiveLabel is flagged *File missing* or *File changed*, and a
    training refuses such images with `dataset_images_missing` / `dataset_images_changed`.) The *Similarity map* groups similar images: *Compute map* reads every
