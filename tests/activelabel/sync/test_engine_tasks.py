@@ -406,9 +406,12 @@ def test_deleted_local_task_keeps_remote_task_by_default(synced):
     assert beta in {t.id for t in env.remote.tasks(SETTINGS, env.rid)}
     assert ("delete_task", beta) not in env.remote.calls
     assert not any(c[0] == "set_frames" and c[1] == beta for c in env.remote.calls)  # left exactly as is
-    assert "2" in links.get_link(env.dir, "cvat")["tasks"]
-    again = plan(env)  # still proposed until the person agrees; its images are not counted twice
-    assert len(again["tasks_delete"]) == 1 and again["tasks_new"] == [] and again["remove_remote"] == 0
+    link = links.get_link(env.dir, "cvat")
+    assert link["tasks"]["2"]["kept_remote"] is True  # the decision is remembered
+    assert all(env.ids[i] not in link["items"] for i in (5, 6, 7))  # the link counts only what is here
+    again = plan(env)  # not offered again, nor imported back, nor counted as only in CVAT
+    assert (again["tasks_delete"], again["tasks_new"], again["remove_remote"]) == ([], [], 0)
+    assert again["remote_only"]["count"] == 0 and again["unchanged"] == 5
 
 
 def test_deleted_local_task_is_deleted_remotely_on_request(synced):
@@ -827,3 +830,16 @@ def test_comparing_one_task_does_not_swallow_a_project_rename(synced):
     assert p["project_rename"] is None
     apply(env, p["plan_id"])
     assert plan(env)["project_rename"]["direction"] == "pull"
+
+
+def test_a_task_kept_in_the_tool_stays_there_when_the_project_changes_later(synced):
+    env = synced
+    beta = env.tids[2]
+    delete_local_task(env, 2)
+    apply(env, plan(env)["plan_id"])
+    set_local(env, 0, CAT2)
+    p = plan(env)
+    assert (p["push"], p["tasks_delete"], p["tasks_new"]) == (1, [], [])
+    apply(env, p["plan_id"])
+    assert beta in {t.id for t in env.remote.tasks(SETTINGS, env.rid)}
+    assert not any(c[0] == "delete_task" for c in env.remote.calls)

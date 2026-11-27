@@ -156,3 +156,20 @@ test('a conflict with the same classes on both sides says that the position diff
   assert.deepEqual(why, ['Same classes: the position differs.', null, null, null]);
   block.node.remove();
 });
+
+test('the result card lists the renames, not "everything is in sync" (#587)', () => {
+  setMessages({
+    'annotate.tool.cvat': 'CVAT', 'sync.result_title': 'Done', 'sync.in_sync': 'Everything is in sync',
+    'sync.res_tasks_renamed': 'Tasks renamed', 'sync.res_project_renamed': 'Project name updated', 'common.close': 'Close',
+  }, 'en');
+  const { ctx, sync } = makePage();
+  ctx.jobs = [{ id: 'a1', kind: 'sync_apply', status: 'done', created: '2026-11-26T10:00:00', result: { tasks_renamed: 2, project_renamed: true, pulled: 0 } }];
+  const block = sync.syncBlock();
+  document.body.append(block.node);
+  block.draw(true);
+  const text = block.node.querySelector('#sync-result').textContent;
+  assert.match(text, /Tasks renamed.*2/);
+  assert.match(text, /Project name updated.*1/);
+  assert.doesNotMatch(text, /Everything is in sync/);
+  block.node.remove();
+});

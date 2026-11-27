@@ -141,3 +141,21 @@ test('a project not linked yet still leads to the CVAT tab', async () => {
   item.click();
   assert.deepEqual(calls, [['tab', 'annotations'], ['focus', 7], ['reveal', 'sync']]);
 });
+
+test('deleting a task that is in CVAT says that it stays there (#684)', async () => {
+  const proto = window.HTMLDialogElement.prototype;
+  if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
+  setMessages({ 'tasks.delete': 'Delete', 'tasks.delete_text_other': 'The task and its {n} images go.', 'tasks.delete_text_cvat': 'In CVAT the task stays.' }, 'en');
+  const texts = [];
+  for (const task of [{ ...TASK, cvat: 'not_linked' }, { ...TASK, cvat: 'ready', remote: { task: 40, url: 'https://cvat.example/tasks/40', jobs: [] } }]) {
+    const panel = await panelWithTask(task, [CVAT_LINK], []);
+    document.body.appendChild(panel.node);
+    panel.node.querySelector('.task-list .icon-btn.danger, .task-list button.danger').click();
+    const confirm = document.querySelector('dialog[aria-label="tasks.delete_title"]');
+    texts.push(confirm.querySelector('p').textContent);
+    confirm.remove();
+    panel.node.remove();
+  }
+  assert.doesNotMatch(texts[0], /CVAT/);
+  assert.match(texts[1], /In CVAT the task stays\./);
+});
