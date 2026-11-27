@@ -69,6 +69,8 @@ Everything below goes into the first release, 0.1.0.
 
 ### Changed
 
+- **Import name.** The name typed in the import form stays only in ActiveLabel: the first comparison no
+  longer offers it as a rename of the CVAT project (the link records both names) (#695).
 - **Import report.** The report card of an imported project uses the whole width and its summary cells line
   up (label above value, all to the left) (#695).
 - **CVAT: project deleted there.** The CVAT tab says what to do there (unlink, or compare again to create the

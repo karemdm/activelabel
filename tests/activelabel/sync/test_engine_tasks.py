@@ -812,6 +812,28 @@ def test_a_project_imported_from_the_tool_keeps_the_plain_name_there(synced):
     assert remote_project_name(env) == "Roads"
 
 
+def test_a_name_typed_at_the_import_stays_here_and_is_not_offered_to_the_tool(synced):
+    """#695: the remote project keeps its own name; the typed one is not a rename made here."""
+    env = synced
+    links.remove_link(env.dir, "cvat")
+    env.remote.projects[env.rid]["name"] = "Street"
+    env.store.update(env.project.id, name="meu_dataset_round_1")
+    info = env.remote.info(env.rid)
+    engine.link_from_items(env.store, env.project.id, "cvat", info, env.remote.items(SETTINGS, env.rid, None))
+    link = links.get_link(env.dir, "cvat")
+    assert (link["remote_name"], link["local_name"]) == ("Street", "meu_dataset_round_1")
+    p = plan(env)
+    assert p["project_rename"] is None and p["project_rename_conflict"] is None
+    apply(env, p["plan_id"])
+    assert remote_project_name(env) == "Street"
+    assert links.get_link(env.dir, "cvat")["local_name"] == "meu_dataset_round_1"
+    env.store.update(env.project.id, name="Roads")  # a later rename here is offered as usual
+    again = plan(env)["project_rename"]
+    assert (again["old"], again["new"], again["direction"]) == ("Street", "Roads", "push")
+    env.remote.projects[env.rid]["name"] = "Avenue"  # and both sides renamed is a conflict
+    assert plan(env)["project_rename_conflict"] == {"local": "Roads", "remote": "Avenue"}
+
+
 def test_a_project_rename_that_fails_is_a_warning_and_stays_to_send(synced, monkeypatch):
     env = synced
     env.store.update(env.project.id, name="Renamed here")
