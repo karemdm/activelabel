@@ -159,3 +159,12 @@ test('deleting a task that is in CVAT says that it stays there (#684)', async ()
   assert.doesNotMatch(texts[0], /CVAT/);
   assert.match(texts[1], /In CVAT the task stays\./);
 });
+
+test('a task card shows the last edit session: tool, when and state (#526)', async () => {
+  setMessages({ 'tasks.last_session': 'Last session: {tool}, {when} ({status})', 'annotate.tool.fiftyone': 'FiftyOne', 'annotate.status.applied': 'Applied' }, 'en');
+  const task = { ...TASK, last_session: { tool: 'fiftyone', at: '2026-11-26T10:20:00', status: 'applied' } };
+  const panel = await panelWithTask(task, [], []);
+  assert.match(panel.node.querySelector('.task-last-session').textContent, /Last session: FiftyOne, .*2026.* \(applied\)/);
+  const plain = await panelWithTask(TASK, [], []);
+  assert.equal(plain.node.querySelector('.task-last-session'), null);
+});

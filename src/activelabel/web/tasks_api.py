@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from activelabel.annotate import credentials
+from activelabel.annotate import credentials, sessions
 from activelabel.images.manifest import ACTIVE, Manifest
 from activelabel.images.video import VideoStore
 from activelabel.importing.common import RemoteNotFound
@@ -166,7 +167,10 @@ def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) 
     remote = remote_status(state, project_id, refresh)
     configured = credentials.is_configured(credentials.load_settings(state.settings.workspace, "cvat"))
     link = links.get_link(state.store.dir(project_id), "cvat")
+    last = _last_sessions(state.store.dir(project_id))
     for view in views:
+        if view["id"] in last:
+            view["last_session"] = last[view["id"]]
         found = remote.get(str(view["id"]))
         if found and found.get("missing"):  # CVAT answered without it: deleted there (#684)
             view["cvat"] = found["missing"]
@@ -175,6 +179,27 @@ def list_tasks(project_id: int, refresh: bool = False, state: AppState = STATE) 
             view["remote"] = found
         view["cvat"] = "ready" if "remote" in view else cvat_reason(view["id"], configured, link)
     return {"tasks": views}
+
+
+def _last_sessions(project_dir: Path) -> dict[int, dict[str, str]]:
+    """The newest edit session of each task (docs/ANNOTATION.md): its tool, when it was made and its state.
+
+    Args:
+        project_dir: Folder of the project.
+
+    Returns:
+        ``{task id: {tool, at, status}}`` for the tasks that have a session of their own.
+    """
+    found: dict[int, dict[str, str]] = {}
+    for session in sessions.list_sessions(project_dir):  # newest first
+        task = session.get("task")
+        if isinstance(task, int) and task not in found:
+            found[task] = {
+                "tool": str(session["tool"]),
+                "at": str(session["created"]),
+                "status": str(session["status"]),
+            }
+    return found
 
 
 def cvat_reason(task_id: int, configured: bool, link: dict[str, Any] | None) -> str:

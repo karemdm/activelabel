@@ -7,6 +7,7 @@ from api_client import make_client, upload
 from sample_images import make_image
 from sync_fakes import FakeRemote
 
+from activelabel.annotate import sessions
 from activelabel.annotate.base import ToolError
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import Manifest
@@ -448,3 +449,20 @@ def test_missing_reason_tells_gone_from_removed_and_unknown(monkeypatch):
     assert tasks_api._missing_reason(other, None, rid) == "remote_gone"
     other.get.side_effect = RuntimeError("boom")
     assert tasks_api._missing_reason(other, None, rid) == ""
+
+
+def test_a_task_lists_its_newest_edit_session(tmp_path):
+    client, state, paths = _setup(tmp_path, 4)
+    client.post("/api/projects/1/tasks", files=_files(paths[:2]), data={"name": "A", "open": "false"})
+    client.post("/api/projects/1/tasks", files=_files(paths[2:]), data={"name": "B", "open": "false"})
+    assert all("last_session" not in t for t in client.get("/api/projects/1/tasks").json()["tasks"])
+    folder = state.store.dir(1)
+    ids = [r.id for r in Manifest(folder).all()]
+    first = sessions.create(folder, "fiftyone", "task", ids[:2], [], {}, task=1)
+    sessions.update(folder, first["id"], created="2020-01-01T00:00:00+00:00")  # older than the next one
+    newest = sessions.create(folder, "fiftyone", "task", ids[:2], [], {}, task=1, job=1)
+    sessions.create(folder, "fiftyone", "all", ids, [], {})  # a session of no task is nobody's last one
+    sessions.update(folder, newest["id"], status=sessions.APPLIED)
+    tasks = {t["name"]: t for t in client.get("/api/projects/1/tasks").json()["tasks"]}
+    assert tasks["A"]["last_session"] == {"tool": "fiftyone", "at": newest["created"], "status": "applied"}
+    assert "last_session" not in tasks["B"]

@@ -68,7 +68,7 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/api/projects/{id}/tasks` | query `refresh=true` (optional) | `{tasks: [task view]}`; closes the tasks whose upload was cut off (see below); `refresh` reads the CVAT job states again instead of reusing a read of the last minute |
+| GET | `/api/projects/{id}/tasks` | query `refresh=true` (optional) | `{tasks: [task view]}`, each with `last_session: {tool, at, status}` when an edit session was made for it; closes the tasks whose upload was cut off (see below); `refresh` reads the CVAT job states again instead of reusing a read of the last minute |
 | POST | `/api/projects/{id}/tasks` | multipart: `name` (optional; default "Task <n>", see above), `job_size` (optional), `open` (default `true`), `files` | `{task: task view, report: <upload report>}`; `open=false` with no image added is refused (400 `no_images_added`); an open task that stays empty is removed when it is closed (see below) |
 | POST | `/api/projects/{id}/tasks/{tid}/images` | multipart `files` | upload report — only while the task is being created by a chunked upload (see below) |
 | PATCH | `/api/projects/{id}/tasks/{tid}` | `{name?, open?}` (`open: false` closes the task and, when it holds no image, removes it: the answer has `removed: true`; reopening a closed task is refused: 409 `task_closed`) | task view |

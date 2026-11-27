@@ -8,7 +8,7 @@ import { api, errorMessage } from '../shell/api.js';
 import { fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import { confirmDialog, menuButton } from '../shell/dialogs.js';
 import { add, el, fill, icon } from '../shell/dom.js';
-import { nf1, num, t, tn, tr } from '../shell/i18n.js';
+import { fmtDateTime, nf1, num, t, tn, tr } from '../shell/i18n.js';
 import { toast, toastError } from '../shell/toast.js';
 import { progressBar } from '../shell/widgets.js';
 
@@ -397,6 +397,10 @@ export function imagesPanel(page) {
               } }, icon('chevron', 16))
             : null)),
       el('p', { class: 'task-meta muted' }, meta),
+      /* the last edit session of the task: tool, when, and how it ended (#526) */
+      task.last_session ? el('p', { class: 'task-last-session muted small' }, t('tasks.last_session', {
+        tool: toolName(task.last_session.tool), when: fmtDateTime(task.last_session.at),
+        status: tr(`annotate.status.${task.last_session.status}`, task.last_session.status).toLowerCase() })) : null,
       /* an upload cut off midway: the app closed the task, some images may be missing (#434) */
       task.incomplete ? el('p', { class: 'task-incomplete', title: t('tasks.incomplete_help') }, icon('error', 14), t('tasks.incomplete')) : null,
       el('div', { class: 'task-progress' },

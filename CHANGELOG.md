@@ -35,7 +35,8 @@ Everything below goes into the first release, 0.1.0.
   or without images cannot be imported again (docs/IMPORT.md).
 - **Annotation and review.** Edit sessions in the FiftyOne App, reviewed before they are applied;
   synchronisation with CVAT by project, task or job in the chosen direction, sending only differences,
-  following renamed classes and tasks both ways, reading skeletons as poses, plus a read-only audit of the server's tasks and a guard that refuses a CVAT task outside a project (docs/ANNOTATION.md,
+  following renamed classes, tasks and the project name both ways, the last edit session on each task
+  card, reading skeletons as poses, plus a read-only audit of the server's tasks and a guard that refuses a CVAT task outside a project (docs/ANNOTATION.md,
   docs/SYNC.md).
 - **Curation.** Brightness, contrast, sharpness, size and near-duplicate checks with adjustable limits,
   reversible exclusion and the same filters in FiftyOne.

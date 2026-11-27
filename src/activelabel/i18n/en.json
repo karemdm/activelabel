@@ -726,6 +726,7 @@
   "tasks.rename": "Rename",
   "tasks.rename_label": "New name of task {name}",
   "tasks.renamed": "Task renamed.",
+  "tasks.last_session": "Last edit session: {tool}, {when} ({status})",
   "tasks.delete": "Delete",
   "tasks.delete_title": "Delete task \"{name}\"?",
   "tasks.delete_text_one": "The task and its {n} image will be deleted, with the files and annotations. This cannot be undone.",
