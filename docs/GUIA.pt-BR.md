@@ -103,9 +103,8 @@ interface chama de *Tipo*.
   no CVAT. Se um envio for interrompido no meio, a task fica fechada e marcada como incompleta; as imagens
   que faltam vão numa task nova. Detalhes: [TASKS.md](TASKS.md) e [VIDEO.md](VIDEO.md).
 
-**2. Anotações** (opcional). Cinco abas. *Abrir no CVAT* e *Abrir no FiftyOne*, nas abas
-CVAT e FiftyOne, abrem o projeto vinculado no CVAT (ou a task ou o job escolhido na aba CVAT) e o dataset
-do projeto no FiftyOne para ver e editar; enquanto o projeto não está no CVAT, o botão diz por quê e leva à aba
+**2. Anotações** (opcional). Cinco abas. *Abrir no CVAT*, na aba CVAT, abre o projeto vinculado (ou a task ou o job escolhido) e *Editar no FiftyOne*, na aba
+FiftyOne, abre o App para editar; enquanto o projeto não está no CVAT, o botão diz por quê e leva à aba
 CVAT. As edições voltam como antes: por *Comparar com o CVAT* e por uma sessão de edição do FiftyOne.
 
 - *Resumo*: o que o projeto já tem, em blocos (imagens anotadas, anotações, classes com anotação,
@@ -119,8 +118,8 @@ CVAT. As edições voltam como antes: por *Comparar com o CVAT* e por uma sessã
   para criar um projeto novo. Só as diferenças são enviadas; uma classe renomeada no CVAT é renomeada
   aqui, uma task renomeada de um lado é renomeada do outro, esqueletos do CVAT viram poses e o que não pode ser convertido é contado
   na revisão. Descartar uma comparação apaga o plano, para que outra aba não o aplique.
-- *FiftyOne*: escolha quais imagens e use *Enviar para FiftyOne* para editá-las no App do
-  FiftyOne; depois *Trazer anotações de volta*, revise as diferenças e *Aplicar alterações* (ou
+- *FiftyOne*: *Editar no FiftyOne* envia as imagens (todas, ou as que você escolher em *Escolher imagens*) e abre o App
+  do FiftyOne, que mostra só o `ground_truth`; depois *Revisar e aplicar* lê as alterações e mostra as diferenças, e você usa *Aplicar alterações* (ou
   *Descartar estas alterações*). O esquema de rótulos que o App exige para editar é gravado pelo
   ActiveLabel; só as imagens editadas no FiftyOne trazem a versão de lá. Geometrias inválidas que voltam
   do FiftyOne são listadas como problema, nunca gravadas em silêncio.

@@ -25,14 +25,23 @@ detection (bounding boxes) and segmentation (polygons). **Keypoints cannot be ed
 (its Annotate mode edits classifications, boxes and polygons of images only): a keypoints project sees its
 points in FiftyOne and is edited in CVAT (docs/SYNC.md). The API refuses a FiftyOne edit session in such a
 project (400 `fiftyone_keypoints_not_editable`: "The FiftyOne App does not edit keypoints: edit them in
-CVAT."), and in the interface the *Edit in FiftyOne* entry of a task's open menu is disabled, with the reason
-written under it, while *View in FiftyOne* stays (docs/TASKS.md, *Interface*).
+CVAT."). In the interface the button of the *FiftyOne* tab then reads *Open in FiftyOne (view only)* and opens
+the App to look, with the reason on one line under it; the *Edit in FiftyOne* entry of a task's open menu is
+disabled, with the reason written under it, while *View in FiftyOne* stays (docs/TASKS.md, *Interface*).
 
 **How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
 gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
-in a list), so nothing has to be set up: open the session's link, click an image, choose the *Annotate*
-tab of the image window, pick `ground_truth` and draw, move, relabel or delete. Edits are saved in the
-dataset as you make them; bring them back from the *FiftyOne* tab. Edits made in a view that is not a
+in a list), so nothing has to be set up: click *Edit in FiftyOne*, click an image, choose the *Annotate*
+tab of the image window and draw, move, relabel or delete. Edits are saved in the dataset as you make
+them; review and apply them from the *FiftyOne* tab.
+
+**What the App shows.** Only `ground_truth` is drawn on an image (the other fields can be turned on in the
+sidebar), and the fields ActiveLabel keeps for itself (`activelabel_written`, `activelabel_labels`,
+`duplicate_group`, `position`, `task`, `job`, `video`, `video_name`, `frame_number`) sit in a collapsed
+sidebar group, *internal (do not edit)* (`fiftyone_bridge.tidy_app`, the same idea as the first CVAT-FiftyOne
+project). When ActiveLabel refreshes a dataset that the App has open (a send, an open, a new session), it
+asks that App to reload (`Session.refresh()`), so the person does not press F5 (the App session's port is its `server_port`); if the App does not answer,
+the refresh of the dataset still succeeds and F5 is needed. Edits made in a view that is not a
 session (a task or a curation view opened for a look) are kept too — a refresh never overwrites a sample
 edited in FiftyOne — and come back with the next session that holds those images.
 
@@ -56,16 +65,21 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
 
 ## Flow (FiftyOne)
 
-1. **Choose which images** (*Which images*): all active images, only images without annotations, the
-   images selected in the curation grid, one issue filter, or only the images whose labels are all
-   pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)). The choice starts on *All
+1. **Edit in FiftyOne** (a button, the only one in the *FiftyOne* tab): it sends the images chosen and opens
+   the App in a new tab. The choice (*Choose images*, folded away by default) is all active images, only images
+   without annotations, the images selected in the curation grid, one issue filter, or only the images whose
+   labels are all pre-annotations (`preannotated`, see [PREANNOTATE.md](PREANNOTATE.md)). It starts on *All
    images*, or on the one the person chose last in this project (kept in the browser); *Only images without
    annotations* means images that are not listed in the project's annotations, so an image reviewed with no
    objects (see below) is not in it. A task or one of its jobs can also be sent from its open menu in the
    *Tasks and jobs* tab (*Edit in FiftyOne*): scope `task`, exactly its active images; the session records
-   the task (and job) and its card names it.
-2. **Send** (*Send to FiftyOne*, a job): the FiftyOne dataset is refreshed from the project (images +
+   the task (and job) and its card names it. *Open in FiftyOne (view only)*, in *Curation*, opens the dataset
+   to look, with no session.
+2. **Send** (a job, started by the button): the FiftyOne dataset is refreshed from the project (images +
    current ground truth) and the App opens on a saved view with those images, field `ground_truth`.
+   Sending images that an **open session** already holds (same tool, scope, task, job and images) does not
+   make a second session: the same one is used again, its view and link renewed (a session that was already
+   brought back is not reused).
    The job reports real progress on a scale of 100 (`done` of `total`): the images written to the dataset fill
    the first 70, then come the stages *Sending to FiftyOne* (75) and finished (100). The interface opens a tab
    at the click (a browser only allows that straight after a click), shows a waiting line in it and, when the
@@ -81,7 +95,7 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    (`kept_fiftyone_edits`). Every other image shows the project's current labels, so a project edit made
    meanwhile (re-import, CVAT sync, accepted pre-annotations) reaches FiftyOne. A dataset written by an
    earlier version has no fingerprints: its session images count as edited (nothing is lost).
-3. **Bring back** (*Bring annotations back*, a job): read the `ground_truth` field of those samples,
+3. **Read the changes** (the first half of *Review and apply*, a job): read the `ground_truth` field of those samples,
    convert it to the internal format (`activelabel.labels`) and **diff** it against the project ground
    truth for the session images: per image, labels added / removed / edited (class change, geometry
    change). Also validate against the type and the class list (unknown classes are reported) and the
@@ -96,8 +110,10 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under
    the problem `edited_on_both_sides`; applying gives it FiftyOne's version, so the person decides on the
    summary (apply, or discard and send again).
-4. **Review and apply**: the person sees the summary (counts per class, images changed, problems) and
-   chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
+4. **Review and apply**: the session card has one main button, *Review and apply*, that reads the changes
+   (step 3) and shows the summary (counts per class, images changed, problems) on the card; it can be clicked
+   again to read the changes again. Applying stays a separate step, because it writes to the project: the
+   person chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
    classes are added to the project) or *Discard these changes*. A safety copy of `annotations.json` is made
    before applying (see *Safety copies* below). If the project's labels of those images changed after they were brought back,
    applying is refused (409) and they must be brought back again. After a successful apply the session's
@@ -115,6 +131,9 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    jobs): the tool, when it started and how it stands (open, ready to review, applied, discarded);
    `GET /projects/{id}/tasks` gives it as `last_session: {tool, at, status}`.
 5. **Close** a session (*Close session*): forget it.
+
+The flow is the old one of the first CVAT-FiftyOne project (edit in the App, everything saved at once) with a
+review layer on top: sessions, the summary of changes, conflicts, safety copies and *Discard* stay.
 
 ## Safety copies
 
@@ -158,7 +177,7 @@ a result message about an old value is cleared as soon as a field is edited.
 | POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}`; a failed test also has `code` and `params` |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
 | GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
-| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}`; 400 `tool_unsupported` for any other tool; 400 `fiftyone_keypoints_not_editable` for a keypoints project (the App cannot edit keypoints) |
+| POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}` (an open session with the same scope and images is reused, not duplicated); 400 `tool_unsupported` for any other tool; 400 `fiftyone_keypoints_not_editable` for a keypoints project (the App cannot edit keypoints) |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | | job; result `{session, diff}`; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; puts the session images in FiftyOne back to the project labels; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
