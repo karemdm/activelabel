@@ -111,7 +111,9 @@ def _plan_project_rename(
     -> sent; only there changed -> taken; both changed to different names -> kept and reported. ``push``
     always sends the local name, ``pull`` always takes the remote one. A project made here is called
     ``ActiveLabel <id> - <name>`` in the tool; a project imported from it keeps the plain name there (the
-    style is the one of the recorded remote name).
+    style is the one of the recorded remote name). A link also records the local name (``local_name``): a
+    name typed in the import form differs from the remote one but is not a change made here, so it is
+    not offered to the tool.
 
     Args:
         project: The project.
@@ -133,8 +135,11 @@ def _plan_project_rename(
     mine = prefix + project.name if styled else project.name
     if info.name == mine:
         return None, None, info.name
-    here = base is not None and mine != base
+    local_base = link.get("local_name")  # the name here when the link was made or last compared (#695)
+    here = project.name != local_base if local_base is not None else base is not None and mine != base
     there = base is not None and info.name != base
+    if local_base is not None and not here and not there and direction == BOTH:
+        return None, None, str(base)  # a name typed at the import stays here: nothing to offer
     if direction == PULL_ONLY or (direction == BOTH and there and not here):
         new = info.name.removeprefix(prefix) if info.name.startswith(prefix) else info.name
         if new == project.name:
@@ -1295,6 +1300,10 @@ def apply_plan(
     recorded_name, renamed_project = _apply_project_rename(
         store, project_id, remote, settings, plan, rid, warnings
     )
+    names_compared = bool(recorded_name)
+    name_pending = bool(plan.get("project_rename_conflict")) or bool(
+        plan.get("project_rename") and not renamed_project
+    )
 
     # Writing tracked objects makes the tool re-interpolate their neighbouring frames (and a tool may
     # give a track a new id): read the touched tasks again and take their tracked frames as they are now
@@ -1382,6 +1391,11 @@ def apply_plan(
     if not recorded_name:  # a comparison of one task or job leaves the recorded name as it was
         recorded_name = str((old or {}).get("remote_name") or "") if old and keep else ""
     record = links.new_link(info.url, rid, recorded_name or info.name, items)
+    if old and keep and (not names_compared or name_pending):  # names not compared, or still to settle
+        if old.get("local_name") is not None:
+            record["local_name"] = old["local_name"]
+    else:
+        record["local_name"] = store.get(project_id).name
     record["tasks"] = tmap
     record["classes"] = remote.classes(settings, rid)  # to notice a class renamed there next time
     if old and keep:
@@ -1968,6 +1982,7 @@ def link_from_items(
     for image_id, item in pairs.items():
         entries[image_id] = links.base_entry(item.key, _clean(project, item.labels))
     record = links.new_link(info.url, info.id, info.name, entries)
+    record["local_name"] = (old or {}).get("local_name", project.name) if keep else project.name
     if old and keep:
         record["created"] = old.get("created", record["created"])
     links.save_link(project_dir, tool, record)

@@ -14,7 +14,7 @@ unlinked, which changes nothing in that tool.
 
 ## Link
 
-`<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, created, last_sync, revision,
+`<project>/links.json`: `{"<tool>": {url, remote_id, remote_name, local_name, created, last_sync, revision,
 tasks?, classes?, items: {"<image_id>": {"key": "<remote item key>", "base": "<hash>", "labels": [...],
 "removed"?: true}}}}`
 (one link per tool; `key` identifies the image in the remote project, `"<task_id>:<frame>"` in CVAT;
@@ -138,8 +138,10 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    renamed only here, the CVAT project is renamed (`PATCH /api/projects/{id}`); renamed only in CVAT, the
    project takes that name here. A project made here is called `ActiveLabel <id> - <name>` in CVAT, and the
    prefix is added or removed on the way; a project imported from CVAT keeps the plain name on both sides.
-   A name typed differently at the import counts as a rename made here and is offered on the first
-   synchronisation. Renaming is never blocked while CVAT is down: the name is sent at the next
+   A name typed differently at the import stays only here (#695, product decision): the link records the
+   remote name (`remote_name`) and the local one (`local_name`) at the import, so the first comparison sees
+   no rename on either side and offers nothing to CVAT; a later rename on one side is offered as usual.
+   Renaming is never blocked while CVAT is down: the name is sent at the next
    synchronisation that can reach it. A rename that fails is a warning, tried again next time.
 
 Classes: classes found remotely but missing locally are added to the project; local classes
