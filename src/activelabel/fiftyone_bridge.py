@@ -892,6 +892,18 @@ def _switch(session: Any, dataset: Any, target: Any, change_view: bool) -> None:
         session.view = target
 
 
+def _app_port(session: Any) -> int:
+    """The port a FiftyOne session's App listens on.
+
+    Args:
+        session: the FiftyOne session (its port is ``server_port``; older versions called it ``port``).
+
+    Returns:
+        The port number.
+    """
+    return int(getattr(session, "server_port", None) or session.port)
+
+
 def _drop_session(session: Any) -> None:
     """Close a session that failed or hung, without waiting for it.
 
@@ -945,13 +957,13 @@ def launch_app(
             view, target = None, built
     if _session is not None:
         try:
-            if not port_answers(int(_session.port)):
+            if not port_answers(_app_port(_session)):
                 raise OSError("the App of the session stopped")  # do not send events to a dead server
             change_view = bool(view) or target is not dataset
             within(
                 SWITCH_TIMEOUT, partial(_switch, _session, dataset, target, change_view), "switching dataset"
             )
-            return app_url(dataset, view, int(_session.port))
+            return app_url(dataset, view, _app_port(_session))
         except Exception:  # noqa: BLE001 - the session was closed or hung: start a new one
             _drop_session(_session)
             _session = None
@@ -989,7 +1001,7 @@ def refresh_app(dataset: fo.Dataset) -> bool:
     try:
         if session.dataset is None or session.dataset.name != dataset.name:
             return False
-        if not port_answers(int(session.port)):
+        if not port_answers(_app_port(session)):
             return False
         within(SWITCH_TIMEOUT, session.refresh, "refreshing the App")
     except Exception:  # noqa: BLE001 - the App is a convenience: the dataset is already up to date
