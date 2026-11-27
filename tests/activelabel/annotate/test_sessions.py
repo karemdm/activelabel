@@ -101,3 +101,12 @@ def test_find_open_matches_the_tool_scope_and_exact_images(tmp_path):
     assert sessions.find_open(tmp_path, "fiftyone", "all", ["a", "b"], task=1) is None
     sessions.update(tmp_path, made["id"], status=sessions.PULLED)
     assert sessions.find_open(tmp_path, "fiftyone", "all", ["a", "b"]) is None
+
+
+def test_public_hides_the_image_tags(proj):
+    folder, _, ids = proj
+    session = sessions.create(folder, "fiftyone", "all", ids[:1], [], {})
+    updated = sessions.update(folder, session["id"], status="pulled", image_tags={ids[0]: ["check"]})
+    assert updated["image_tags"] == {ids[0]: ["check"]}
+    assert "image_tags" not in sessions.public(updated)
+    assert "image_tags" not in sessions.public(sessions.get(folder, session["id"]))

@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 class LabelIn(BaseModel):
     """One label of the body of PUT ``/labels``: the class and the shape the project type needs.
 
-    ``track``, ``score`` and ``model`` are sent back as GET gave them, so a tracked object keeps its
+    ``track``, ``score``, ``model`` and ``tags`` are sent back as GET gave them, so a tracked object keeps its
     identity and an untouched pre-annotation stays one.
     """
 
@@ -38,6 +38,7 @@ class LabelIn(BaseModel):
     track: int | None = None
     score: float | None = None
     model: str | None = None
+    tags: list[str] | None = None
 
 
 class LabelsBody(BaseModel):
@@ -86,7 +87,7 @@ def refresh_fiftyone(
 
 @router.get("/projects/{project_id}/images/{image_id}/labels")
 def get_labels(project_id: int, image_id: str, state: AppState = STATE) -> dict[str, Any]:
-    """The labels of one image, the project's classes and the revision to send back with an edit.
+    """The labels and tags of one image, the project's classes and the revision to send back with an edit.
 
     Args:
         project_id: Id of the project.
@@ -94,7 +95,7 @@ def get_labels(project_id: int, image_id: str, state: AppState = STATE) -> dict[
         state: The shared state of the application.
 
     Returns:
-        ``{labels, classes, revision}``.
+        ``{labels, classes, revision, tags}`` (``tags``: the tags of the image itself).
     """
     project = state.project(project_id)
     _check_image(state, project_id, image_id)

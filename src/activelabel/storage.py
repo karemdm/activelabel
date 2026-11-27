@@ -22,7 +22,7 @@ T = TypeVar("T")
 RETRIES = 8
 RETRY_DELAY = 0.02  # seconds, growing with each attempt (0.02 + 0.04 + ... + 0.14 = about 0.6 s in all)
 FORMAT_KEY = "format_version"
-FORMAT_VERSION = 1  # version of the stored data this code writes (see activelabel.migrations)
+FORMAT_VERSION = 2  # version of the stored data this code writes (see activelabel.migrations)
 # Read by older code as ``cls(**data)`` (project.json) or as a map whose every key is data (links.json, the
 # pulled labels of an edit session): one more key would break it, so these carry no format_version.
 UNVERSIONED_FILES = frozenset({"project.json", "links.json", "pulled.json"})

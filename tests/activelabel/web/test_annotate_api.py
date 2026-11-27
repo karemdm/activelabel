@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from api_client import make_client
+from api_client import make_client, upload
 from fastapi.testclient import TestClient
+from sample_images import make_image
 
-from activelabel.annotate import registry
-from activelabel.labels import AnnotationSet, Label, annotations_lock, save_annotations
+from activelabel.annotate import registry, sessions
+from activelabel.annotate.base import Pulled, ToolSettings
+from activelabel.images.tags import load_tags, set_tags
+from activelabel.labels import AnnotationSet, Label, annotations_lock, load_annotations, save_annotations
 from activelabel.web import annotate_api
 from activelabel.web.errors import ApiError
 
@@ -76,3 +79,69 @@ def test_sending_to_fiftyone_without_it_installed_has_the_code_the_interface_tra
     response = client.post("/api/projects/1/annotate", json={"tool": "fiftyone", "scope": "all"})
     assert response.status_code == 501
     assert response.json()["code"] == "fiftyone_not_installed" and "install" in response.json()["params"]
+
+
+class TaggedTool:
+    """A tool that gives back a fixed pull: a tagged label and the tags of two images."""
+
+    def __init__(self, labels: dict[str, list[Label]], tags: dict[str, list[str]] | None) -> None:
+        self.labels = labels
+        self.tags = tags
+
+    def pull(self, dataset, image_ids, project, settings, ref) -> Pulled:
+        return Pulled(self.labels, set(image_ids), tags=self.tags)
+
+    def applied(self, dataset, image_ids, project, labels) -> None:
+        """Nothing to bring in line: there is no real tool."""
+
+
+class Quiet:
+    """A progress handle that reports nowhere."""
+
+    def update(self, **kwargs) -> None:
+        """Ignore the report."""
+
+
+def _tagged_session(tmp_path: Path, tags: dict[str, list[str]] | None):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["cat"]})
+    paths = [make_image(tmp_path / f"in/{i}.png", seed=i) for i in range(2)]
+    assert upload(client, 1, paths).json()["added"] == 2
+    ids = [item["id"] for item in client.get("/api/projects/1/images").json()["items"]]
+    folder = state.store.dir(1)
+    session = sessions.create(folder, "fiftyone", "all", ids, [], {})
+    labels = {ids[0]: [Label("cat", bbox=[0.1, 0.1, 0.3, 0.3], tags=["hard"])], ids[1]: []}
+    return client, state, folder, ids, session["id"], TaggedTool(labels, None if tags is None else tags)
+
+
+def test_pull_keeps_the_image_tags_in_the_session_and_apply_stores_them(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, None)
+    tool.tags = {ids[0]: ["check", "excluded"], ids[1]: []}
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    monkeypatch.setattr(annotate_api, "_tool", lambda name: tool)
+    project = state.project(1)
+    result = annotate_api._pull_job(
+        state, project, tool, ToolSettings("fiftyone"), sessions.get(folder, sid), sid, Quiet()
+    )
+    assert result["diff"]["tags"] == {"added": 2, "removed": 0}  # the image tag and the label tag
+    assert "image_tags" not in result["session"]  # never shown by the API
+    assert sessions.get(folder, sid)["image_tags"] == {ids[0]: ["check", "excluded"], ids[1]: []}
+    assert load_tags(folder) == {}  # nothing is stored before the apply
+    reply = client.post(f"/api/projects/1/annotate/{sid}/apply")
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["applied"]["tags"] == {"added": 2, "removed": 0}
+    assert load_tags(folder) == {ids[0]: ["check"]}
+    assert load_annotations(folder).images[ids[0]][0].tags == ["hard"]
+
+
+def test_a_pull_of_a_tool_without_image_tags_changes_no_stored_tags(tmp_path, monkeypatch) -> None:
+    client, state, folder, ids, sid, tool = _tagged_session(tmp_path, None)
+    set_tags(folder, {ids[1]: ["keep"]})
+    monkeypatch.setattr(annotate_api, "open_dataset", lambda project, state: None)
+    monkeypatch.setattr(annotate_api, "_tool", lambda name: tool)
+    annotate_api._pull_job(
+        state, state.project(1), tool, ToolSettings("fiftyone"), sessions.get(folder, sid), sid, Quiet()
+    )
+    assert not sessions.get(folder, sid).get("image_tags")
+    assert client.post(f"/api/projects/1/annotate/{sid}/apply").status_code == 200
+    assert load_tags(folder) == {ids[1]: ["keep"]}

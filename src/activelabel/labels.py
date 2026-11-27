@@ -50,6 +50,7 @@ class Label:
             objects that are not tracked.
         model: the saved model that made a pre-annotation (``m1``…); None for labels made by people.
         value: the number of a regression target for the image (#619); None for the other tasks.
+        tags: tags of the label (as FiftyOne keeps them); None when it has none.
     """
 
     label: str
@@ -60,6 +61,7 @@ class Label:
     track: int | None = None
     model: str | None = None
     value: float | None = None
+    tags: list[str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-ready form without empty fields.
@@ -88,6 +90,7 @@ class Label:
             track=data.get("track"),
             model=data.get("model"),
             value=None if data.get("value") is None else float(data["value"]),
+            tags=[str(t) for t in data["tags"]] if data.get("tags") else None,
         )
 
 

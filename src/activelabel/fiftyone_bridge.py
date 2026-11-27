@@ -35,6 +35,7 @@ from activelabel.annotate.fo_labels import fingerprint
 from activelabel.curation.issues import ISSUES, NEAR_DUPLICATE, load_duplicate_of
 from activelabel.fiftyone_names import record_name, recorded_name
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
+from activelabel.images.tags import image_tags, load_tags
 from activelabel.images.video import VideoStore
 from activelabel.labels import AnnotationSet, Label
 from activelabel.optional import ActiveFields, F, SidebarGroupDocument, fo, to_slug
@@ -378,11 +379,19 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
     if not labels:
         return None
     if task is Task.CLASSIFICATION:
-        return fo.Classification(label=labels[0].label, confidence=labels[0].score)
+        return fo.Classification(
+            label=labels[0].label, confidence=labels[0].score, tags=list(labels[0].tags or [])
+        )
     if task is Task.DETECTION:
         return fo.Detections(
             detections=[
-                fo.Detection(label=lb.label, bounding_box=lb.bbox, index=lb.track, confidence=lb.score)
+                fo.Detection(
+                    label=lb.label,
+                    bounding_box=lb.bbox,
+                    index=lb.track,
+                    confidence=lb.score,
+                    tags=list(lb.tags or []),
+                )
                 for lb in labels
                 if lb.bbox
             ]
@@ -395,6 +404,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
                 closed=True,
                 filled=True,
                 index=lb.track,
+                tags=list(lb.tags or []),
             )
             for lb in labels
             if lb.polygons
@@ -406,6 +416,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
                 label=lb.label,
                 index=lb.track,
                 confidence=lb.score,
+                tags=list(lb.tags or []),
                 points=[
                     (p[0], p[1]) if _visibility(p) > 0 else (float("nan"), float("nan")) for p in lb.keypoints
                 ],
@@ -538,6 +549,21 @@ def edited_images(dataset: fo.Dataset, image_ids: list[str], task: Task) -> set[
     view = dataset.match(F("image_id").is_in(list(image_ids)))
     fields = fields_of(dataset)
     return {sample["image_id"] for sample in view.iter_samples() if is_edited(sample, task, fields)}
+
+
+def sample_tags(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, list[str]]:
+    """Tags of the samples of these images, less the tags ActiveLabel uses itself (``excluded``, ``exclude``).
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images to look at (those without a sample are left out).
+
+    Returns:
+        The tags by image id (an empty list for a sample without tags).
+    """
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    pairs = zip(view.values("image_id"), view.values("tags"), strict=True)
+    return {image_id: image_tags(tags or []) for image_id, tags in pairs if image_id}
 
 
 def written_labels(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, str]:
@@ -763,10 +789,12 @@ def sync_dataset(
     ``curation - quality issues``, ``curation - excluded``, ``curation - near duplicates`` and
     one ``curation - <issue>`` per issue (spaces instead of underscores) are refreshed too, and so is
     one saved view ``task-<id>`` per task (description ``Task: <name>``); views of deleted tasks
-    are removed. Every sample gets ``task``, ``task_name``, ``job``, ``position`` and, for video
-    frames, ``video``, ``video_name``, ``frame_number`` and ``time``. The ``ground_truth`` of an image in
-    an open FiftyOne annotation session that was edited in FiftyOne is not overwritten (the edits are not
-    in the project yet); every other sample shows the project's labels and records their fingerprint.
+    are removed. A new sample starts with the image tags the project keeps (``tags.json``); an existing
+    one keeps the tags it has in FiftyOne. Every sample gets ``task``, ``task_name``, ``job``,
+    ``position`` and, for video frames, ``video``, ``video_name``, ``frame_number`` and ``time``. The
+    ``ground_truth`` of an image in an open FiftyOne annotation session that was edited in FiftyOne is not
+    overwritten (the edits are not in the project yet); every other sample shows the project's labels and
+    records their fingerprint.
 
     Args:
         project: the project (name of the dataset, task, classes).
@@ -808,9 +836,12 @@ def sync_dataset(
     report = on_progress or _no_report
     report(0, total)
     new: list[fo.Sample] = []
+    stored = load_tags(manifest.project_dir)  # a new sample starts with the tags the project keeps
     for record in records.values():
         if record.id not in known:
-            sample = fo.Sample(filepath=str(manifest.file_path(record).resolve()))
+            sample = fo.Sample(
+                filepath=str(manifest.file_path(record).resolve()), tags=stored.get(record.id, [])
+            )
             _apply(
                 sample, record, manifest, project.task, annotations, duplicate_of, kept, where, fields=fields
             )

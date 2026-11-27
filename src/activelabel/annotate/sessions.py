@@ -348,12 +348,12 @@ def protected_images(project_dir: Path) -> set[str]:
 
 
 def public(session: dict[str, Any]) -> dict[str, Any]:
-    """Session as the API returns it (no image ids, label hashes or private tool reference).
+    """Session as the API returns it (no image ids, label hashes, image tags or private tool reference).
 
     Args:
         session: a stored session.
 
     Returns:
-        A copy of the session without ``image_ids``, ``ref`` and ``base``.
+        A copy of the session without ``image_ids``, ``ref``, ``base`` and ``image_tags``.
     """
-    return {k: v for k, v in session.items() if k not in ("image_ids", "ref", "base")}
+    return {k: v for k, v in session.items() if k not in ("image_ids", "ref", "base", "image_tags")}

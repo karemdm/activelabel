@@ -93,7 +93,8 @@ class FiftyOneTool:
         Returns:
             The labels of each image, keyed by image id (an empty list when it has none), with the images
             edited in FiftyOne since ActiveLabel wrote them, the hash of the project labels written into
-            each sample, and the shapes that could not be read as they are (``problems``).
+            each sample, the shapes that could not be read as they are (``problems``) and the tags of each
+            sample (``tags``).
 
         Raises:
             ToolError: no dataset.
@@ -112,7 +113,8 @@ class FiftyOneTool:
                 if notes:
                     problems[image_id] = notes
         edited = fiftyone_bridge.edited_images(dataset, image_ids, project.task)
-        return Pulled(out, edited, fiftyone_bridge.written_labels(dataset, image_ids), problems)
+        written = fiftyone_bridge.written_labels(dataset, image_ids)
+        return Pulled(out, edited, written, problems, fiftyone_bridge.sample_tags(dataset, image_ids))
 
     def applied(
         self, dataset: Any, image_ids: list[str], project: Project, labels: dict[str, list[Label]]

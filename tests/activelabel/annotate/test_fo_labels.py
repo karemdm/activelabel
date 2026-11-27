@@ -6,6 +6,7 @@ from fiftyone import core  # noqa: F401
 from activelabel.annotate.fo_labels import fingerprint, labels_and_notes, labels_from_fo
 from activelabel.fiftyone_bridge import _ground_truth
 from activelabel.labels import Label
+from activelabel.sync.links import label_hash
 from activelabel.tasks import Task
 
 
@@ -127,3 +128,47 @@ def test_regression_values_are_read_from_a_dict_and_missing_ones_left_out():
     found = labels_from_fo({"age": 31, "height": float("nan"), "weight": None}, Task.REGRESSION)
     assert found == [Label("age", value=31.0)]
     assert fingerprint({"age": 31.0}, Task.REGRESSION) != fingerprint({"age": 32.0}, Task.REGRESSION)
+
+
+def test_labels_carry_their_tags_in_every_field_type():
+    (cls,) = labels_from_fo(fo.Classification(label="cat", tags=["check"]), Task.CLASSIFICATION)
+    assert cls.tags == ["check"]
+    many = fo.Classifications(classifications=[fo.Classification(label="a", tags=["x", "x", " "])])
+    assert labels_from_fo(many, Task.CLASSIFICATION)[0].tags == ["x"]
+    det = fo.Detection(label="cat", bounding_box=[0, 0, 0.5, 0.5], tags=["b", "a"])
+    assert labels_from_fo(fo.Detections(detections=[det]), Task.DETECTION)[0].tags == ["b", "a"]
+    poly = fo.Polyline(label="a", points=[[(0.1, 0.2), (0.5, 0.2), (0.5, 0.6)]], filled=True, tags=["t"])
+    assert labels_from_fo(fo.Polylines(polylines=[poly]), Task.SEGMENTATION)[0].tags == ["t"]
+    kp = fo.Keypoint(label="p", points=[(0.2, 0.3)], tags=["k"])
+    assert labels_from_fo(fo.Keypoints(keypoints=[kp]), Task.KEYPOINTS)[0].tags == ["k"]
+
+
+def test_a_label_without_tags_has_none():
+    det = fo.Detections(detections=[fo.Detection(label="cat", bounding_box=[0, 0, 0.5, 0.5])])
+    assert labels_from_fo(det, Task.DETECTION)[0].tags is None
+    assert labels_from_fo(fo.Classification(label="cat"), Task.CLASSIFICATION)[0].tags is None
+
+
+def test_label_tags_round_trip_through_fiftyone():
+    labels = [Label("cat", bbox=[0.1, 0.1, 0.2, 0.2], tags=["check"]), Label("dog", bbox=[0, 0, 0.5, 0.5])]
+    assert labels_from_fo(_ground_truth(Task.DETECTION, labels), Task.DETECTION) == labels
+    assert labels_from_fo(_ground_truth(Task.CLASSIFICATION, [Label("a", tags=["t"])]), Task.CLASSIFICATION)[
+        0
+    ].tags == ["t"]
+
+
+def test_fingerprint_without_tags_is_the_label_hash_and_tags_change_it():
+    plain = fo.Detections(detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4])])
+    tagged = fo.Detections(
+        detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4], tags=["check"])]
+    )
+    other = fo.Detections(
+        detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4], tags=["hard"])]
+    )
+    assert fingerprint(plain, Task.DETECTION) == label_hash(labels_from_fo(plain, Task.DETECTION))
+    assert fingerprint(tagged, Task.DETECTION) != fingerprint(plain, Task.DETECTION)
+    assert fingerprint(tagged, Task.DETECTION) != fingerprint(other, Task.DETECTION)
+    again = fo.Detections(
+        detections=[fo.Detection(label="cat", bounding_box=[0.1, 0.2, 0.3, 0.4], tags=["check"])]
+    )
+    assert fingerprint(tagged, Task.DETECTION) == fingerprint(again, Task.DETECTION)

@@ -7,6 +7,7 @@ from sample_images import make_corrupt, make_image
 
 from activelabel import fiftyone_bridge, optional
 from activelabel.fiftyone_names import record_name
+from activelabel.images.tags import load_tags, set_tags
 from activelabel.web import api
 
 
@@ -67,6 +68,19 @@ def test_images_upload_list_exclude_delete(tmp_path):
         "deleted": 1
     }
     assert client.get("/api/projects/1").json()["counts"]["images"] == 2
+
+
+def test_deleting_an_image_removes_its_tags(tmp_path):
+    client, state = make_client(tmp_path)
+    client.post("/api/projects", json={"name": "P", "task": "classification"})
+    paths = [make_image(tmp_path / f"in/{i}.png", seed=i) for i in range(2)]
+    assert upload(client, 1, paths).json()["added"] == 2
+    first, second = (item["id"] for item in client.get("/api/projects/1/images").json()["items"])
+    folder = state.store.dir(1)
+    set_tags(folder, {first: ["check"], second: ["blurry"]})
+    reply = client.post("/api/projects/1/images/delete", json={"ids": [first], "confirm": True})
+    assert reply.json() == {"deleted": 1}
+    assert load_tags(folder) == {second: ["blurry"]}
 
 
 def test_folder_import_is_a_job(tmp_path):

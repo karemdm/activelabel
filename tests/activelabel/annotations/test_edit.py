@@ -60,7 +60,7 @@ def test_image_labels_with_and_without_labels(tmp_path):
     store, project, ids = make(tmp_path)
     folder = store.dir(project.id)
     empty = edit.image_labels(project, folder, ids[0])
-    assert empty == {"labels": [], "classes": ["cat", "dog"], "revision": edit.revision([])}
+    assert empty == {"labels": [], "classes": ["cat", "dog"], "revision": edit.revision([]), "tags": []}
     saved = put(store, project.id, ids, 0, [Label("cat", bbox=BOX)])
     got = edit.image_labels(project, folder, ids[0])
     assert got["labels"][0]["label"] == "cat" and got["revision"] == saved.revision

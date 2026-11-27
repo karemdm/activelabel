@@ -23,6 +23,7 @@ from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.fiftyone_names import recorded_name
 from activelabel.images.ingest import check_folder, ingest_files, ingest_folder, thumbnail
 from activelabel.images.manifest import ACTIVE, EXCLUDED, ImageRecord, Manifest
+from activelabel.images.tags import forget_images
 from activelabel.importing.common import read_origin
 from activelabel.jobs import Job, Progress
 from activelabel.labels import (
@@ -838,7 +839,7 @@ def delete_images(project_id: int, body: ImageIds, state: AppState = STATE) -> d
 
 
 def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
-    """Delete images for good: files, thumbnails, annotations and their place in a task.
+    """Delete images for good: files, thumbnails, annotations, tags and their place in a task.
 
     Args:
         state: The shared state of the application.
@@ -866,6 +867,7 @@ def delete_image_files(state: AppState, project_id: int, ids: list[str]) -> int:
             for image_id in ids:
                 annotations.images.pop(image_id, None)
             save_annotations(project_dir, annotations)
+    forget_images(project_dir, ids)
     return deleted
 
 

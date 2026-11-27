@@ -7,6 +7,7 @@ from sample_images import make_image
 
 from activelabel import fiftyone_bridge, fiftyone_names
 from activelabel.annotations import edit
+from activelabel.images.tags import set_tags
 from activelabel.labels import Label, load_annotations
 from activelabel.sync import links
 from activelabel.tasks import Task
@@ -58,7 +59,12 @@ def test_get_without_labels_and_with_labels(tmp_path):
     client, _, ids = setup(tmp_path)
     empty = client.get(url(ids[0]))
     assert empty.status_code == 200
-    assert empty.json() == {"labels": [], "classes": ["cat", "dog"], "revision": edit.revision([])}
+    assert empty.json() == {
+        "labels": [],
+        "classes": ["cat", "dog"],
+        "revision": edit.revision([]),
+        "tags": [],
+    }
     saved = save(client, ids[0], [{"label": "cat", "bbox": BOX}]).json()
     got = client.get(url(ids[0])).json()
     assert got["labels"] == saved["labels"] and got["revision"] == saved["revision"]
@@ -236,3 +242,18 @@ def test_refresh_swallows_an_error(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         refresh(tmp_path)
     assert "Could not show the edited labels" in caplog.text
+
+
+def test_get_returns_the_image_tags_and_put_keeps_the_label_tags(tmp_path):
+    client, state, ids = setup(tmp_path)
+    set_tags(state.store.dir(1), {ids[0]: ["check"]})
+    assert client.get(url(ids[0])).json()["tags"] == ["check"]
+    assert client.get(url(ids[1])).json()["tags"] == []
+    sent = [{"label": "cat", "bbox": BOX, "tags": ["hard"]}]
+    saved = save(client, ids[0], sent)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["labels"][0]["tags"] == ["hard"]
+    assert load_annotations(state.store.dir(1)).images[ids[0]][0].tags == ["hard"]
+    assert client.get(url(ids[0])).json()["labels"][0]["tags"] == ["hard"]
+    plain = save(client, ids[1], [{"label": "dog", "bbox": BOX}]).json()
+    assert "tags" not in plain["labels"][0]

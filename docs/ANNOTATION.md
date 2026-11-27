@@ -135,11 +135,18 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    in FiftyOne whose project labels also changed since they were written into FiftyOne is listed under
    the problem `edited_on_both_sides`; applying gives it FiftyOne's version, so the person decides on the
    summary (apply, or discard and send again).
+   **Tags** come back too: the tags of each sample (except `excluded`, which ActiveLabel sets, and
+   `exclude`, which asks for an exclusion through `POST /projects/{id}/fiftyone/pull-exclusions`) and the
+   tags of each label. The summary counts the tags gained and lost (`tags: {added, removed}`, and `tags_added` / `tags_removed` per image in
+   `examples`); an image whose only change is its tags counts as changed. A label tag is an edit of the
+   label (the fingerprint of a `ground_truth` with tags covers them), so the image brings FiftyOne's
+   version.
 4. **Review and apply**: the session card has one main button, *Review and apply*, that reads the changes
    (step 3) and shows the summary (counts per class, images changed, problems) on the card; it can be clicked
    again to read the changes again. Applying stays a separate step, because it writes to the project: the
-   person chooses *Apply changes* (the project ground truth for those images becomes the tool's version; new
-   classes are added to the project) or *Discard these changes*. A safety copy of `annotations.json` is made
+   person chooses *Apply changes* (the project ground truth for those images becomes the tool's version, label
+   tags included; the sample tags become the image's tags in `<project>/tags.json`; new classes are added
+   to the project) or *Discard these changes*. A safety copy of `annotations.json` is made
    before applying (see *Safety copies* below). If the project's labels of those images changed after they were brought back,
    applying is refused (409) and they must be brought back again. After a successful apply the session's
    samples record the fingerprint of their current `ground_truth` and the hash of the new project labels:
@@ -171,12 +178,12 @@ the old one.
 
 ## Editing the labels of one image in ActiveLabel
 
-`GET /api/projects/{id}/images/{image_id}/labels` gives `{labels, classes, revision}`: the labels of the image
-in the internal format (`label`, and `bbox`, `polygons`, `keypoints`, `track`, `score`, `model` when present),
-the project's classes and the revision of those labels (16 hex digits that change whenever any field of any
+`GET /api/projects/{id}/images/{image_id}/labels` gives `{labels, classes, revision, tags}`: the labels of the
+image in the internal format (`label`, and `bbox`, `polygons`, `keypoints`, `track`, `score`, `model`, `tags`
+when present), the project's classes, the image's own tags (see *Flow*, step 3) and the revision of those labels (16 hex digits that change whenever any field of any
 label changes). `PUT` on the same path takes `{labels, revision, add_classes?}`, the whole new list of the
 image (an empty list leaves the image listed with no labels: reviewed, nothing in it), and returns
-`{labels, revision, classes}`. A label sent back with `track`, `score` and `model` keeps them, so a tracked
+`{labels, revision, classes}`. A label sent back with `track`, `score`, `model` and `tags` keeps them, so a tracked
 object keeps its identity; a label sent without `model` counts as made by a person.
 
 The save is refused, and nothing changes, when:
@@ -254,11 +261,17 @@ a result message about an old value is cleared as soon as a field is edited.
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |
 | POST | `/api/projects/{id}/annotate/{session}/discard` | | `{discarded: true}`; puts the session images in FiftyOne back to the project labels; 409 when already applied (apply and discard of one session take the same lock: exactly one wins) |
 | DELETE | `/api/projects/{id}/annotate/{session}` | | `{closed: true}` (a session of a discontinued tool is only forgotten) |
-| GET | `/api/projects/{id}/images/{image_id}/labels` | | `{labels, classes, revision}`; 404 `image_not_found` |
-| PUT | `/api/projects/{id}/images/{image_id}/labels` | `{labels: [{label, bbox?, polygons?, keypoints?, track?, score?, model?}], revision, add_classes?}` | `{labels, revision, classes}`; 409 `labels_changed`, 409 `classes_new`, 400 `labels_invalid`, 409 `busy` (see *Editing the labels of one image in ActiveLabel*) |
+| GET | `/api/projects/{id}/images/{image_id}/labels` | | `{labels, classes, revision, tags}`; 404 `image_not_found` |
+| PUT | `/api/projects/{id}/images/{image_id}/labels` | `{labels: [{label, bbox?, polygons?, keypoints?, track?, score?, model?, tags?}], revision, add_classes?}` | `{labels, revision, classes}`; 409 `labels_changed`, 409 `classes_new`, 400 `labels_invalid`, 409 `busy` (see *Editing the labels of one image in ActiveLabel*) |
 
 `diff` = `{images_changed, added, removed, edited, per_class: {name: {added, removed, edited}},
-unknown_classes: [...], problems: [{level, code, message, count, examples}], examples:
-[{image_id, name, added, removed, edited}] (max 20)}`.
+tags: {added, removed}, unknown_classes: [...], problems: [{level, code, message, count, examples}], examples:
+[{image_id, name, added, removed, edited, tags_added, tags_removed}] (max 20)}`; `applied` has the same
+`tags` counts.
+
+The project writes its tags back into FiftyOne: the labels carry their tags whenever `ground_truth` is
+written, and a sample created anew (a new image, or the dataset rebuilt) starts with the image's tags from
+`tags.json`; an existing sample keeps the tags it has in FiftyOne. CVAT has no label tags: an image whose labels
+come from CVAT in a synchronisation gets CVAT's labels, without tags.
 
 Session (as returned): `{id, tool, scope, images, created, status, links: [{label, url}], task?, job?, diff?}`.

@@ -63,6 +63,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         1,
         "JSON objects carry format_version; a file without it is version 0 and is read the same way.",
     ),
+    Migration(
+        2,
+        "Image tags in <project>/tags.json and tags on labels in annotations.json (new optional keys: "
+        "nothing is rewritten, older code ignores them).",
+    ),
 )
 
 

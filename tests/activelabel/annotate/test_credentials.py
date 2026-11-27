@@ -13,7 +13,7 @@ def test_secret_only_in_keyring(tmp_path, fake_keyring):
     assert saved.url == "https://cvat.example" and saved.secret == "s3cret-value"
     assert "s3cret-value" not in (tmp_path / "tools.json").read_text()
     assert json.loads((tmp_path / "tools.json").read_text()) == {
-        "format_version": 1,
+        "format_version": 2,
         "cvat": {"url": "https://cvat.example", "username": "ann"},
     }
     assert fake_keyring.store == {("activelabel", "cvat:https://cvat.example"): "s3cret-value"}

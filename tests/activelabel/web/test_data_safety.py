@@ -66,7 +66,7 @@ def test_reset_makes_duplicates_not_analysed(tmp_path):
     path = issues.curation_path(state.store.dir(pid))
     path.write_text(json.dumps({"duplicate_of": {}, "thresholds": {"dark": 50}}))
     assert client.delete(f"/api/projects/{pid}/curation").status_code == 200
-    assert json.loads(path.read_text()) == {"format_version": 1, "thresholds": {"dark": 50}}
+    assert json.loads(path.read_text()) == {"format_version": 2, "thresholds": {"dark": 50}}
 
 
 def test_seconds_between_frames_must_be_reasonable():
