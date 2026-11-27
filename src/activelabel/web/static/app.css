@@ -293,11 +293,11 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
    is its own card with its title, so the boundary between the two areas is physical (not a colour: the
    colour is the task's, #621); the group of the current step gets a 3px top line in the task colour. */
 .project-body { margin-top: var(--space-4); }
-.stepper { position: relative; display: flex; gap: var(--space-3); margin: 0 0 var(--space-4); padding: 0; overflow-x: auto; }
-.step-group { flex: 1 1 0; display: flex; flex-wrap: wrap; gap: var(--space-1) 0.4rem; min-width: 0; padding: var(--space-2) 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); transition: border-color var(--area-fade), box-shadow var(--area-fade); }
+.stepper { position: relative; display: flex; align-items: stretch; gap: var(--space-3); margin: 0 0 var(--space-4); padding: 0; overflow-x: auto; }
+.step-group { flex: 1 1 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: auto; align-content: start; align-items: start; gap: var(--space-1) 0.4rem; min-width: 0; padding: var(--space-2) 0.6rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); transition: border-color var(--area-fade), box-shadow var(--area-fade); }
 .step-group:has(.step.current) { border-color: var(--area); box-shadow: inset 0 3px 0 var(--area); }
-.step-group > .step { flex: 1 1 auto; width: auto; }
-.step-group-title { flex-basis: 100%; margin: 0 0 0 0.6rem; font-size: 12px; line-height: 1.2; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
+.step-group > .step { width: auto; }
+.step-group-title { grid-column: 1 / -1; margin: 0 0 0 0.6rem; font-size: 12px; line-height: 1.2; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
 .step-group:has(.step.current) .step-group-title { color: var(--area); }
 .step { display: flex; align-items: center; gap: 0.65rem; text-align: left; padding: var(--space-2) 0.65rem; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; min-width: 0; width: 100%; transition: background-color var(--area-fade), border-color var(--area-fade); }
 .step:hover { background: var(--surface-2); border-color: var(--border); }
@@ -318,8 +318,8 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .step-title { font-weight: 700; }
 .optional { font-weight: 400; color: var(--muted); font-size: var(--font-sm); }
 .stepper .step-tag { display: inline-block; margin-left: 0.35rem; padding: 0 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: var(--font-xs); line-height: 1.4; white-space: nowrap; vertical-align: 1px; }
-.step-status { color: var(--muted); font-size: var(--font-xs); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stepper .step-title { white-space: nowrap; }
+.step-status { color: var(--muted); font-size: var(--font-xs); line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.stepper .step-title { overflow-wrap: anywhere; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; scroll-margin-top: 4rem; }
 .section-title { margin-top: var(--space-5); }
@@ -1160,18 +1160,16 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 /* medium screens: one line per group */
 @media (max-width: 1180px) and (min-width: 901px) {
   .stepper { flex-direction: column; gap: var(--space-2); }
-  .step-group > .step { flex: 1 1 0; min-width: 0; }
 }
-/* narrow screens: the bar scrolls sideways and shows only number and name */
+/* narrow screens: the two cards stack, each with its three steps in equal columns (number and name only) */
 @media (max-width: 900px) {
-  /* one card again: the groups sit in a row that scrolls; the current group keeps its top line */
-  .stepper { gap: 0; padding: 0 0.4rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-  .step-group { display: flex; flex: none; align-items: center; flex-wrap: nowrap; border: 0; border-radius: 0; background: transparent; padding: 0.4rem 0.2rem; }
-  .step-group:has(.step.current) { border: 0; }
+  .stepper { flex-direction: column; gap: var(--space-2); overflow-x: visible; }
   .step-status, .stepper .step-tag { display: none; }
-  .step-group-title { flex: none; margin: 0 var(--space-1) 0 var(--space-1); }
-  .step-group + .step-group { padding-left: var(--space-3); border-left: 1px solid var(--border); }
-  .step { width: auto; flex: none; }
+}
+/* a phone: the steps of each card stack in one column, with their summary */
+@media (max-width: 560px) {
+  .step-group { grid-template-columns: minmax(0, 1fr); }
+  .step-status { display: -webkit-box; }
 }
 
 /* tabs inside a step: one subject per tab */
