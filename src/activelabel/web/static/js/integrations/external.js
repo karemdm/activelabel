@@ -129,6 +129,7 @@ export function annotateBlock(page) {
 
   function drawCvatInfo() {
     const link = cvatLink();
+    const gone = !!link && cvatProjectGone(page);
     const ready = isReady('cvat');
     const name = toolName('cvat');
     cvatCtaBox.hidden = !state.loaded || ready || !!link;
@@ -165,7 +166,9 @@ export function annotateBlock(page) {
     const facts = link
       ? el('dl', { class: 'facts link-facts' },
           el('div', null, el('dt', null, t('sync.remote_project', { tool: name })), el('dd', null,
-            isHttp(link.url)
+            gone
+              ? el('span', { class: 'muted' }, t('sync.remote_deleted', { name: link.remote_name || name })) /* no link to a deleted project (#695) */
+              : isHttp(link.url)
               ? el('a', { href: link.url, target: '_blank', rel: 'noopener' }, link.remote_name || name, ' ', icon('external', 14))
               : el('span', null, link.remote_name || name))),
           el('div', null, el('dt', null, t('sync.images_linked')), el('dd', null, num(link.images || 0))),
@@ -204,7 +207,7 @@ export function annotateBlock(page) {
   let cvatSig = null;
   function cvatDraw(force) {
     if (!state.loaded) return;
-    const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), (ctx.tasksList || []).length, cvatTasks().some((x) => x.cvat === 'unreachable'), state.tools.cvat]);
+    const sig = JSON.stringify([ctx.links, cvatBusy(), isReady('cvat'), cvatProjectGone(page), (ctx.tasksList || []).length, cvatTasks().some((x) => x.cvat === 'unreachable'), state.tools.cvat]);
     if (!force && sig === cvatSig) return;
     cvatSig = sig;
     drawCvatInfo();
