@@ -16,7 +16,8 @@ from activelabel.annotations.folders import folder_classes
 from activelabel.errors import CodedError
 
 STAGING = "staging"
-REPORT_NAME = ".report.json"  # the report of the check, inside the staging folder (not an annotation file)
+#: ``staging/<token>.report.json``: the report of a check, beside the folder (no upload can clash).
+REPORT_SUFFIX = ".report.json"
 MAX_AGE_SECONDS = 24 * 3600
 MAX_TOTAL_BYTES = 1024**3
 ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names", ".csv"}
@@ -195,7 +196,7 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
         token: the staging token.
 
     Returns:
-        The files of the staging folder, sorted (not the report kept by :func:`set_report`).
+        The files of the staging folder, sorted (an uploaded file named like the report is kept).
 
     Raises:
         CodedError: invalid token.
@@ -205,7 +206,7 @@ def load_staged(project_dir: Path, token: str) -> list[Path]:
     folder = project_dir / STAGING / token
     if not folder.is_dir():
         raise FileNotFoundError(f"Staging {token} not found.")
-    return sorted(p for p in folder.rglob("*") if p.is_file() and p.name != REPORT_NAME)
+    return sorted(p for p in folder.rglob("*") if p.is_file())
 
 
 def _target_file(project_dir: Path, token: str) -> Path:
@@ -252,9 +253,10 @@ def get_target(project_dir: Path, token: str) -> dict[str, Any] | None:
 
 
 def set_report(project_dir: Path, token: str, report: dict[str, Any]) -> None:
-    """Keep the report of a check inside its staging folder, so it can be shown again after a reload.
+    """Keep the report of a check beside its staging folder, so it can be shown again after a reload.
 
-    It lives as long as the staged files: until they are applied, discarded or expire.
+    It lives as long as the staged files: until they are applied, discarded or expire. It is kept outside
+    the folder, so a file with any name in an upload cannot replace it or be taken for it.
 
     Args:
         project_dir: the project's folder.
@@ -262,7 +264,7 @@ def set_report(project_dir: Path, token: str, report: dict[str, Any]) -> None:
         report: the report, as the check returns it (JSON-serialisable, with its ``token``).
     """
     _check_token(token)
-    (project_dir / STAGING / token / REPORT_NAME).write_text(json.dumps(report), encoding="utf-8")
+    (project_dir / STAGING / f"{token}{REPORT_SUFFIX}").write_text(json.dumps(report), encoding="utf-8")
 
 
 def _mtime(path: Path) -> float:
@@ -291,8 +293,10 @@ def pending_report(project_dir: Path) -> dict[str, Any] | None:
         is none (or it is unreadable).
     """
     root = project_dir / STAGING
-    found = sorted(root.glob(f"*/{REPORT_NAME}"), key=_mtime) if root.is_dir() else []
+    found = sorted(root.glob(f"*{REPORT_SUFFIX}"), key=_mtime) if root.is_dir() else []
     for path in reversed(found):
+        if not path.with_name(path.name.removesuffix(REPORT_SUFFIX)).is_dir():  # its files are gone (expired)
+            continue
         try:
             report = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -312,3 +316,4 @@ def discard_staged(project_dir: Path, token: str) -> None:
     _check_token(token)
     shutil.rmtree(project_dir / STAGING / token, ignore_errors=True)
     _target_file(project_dir, token).unlink(missing_ok=True)
+    (project_dir / STAGING / f"{token}{REPORT_SUFFIX}").unlink(missing_ok=True)

@@ -1,13 +1,14 @@
 import functools
 import io
 import os
+import shutil
 import time
 import zipfile
 
 import pytest
 
 from activelabel.annotations import discard_staged, load_staged, pending_report, set_report, stage
-from activelabel.annotations.staging import MAX_AGE_SECONDS, REPORT_NAME
+from activelabel.annotations.staging import MAX_AGE_SECONDS, REPORT_SUFFIX
 from activelabel.errors import CodedError
 
 
@@ -83,8 +84,8 @@ def test_an_invalid_staging_token_has_a_code(tmp_path):
 
 def _stat_of_a_discarded_folder(real_stat, token, path, *args, **kwargs):
     """``Path.stat``, except that the report of ``token`` is discarded (by another request) just before."""
-    if path.name == REPORT_NAME and path.parent.name == token:
-        discard_staged(path.parent.parent.parent, token)
+    if path.name == f"{token}{REPORT_SUFFIX}":
+        discard_staged(path.parent.parent, token)
     return real_stat(path, *args, **kwargs)
 
 
@@ -96,3 +97,28 @@ def test_pending_report_skips_a_staging_folder_removed_while_it_reads(tmp_path, 
     stat = functools.partial(_stat_of_a_discarded_folder, type(tmp_path).stat, new)
     monkeypatch.setattr(type(tmp_path), "stat", lambda path, *a, **k: stat(path, *a, **k))
     assert pending_report(tmp_path) == {"token": old}
+
+
+def test_an_uploaded_file_named_like_the_report_is_kept_and_does_not_clash_with_it(tmp_path):
+    token = stage(
+        tmp_path,
+        [
+            (".report.json", io.BytesIO(b"[]")),
+            ("set.zip", zip_bytes({"sub/.report.json": "[]", "c.json": "[]"})),
+        ],
+    )
+    set_report(tmp_path, token, {"token": token})
+    names = sorted(
+        p.relative_to(tmp_path / "staging" / token).as_posix() for p in load_staged(tmp_path, token)
+    )
+    assert names == [".report.json", "c.json", "sub/.report.json"]
+    assert pending_report(tmp_path) == {"token": token}
+    discard_staged(tmp_path, token)
+    assert pending_report(tmp_path) is None and not list((tmp_path / "staging").iterdir())
+
+
+def test_a_report_whose_files_expired_is_not_pending(tmp_path):
+    token = stage(tmp_path, [("a.json", io.BytesIO(b"{}"))])
+    set_report(tmp_path, token, {"token": token})
+    shutil.rmtree(tmp_path / "staging" / token)
+    assert pending_report(tmp_path) is None
