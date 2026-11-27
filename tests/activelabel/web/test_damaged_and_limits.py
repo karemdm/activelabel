@@ -163,6 +163,20 @@ def test_class_names_are_limited(tmp_path):
     assert created.status_code == 400 and created.json()["code"] == "class_name_too_long"
 
 
+def test_class_names_with_a_comma_or_the_background_name_are_refused(tmp_path):
+    client, state = make_projects(tmp_path, 1)
+    comma = client.post("/api/projects", json={"name": "N", "task": "detection", "classes": ["a,b"]})
+    assert comma.status_code == 400 and comma.json()["code"] == "class_name_has_comma"
+    for name in ("background", "__Background__"):
+        reserved = client.patch("/api/projects/1", json={"classes": ["cat", name]})
+        assert reserved.status_code == 400 and reserved.json()["code"] == "class_name_reserved"
+    assert client.patch("/api/projects/1", json={"classes": ["cat", "dog"]}).status_code == 200
+    # a project that already has the name keeps it (made before the rule)
+    state.store.update(1, classes=["Background", "cat"])
+    kept = client.patch("/api/projects/1", json={"classes": ["Background", "cat", "dog"]})
+    assert kept.status_code == 200 and kept.json()["classes"] == ["Background", "cat", "dog"]
+
+
 def test_task_names_are_unique_per_project_ignoring_case(tmp_path):
     client, _ = make_projects(tmp_path, 1)
     path = tmp_path / "a.png"

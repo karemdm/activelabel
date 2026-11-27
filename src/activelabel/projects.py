@@ -22,6 +22,7 @@ MAX_NAME = 100
 MAX_DESCRIPTION = 2000
 MAX_CLASS_NAME = 100
 MAX_CLASSES = 1000
+RESERVED_CLASS_NAMES = frozenset({"background", "__background__"})  # the detectors' own name for "no object"
 
 
 class ProjectNotFound(KeyError):
@@ -98,6 +99,40 @@ def check_classes(classes: list[str] | tuple[str, ...]) -> None:
         if has_control_characters(name):
             raise CodedError(
                 "class_name_invalid", "Class names cannot contain control characters.", name=name[:30]
+            )
+
+
+def check_class_spelling(
+    classes: list[str] | tuple[str, ...], existing: list[str] | tuple[str, ...] = ()
+) -> None:
+    """Refuse a class name with a comma, or one the models keep for "no object".
+
+    The list is separated by commas in the interface, so ``"a,b"`` sent to the API would be one class that the
+    interface can never show again as one. Names that ``existing`` already has are left alone (a project made
+    before this rule keeps its classes).
+
+    Args:
+        classes: the class names as sent.
+        existing: the names the project already has.
+
+    Raises:
+        CodedError: ``class_name_has_comma`` or ``class_name_reserved``.
+    """
+    kept = {name.strip().lower() for name in existing}
+    for name in clean_classes(classes):
+        if name.lower() in kept:
+            continue
+        if "," in name:
+            raise CodedError(
+                "class_name_has_comma",
+                "A class name cannot contain a comma (one class per name).",
+                name=name[:30],
+            )
+        if name.lower() in RESERVED_CLASS_NAMES:
+            raise CodedError(
+                "class_name_reserved",
+                f"'{name[:30]}' is kept for the models' own background class.",
+                name=name[:30],
             )
 
 

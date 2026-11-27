@@ -34,7 +34,7 @@ from activelabel.labels import (
 )
 from activelabel.optional import FIFTYONE
 from activelabel.preannotate import annotated_ids, empty_ids, image_state
-from activelabel.projects import Project, ProjectNotFound, clean_classes
+from activelabel.projects import Project, ProjectNotFound, check_class_spelling, clean_classes
 from activelabel.scheduler import CPU
 from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
@@ -288,6 +288,7 @@ def create_project(body: NewProject, state: AppState = STATE) -> dict[str, Any]:
         The project (see :func:`project_overview`).
     """
     try:
+        check_class_spelling(body.classes)
         project = state.store.create(body.name, body.description, body.task, body.classes)
     except DamagedFile:
         raise  # a damaged file is not the caller's mistake: answered by the error handler
@@ -389,6 +390,11 @@ def update_project(project_id: int, body: ProjectChanges, state: AppState = STAT
         The project (see :func:`project_overview`).
     """
     project = state.project(project_id)
+    if body.classes is not None:
+        try:
+            check_class_spelling(body.classes, project.classes)
+        except ValueError as exc:
+            raise bad_request(exc) from exc
     changes_labels = (body.task is not None and body.task is not project.task) or (
         body.classes is not None and clean_classes(body.classes) != project.classes
     )
