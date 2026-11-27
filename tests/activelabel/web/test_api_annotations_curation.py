@@ -107,7 +107,7 @@ def test_pull_exclusions_needs_dataset(tmp_path):
 
 def staged(state):
     folder = state.store.dir(1) / "staging"
-    return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+    return sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.exists() else []
 
 
 def test_files_that_cannot_be_imported_are_not_kept_aside(tmp_path):

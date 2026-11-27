@@ -158,6 +158,9 @@ The first release.
 - **Repeated class names are no longer dropped silently (#637).** Pasting or typing a name already in the list
   (in any case) leaves it out and a note under the field says which names were not added; the example text
   of the field hides once there is a chip.
+- **The report of an annotation check (#651).** The report kept for a reload now lives beside the staging folder
+  (`staging/<token>.report.json`), so a file sent with that name, in any folder, is no longer lost or taken for
+  the report.
 - **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
   (images written to the dataset, then the App; the activity pill also names the stage), and the App really
   opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened
