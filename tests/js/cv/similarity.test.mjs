@@ -63,7 +63,7 @@ setMessages({
   'sim.cluster.failed': 'Not regrouped: {error}',
   'sim.cluster.cancelled': 'Regrouping cancelled',
   'error.clustering_running': 'The map is already being regrouped.',
-  'error.cluster_invalid': 'Invalid grouping: {reason}',
+  'error.cluster_groups_range': 'The number of groups goes from {min} to {max}.',
   'error.similarity_running': 'The similarity map is already being computed.',
 }, 'en');
 
@@ -300,9 +300,9 @@ test('#667: a refused regrouping shows the server error in plain words', async (
   for (const [status, code, text] of [
     [409, 'clustering_running', /already being regrouped/],
     [409, 'similarity_running', /already being computed/],
-    [400, 'cluster_invalid', /Invalid grouping: groups out of range/],
+    [400, 'cluster_groups_range', /The number of groups goes from 2 to 50\./],
   ]) {
-    const refuse = { url: '/api/projects/3/curation/similarity/clustering', status, body: { code, params: { reason: 'groups out of range' } } };
+    const refuse = { url: '/api/projects/3/curation/similarity/clustering', status, body: { code, params: { min: 2, max: 50 } } };
     let seen = null;
     const asked = await inDialog(async (dialog) => {
       submit(dialog);

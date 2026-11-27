@@ -82,8 +82,9 @@ def start(
         The ``clustering`` entry, queued.
 
     Raises:
-        CodedError: ``similarity_map_needed`` without a finished map; ``cluster_invalid`` for a method or
-            number out of range (checked before anything is queued).
+        CodedError: ``similarity_map_needed`` without a finished map; ``cluster_method_unknown``,
+            ``cluster_groups_range`` or ``cluster_min_size_small`` for a method or number out of range
+            (checked before anything is queued).
     """
     store = similarity.SimilarityStore(project_dir)
     if store.read().get("points") is None or store.load_vectors() is None:
@@ -123,17 +124,19 @@ def _check(method: str, groups: int, min_size: int) -> None:
         min_size: The smallest group asked for (``hdbscan``).
 
     Raises:
-        CodedError: ``cluster_invalid`` with the reason.
+        CodedError: ``cluster_method_unknown`` (with ``methods``), ``cluster_groups_range`` (with ``min`` and
+            ``max``) or ``cluster_min_size_small`` (with ``min``), each translated in the interface.
     """
-    reason = ""
     if method not in similarity.CLUSTER_METHODS:
-        reason = f"The method must be one of: {', '.join(similarity.CLUSTER_METHODS)}."
-    elif method == "kmeans" and not 2 <= groups <= similarity.MAX_CHOSEN_GROUPS:
-        reason = f"The number of groups must be from 2 to {similarity.MAX_CHOSEN_GROUPS}."
-    elif method == "hdbscan" and min_size < 2:
-        reason = "The smallest group must have at least 2 images."
-    if reason:
-        raise CodedError("cluster_invalid", reason, reason=reason)
+        methods = ", ".join(similarity.CLUSTER_METHODS)
+        raise CodedError("cluster_method_unknown", f"The method must be one of: {methods}.", methods=methods)
+    if method == "kmeans" and not 2 <= groups <= similarity.MAX_CHOSEN_GROUPS:
+        top = similarity.MAX_CHOSEN_GROUPS
+        raise CodedError(
+            "cluster_groups_range", f"The number of groups must be from 2 to {top}.", min=2, max=top
+        )
+    if method == "hdbscan" and min_size < 2:
+        raise CodedError("cluster_min_size_small", "The smallest group must have at least 2 images.", min=2)
 
 
 def state(runner: TrainingRunner, project_dir: Path) -> dict[str, Any]:

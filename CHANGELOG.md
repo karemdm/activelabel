@@ -114,6 +114,11 @@ Everything below goes into the first release, 0.1.0.
 
 ### Fixed
 
+- **Regrouping refusals in the person's language (#667).** A refused regrouping has its own code
+  (`cluster_method_unknown`, `cluster_groups_range`, `cluster_min_size_small`) with a pt/en text, instead of
+  `cluster_invalid` with an English reason; *Compute uniqueness* is a secondary button, so Curation keeps one
+  primary action (#340).
+
 - **The steps of the project page keep the same spacing whatever their text.** Each card (data, model) is a grid of three equal columns, so a long summary (for example the annotations count) no longer pushes a step to a second row; the summary wraps inside its own cell (two lines, then an ellipsis, with the full text in a tooltip) and both cards have the same height. Under 900 px the two cards stack, and on a phone the steps stack in one column, with no sideways scroll.
 - **The FiftyOne App opens an image ready to edit.** Clicking an image in the App started by ActiveLabel
   opened it in *Explore*, where boxes are only shown (hover shows class and id) and nothing can be dragged;

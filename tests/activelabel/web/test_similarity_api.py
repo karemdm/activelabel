@@ -139,14 +139,18 @@ def test_the_map_is_regrouped(mapped):
 
 
 @pytest.mark.parametrize(
-    "body",
-    [{"method": "dbscan"}, {"method": "kmeans", "groups": 1}, {"method": "hdbscan", "min_size": 1}],
+    ("body", "code", "params"),
+    [
+        ({"method": "dbscan"}, "cluster_method_unknown", {"methods": "auto, kmeans, hdbscan"}),
+        ({"method": "kmeans", "groups": 1}, "cluster_groups_range", {"min": 2, "max": 50}),
+        ({"method": "hdbscan", "min_size": 1}, "cluster_min_size_small", {"min": 2}),
+    ],
 )
-def test_an_invalid_regrouping_is_a_bad_request(mapped, body):
+def test_an_invalid_regrouping_is_a_bad_request(mapped, body, code, params):
     test_client, _ = mapped
     response = test_client.post(CLUSTERING, json=body)
-    assert response.status_code == 400 and response.json()["code"] == "cluster_invalid"
-    assert response.json()["params"]["reason"]
+    assert response.status_code == 400 and response.json()["code"] == code
+    assert response.json()["params"] == params
     assert test_client.get(CLUSTERING).json() == {}
 
 
