@@ -183,8 +183,8 @@ flowchart TB
   to them and are imported by file name when ActiveLabel is not installed. Their pure helpers are tested
   through `tests/helpers/worker_loader.py`, and the job *training workers* runs them with a real CPU
   PyTorch: `classification.py`, `detection.py` (detection, instance segmentation and keypoints),
-  `segmentation.py` (semantic), `yolo.py` (Ultralytics, only after its licence is accepted), `predict.py`
-  (pre-annotation), `embed.py` (embeddings of the similarity map of the curation) and `export_onnx.py`.
+  `segmentation.py` (semantic), `regression.py` (regression, with the classification networks), `yolo.py`
+  (Ultralytics, only after its licence is accepted), `predict.py` (pre-annotation), `embed.py` (embeddings of the similarity map of the curation) and `export_onnx.py`.
   `WORKER_FILES` in `runner.py` maps a kind of task to its script; other heavy work (the similarity map)
   goes into the global queue, in the lane of its device, with `TrainingRunner.enqueue_tool` and starts its
   worker with `run_worker`.

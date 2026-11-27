@@ -14,6 +14,7 @@ import { toast, toastError } from '../shell/toast.js';
  *  is accepted, `reviewCvat(taskId)` and `reviewFiftyone()`. Returns {node, load, choose}. */
 export function preannotateBlock(page, hooks) {
   const { projectId } = page;
+  const regression = () => !!(page.ctx && page.ctx.project) && page.ctx.project.task === 'regression';   // #619
   const node = el('div', { class: 'pre' });
   const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   const form = { model: null, task: null, scope: 'unlabeled', device: 'auto', open: false, more: false, query: '' };
@@ -398,6 +399,10 @@ export function preannotateBlock(page, hooks) {
       return;
     }
     sig = s2;
+    if (regression()) {   // no model fills values yet: one line instead of a form that cannot work
+      fill(node, el('p', { class: 'report-line' }, icon('info'), t('pre.regression_later')));
+      return;
+    }
     if (!(data.models || []).length) {
       fill(node, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('pre.no_models')),
         el('a', { class: 'btn', href: '#models' }, t('pre.go_models'))));

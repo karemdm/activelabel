@@ -24,7 +24,10 @@ CUSTOM = "custom"
 LEVELS = (*PRESETS_NAMES, CUSTOM)
 CLASSIFICATION = ("classification",)
 OBJECTS = ("detection", "instance", "keypoints", "semantic")
-ALL_KINDS = CLASSIFICATION + OBJECTS
+#: Regression (#619) has the techniques that keep the value of an image: no crop (it can cut what is
+#: counted), no mixing of images, no erasing.
+REGRESSION = ("regression",)
+ALL_KINDS = CLASSIFICATION + OBJECTS + REGRESSION
 
 
 class AugmentationError(CodedError):
@@ -256,8 +259,21 @@ _SEMANTIC_PRESETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
         ("color_jitter", {"brightness": 0.4, "contrast": 0.4, "saturation": 0.4}),
     ],
 }
+#: Regression (#619): photometric changes and flips, which keep the value of an image.
+_REG_PRESETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
+    "none": [],
+    "light": [("hflip", {})],
+    "standard": [("hflip", {}), ("color_jitter", {"brightness": 0.2, "contrast": 0.2, "saturation": 0.2})],
+    "strong": [
+        ("hflip", {}),
+        ("rotation", {"degrees": 10.0}),
+        ("color_jitter", {"brightness": 0.4, "contrast": 0.4, "saturation": 0.4}),
+        ("blur", {}),
+    ],
+}
 _PRESETS = {
     "classification": _CLS_PRESETS,
+    "regression": _REG_PRESETS,
     "detection": _OBJECT_PRESETS,
     "instance": _OBJECT_PRESETS,
     "keypoints": _KEYPOINT_PRESETS,
@@ -269,7 +285,8 @@ def techniques_for(kind: str) -> list[Technique]:
     """Techniques a kind of task offers.
 
     Args:
-        kind: kind of task (``classification``, ``detection``, ``instance``, ``keypoints`` or ``semantic``).
+        kind: kind of task (``classification``, ``detection``, ``instance``, ``keypoints``, ``semantic`` or
+            ``regression``).
 
     Returns:
         The techniques, in the order the workers apply them.

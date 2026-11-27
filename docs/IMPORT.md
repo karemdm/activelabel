@@ -156,7 +156,7 @@ targets (for example `age`). The values come in one `.csv` or `.json` file (form
   one, with the type *Regression* is refused (400 `cvat_not_for_regression`): CVAT keeps no number per image,
   so use the CSV or JSON file.
 - The data split balances bins of the values of the first target (docs/DATASETS.md).
-- Not built yet for regression projects: training and pre-annotation answer 400
+- Regression models train on them (docs/TRAINING.md). Not built yet: pre-annotation answers 400
   `regression_not_supported_yet`.
 
 ## HTTP API

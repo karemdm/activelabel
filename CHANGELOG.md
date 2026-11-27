@@ -35,8 +35,10 @@ Everything below goes into the first release, 0.1.0.
   long videos cut into time-distant segments when needed (docs/TASKS.md, docs/VIDEO.md).
 - **Regression projects** (#619). A number per image and target (for example age or a count): targets
   instead of classes, values imported from CSV or JSON and edited in ActiveLabel, shown in FiftyOne as a float
-  field per target (view only), and split into versions balanced by bins of the values (docs/IMPORT.md,
-  docs/ANNOTATION.md, docs/DATASETS.md). Training and pre-annotation of these projects come next.
+  field per target (view only), split into versions balanced by bins of the values (docs/IMPORT.md,
+  docs/ANNOTATION.md, docs/DATASETS.md) and trained with the torchvision and timm networks and a regression
+  head, the MSE, MAE or Huber loss and the RMSE, MAE and R² metrics, where the lowest error is the best
+  (docs/TRAINING.md). Pre-annotation comes next.
 - **YOLO training (Ultralytics).** YOLO26, YOLO11 and YOLOv8 (sizes n to x) detection, segmentation, pose and
   classification models train with their own worker once the AGPL-3.0 licence of Ultralytics is accepted; the acceptance is kept with its date in
   the workspace settings, and nothing is installed or trained before it (docs/TRAINING.md, *Licences*).

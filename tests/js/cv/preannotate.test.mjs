@@ -9,7 +9,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { preannotateBlock } = await import('../../../src/activelabel/web/static/js/cv/preannotate.js');
 
-setMessages({ 'pre.none_supported': 'No model can pre-annotate this project yet' }, 'en');
+setMessages({ 'pre.none_supported': 'No model can pre-annotate this project yet', 'pre.regression_later': 'Pre-annotation for regression is coming later.' }, 'en');
 
 /** Runs fn with the API answering `body`; returns the URLs asked. */
 async function withApi(body, fn) {
@@ -35,6 +35,13 @@ test('the tab reads the pre-annotations of the project and says when no model fi
   assert.match(pre.node.textContent, /No model can pre-annotate this project yet/);
   assert.equal(changed, 0);
   assert.equal(typeof pre.choose, 'function');
+});
+
+test('a regression project says pre-annotation is coming later, with no form (#619)', async () => {
+  const pre = preannotateBlock({ projectId: 4, ctx: { project: { task: 'regression' } } }, { changed: () => {}, reviewCvat: () => {}, reviewFiftyone: () => {} });
+  await withApi({ models: [], runs: [] }, () => pre.load());
+  assert.match(pre.node.textContent, /coming later/);
+  assert.equal(pre.node.querySelector('select, button'), null);
 });
 
 test('the confidence field counts its steps from a multiple of the step, and "no class" is said once (#663)', async () => {

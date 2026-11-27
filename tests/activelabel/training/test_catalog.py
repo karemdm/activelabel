@@ -49,11 +49,22 @@ def _is_params(node: ast.expr) -> bool:
     )
 
 
+#: Helpers of another worker that a worker calls with its spec (the regression worker builds and optimises its
+#: network with the classification worker's functions, #619).
+BORROWED = {"regression.py": ("classification.py", ("make_optimizer",))}
+
+
 def _reads(script: Path) -> tuple[set[str], set[str]]:
     """Keys a worker reads from its hyperparameters, and keys it reads from the run spec itself."""
     params: set[str] = set()
     spec: set[str] = set()
-    for node in ast.walk(ast.parse(script.read_text(encoding="utf-8"))):
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    roots: list[ast.AST] = [tree]
+    if script.name in BORROWED:
+        other, names = BORROWED[script.name]
+        borrowed = ast.parse((script.parent / other).read_text(encoding="utf-8"))
+        roots += [f for f in borrowed.body if isinstance(f, ast.FunctionDef) and f.name in names]
+    for node in (n for root in roots for n in ast.walk(root)):
         if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
             key = node.slice.value
             if isinstance(key, str) and _is_params(node.value):
@@ -326,7 +337,7 @@ def test_torchvision_and_timm_networks_of_the_same_name_have_their_own_ids():
 
 def test_timm_offers_its_classification_families_under_its_own_ids():
     """#617: timm's families with arch and variant; a name torchvision also has gets ``timm_``."""
-    timm = [m for m in catalog.MODELS if m.family == "timm"]
+    timm = [m for m in catalog.MODELS if m.family == "timm" and m.task_kind == "classification"]
     assert len(timm) >= 100 and all(m.task_kind == "classification" and "timm" in m.packages for m in timm)
     for arch in (
         "ResNet",
