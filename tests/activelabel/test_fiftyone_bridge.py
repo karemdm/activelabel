@@ -837,3 +837,11 @@ def test_mark_applied_refs_the_labels_read_exactly_as_project_labels(tmp_path, p
     assert bridge.mark_applied(dataset, ["i0"], Task.DETECTION, {"i0": [dog]}) == 1
     assert _sample(dataset, "i0")[bridge.LABEL_REFS] == {ids[1]: label_hash([dog])}
     assert not _sample(dataset, "i1")[bridge.LABEL_REFS]
+
+
+def test_with_sample_adds_the_sample_to_the_query():
+    assert (
+        bridge.with_sample("http://localhost:5161/datasets/d", "abc")
+        == "http://localhost:5161/datasets/d?id=abc"
+    )
+    assert bridge.with_sample("http://localhost:5161/datasets/d?view=v", "abc").endswith("?view=v&id=abc")

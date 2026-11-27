@@ -218,7 +218,9 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
 
 let lightbox = null;  // one lightbox dialog, reused
 
-export function openLightbox(projectId, items, index) {
+/** Opens image `index` of `items` in the lightbox. `edit(img)`, when given, adds "Edit in FiftyOne" for that image
+ *  (the App opens on it, ready to edit); it is left out for an excluded image. */
+export function openLightbox(projectId, items, index, { edit = null } = {}) {
   if (!lightbox) {
     lightbox = el('dialog', { class: 'lightbox', 'aria-label': t('lightbox.title') });
     document.body.appendChild(lightbox);
@@ -241,6 +243,11 @@ export function openLightbox(projectId, items, index) {
           el('div', { class: 'lightbox-head' },
             el('h2', null, img.name),
             el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
+          edit && img.status !== 'excluded'
+            ? el('p', { class: 'lightbox-actions' },
+              el('button', { type: 'button', class: 'btn primary', 'data-action': 'edit-fo', onclick: () => { lightbox.close(); edit(img); } },
+                icon('fiftyone', 18), t('lightbox.edit_fo')))
+            : null,
           img.width ? el('p', { class: 'muted' }, `${img.width} × ${img.height} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
           img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
           (img.classes || []).length ? el('h3', null, t('lightbox.classes')) : null,

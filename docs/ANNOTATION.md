@@ -29,6 +29,11 @@ CVAT."). In the interface the button of the *FiftyOne* tab then reads *Open in F
 the App to look, with the reason on one line under it; the *Edit in FiftyOne* entry of a task's open menu is
 disabled, with the reason written under it, while *View in FiftyOne* stays (docs/TASKS.md, *Interface*).
 
+**One image, the short way.** In the *Images* gallery, click an image: its window has *Edit in FiftyOne*
+(*Editar no FiftyOne*). It sends that one image (an edit session of scope `selected`) and the App opens
+straight on it, in Annotate mode (the session link carries `?id=<sample>`, `fiftyone_bridge.with_sample`).
+A keypoints project does not get the button.
+
 **How to edit in the App.** The App only edits a field that has an active *label schema*. ActiveLabel
 gives `ground_truth` one each time it refreshes the dataset (type of the project, classes of the project
 in a list), so nothing has to be set up: click *Edit in FiftyOne* and click an image. The image window opens

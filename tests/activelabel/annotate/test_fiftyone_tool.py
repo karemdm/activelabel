@@ -42,6 +42,10 @@ def test_send_edit_pull_close(tmp_path, project):
 
     sent = tool.send(dataset, ["i0", "i1"], project, settings, "abc")
     assert sent.ref == {"view": ft.view_name("abc")} and sent.links[0]["label"] == "FiftyOne"
+    assert "id=" not in sent.links[0]["url"]  # several images: the App opens on the grid
+    one = tool.send(dataset, ["i1"], project, settings, "one")
+    sample_id = dataset.match(fo.ViewField("image_id") == "i1").first().id
+    assert one.links[0]["url"].endswith(f"?id={sample_id}")  # one image: the App opens on it
     assert len(dataset.load_saved_view(sent.ref["view"])) == 2
 
     # simulate editing in the App: move the box of i0, draw one on i1

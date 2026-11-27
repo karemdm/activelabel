@@ -13,6 +13,9 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ### Added
 
+- **Edit one image in FiftyOne from its window (#706).** Clicking an image in the *Images* gallery shows *Edit in
+  FiftyOne*: it sends that image and the App opens straight on it, ready to edit (fewer clicks for the common case).
+
 - **"Enviar ao ActiveLabel" inside the FiftyOne App (#703).** A FiftyOne plugin operator, loaded by the App that
   ActiveLabel starts (for that process only; nothing is written to `~/.fiftyone`), reads the edits of the open
   edit session back and opens the ActiveLabel review. It works only for ActiveLabel datasets, calls only the local
