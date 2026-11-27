@@ -67,6 +67,31 @@ def _settings(state: AppState, tool: str) -> ToolSettings:
     return settings
 
 
+def _marked(
+    importer: ModuleType, state: AppState, settings: ToolSettings, search: str
+) -> list[dict[str, Any]]:
+    """The importable items, each project that already has a local project linked to it marked.
+
+    Args:
+        importer: The importer module of the tool.
+        state: The shared state of the application.
+        settings: The saved settings of the tool.
+        search: Text to search in the names.
+
+    Returns:
+        The items of the importer; a project with a local one gets ``linked_to: {id, name}``.
+    """
+    items: list[dict[str, Any]] = importer.list_remote(settings, search)
+    if not hasattr(importer, "linked_projects"):
+        return items
+    known = importer.linked_projects(state.store, settings)
+    for item in items:
+        project = known.get(str(item["id"])) if item.get("kind") == "project" else None
+        if project is not None:
+            item["linked_to"] = {"id": project.id, "name": project.name}
+    return items
+
+
 @router.get("/import/{tool}/projects")
 def list_remote(tool: str, search: str = "", state: AppState = STATE) -> dict[str, Any]:
     """Projects (and CVAT tasks outside projects) that can be imported, newest first.
@@ -82,7 +107,7 @@ def list_remote(tool: str, search: str = "", state: AppState = STATE) -> dict[st
     importer = _importer(tool)
     settings = _settings(state, tool)
     try:
-        return {"items": importer.list_remote(settings, search)}
+        return {"items": _marked(importer, state, settings, search)}
     except ToolError as exc:
         raise tool_failure(exc, tool) from exc
 
@@ -153,6 +178,9 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
         )
     settings = _settings(state, body.tool)
     remote_id = str(body.remote_id)
+    guard = getattr(importer, "already_imported", None)  # a project that already has a local one linked
+    if guard is not None and body.kind == "project" and (again := guard(state.store, settings, remote_id)):
+        raise tool_failure(again, body.tool, 409) from again
     try:
         importer.check_remote(settings, body.kind, remote_id)
     except RemoteNotFound as exc:

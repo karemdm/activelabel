@@ -11,7 +11,8 @@ const { initImport } = await import('../../../src/activelabel/web/static/js/page
 
 setMessages({
   'annotate.tool.cvat': 'CVAT', 'annotate.ready': 'Ready', 'annotate.not_ready': 'Not set up', 'annotate.setup': 'Set up',
-  'annotate.not_connected': 'Not connected', 'annotate.checking': 'Checking…', 'import.no_images.project': 'No images in {tool}',
+  'annotate.not_connected': 'Not connected', 'annotate.checking': 'Checking…', 'import.no_images.project': 'No images in {tool}', 'import.row_empty': 'No images in {tool} yet',
+  'import.row_linked': 'Already here as "{name}"', 'import.already': 'Already in ActiveLabel as "{name}".', 'import.open_existing': 'Open the project',
 }, 'en');
 
 /** Runs initImport with the API answering from `routes` (path -> body); returns the root and the paths asked. */
@@ -78,10 +79,42 @@ test('a remote project without images cannot be imported and says why (#634)', a
     initImport();
     await new Promise((resolve) => setTimeout(resolve, 30));
     window.matchMedia = () => ({ matches: false });   // jsdom has none
-    root.querySelector('.import-table tbody input').dispatchEvent(new window.Event('change'));
+    const row = root.querySelector('.import-table tbody tr');
+    assert.ok(row.classList.contains('is-disabled') && row.querySelector('input').disabled);   // marked in the list
+    assert.match(row.textContent, /No images in CVAT yet/);
+    row.click();
+    assert.equal(root.querySelector('#import-side button[type="submit"]'), null);   // a click does not select it
+    row.querySelector('input').dispatchEvent(new window.Event('change'));
     const side = root.querySelector('#import-side');
     assert.ok(side.querySelector('button[type="submit"]').disabled);
     assert.match(side.textContent, /No images in CVAT/);
+  } finally {
+    globalThis.fetch = real;
+    root.remove();
+  }
+});
+
+test('a remote project that already has a local project is marked and leads to it, not to a second import (#684)', async () => {
+  const root = document.createElement('div');
+  root.id = 'import-root';
+  document.body.appendChild(root);
+  const routes = {
+    '/api/annotation-tools': [{ tool: 'cvat', configured: true }],
+    '/api/import/cvat/projects': { items: [{ id: 3, name: 'Streets', kind: 'project', images: 9, classes: ['car'], linked_to: { id: 12, name: 'Streets (2)' } }] },
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: true, status: 200, text: async () => JSON.stringify(routes[url] ?? {}) });
+  try {
+    initImport();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    window.matchMedia = () => ({ matches: false });
+    const row = root.querySelector('.import-table tbody tr');
+    assert.match(row.textContent, /Already here as "Streets \(2\)"/);
+    row.click();
+    const side = root.querySelector('#import-side');
+    assert.equal(side.querySelector('button[type="submit"]'), null);
+    assert.equal(side.querySelector('a.btn').getAttribute('href'), '/projects/12');
+    assert.match(side.textContent, /Already in ActiveLabel as "Streets \(2\)"/);
   } finally {
     globalThis.fetch = real;
     root.remove();

@@ -151,11 +151,14 @@ export function initImport() {
           el('th', { scope: 'col' }, t('project.created')))),
         el('tbody', null, ...rows.map((i) => {
           const id = `import-row-${itemKey(i).replace(/\W/g, '_')}`;
-          const input = el('input', { type: 'radio', name: 'import-item', id, value: itemKey(i) });
+          const nothing = i.images === 0;   // empty: marked and off, with the reason, instead of failing later (#634)
+          const input = el('input', { type: 'radio', name: 'import-item', id, value: itemKey(i), disabled: nothing });
           input.checked = itemKey(i) === sel;
           input.addEventListener('change', () => select(i));
-          return el('tr', { class: itemKey(i) === sel ? 'selected' : '', onclick: (e) => { if (e.target !== input) { input.checked = true; select(i); } } },
-            el('td', { class: 'name', 'data-label': t('field.name') }, el('label', { for: id }, input, el('span', null, i.name))),
+          const note = nothing ? el('small', { class: 'row-note' }, t('import.row_empty', { tool: name }))
+            : i.linked_to ? el('small', { class: 'row-note' }, t('import.row_linked', { name: i.linked_to.name })) : null;
+          return el('tr', { class: `${itemKey(i) === sel ? 'selected' : ''}${nothing ? ' is-disabled' : ''}`.trim(), onclick: (e) => { if (!nothing && e.target !== input) { input.checked = true; select(i); } } },
+            el('td', { class: 'name', 'data-label': t('field.name') }, el('label', { for: id }, input, el('span', null, i.name, note ? el('br') : null, note))),
             hasKind ? el('td', { 'data-label': t('import.col_kind') }, i.kind ? el('span', { class: 'badge' }, tr(`import.kind.${i.kind}`, i.kind)) : null) : null,
             el('td', { class: 'num', 'data-label': t('project.images') }, num(i.images)),
             el('td', { 'data-label': t('field.classes') }, classCell(i.classes)),
@@ -196,6 +199,12 @@ export function initImport() {
     const tool = toolName(state.tool);
     const nameInput = el('input', { id: 'import-name', type: 'text', maxlength: '100', autocomplete: 'off', value: item.name });
     const descInput = el('textarea', { id: 'import-desc', rows: '2', maxlength: '2000', placeholder: t('import.description_ph', { tool, name: item.name }) });
+    if (item.linked_to) {   // already linked to a project here: open it, never a second link to the same project (#684)
+      fill(side, el('h2', null, t('import.panel_title')), el('p', { class: 'import-picked' }, icon(state.tool, 20), el('strong', null, item.name)),
+        el('p', { class: 'callout-line', role: 'status' }, icon('info'), el('span', null, t('import.already', { name: item.linked_to.name }))),
+        el('div', { class: 'form-actions' }, el('a', { class: 'btn primary big', href: `/projects/${encodeURIComponent(item.linked_to.id)}` }, t('import.open_existing'))));
+      return;
+    }
     const needTask = !(item.classes || []).length;
     const picker = needTask ? taskPicker('import-task', 'detection') : null;
     const empty = item.images === 0;   // nothing to import: say it before the import fails (#634)

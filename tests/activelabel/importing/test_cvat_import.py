@@ -566,6 +566,24 @@ def test_import_project_reports_what_it_could_not_bring(tasks_remote, tmp_path):
     assert problems["duplicate_labels_dropped"]["count"] == 1  # the bus box of b0
 
 
+def test_importing_a_project_twice_is_refused_naming_the_first_one(tasks_remote, tmp_path):
+    store = ProjectStore(tmp_path / "projects")
+    first = run(store, tmp_path, kind="project", remote_id="1")
+    folder = store.dir(first["project_id"])
+    link = links.get_link(folder, "cvat")
+    links.save_link(
+        folder, "cvat", {**link, "url": f"{BASE}/projects/1"}
+    )  # the fake remote has its own address
+    for kind, remote_id in (("project", "1"), ("task", "11")):  # a task goes to the same remote project
+        with pytest.raises(ToolError) as err:
+            run(store, tmp_path, kind=kind, remote_id=remote_id)
+        assert err.value.code == "cvat_already_imported"
+        assert err.value.params == {"project_id": first["project_id"], "name": "Street"}
+    assert len(store.list()) == 1
+    assert ci.linked_projects(store, SETTINGS)["1"].id == first["project_id"]
+    assert ci.linked_projects(store, ToolSettings("cvat", "http://other-server", "u", "pw")) == {}
+
+
 def test_a_video_that_could_not_be_used_is_reported(tasks_remote, tmp_path, monkeypatch):
     """The tasks stay as images and the report names them with a code, not only the server log."""
     tasks_remote.mark_video("10", frames=4)

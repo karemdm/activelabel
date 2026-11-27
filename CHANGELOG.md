@@ -31,11 +31,11 @@ Everything below goes into the first release, 0.1.0.
   the workspace settings, and nothing is installed or trained before it (docs/TRAINING.md, *Licences*).
 - **Import.** Annotation files in COCO, YOLO (also pose), Pascal VOC, CVAT and MOT, class folders as
   classification labels, and whole CVAT projects with their tasks and jobs, with a report of what was
-  left out and why (docs/IMPORT.md).
+  left out and why (shapes, rotated boxes, videos kept as images); a CVAT project already in ActiveLabel
+  or without images cannot be imported again (docs/IMPORT.md).
 - **Annotation and review.** Edit sessions in the FiftyOne App, reviewed before they are applied;
   synchronisation with CVAT by project, task or job in the chosen direction, sending only differences,
-  following renamed classes and tasks both ways, reading skeletons as poses, plus a read-only audit of
-  the server's tasks and a guard that refuses a CVAT task outside a project (docs/ANNOTATION.md,
+  following renamed classes and tasks both ways, reading skeletons as poses, plus a read-only audit of the server's tasks and a guard that refuses a CVAT task outside a project (docs/ANNOTATION.md,
   docs/SYNC.md).
 - **Curation.** Brightness, contrast, sharpness, size and near-duplicate checks with adjustable limits,
   reversible exclusion and the same filters in FiftyOne.

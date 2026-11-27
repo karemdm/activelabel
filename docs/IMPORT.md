@@ -38,6 +38,15 @@ without annotations import as the task the person picks (default detection). Nam
 remote name (made unique with " (2)", ...), editable before importing; description says where
 it came from.
 
+**One local project per CVAT project.** A CVAT project that already has a local project linked to it (one
+imported before, or one made by ActiveLabel and sent) is marked in the list ("Already in ActiveLabel as
+...", with a button that opens it) and is not imported again: importing it twice would link two projects
+to the same CVAT project, and each would offer the other's tasks as new. `POST /api/import` answers 409
+`cvat_already_imported` (`project_id`, `name`), and so does the import of a task of such a project; new
+tasks of that project come with *Compare with CVAT* in the project that already exists. A CVAT project
+without images is marked and cannot be chosen ("No images in CVAT yet"). `GET /api/import/{tool}/projects`
+adds `linked_to: {id, name}` to the projects that have a local one.
+
 Images keep their remote file names; identical files are added once (content hash, `images_duplicate`);
 unreadable files are listed in the report (`images_rejected`), and a project import says when fewer images
 were added than CVAT listed (`images_missing`). It also counts what it cannot bring instead of dropping it
@@ -128,7 +137,7 @@ confirmation first.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
-| GET | `/api/import/{tool}/projects` | `search?` | `{items: [{id, kind: "project"\|"task", name, images, created, classes: [...] }]}` (newest first, max 200) |
+| GET | `/api/import/{tool}/projects` | `search?` | `{items: [{id, kind: "project"\|"task", name, images, created, classes: [...], linked_to?: {id, name} }]}` (newest first, max 200) |
 | POST | `/api/import` | `{tool, remote_id, kind, name, description?, task?}` | job (`kind: "import_project"`, `project_id: 0`) |
 | GET | `/api/jobs/{job_id}` | | the job (any project, including 0) |
 

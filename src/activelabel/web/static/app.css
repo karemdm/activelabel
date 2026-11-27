@@ -697,6 +697,9 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .import-table tbody tr { cursor: pointer; }
 .import-table tbody tr:hover { background: var(--surface-2); }
 .import-table tbody tr.selected { background: var(--primary-soft); }
+.import-table tbody tr.is-disabled { cursor: not-allowed; color: var(--muted); }
+.import-table tbody tr.is-disabled:hover { background: transparent; }
+.import-table .row-note { display: block; color: var(--muted); font-size: var(--font-sm); font-weight: 400; }
 .import-table tbody tr:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
 .import-table td.name label { display: flex; gap: 0.6rem; align-items: center; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
 .class-cell { display: inline-flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
