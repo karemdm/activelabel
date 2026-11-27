@@ -1136,6 +1136,19 @@ def app_url(dataset: fo.Dataset, view: str | None, port: int) -> str:
     return f"{url}?view={_slug(dataset, view)}" if view else url
 
 
+def with_sample(url: str, sample_id: str) -> str:
+    """The App address that opens one sample in the image window.
+
+    Args:
+        url: an address from :func:`app_url`.
+        sample_id: the FiftyOne id of the sample.
+
+    Returns:
+        ``url`` with ``id=<sample_id>`` added to its query.
+    """
+    return f"{url}{'&' if '?' in url else '?'}id={sample_id}"
+
+
 class AppTimeout(OSError):
     """The FiftyOne App did not answer in time (its server is stuck or belongs to another program)."""
 

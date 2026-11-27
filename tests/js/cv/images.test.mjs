@@ -8,6 +8,9 @@ for (const [name, value] of Object.entries({
 })) {
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
+const proto = window.HTMLDialogElement.prototype;
+if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
+if (!proto.close) proto.close = function close() { this.removeAttribute('open'); };
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const { imagesPanel } = await import('../../../src/activelabel/web/static/js/cv/images.js');
 
@@ -167,4 +170,73 @@ test('a task card shows the last edit session: tool, when and state (#526)', asy
   assert.match(panel.node.querySelector('.task-last-session').textContent, /Last session: FiftyOne, .*2026.* \(applied\)/);
   const plain = await panelWithTask(TASK, [], []);
   assert.equal(plain.node.querySelector('.task-last-session'), null);
+});
+
+/** The page with a tabs stand-in that puts the tab contents in its node (so the gallery is in the DOM). */
+function withTabs(made) {
+  made.page.tabsView = (id, label, tabs) => {
+    const node = document.createElement('div');
+    tabs.forEach((tab) => tab.nodes.forEach((n) => n && node.append(n)));
+    return { node, remembered: false, select: () => {}, setCount: () => {}, current: () => 'gallery' };
+  };
+  return made;
+}
+
+test('#706: "Edit in FiftyOne" in the lightbox sends that one image and opens the App when the job ends', async () => {
+  const { page } = withTabs(makePage(true));
+  page.ctx.openWhenDone = new Map();
+  page.ctx.project.counts = { active: 1 };
+  const posted = [];
+  const real = globalThis.fetch;
+  const realOpen = window.open;
+  window.open = () => ({ document: { write: () => {}, close: () => {} }, close: () => {}, location: {} });
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'POST') {
+      posted.push([url, JSON.parse(options.body)]);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'job1', status: 'queued' }) };
+    }
+    const body = url.includes('/tasks') ? { tasks: [] } : { total: 1, items: [{ id: 'i0', name: 'a.png', status: 'active' }] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    const panel = imagesPanel(page);
+    document.body.append(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    panel.node.querySelector('.thumb-btn').click();
+    const edit = document.querySelector('dialog.lightbox [data-action="edit-fo"]');
+    assert.ok(edit, 'the lightbox offers Edit in FiftyOne');
+    edit.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(posted, [['/api/projects/2/annotate', { tool: 'fiftyone', scope: 'selected', ids: ['i0'] }]]);
+    assert.ok(page.ctx.openWhenDone.has('job1'));  // the App opens in the reserved tab when the job ends
+  } finally {
+    globalThis.fetch = real;
+    window.open = realOpen;
+    document.querySelectorAll('section.panel').forEach((n) => n.remove());
+  }
+});
+
+test('#706: a keypoints project gets no "Edit in FiftyOne" in the lightbox (the App cannot edit keypoints)', async () => {
+  const { page } = withTabs(makePage(true));
+  page.ctx.project.task = 'keypoints';
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const body = url.includes('/tasks') ? { tasks: [] } : { total: 1, items: [{ id: 'i0', name: 'a.png', status: 'active' }] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    const panel = imagesPanel(page);
+    document.body.append(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    panel.node.querySelector('.thumb-btn').click();
+    const box = document.querySelector('dialog.lightbox');
+    assert.ok(box.hasAttribute('open'));
+    assert.equal(box.querySelector('[data-action="edit-fo"]'), null);
+    box.close();
+  } finally {
+    globalThis.fetch = real;
+    document.querySelectorAll('section.panel').forEach((n) => n.remove());
+  }
 });

@@ -5,7 +5,7 @@ import { CHUNK, SKIP_FILES, nextTaskNumber, partName } from './names.js';
 import { CVAT_FIXABLE, cvatTarget } from '../integrations/open.js';
 import { jobMessage, toolName } from '../integrations/tools.js';
 import { api, errorMessage } from '../shell/api.js';
-import { fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
+import { fiftyoneError, fiftyoneMissing, sayFiftyoneMissing } from '../shell/features.js';
 import { confirmDialog, menuButton } from '../shell/dialogs.js';
 import { add, el, fill, icon } from '../shell/dom.js';
 import { fmtDateTime, nf1, num, t, tn, tr } from '../shell/i18n.js';
@@ -222,7 +222,7 @@ export function imagesPanel(page) {
       dataset: filter.dataset,
       emptyText: filter.task != null || filter.dataset ? t('tasks.filter_empty') : t('grid.no_images'),
     }),
-    onOpen: (items, i) => openLightbox(projectId, items, i),
+    onOpen: (items, i) => openLightbox(projectId, items, i, { edit: canEditInApp() ? editImage : null }),
     targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
     onValue: () => refreshCounts(),
   });
@@ -486,6 +486,23 @@ export function imagesPanel(page) {
       const started = await api('POST', `/projects/${projectId}/fiftyone`, { json: job ? { task: task.id, job } : { task: task.id } });
       if (started && started.id) ctx.openWhenDone.set(started.id, tab); else dropTab(tab);
       toast(t('cur.fo_starting'), 'info', 4000);
+      await jobStarted(started);
+    } catch (err) { dropTab(tab); if (!fiftyoneError(err)) toastError(err); }
+  }
+
+  /** The App can edit this project's labels (not keypoints) and FiftyOne is installed. */
+  function canEditInApp() {
+    return !fiftyoneMissing() && !!ctx.project && ctx.project.task !== 'keypoints';
+  }
+
+  /** "Edit in FiftyOne" from the lightbox (#706): an edit session on this one image; the App opens on it. */
+  async function editImage(img) {
+    if (sayFiftyoneMissing()) return;
+    const tab = reserveTab(t('cur.fo_waiting'));
+    try {
+      const started = await api('POST', `/projects/${projectId}/annotate`, { json: { tool: 'fiftyone', scope: 'selected', ids: [img.id] } });
+      if (started && started.id) ctx.openWhenDone.set(started.id, tab); else dropTab(tab);
+      toast(t('annotate.send_started', { tool: toolName('fiftyone') }), 'info', 4000);
       await jobStarted(started);
     } catch (err) { dropTab(tab); if (!fiftyoneError(err)) toastError(err); }
   }

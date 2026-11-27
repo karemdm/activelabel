@@ -170,3 +170,22 @@ test('an image of a project without targets has no value cells', async () => {
     assert.equal(grid.node.querySelectorAll('.value-cell').length, 0);
   });
 });
+
+test('#706: the lightbox offers "Edit in FiftyOne" for the image shown, not for an excluded one', () => {
+  openLightbox(3, images(2), 0);
+  const box = document.querySelector('dialog.lightbox');
+  assert.equal(box.querySelector('[data-action="edit-fo"]'), null);  // no edit given: nothing offered
+  box.close();
+  const edited = [];
+  const items = images(2);
+  items[1].status = 'excluded';
+  openLightbox(3, items, 0, { edit: (img) => edited.push(img.id) });
+  const button = box.querySelector('[data-action="edit-fo"]');
+  assert.ok(button && button.classList.contains('primary'));
+  button.click();
+  assert.deepEqual(edited, ['i0']);
+  assert.equal(box.hasAttribute('open'), false);  // the lightbox closes: the App opens in a new tab
+  openLightbox(3, items, 1, { edit: (img) => edited.push(img.id) });
+  assert.equal(box.querySelector('[data-action="edit-fo"]'), null);
+  box.close();
+});

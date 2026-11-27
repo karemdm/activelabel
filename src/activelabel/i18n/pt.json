@@ -120,6 +120,7 @@
   "grid.select": "Selecionar {name}",
   "grid.excluded": "Excluída",
   "lightbox.title": "Imagem",
+  "lightbox.edit_fo": "Editar no FiftyOne",
   "lightbox.prev": "Imagem anterior",
   "lightbox.next": "Próxima imagem",
   "lightbox.classes": "Classe",

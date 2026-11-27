@@ -53,7 +53,8 @@ class FiftyOneTool:
             session_id: id of the annotation session (names the saved view).
 
         Returns:
-            The link to the App on the view, the view name as reference and how many images still hold
+            The link to the App on the view (on the image itself when there is only one), the view name as
+            reference and how many images still hold
             edits of an earlier session (the dataset was just refreshed, so only those differ from what
             ActiveLabel wrote).
 
@@ -70,6 +71,8 @@ class FiftyOneTool:
             url = fiftyone_bridge.launch_app(dataset, name)
         except OSError as exc:
             raise ToolError(str(exc)) from exc
+        if len(view) == 1:  # one image: the App opens straight on it (in Annotate mode, see fiftyone_plugin)
+            url = fiftyone_bridge.with_sample(url, view.first().id)
         kept = len(fiftyone_bridge.edited_images(dataset, image_ids, project.task))
         return Sent([{"label": "FiftyOne", "url": url}], {"view": name}, kept=kept)
 
