@@ -19,3 +19,6 @@ DATASET_STEPS = 70
 # State of an image in a project's manifest
 ACTIVE = "active"
 EXCLUDED = "excluded"
+
+#: Environment variable ``activelabel serve`` sets to its own address: the FiftyOne plugin calls back there.
+SERVER_URL_ENV = "ACTIVELABEL_SERVER_URL"

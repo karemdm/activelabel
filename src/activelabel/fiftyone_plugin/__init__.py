@@ -2,9 +2,10 @@
 
 Each plugin is a folder here. ``activelabel_annotate/`` opens the image window of the App in *Annotate*
 mode, so a box or a polygon point is moved by dragging it with the mouse (in *Explore* mode, the App's own
-default, the labels are only shown). ActiveLabel points FiftyOne at this folder for its own process (and the
-App server it starts) only: nothing is written to ``~/.fiftyone`` or to the FiftyOne configuration files of
-the person.
+default, the labels are only shown), and deletes several labels at once. ``activelabel_review/`` sends the
+edits made in the App back to ActiveLabel ("Enviar ao ActiveLabel", #703). ActiveLabel points FiftyOne at
+this folder for its own process (and the App server it starts) only: nothing is written to ``~/.fiftyone``
+or to the FiftyOne configuration files of the person.
 """
 
 from __future__ import annotations
@@ -13,12 +14,15 @@ import logging
 import os
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 
+from activelabel.constants import SERVER_URL_ENV
 from activelabel.optional import fo
 
 log = logging.getLogger(__name__)
 
 PLUGINS_DIR = Path(__file__).resolve().parent
+URL_KEY = "activelabel_url"  # in ``dataset.info``: the server the review plugin calls (never anything else)
 #: The FiftyOne version the plugins were checked with in a browser. ``activelabel_annotate`` uses an App
 #: hook that is not a public API (``useModalModeController``): after an upgrade, check it again (images
 #: open in Annotate mode) and update this number; the tests fail until then.
@@ -54,3 +58,18 @@ def use_plugins() -> None:
         )
     os.environ["FIFTYONE_PLUGINS_DIR"] = str(PLUGINS_DIR)
     fo.config.plugins_dir = str(PLUGINS_DIR)
+
+
+def record_server(dataset: Any) -> None:
+    """Record on the dataset which ActiveLabel server the App's "Enviar ao ActiveLabel" calls.
+
+    The address is the one ``activelabel serve`` announced (``ACTIVELABEL_SERVER_URL``); without it (the
+    server was not started that way) the dataset keeps what it had and the plugin says so.
+
+    Args:
+        dataset: the project's dataset.
+    """
+    url = os.environ.get(SERVER_URL_ENV, "").strip()
+    if url and dataset.info.get(URL_KEY) != url:
+        dataset.info = {**dataset.info, URL_KEY: url}
+        dataset.save()

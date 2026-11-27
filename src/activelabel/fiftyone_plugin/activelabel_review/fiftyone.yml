@@ -1,0 +1,7 @@
+name: "@activelabel/review"
+description: "Send the edits made in the App to ActiveLabel for review (button 'Enviar ao ActiveLabel')"
+version: "1.0.0"
+fiftyone:
+  version: "*"
+operators:
+  - send_to_activelabel

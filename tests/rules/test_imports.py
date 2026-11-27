@@ -22,6 +22,11 @@ def test_module_imports(name):
     if name.startswith("activelabel.training.workers.") and importlib.util.find_spec("torch") is None:
         # the workers run in the managed training environment and import torch at the top
         pytest.skip("torch is not installed in the app environment (the training workers need it)")
+    if (
+        name.startswith("activelabel.fiftyone_plugin.activelabel_review")
+        and importlib.util.find_spec("fiftyone") is None
+    ):
+        pytest.skip("the plugin runs inside FiftyOne (the optional extra)")
     importlib.import_module(name)
 
 

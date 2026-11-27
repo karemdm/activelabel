@@ -182,6 +182,26 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    `GET /projects/{id}/tasks` gives it as `last_session: {tool, at, status}`.
 5. **Close** a session (*Close session*): forget it.
 
+### The button inside the App: "Enviar ao ActiveLabel"
+
+The App that ActiveLabel starts loads a small FiftyOne plugin (`src/activelabel/fiftyone_plugin/`, operator
+`send_to_activelabel`; button in the samples grid toolbar and in the operator browser, key `` ` ``). Run it after
+editing: it asks the ActiveLabel server to read the edits of the open session back (step 3, the same call as
+*Review and apply*) and opens the ActiveLabel review page (`/projects/{id}?review=<session>#annotations`, which opens the session card), where the summary is
+checked and applied or discarded. Applying stays in ActiveLabel; the button never applies anything. With several
+open sessions it asks which one to read (the session of the open view is the default). Its texts follow
+`ACTIVELABEL_LANG` (Portuguese by default).
+
+- **Only ActiveLabel datasets.** It needs `project_id` and `activelabel_url` in `dataset.info`. ActiveLabel writes
+  the first when it refreshes the dataset, and the second, the address `activelabel serve` announced in the
+  environment variable `ACTIVELABEL_SERVER_URL`, when it starts or reuses the App. Another dataset gets a warning.
+- **Only the local server.** The plugin calls the recorded address and nothing else, and only when it is `http`
+  on `127.0.0.1`, `localhost` or `::1` with a port; any other value is refused. When the server does not answer,
+  the dialog says so ("O servidor do ActiveLabel não responde") and nothing is sent.
+- **Nothing global.** The plugins folder is set in the environment and the FiftyOne config of the ActiveLabel
+  process and the App server it starts, never in `~/.fiftyone` or the person's FiftyOne config files. That App
+  therefore shows the plugins of ActiveLabel only, not the ones the person installed for other FiftyOne work.
+
 The flow is the old one of the first CVAT-FiftyOne project (edit in the App, everything saved at once) with a
 review layer on top: sessions, the summary of changes, conflicts, safety copies and *Discard* stay.
 

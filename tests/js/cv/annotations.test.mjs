@@ -188,3 +188,37 @@ test('classes the file names with no label are not listed, and a hint counts the
     });
   }
 });
+
+test('the link of the FiftyOne button opens the FiftyOne tab on the session card (#703)', async () => {
+  const selected = [];
+  const page = reportPage();
+  page.tabsView = (key, label, list) => {
+    const node = document.createElement('div');
+    list.forEach((x) => (x.nodes || []).forEach((n) => node.append(n)));
+    return { node, select: (id) => selected.push(id), current: () => list[0].id, setCount: () => {} };
+  };
+  window.Element.prototype.scrollIntoView = () => {};  // jsdom has no layout
+  window.history.pushState({}, '', '/projects/1?review=s1#annotations');
+  try {
+    await withFetch(() => ({ sessions: [], report: null }), async () => {
+      const panel = annotationsPanel(page);
+      document.body.append(panel.node);
+      panel.mount();
+      await wait();
+      assert.ok(selected.includes('fiftyone'));
+      panel.node.remove();
+    });
+    selected.length = 0;
+    window.history.pushState({}, '', '/projects/1#annotations');  // an ordinary visit stays on the summary
+    await withFetch(() => ({ sessions: [], report: null }), async () => {
+      const panel = annotationsPanel(page);
+      document.body.append(panel.node);
+      panel.mount();
+      await wait();
+      assert.deepEqual(selected, []);
+      panel.node.remove();
+    });
+  } finally {
+    window.history.pushState({}, '', '/');
+  }
+});
