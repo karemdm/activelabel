@@ -161,6 +161,8 @@ The first release.
 - **The report of an annotation check (#651).** The report kept for a reload now lives beside the staging folder
   (`staging/<token>.report.json`), so a file sent with that name, in any folder, is no longer lost or taken for
   the report.
+- **A pending report tells whether the project has annotations now (#651).** `GET /annotations/pending` reads
+  `has_annotations` again instead of returning the value of the moment of the check.
 - **Sending a project to FiftyOne.** The progress bar of *Open in FiftyOne* and *Edit in FiftyOne* now advances
   (images written to the dataset, then the App; the activity pill also names the stage), and the App really
   opens: the tab is opened at the click and taken to the App when the job ends, instead of a window opened

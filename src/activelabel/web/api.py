@@ -1104,7 +1104,11 @@ def pending_annotations_report(project_id: int, state: AppState = STATE) -> dict
         ``{report: <the report as POST /annotations returned it, or null>}``.
     """
     state.project(project_id)
-    return {"report": ann.pending_report(state.store.dir(project_id))}
+    project_dir = state.store.dir(project_id)
+    report = ann.pending_report(project_dir)
+    if report is not None:  # the answer of the check is old: the project may have gained annotations since
+        report = {**report, "has_annotations": load_annotations(project_dir) is not None}
+    return {"report": report}
 
 
 @router.post("/projects/{project_id}/annotations/{token}/apply")
