@@ -273,6 +273,41 @@ def update(project_dir: Path, session_id: str, **fields: Any) -> dict[str, Any]:
     raise SessionNotFound(session_id)
 
 
+def find_open(
+    project_dir: Path,
+    tool: str,
+    scope: str,
+    image_ids: list[str],
+    task: int | None = None,
+    job: int | None = None,
+) -> dict[str, Any] | None:
+    """The open session that already holds exactly these images with this scope (#699), if any.
+
+    Args:
+        project_dir: the project folder.
+        tool: name of the annotation tool.
+        scope: how the images were chosen (see :data:`SCOPES`).
+        image_ids: ids of the images to send.
+        task: for scope ``task``, the id of the task.
+        job: for scope ``task``, the job of that task (None: the whole task).
+
+    Returns:
+        The newest open session of the same tool, scope, task, job and images, or ``None``.
+    """
+    wanted = set(image_ids)
+    for session in list_sessions(project_dir):
+        if (
+            session["status"] == OPEN
+            and session["tool"] == tool
+            and session["scope"] == scope
+            and session.get("task") == task
+            and session.get("job") == job
+            and set(session["image_ids"]) == wanted
+        ):
+            return session
+    return None
+
+
 def close(project_dir: Path, session_id: str) -> None:
     """Forget a session and its files.
 
