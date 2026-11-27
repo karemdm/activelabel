@@ -1,6 +1,7 @@
 /* Step 6, Models: the saved models (from training runs and public ones), comparing the chosen ones, downloading,
  * choosing the current one and pre-annotating with one. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
+import { evaluateControl, evaluationResult, evaluationStore, openApp } from './model_evaluation.js';
 import { modelName } from './model_picker.js';
 import { api } from '../shell/api.js';
 import { confirmDialog, openModal } from '../shell/dialogs.js';
@@ -19,6 +20,16 @@ export function modelsPanel(page) {
   let models = [];
   let timer = null;
   let sig = '';
+  /* the evaluation of each model (#611): its job, and what it found */
+  const evals = evaluationStore(projectId, () => {
+    sig = '';
+    draw();
+    if (evals.busy()) { clearTimeout(timer); timer = setTimeout(() => load(true), 1000); }
+  });
+  const evalWays = {
+    worst: (ids, n) => { ctx.panels.images.showIds(ids, n); showTab('images', true); },
+    openApp: (result) => openApp(page, result),
+  };
   const metricName = (m) => tr(`tr.metric.${m}`, String(m).replace(/_/g, ' '));
   const startName = (s) => tr(`tr.start_${s}`, s);
   /* the catalogue's name first, in the one style of every screen (#668); a public model keeps its own */
@@ -114,7 +125,8 @@ export function modelsPanel(page) {
     const val = (res.val || {})[m.metric];
     const test = (res.test || {})[m.metric];
     const id = `model-${m.number}`;
-    return el('li', { class: `tr-run card md-model${m.current ? ' current' : ''}`, id, 'aria-labelledby': `${id}-t` },
+    const evaluated = evaluationResult(m, evals.get(m.number), evalWays);
+    return el('li', { class: `tr-run card md-model${m.current ? ' current' : ''}${evaluated ? ' has-eval' : ''}`, id, 'aria-labelledby': `${id}-t` },
       el('div', { class: 'tr-run-head' },
         isPublic(m) ? null : compareCheck({ id: `${id}-cmp`, label: `m${m.number}`, checked: chosen.has(m.number), onChange: (on) => choose([m.number], on) }),
         el('h3', { id: `${id}-t` }, `m${m.number}`),
@@ -138,10 +150,12 @@ export function modelsPanel(page) {
         el('button', { type: 'button', class: 'icon-btn', 'data-act': 'note', 'aria-label': t('md.edit_note_aria', { n: m.number }), title: t('md.edit_note'), onclick: () => editNote(m) }, icon('edit', 16))),
       el('div', { class: 'tr-actions' },
         busy(m) ? null : el('button', { type: 'button', class: 'btn small', 'data-act': 'preannotate', onclick: () => { showTab('annotations'); ctx.panels.annotations.preannotateWith(m.number); } }, icon('star', 14), t('md.preannotate')),
+        busy(m) ? null : evaluateControl(m, evals),
         isPublic(m) ? el('span', { class: 'muted md-export' }, t('md.public_weights')) : null,
         isPublic(m) ? null : el('a', { class: 'btn small', href: download(m, 'pytorch'), download: '', 'data-act': 'pt' }, icon('download', 14), t('md.download_pt')),
         isPublic(m) ? null : onnxBlock(m),
-        busy(m) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('md.delete_aria', { n: m.number }), title: t('md.delete'), onclick: () => removeModel(m) }, icon('trash', 18))));
+        busy(m) ? null : el('button', { type: 'button', class: 'icon-btn danger tr-del', 'data-act': 'delete', 'aria-label': t('md.delete_aria', { n: m.number }), title: t('md.delete'), onclick: () => removeModel(m) }, icon('trash', 18))),
+      evaluated);
   }
 
   /* the models chosen for the comparison (#214): only trained ones have metrics to compare */
@@ -297,7 +311,7 @@ export function modelsPanel(page) {
   }
 
   function draw() {
-    const s = JSON.stringify(models) + publicAvailable + [...chosen].join(',');
+    const s = JSON.stringify(models) + publicAvailable + [...chosen].join(',') + evals.signature();
     if (s === sig) return;
     sig = s;
     publicBtn.hidden = publicAvailable === false;  // no public model for this type: nothing to add
@@ -327,12 +341,13 @@ export function modelsPanel(page) {
       await ensurePublic();
       const d = await api('GET', `/projects/${projectId}/models`);
       models = d.models || [];
+      await evals.sync(models.map((m) => m.number));
       ctx.modelCount = models.length;
       ctx.currentModel = d.current;
       renderStepper();
       draw();
     } catch (err) { if (!quiet) toastError(err); }
-    if (!node.hidden && models.some(busy)) timer = setTimeout(() => load(true), 2000);
+    if (!node.hidden && (models.some(busy) || evals.busy())) timer = setTimeout(() => load(true), 2000);
   }
 
   const publicBtn = el('button', { type: 'button', class: 'btn', onclick: (e) => addPublic(e.currentTarget) }, t('md.public_add_button'));

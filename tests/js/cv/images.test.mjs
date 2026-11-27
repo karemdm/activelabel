@@ -240,3 +240,37 @@ test('#706: a keypoints project gets no "Edit in FiftyOne" in the lightbox (the 
     document.querySelectorAll('section.panel').forEach((n) => n.remove());
   }
 });
+
+test('the worst images of a model filter the gallery by id, with a chip that clears the filter (#611)', async () => {
+  const { page, selected } = makePage(true);
+  setMessages({ 'md.eval_worst_chip': 'Worst of m{n} · {count}', 'md.eval_worst_clear': 'Show all' }, 'en');
+  page.tabsView = (id, label, tabs) => {  // the tab contents are shown, so the filter is in the panel
+    const node = document.createElement('div');
+    for (const tab of tabs) node.append(...tab.nodes);
+    return { node, remembered: true, select: (tab) => selected.push(tab), setCount: () => {}, current: () => 'gallery' };
+  };
+  const panel = imagesPanel(page);
+  document.body.appendChild(panel.node);
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    asked.push(url);
+    const body = url.includes('/tasks') ? { tasks: [] } : { total: 0, items: [] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    panel.showIds(['a', 'b'], 3);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(selected, ['gallery']);
+    assert.ok(asked.some((u) => u.includes('/images?') && u.includes('ids=a%2Cb')));
+    const chip = document.getElementById('filter-ids-chip');
+    assert.equal(chip.textContent, 'Worst of m3 · 2');
+    document.getElementById('filter-ids-clear').click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(document.getElementById('filter-ids-chip'), null);
+    assert.ok(!asked.at(-1).includes('ids='));
+  } finally {
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});

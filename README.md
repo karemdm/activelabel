@@ -169,6 +169,13 @@ project is its *type*.)
    the active images that have labels are checked, the labels are never changed, and the predictions and
    numbers are written to the FiftyOne dataset (`activelabel_predictions`, `mistakenness`, `hardness`).
 
+   *Evaluating a model* (button *Evaluate* on a model card in step 6, a job of the global queue) predicts the test
+   part of the dataset version the model was trained on (the validation part without a test one) and lets FiftyOne
+   compare it with the labels: the card shows precision, recall, F1 and mAP (accuracy and macro F1 for a
+   classification), the metrics of each class, the confusion matrix, the worst images (they filter *Images*) and
+   *Open in FiftyOne*, where the *Model Evaluation* panel (the **+** beside the sample tabs, evaluation `eval_m<N>`)
+   compares models. Not for keypoints or regression projects.
+
 ### Model
 
 4. **Data split** freezes a *dataset version*: train, validation and test parts (or K folds

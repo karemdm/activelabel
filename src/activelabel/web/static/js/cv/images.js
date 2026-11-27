@@ -203,7 +203,7 @@ export function imagesPanel(page) {
 
   // ---- tasks (cards), and the filter of the grid
   let tasks = [];
-  let filter = { task: null, job: null, dataset: null }; // dataset: {n, part|fold} set from step 4
+  let filter = { task: null, job: null, dataset: null, ids: null }; // dataset: {n, part|fold} set from step 4; ids: {list, model} the worst images of a model (step 6)
   let renaming = null; // id of the task being renamed
   let renameDraft = null; // text typed so far (kept if the cards are redrawn)
   const expanded = new Set();
@@ -220,7 +220,8 @@ export function imagesPanel(page) {
       task: filter.task,
       job: filter.job,
       dataset: filter.dataset,
-      emptyText: filter.task != null || filter.dataset ? t('tasks.filter_empty') : t('grid.no_images'),
+      ids: filter.ids ? filter.ids.list : null,
+      emptyText: filter.task != null || filter.dataset || filter.ids ? t('tasks.filter_empty') : t('grid.no_images'),
     }),
     onOpen: (items, i) => openLightbox(projectId, items, i, { edit: canEditInApp() ? editImage : null }),
     targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
@@ -237,7 +238,7 @@ export function imagesPanel(page) {
       return;
     }
     const current = taskById(filter.task);
-    if (!current) filter = { task: null, job: null, dataset: filter.dataset };
+    if (!current) filter = { task: null, job: null, dataset: filter.dataset, ids: filter.ids };
     else if (filter.job != null && !current.jobs.some((j) => j.n === filter.job)) filter.job = null;
     if (!tasks.some((x) => x.id === renaming)) renaming = null;
     nameInput.placeholder = t('tasks.name_placeholder', { id: nextTaskNumber(tasks) });
@@ -289,6 +290,11 @@ export function imagesPanel(page) {
           ? el('span', { class: 'chip filter-chip', role: 'status', id: 'filter-dataset-chip' },
             t('ds.filter_chip', { n: filter.dataset.n, part: filter.dataset.fold != null ? t('ds.fold', { n: filter.dataset.fold + 1 }) : partName(filter.dataset.part) }),
             el('button', { type: 'button', class: 'chip-x', id: 'filter-dataset-clear', 'aria-label': t('ds.filter_clear'), title: t('ds.filter_clear'), onclick: () => { setFilter(filter.task, filter.job); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
+          : null,
+        filter.ids
+          ? el('span', { class: 'chip filter-chip', role: 'status', id: 'filter-ids-chip' },
+            t('md.eval_worst_chip', { n: filter.ids.model, count: filter.ids.list.length }),
+            el('button', { type: 'button', class: 'chip-x', id: 'filter-ids-clear', 'aria-label': t('md.eval_worst_clear'), title: t('md.eval_worst_clear'), onclick: () => { setFilter(filter.task, filter.job, { dataset: filter.dataset }); const s = document.getElementById('filter-task'); if (s) s.focus(); } }, icon('close', 14)))
           : null));
     if (focused) { const f = document.getElementById(focused); if (f) f.focus(); }
   }
@@ -971,6 +977,13 @@ export function imagesPanel(page) {
   /** Step 4 sends the person here to see one part of a dataset version. */
   panel.showDataset = (n, part, fold = null) => {
     filter = { task: null, job: null, dataset: { n, part, fold } };
+    imageTabs.select('gallery');
+    drawFilter();
+    grid.reload();
+  };
+  /** Step 6 sends the person here to see the worst images of a model's evaluation (#611). */
+  panel.showIds = (ids, model) => {
+    filter = { task: null, job: null, dataset: null, ids: { list: ids, model } };
     imageTabs.select('gallery');
     drawFilter();
     grid.reload();

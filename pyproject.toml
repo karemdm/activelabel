@@ -54,6 +54,8 @@ fiftyone = [
     "graphql-core<3.3",
     # importlib-metadata 8+ raises KeyError where FiftyOne's eta package expects None (Python < 3.12)
     "importlib-metadata<8",
+    # FiftyOne compares polygons (the evaluation of a segmentation model) with it
+    "shapely>=2",
 ]
 all = ["activelabel[fiftyone]"]
 dev = [

@@ -209,7 +209,7 @@ flowchart TB
 | Extra | Contents |
 | --- | --- |
 | *(none)* | projects, images, curation and the similarity map, annotations, tasks, videos, CVAT synchronisation, datasets, training and pre-annotation (their packages live in the training environment, [TRAINING.md](TRAINING.md)); `scikit-learn` and `requests` are core dependencies |
-| `fiftyone` | `fiftyone`, with the pins that keep it working (`graphql-core`, `importlib-metadata`): the FiftyOne App, its annotation tool, the import of CVAT projects and the similarity map in the App |
+| `fiftyone` | `fiftyone`, with the pins that keep it working (`graphql-core`, `importlib-metadata`) and `shapely` (FiftyOne compares polygons with it): the FiftyOne App, its annotation tool, the import of CVAT projects and the similarity map in the App |
 | `all` | the same as `fiftyone` |
 | `dev` | the test tools, and `fiftyone` (the tests cover its parts too) |
 
