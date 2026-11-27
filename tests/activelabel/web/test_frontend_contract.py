@@ -949,3 +949,10 @@ def test_open_in_cvat_and_fiftyone_live_in_their_tabs_not_in_the_header():
         assert gone not in open_js, gone
     assert "fill(cvatOpenBox, cvatOpenRow(" in external_js
     assert "fill(foOpenBox, fiftyoneOpenRow(page))" in external_js
+
+
+def test_the_import_report_uses_the_whole_width_and_its_summary_lines_up():
+    """The report card is not narrowed to half the page and each fact reads label over value (#695)."""
+    assert re.search(r"\.import-job \{ max-width: none;", CSS)
+    assert re.search(r"\.result-facts > div \{ display: block;", CSS)
+    assert re.search(r"\.result-facts dd \{ text-align: left;", CSS)
