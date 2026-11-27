@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import webbrowser
 from collections.abc import Sequence
 
 import uvicorn
 
+from activelabel.constants import SERVER_URL_ENV
 from activelabel.web.app import create_app
 
 
@@ -33,6 +35,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "serve":
         url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
         print(f"activelabel: {url}", file=sys.stderr)
+        os.environ[SERVER_URL_ENV] = url  # the FiftyOne plugin calls back this server (#703)
         if args.open:
             webbrowser.open(url)
         uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")

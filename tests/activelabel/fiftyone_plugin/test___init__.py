@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from activelabel import fiftyone_plugin
+from activelabel import cli, fiftyone_plugin
+from activelabel.annotate.fiftyone_tool import view_name
+from activelabel.constants import SERVER_URL_ENV
+from activelabel.fiftyone_plugin.activelabel_review import VIEW_PREFIX
 
 PLUGIN = fiftyone_plugin.PLUGINS_DIR / "activelabel_annotate"
 
@@ -18,11 +21,21 @@ class FakeFiftyOne:
     config = FakeConfig()
 
 
+class FakeDataset:
+    def __init__(self, info):
+        self.info = info
+        self.saved = 0
+
+    def save(self):
+        self.saved += 1
+
+
 @pytest.fixture
 def isolated(monkeypatch):
     monkeypatch.setattr(fiftyone_plugin, "fo", FakeFiftyOne())
     monkeypatch.setattr(FakeFiftyOne, "config", FakeConfig())
     monkeypatch.delenv("FIFTYONE_PLUGINS_DIR", raising=False)
+    monkeypatch.delenv(SERVER_URL_ENV, raising=False)
 
 
 def test_the_annotate_plugin_has_its_manifest_and_its_script():
@@ -72,3 +85,38 @@ def test_no_fiftyone_installed_reads_as_none(monkeypatch):
 
     monkeypatch.setattr(fiftyone_plugin.metadata, "version", missing)
     assert fiftyone_plugin.installed_fiftyone() is None
+
+
+def test_the_server_address_is_recorded_on_the_dataset(isolated, monkeypatch):
+    monkeypatch.setenv(SERVER_URL_ENV, "http://127.0.0.1:8167")
+    dataset = FakeDataset({"project_id": 4})
+    fiftyone_plugin.record_server(dataset)
+    assert dataset.info == {"project_id": 4, fiftyone_plugin.URL_KEY: "http://127.0.0.1:8167"}
+    assert dataset.saved == 1
+    fiftyone_plugin.record_server(dataset)  # the same address: nothing to save again
+    assert dataset.saved == 1
+
+
+def test_without_an_announced_server_the_dataset_is_left_alone(isolated):
+    dataset = FakeDataset({"project_id": 4})
+    fiftyone_plugin.record_server(dataset)
+    assert dataset.info == {"project_id": 4}
+    assert dataset.saved == 0
+
+
+def test_the_serve_command_announces_its_address(monkeypatch):
+    monkeypatch.setenv(SERVER_URL_ENV, "")  # restored by monkeypatch at the end
+    monkeypatch.setattr(cli, "create_app", lambda: "the-app")
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: None)
+    cli.main(["serve", "--host", "0.0.0.0", "--port", "8167"])
+    assert os.environ[SERVER_URL_ENV] == "http://127.0.0.1:8167"
+
+
+def test_the_session_view_name_matches_the_one_the_plugin_reads():
+    assert view_name("abc123") == f"{VIEW_PREFIX}abc123"
+
+
+def test_the_review_plugin_has_its_manifest_and_its_operator():
+    plugin = fiftyone_plugin.PLUGINS_DIR / "activelabel_review"
+    assert (plugin / "__init__.py").is_file()
+    assert "send_to_activelabel" in (plugin / "fiftyone.yml").read_text(encoding="utf-8")

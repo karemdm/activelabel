@@ -327,7 +327,13 @@ export function annotationsPanel(page) {
     el('h2', { id: 'h-annotations' }, t('step.annotations')),
     annTabs.node);
   const placeTabs = () => { if (isRegression()) annTabs.hide('cvat'); };
-  panel.mount = () => { placeTabs(); loadGt(); loadVideoTasks(); loadPending(); annotate.mount(); };
+  panel.mount = () => {
+    placeTabs(); loadGt(); loadVideoTasks(); loadPending();
+    const loaded = annotate.mount();
+    /* the link of the FiftyOne button "Enviar ao ActiveLabel" (#703): ?review=<session> opens that session's card */
+    const review = new URLSearchParams(window.location.search).get('review');
+    if (review) loaded.then(() => panel.reveal(review));
+  };
   panel.refresh = () => { placeTabs(); loadGt(); loadVideoTasks(); annotate.refresh(); };
   panel.show = annotate.show;
   /* a finished activity opens the tab it belongs to, then its card */

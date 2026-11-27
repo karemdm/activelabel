@@ -1258,6 +1258,7 @@ def launch_app(
     """
     global _session
     fiftyone_plugin.use_plugins()  # the image window opens ready to edit (Annotate mode)
+    fiftyone_plugin.record_server(dataset)  # the App's "Enviar ao ActiveLabel" calls this server (#703)
     if task is not None:
         view = task_view_name(task) if task_view_name(task) in dataset.list_saved_views() else None
     else:

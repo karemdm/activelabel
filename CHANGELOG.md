@@ -11,6 +11,13 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ## Unreleased
 
+### Added
+
+- **"Enviar ao ActiveLabel" inside the FiftyOne App (#703).** A FiftyOne plugin operator, loaded by the App that
+  ActiveLabel starts (for that process only; nothing is written to `~/.fiftyone`), reads the edits of the open
+  edit session back and opens the ActiveLabel review. It works only for ActiveLabel datasets, calls only the local
+  server recorded in `dataset.info`, and says in the App when that server is not reachable (docs/ANNOTATION.md).
+
 ## 0.1.0 - 2026-11-27
 
 The first release.
