@@ -11,6 +11,7 @@ from activelabel.images.manifest import Manifest
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
 from activelabel.sync import links
 from activelabel.tasks_store import TaskStore
+from activelabel.web import tasks_api
 
 CAT = [box("cat")]
 CAT2 = [box("cat", 0.5, 0.5)]
@@ -189,6 +190,20 @@ def test_scopes_and_delete_tasks_through_the_api(env):
     done = apply(env, review["result"]["plan_id"], delete_tasks=True)
     assert done["result"]["tasks_deleted"] == 1
     assert env.remote.tasks(None, remote_id) == []
+
+
+def test_a_comparison_that_finds_the_task_deleted_forgets_the_cached_cvat_state(env):
+    done = apply(env, plan(env, create=True)["result"]["plan_id"])
+    assert done["status"] == "done"
+    remote_id = list(env.remote.task_meta)[-1]
+    tasks_api._remote_cache[(env.pid, "old")] = (time.monotonic(), {"1": {"task": "1"}})
+    tasks_api._remote_cache[(env.pid + 1, "other")] = (time.monotonic(), {})
+    env.remote.delete_task(None, next(iter(env.remote.task_meta[remote_id])))
+    review = plan(env)
+    assert [t["task"] for t in review["result"]["tasks_removed_remote"]] == [1]
+    assert (env.pid, "old") not in tasks_api._remote_cache  # the menu asks CVAT again
+    assert (env.pid + 1, "other") in tasks_api._remote_cache  # other projects keep theirs
+    tasks_api._remote_cache.clear()
 
 
 def test_unlinking_is_refused_while_a_job_runs(env):

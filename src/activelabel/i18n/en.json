@@ -662,6 +662,7 @@
   "sync.per_job": "{n} per job",
   "sync.row_add": "Images to send",
   "sync.row_annot": "Images with annotation changes",
+  "sync.removed_task_item": "{name} · deleted in CVAT · {n}",
   "sync.row_remove": "Images to remove",
   "sync.row_restore": "Images to restore",
   "sync.dir_empty": "Nothing to do.",

@@ -10,12 +10,14 @@ from pydantic import BaseModel
 
 from activelabel.annotate import credentials
 from activelabel.annotate.base import ToolError, ToolSettings
+from activelabel.importing.common import RemoteNotFound
 from activelabel.jobs import Progress
 from activelabel.sync import engine, links
 from activelabel.sync.registry import get_remote
 from activelabel.sync.remote import RemoteProject
 from activelabel.web.errors import ApiError, tool_failure
 from activelabel.web.state import AppState, get_state
+from activelabel.web.tasks_api import forget_remote
 
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
@@ -190,20 +192,27 @@ def _plan_job(
     Returns:
         The saved comparison (id and summary of the differences).
     """
-    return engine.make_plan(
-        state.store,
-        project_id,
-        tool,
-        settings,
-        remote,
-        progress,
-        body.create,
-        remote_id,
-        scope=body.scope,
-        task_id=body.task,
-        job=body.job,
-        direction=body.direction,
-    )
+    try:
+        found = engine.make_plan(
+            state.store,
+            project_id,
+            tool,
+            settings,
+            remote,
+            progress,
+            body.create,
+            remote_id,
+            scope=body.scope,
+            task_id=body.task,
+            job=body.job,
+            direction=body.direction,
+        )
+    except RemoteNotFound:
+        forget_remote(project_id)  # the task list must not keep offering the deleted project (#695)
+        raise
+    if found.get("tasks_removed_remote"):
+        forget_remote(project_id)  # a task deleted in CVAT: its menu must stop pointing there
+    return found
 
 
 @router.post("/projects/{project_id}/sync/{tool}")
@@ -263,7 +272,7 @@ def _apply_job(
     Returns:
         The counts of what was applied.
     """
-    return engine.apply_plan(
+    result = engine.apply_plan(
         state.store,
         project_id,
         tool,
@@ -275,6 +284,8 @@ def _apply_job(
         progress,
         delete_tasks=body.delete_tasks,
     )
+    forget_remote(project_id)  # what the apply changed in CVAT is read again
+    return result
 
 
 @router.delete("/projects/{project_id}/sync/{tool}/{plan_id}")

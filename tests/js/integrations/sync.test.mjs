@@ -107,6 +107,7 @@ function drawPlan(plan) {
   setMessages({
     'annotate.tool.cvat': 'CVAT', 'sync.push': 'To {tool}', 'sync.pull': 'From {tool}', 'sync.dir_empty': 'Nothing',
     'sync.row_not_converted': 'Shapes that stay only in {tool}', 'sync.not_converted_item': '{kind}: {n}',
+    'sync.row_remove': 'Images to remove', 'sync.removed_task_item': '{name} · deleted in CVAT · {n}', 'sync.n_images_other': '{n} images',
     'sync.shape.ellipse': 'ellipses', 'sync.shape.mask': 'masks', 'sync.kind_geometry': 'Same classes: the position differs.',
     'sync.kind_labels': 'Edited on both sides', 'sync.kind_removed_local': 'Removed here', 'sync.kind_removed_remote': 'Removed in {tool}',
     'sync.no_labels': 'no labels', 'sync.side_local': 'Here', 'sync.pull_class_only_one': '{n} of them changes only by the class name', 'sync.pull_class_only_other': '{n} of them change only by the class name',
@@ -140,6 +141,14 @@ test('the review has no line for shapes that stay in the tool when there are non
     assert.doesNotMatch(block.node.textContent, /Shapes that stay/);
     block.node.remove();
   }
+});
+
+test('the review names the tasks deleted in the tool next to the images to remove (#695)', () => {
+  const block = drawPlan({ remove_local: 6, tasks_removed_remote: [{ task: 2, name: 'Beta', images: 6 }] });
+  const pull = block.node.querySelectorAll('.sync-dir')[1].textContent;
+  assert.match(pull, /Images to remove.*6/);
+  assert.match(pull, /Beta · deleted in CVAT/);
+  block.node.remove();
 });
 
 test('a conflict with the same classes on both sides says that the position differs (#684)', () => {

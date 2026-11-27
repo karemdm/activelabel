@@ -100,7 +100,7 @@ CVAT*), review, and click *Apply synchronisation* (*Aplicar a sincronização*).
    images and tasks follow docs/TASKS.md (*CVAT mirror*).
    Result: `{plan_id, tool, remote, create, scope, direction, only_here: {images, tasks}, pull, push,
    add, images_new, labels_new, remove_remote, remove_local, restore_remote, restore_local, tasks_create, skipped_tasks,
-   tasks_new, tasks_delete, tasks_rename: [{task, remote_task, old, new, direction: "push"|"pull"}],
+   tasks_new, tasks_delete, tasks_removed_remote: [{task, name, images}] (tasks deleted in the tool: their images go), tasks_rename: [{task, remote_task, old, new, direction: "push"|"pull"}],
    tasks_rename_conflicts: [{task, remote_task, local, remote}], project_rename: {old, new, direction: "push"|"pull"}|null,
    project_rename_conflict: {local, remote}|null, conflicts: [{image_id, name, local: {labels, per_class}, remote: {labels,
    per_class}, ...}], remote_only, unchanged, renamed_classes: [{from, to}], not_converted: {kind: n},
