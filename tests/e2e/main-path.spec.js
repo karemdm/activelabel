@@ -91,27 +91,6 @@ test.describe.serial('main path', () => {
       .toBe(3);
   });
 
-  test('curation step opens, in Portuguese and in English, without raw keys', async ({ page }) => {
-    await page.goto(projectUrl);
-    const step = page.locator('.step[data-step="curation"]');
-    await step.click();
-    await expect(step).toHaveAttribute('aria-current', 'step');
-    await expect(step).toContainText('Curadoria');
-    await expectNoRawKeys(page);
-
-    await page.locator('.lang-switch a[data-lang="en"]').click();
-    await page.waitForLoadState('load');
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    const stepEn = page.locator('.step[data-step="curation"]');
-    await stepEn.click();
-    await expect(stepEn).toContainText('Curation');
-    await expectNoRawKeys(page);
-
-    await page.locator('.lang-switch a[data-lang="pt"]').click();
-    await page.waitForLoadState('load');
-    await expect(page.locator('html')).toHaveAttribute('lang', 'pt');
-  });
-
   test('every step opens, in Portuguese and in English, without errors or raw keys', async ({ page }) => {
     for (const [lang, column] of [['pt', 1], ['en', 2]]) {
       await page.goto(`${projectUrl}?lang=${lang}`);
@@ -126,6 +105,10 @@ test.describe.serial('main path', () => {
         await expectNoRawKeys(page);
       }
     }
+    // the language-switch link moves from English back to Portuguese
+    await page.locator('.lang-switch a[data-lang="pt"]').click();
+    await page.waitForLoadState('load');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'pt');
   });
 
   test('no horizontal scroll at 390 px on the home page, the new-project form and the project', async ({ page }) => {

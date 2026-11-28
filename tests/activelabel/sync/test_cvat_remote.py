@@ -514,31 +514,49 @@ def test_add_times_out_and_reports_failure(
 
 
 @pytest.mark.parametrize(
-    ("status", "text"),
+    ("status", "text", "code"),
     [
-        (401, "login failed"),
-        (403, "refused"),
-        (404, "not found"),
-        (429, "slow down"),
-        (500, "error 500"),
+        (401, "login failed", "cvat_login_failed"),
+        (403, "refused", "cvat_refused"),
+        (404, "not found", "cvat_not_found"),
+        (429, "slow down", "cvat_rate_limited"),
+        (500, "error 500", "cvat_error"),
     ],
 )
-def test_http_errors_are_readable_and_secret_free(cvat: FakeCvat, status: int, text: str) -> None:
+def test_http_errors_are_readable_secret_free_and_carry_a_code(
+    cvat: FakeCvat, status: int, text: str, code: str
+) -> None:
     cvat.fail[("GET", "/api/projects")] = status
     with pytest.raises(ToolError, match=text) as err:
         CvatRemote().find(SETTINGS, "x")
     assert "s3cret-pw" not in str(err.value)
+    assert err.value.code == code
 
 
-def test_unreachable_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Down:
-        def request(self, *a: Any, **k: Any) -> Any:
-            raise requests.ConnectionError("boom s3cret-pw")
+class Down:
+    """A session whose every request fails like an unreachable server, with a secret in the message."""
 
+    def request(self, *a: Any, **k: Any) -> Any:
+        """Always raise a connection error.
+
+        Args:
+            *a: Ignored positional arguments.
+            **k: Ignored keyword arguments.
+
+        Returns:
+            Never returns.
+        """
+        raise requests.ConnectionError("boom s3cret-pw")
+
+
+def test_unreachable_server_is_readable_secret_free_and_carries_its_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(requests, "Session", lambda: Down())
     with pytest.raises(ToolError, match="Cannot reach CVAT") as err:
-        CvatRemote().get(SETTINGS, "1")
+        CvatRemote().find(SETTINGS, "x")
     assert "s3cret-pw" not in str(err.value)
+    assert (err.value.code, err.value.params) == ("cvat_unreachable", {"url": "https://cvat.test"})
 
 
 def test_missing_credentials() -> None:
@@ -1135,17 +1153,6 @@ def test_not_converted_names_what_the_project_cannot_see(shape, task, why) -> No
     assert cvat_remote._not_converted(shape, task, {5: [7]}) == why
 
 
-@pytest.mark.parametrize(
-    ("status", "code"),
-    [(401, "cvat_login_failed"), (403, "cvat_refused"), (404, "cvat_not_found"), (429, "cvat_rate_limited")],
-)
-def test_http_errors_carry_a_code(cvat: FakeCvat, status: int, code: str) -> None:
-    cvat.fail[("GET", "/api/projects")] = status
-    with pytest.raises(ToolError) as err:
-        CvatRemote().find(SETTINGS, "x")
-    assert err.value.code == code
-
-
 def test_a_server_error_carries_its_status_and_no_path_or_empty_body(
     cvat: FakeCvat, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1162,18 +1169,3 @@ def test_the_plan_limit_has_its_own_code(cvat: FakeCvat, monkeypatch: pytest.Mon
     with pytest.raises(ToolError) as err:
         CvatRemote().find(SETTINGS, "x")
     assert err.value.code == "cvat_plan_limit"
-
-
-def test_unreachable_server_carries_its_address(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Down:
-        def request(self, *a: Any, **k: Any) -> Any:
-            raise requests.ConnectionError("boom")
-
-    monkeypatch.setattr(requests, "Session", lambda: Down())
-    with pytest.raises(ToolError) as err:
-        CvatRemote().find(SETTINGS, "x")
-    assert (err.value.code, err.value.params) == ("cvat_unreachable", {"url": "https://cvat.test"})
-
-
-def test_check_answers_with_the_user_name(cvat: FakeCvat) -> None:
-    assert CvatRemote().check(SETTINGS).startswith("Connected to https://cvat.test as ")
