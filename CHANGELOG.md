@@ -53,6 +53,13 @@ the release notes, generated from the merged pull requests and grouped by label 
   (entry, FiftyOne fields, evaluation, run and view), and is refused while it is being evaluated. Evaluating
   polygons (with mAP: predicted polygons carry their score) needs `shapely`, now part of the `fiftyone` extra.
 
+### Changed
+
+- **Portuguese texts keep the technical terms in English (#222).** *frame*, *grid*, *batch*, *epoch*, *seed*,
+  *fine-tuning*, *dataset* and *download* stay as they are in the English interface, so the same words appear in
+  both languages. The Portuguese texts no longer say *quadro* or *época* for them. A test fails when a Portuguese
+  text holds a common English word, or an English text a common Portuguese word.
+
 ## 0.1.0 - 2026-11-27
 
 The first release.
