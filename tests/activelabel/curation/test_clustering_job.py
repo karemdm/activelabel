@@ -86,9 +86,11 @@ def finished(state):
 
 
 def block(runner):
-    """Occupy the CPU lane until the returned gate gets an item."""
+    """Occupy the CPU lane (the job's own: ``auto`` would be mps on a Mac) until the gate gets an item."""
     gate: list[bool] = []
-    blocker = runner.enqueue_tool(1, "block", lambda progress: wait_for(lambda: progress.check() or gate, 30))
+    blocker = runner.enqueue_tool(
+        1, "block", lambda progress: wait_for(lambda: progress.check() or gate, 30), device="cpu"
+    )
     return gate, blocker
 
 

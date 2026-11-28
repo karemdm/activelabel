@@ -158,7 +158,9 @@ def test_one_regrouping_at_a_time_and_cancel(mapped):
     test_client, _ = mapped
     runner = test_client.app.state.activelabel.runner
     gate: list[bool] = []
-    runner.enqueue_tool(1, "block", lambda progress: wait_for(lambda: progress.check() or gate, 30))
+    runner.enqueue_tool(
+        1, "block", lambda progress: wait_for(lambda: progress.check() or gate, 30), device="cpu"
+    )
     assert test_client.post(CLUSTERING, json={"method": "kmeans", "groups": 2}).json()["status"] == "queued"
     second = test_client.post(CLUSTERING, json={"method": "kmeans", "groups": 3})
     assert second.status_code == 409 and second.json()["code"] == "clustering_running"
