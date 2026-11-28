@@ -11,6 +11,14 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ## Unreleased
 
+### Fixed
+
+- **Import from CVAT (#709).** A project, or a task of a project, no longer needs FiftyOne to be imported (only a
+  task outside any project does, and only that one gets the `fiftyone_not_installed` refusal); a task of a project
+  that is already in ActiveLabel is refused at once with `cvat_already_imported` (409) instead of failing inside the
+  job; and `images_rejected` of a project import now counts the frames that are not readable images (with a warning)
+  instead of always being 0.
+
 ### Changed
 
 - **Faster checks (development).** The commit hook runs only the tests of the changed files (the CI still runs the

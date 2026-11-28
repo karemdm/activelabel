@@ -566,6 +566,15 @@ def test_import_project_reports_what_it_could_not_bring(tasks_remote, tmp_path):
     assert problems["duplicate_labels_dropped"]["count"] == 1  # the bus box of b0
 
 
+def test_import_project_counts_the_frames_that_are_not_readable_images(tasks_remote, tmp_path):
+    tasks_remote.frame_bytes[("10", 3)] = b"not an image at all"
+    store = ProjectStore(tmp_path / "projects")
+    result = run(store, tmp_path, kind="project", remote_id="1")
+    assert result["images_added"] == 4 and result["images_rejected"] == 1
+    problems = {p["code"]: p for p in result["problems"]}
+    assert problems["images_rejected"]["level"] == "warning" and problems["images_rejected"]["count"] == 1
+
+
 def test_importing_a_project_twice_is_refused_naming_the_first_one(tasks_remote, tmp_path):
     store = ProjectStore(tmp_path / "projects")
     first = run(store, tmp_path, kind="project", remote_id="1")
