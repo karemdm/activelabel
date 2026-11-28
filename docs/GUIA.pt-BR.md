@@ -276,9 +276,8 @@ posição na fila, o progresso e *Cancelar*.
 
 Mais: [ARCHITECTURE.md](ARCHITECTURE.md) (arquitetura, modelo de dados e fluxos, em inglês),
 [DESIGN.md](DESIGN.md) (dados em disco e API HTTP, em inglês),
-[DEVELOPMENT.md](DEVELOPMENT.md) (guia de quem desenvolve, em inglês),
-[RELEASING.md](../RELEASING.md) (como uma versão é publicada, em inglês) e
-[FUTURE-LLM.md](FUTURE-LLM.md) (uso planejado de modelos de linguagem, em inglês).
+[DEVELOPMENT.md](DEVELOPMENT.md) (guia de quem desenvolve, em inglês) e
+[RELEASING.md](../RELEASING.md) (como uma versão é publicada, em inglês).
 
 ## Configuração
 
