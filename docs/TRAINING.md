@@ -320,7 +320,7 @@ cases, and against hand-computed examples (`tests/activelabel/training/test_metr
 | Accuracy (classification) | correct / images | all classes |
 | Precision, recall, F1 per class | TP/(TP+FP), TP/(TP+FN), 2PR/(P+R) | 0 when the denominator is 0 (no error); `support` = true images of the class |
 | Macro F1 | unweighted mean of the per-class F1 | over the classes present in the truth **or** the predictions (as scikit-learn); a class absent from both is left out |
-| Confusion matrix | `matrix[true][predicted]` | image counts (classification), pixel counts (segmentation, index 0 = background) |
+| Confusion matrix | `matrix[true][predicted]` | image counts (classification), pixel counts (segmentation, index 0 = background), object counts (detection, instances, keypoints: `confusion`, the background last, see below) |
 | IoU, Dice per class (segmentation) | TP/(TP+FP+FN), 2TP/(2TP+FP+FN) | from one confusion matrix summed over all images of the part (not a mean of per-image scores) |
 | mIoU, mean Dice | mean over the object classes | the background is left out of the means (reported as `background_iou`); a class absent from truth and prediction is left out |
 | Pixel accuracy | correct pixels / pixels | background included |
@@ -372,6 +372,34 @@ of the highest values is taken (2 decimals). The test part has no suggestion of 
 validation's. The F1 chart marks it, and saving the run as a model copies both onto the card (`model.json`),
 where pre-annotation takes `suggested_threshold` as its default confidence (docs/PREANNOTATE.md). Older runs and
 models have none and keep the default of their kind.
+
+### Confusion matrix of objects
+
+Detection, instance and keypoint runs of the detection worker (torchvision and transformers) also write a
+`confusion` to each part (#324):
+
+```json
+"confusion": {"classes": ["cat", "dog"], "other": false, "missing": true,
+              "matrix": [[9, 1, 2], [0, 7, 1], [3, 0, 0]], "iou": 0.5, "threshold": 0.42}
+```
+
+Real class in rows, predicted in columns, the background (*(none)*) last: its row counts the detections that
+found nothing (false positives), its column the objects nobody found (misses). Only the detections with a
+confidence of at least `threshold` count: the validation's suggested threshold, in the test part too (0.25, the
+default of a pre-annotation, when the validation suggests none). They are paired with the objects at IoU 0.5 or
+more (box IoU, mask IoU for instances: as the curves), the most confident detection first, with a free object
+of its own class when there is one, otherwise with one of another class, so the off-diagonal cells are the
+classes the model swaps. It is computed in `training/workers/curves.py` (`image_pairs`,
+`ConfusionAccumulator`) during the evaluation the run already does.
+
+The format is the one of the evaluation of a saved model in FiftyOne (#611, `curation/evaluation_fiftyone.py`),
+and the run detail draws it with the same table. The two answer different questions: the run's matrix is
+computed by the worker at training time, on the run's validation and test parts as they were split, without
+FiftyOne, and lets a detection pair with an object of another class; the evaluation in FiftyOne runs later on a
+saved model, against the labels as they are now, with FiftyOne's own per-class matching (a box of the wrong
+class is a false positive plus a miss, never an off-diagonal cell) and keeps only the 20 most frequent classes.
+Classification and semantic segmentation keep their `confusion_matrix` (images, pixels). YOLO runs have no
+matrix of objects: Ultralytics fills its own only when it draws its plots, which the worker turns off.
 
 ## Quality alerts
 

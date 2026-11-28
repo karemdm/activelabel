@@ -3,9 +3,13 @@
    {iou, match, confidence: [0 … 1], classes: {name: {precision, recall, f1, support}}, all: {precision, recall, f1}},
    every list sampled at the confidences of `confidence`. The validation part also has the confidence of the best
    F1 (#323: `suggested_threshold` for the mean of the classes, `suggested_thresholds` per class), marked on the
-   F1 chart. No chart library: SVG in the style of the epoch charts. */
+   F1 chart. No chart library: SVG in the style of the epoch charts.
+   A part of a detection, instance or keypoint run also has `confusion` (#324), the confusion matrix of objects at the
+   suggested threshold in the format of the evaluation of a saved model in FiftyOne ({classes, other, missing,
+   matrix} plus iou and threshold), so it is drawn by the same table (model_evaluation.js). */
 import { el, fill } from '../shell/dom.js';
 import { lower, nf2, nf3, num, t } from '../shell/i18n.js';
+import { confusionTable } from './model_evaluation.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 /** Confidences listed in the table: every tenth point of the grid (0, 0.1 … 1). */
@@ -155,4 +159,16 @@ export function curvesBlock(part) {
     suggestionOf(part, '') != null ? el('p', { class: 'tr-note' }, t('tr.suggested_note', { c: nf2.format(suggestionOf(part, '')) })) : null,
     el('label', { class: 'tr-curve-pick' }, el('span', null, t('tr.curves_class')), picker),
     box);
+}
+
+/** The confusion matrix of objects of a part (#324), with the threshold and IoU it was counted at, or null. */
+export function objectConfusion(part) {
+  const confusion = (part || {}).confusion;
+  if (!confusion || !Array.isArray(confusion.matrix) || !confusion.matrix.length) return null;
+  const table = confusionTable(confusion, 'detection');
+  if (!table) return null;
+  const match = (part.curves || {}).match === 'mask' ? t('tr.curves_match_mask') : t('tr.curves_match_box');
+  table.appendChild(el('p', { class: 'muted tr-note' }, t('tr.confusion_objects', {
+    c: nf2.format(confusion.threshold), iou: nf2.format(confusion.iou || 0.5), match })));
+  return table;
 }

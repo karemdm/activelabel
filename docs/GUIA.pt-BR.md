@@ -227,7 +227,8 @@ CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técni
 diz o que mudou. Se a GPU ficar sem memória, o batch é reduzido à metade até caber. Os pacotes
 necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. Nos resultados de detecção, instâncias e pontos-chave, *Curvas por limiar de confiança* mostra precision × recall e F1 × confiança de cada classe (ou a média das classes), também como tabela (*Ver como tabela*), e o
 *limiar de confiança sugerido* (o de melhor F1 na validação), que vira a confiança inicial da pré-anotação com o
-modelo salvo. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
+modelo salvo, e a matriz de confusão dos objetos nesse limiar (a linha e a coluna *(nenhum)* são os objetos
+inventados e os perdidos; fora da diagonal, as classes que o modelo troca). *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou

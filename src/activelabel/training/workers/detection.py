@@ -890,27 +890,29 @@ def evaluate(
     Returns:
         ``map50``, ``map50_95``, ``per_class`` and ``curves`` (precision x recall and F1 x confidence of each
         class) plus, by task, the ``mask_*`` or ``kp_*`` and ``pck`` fields; without ``threshold``, also
-        ``suggested_threshold`` and ``suggested_thresholds`` (``curves.suggestions``).
+        ``suggested_threshold`` and ``suggested_thresholds`` (``curves.suggestions``); and the ``confusion``
+        matrix of objects at the suggested threshold (``curves.ConfusionAccumulator``).
     """
     task, classes = spec["task"], spec["classes"]
     model.eval()
     kept = get_score_thresh(model)
     if kept is None:  # not a torchvision detector (a stand-in): nothing to lower
-        result = _evaluate_batches(model, loader, task, classes, device, torch)
+        result, confusion = _evaluate_batches(model, loader, task, classes, device, torch)
     else:
         set_score_thresh(model, EVAL_SCORE_THRESH)
         try:
-            result = _evaluate_batches(model, loader, task, classes, device, torch)
+            result, confusion = _evaluate_batches(model, loader, task, classes, device, torch)
         finally:
             set_score_thresh(model, kept)
     if threshold is None:
         result.update(curves.suggestions(result["curves"]))
+    result["confusion"] = confusion.report(classes, result.get("suggested_threshold", threshold))
     return result
 
 
 def _evaluate_batches(
     model: Any, loader: Any, task: str, classes: list[str], device: str, torch: Any
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Any]:
     """The metrics of :func:`evaluate`, computed over the loader with the model as it is.
 
     Args:
@@ -922,8 +924,10 @@ def _evaluate_batches(
         torch: The torch module.
 
     Returns:
-        The same dict as :func:`evaluate`.
+        The dict of :func:`evaluate` without the suggestions and the matrix, and the images of the part as a
+        ``curves.ConfusionAccumulator`` (the matrix needs the suggested threshold, known only at the end).
     """
+    confusion = curves.ConfusionAccumulator(len(classes))
     boxes_ap = APAccumulator(len(classes))
     masks_ap = APAccumulator(len(classes)) if task == "instance" else None
     points_ap = APAccumulator(len(classes)) if task == "keypoints" else None
@@ -944,6 +948,8 @@ def _evaluate_batches(
                     masks = (out["masks"][:, 0] > 0.5).cpu().numpy()
                     ious = mask_iou(masks, gt["masks"])
                     masks_ap.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious)
+                # the matrix pairs as the curves do: by mask IoU for instances, by box IoU otherwise
+                confusion.add(pred["scores"], pred["labels"] - 1, gt["labels"] - 1, ious)
                 if points_ap is not None:
                     pred["keypoints"] = out["keypoints"].cpu().numpy()
                     areas = (gt["boxes"][:, 2] - gt["boxes"][:, 0]) * (gt["boxes"][:, 3] - gt["boxes"][:, 1])
@@ -966,7 +972,7 @@ def _evaluate_batches(
         result["kp_map50"] = points_summary["map50"]
         result["kp_map50_95"] = points_summary["map50_95"]
         result["pck"] = correct / total if total else 0.0
-    return result
+    return result, confusion
 
 
 def epoch_scores(result: dict[str, Any]) -> dict[str, float]:

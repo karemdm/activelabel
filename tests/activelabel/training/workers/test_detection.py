@@ -401,3 +401,42 @@ def test_the_best_epoch_follows_the_direction_of_the_metric(w, tmp_path, monkeyp
         "augmentations": [], "digest": "d", "lower_is_better": lower,
     }  # fmt: skip
     assert w.train(spec)["best_epoch"] == best
+
+
+class StandInDetector:
+    """The same detections for every image: a cat on the cat, a dog on the other cat, a stray cat."""
+
+    def __init__(self, torch):
+        self.torch = torch
+
+    def eval(self):
+        return self
+
+    def __call__(self, images):
+        t = self.torch
+        out = {
+            "boxes": t.tensor([[0, 0, 10, 10], [20, 20, 30, 30], [50, 50, 60, 60]], dtype=t.float32),
+            "scores": t.tensor([0.9, 0.8, 0.3]),
+            "labels": t.tensor([1, 2, 1]),  # 1-based, as torchvision answers (0 is the background)
+        }
+        return [out for _ in images]
+
+
+def test_evaluate_writes_curves_the_suggestion_and_the_matrix_of_objects(w):
+    torch = w.torch
+    target = {
+        "boxes": torch.tensor([[0, 0, 10, 10], [20, 20, 30, 30]], dtype=torch.float32),
+        "labels": torch.tensor([1, 1]),
+    }
+    loader = [([torch.zeros(3, 64, 64)], [target])]
+    spec = {"task": "detection", "classes": ["cat", "dog"]}
+    val = w.evaluate(StandInDetector(torch), loader, spec, "cpu", torch)
+    assert set(val["curves"]["classes"]) == {"cat"} and val["curves"]["match"] == "box"
+    # one cat right at any confidence up to 0.9; the stray cat (0.3) only lowers the precision below it
+    assert val["suggested_threshold"] == pytest.approx(0.6, abs=0.01)
+    confusion = val["confusion"]
+    assert confusion["classes"] == ["cat", "dog"] and confusion["threshold"] == val["suggested_threshold"]
+    assert confusion["matrix"] == [[1, 1, 0], [0, 0, 0], [0, 0, 0]]  # the cat found, the cat called a dog
+    test = w.evaluate(StandInDetector(torch), loader, spec, "cpu", torch, 0.2)
+    assert "suggested_threshold" not in test and test["confusion"]["threshold"] == 0.2
+    assert test["confusion"]["matrix"] == [[1, 1, 0], [0, 0, 0], [1, 0, 0]]  # the stray cat counts at 0.2
