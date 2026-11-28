@@ -347,7 +347,9 @@ When a run ends, `training/quality.py` reads its `results.json` and `metrics.jso
 run made before the alerts gets them when it is listed (from its results; the validation-size check needs the
 dataset version and is only done at the end of a run). For a grid or all-folds run the alerts are those of the
 best child, whose results and curves are the run's own. Like every output of the tool, they are a hint for a person
-to review, not a validated verdict. The thresholds are named constants in the module.
+to review, not a validated verdict. On the run's card the alerts are a badge ("2 quality alerts", a button): it opens the
+run's *Details* at the alerts list, so the texts are reachable by click, touch and keyboard (they were only a tooltip).
+The thresholds are named constants in the module.
 
 | Code | When | What to try |
 |---|---|---|
