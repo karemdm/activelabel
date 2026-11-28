@@ -1130,6 +1130,12 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-legend { list-style: none; margin: var(--space-1) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.2rem var(--space-4); font-size: var(--font-sm); }
 .tr-swatch { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 0.35rem; vertical-align: middle; }
 .tr-swatch.best { background: var(--text); height: 10px; width: 2px; border-radius: 0; }
+/* precision x recall and F1 x confidence curves of a part of the results (#322) */
+.tr-curve-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
+.tr-curve-pick select { max-width: 100%; }
+.tr-curve-table { margin-top: var(--space-2); }
+.tr-curve-table summary { cursor: pointer; }
+.tr-curve-table summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .tr-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.6rem; margin: var(--space-3) 0; }
 .tr-stat { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }

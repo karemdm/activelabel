@@ -2,6 +2,7 @@
  * architecture and size of the model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
 import { realSplitText, staleCount } from './datasets.js';
+import { curvesBlock } from './training_curves.js';
 import { defaultModel, largeForCpu, modelName, modelPicker } from './model_picker.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
@@ -1116,6 +1117,7 @@ export function trainingPanel(page) {
     const classes = part.classes || Object.keys(part.per_class || {});
     return el('div', { class: 'tr-part' },
       scalars.length ? el('dl', { class: 'tr-stats' }, ...scalars.map(([k, v]) => el('div', { class: 'tr-stat' }, el('dt', null, metricName(k)), el('dd', null, k === 'images' ? num(v) : nf3.format(v))))) : null,
+      curvesBlock(part.curves),
       Array.isArray(part.confusion_matrix) ? confusionTable(part.confusion_matrix, classes) : null,
       perClassTable(part.per_class));
   }

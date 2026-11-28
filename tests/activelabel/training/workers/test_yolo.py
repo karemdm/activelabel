@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 from sample_images import make_image
@@ -294,6 +295,32 @@ def test_scores_have_the_shape_of_the_other_workers(w):
     assert (
         list(short) == ["b"] and short["b"]["support"] == 0
     )  # an index the project does not have is skipped
+
+
+def curved_metric(indexes=(0, 1)):
+    """A fake ``Metric`` with Ultralytics' curves on 1000 confidences (precision 1, recall falling)."""
+    px = np.linspace(0, 1, 1000)
+    rows = len(indexes)
+    return SimpleNamespace(
+        **vars(fake_metric(0.5, 0.4, indexes)),
+        px=px,
+        p_curve=np.ones((rows, 1000)),
+        r_curve=np.tile(1 - px, (rows, 1)),
+        f1_curve=np.tile(2 * (1 - px) / (2 - px), (rows, 1)),
+    )
+
+
+def test_curves_come_from_ultralytics_on_the_grid_of_the_other_workers(w):
+    metrics = SimpleNamespace(box=curved_metric(), nt_per_class=[5, 7])
+    scores = w.scores_of(metrics, CLASSES, "detection")
+    curves = scores["curves"]
+    assert curves["match"] == "box" and len(curves["confidence"]) == 101
+    assert curves["classes"]["b"]["support"] == 7
+    assert curves["classes"]["a"]["recall"][50] == pytest.approx(0.5, abs=1e-3)
+    assert "val_curves" not in w.epoch_scores(scores)  # epoch rows keep only numbers
+    instance = SimpleNamespace(box=fake_metric(0.5, 0.4), seg=curved_metric(), nt_per_class=[5, 7])
+    assert w.scores_of(instance, CLASSES, "instance")["curves"]["match"] == "mask"
+    assert "curves" not in w.scores_of(fake_metrics(0.4), CLASSES, "detection")  # Ultralytics gave none
 
 
 # -- the dataset ----------------------------------------

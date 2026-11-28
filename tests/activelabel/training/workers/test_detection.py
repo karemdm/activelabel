@@ -72,6 +72,20 @@ def test_accumulator(w):
     assert miss.summary(["a"])["map50"] == 0.0
 
 
+def test_accumulator_curves_follow_the_ap50_matching(w):
+    acc = w.APAccumulator(2)
+    ious = np.array([[0.9, 0.0], [0.3, 0.0], [0.0, 0.0]])  # the second "a" overlaps too little: wrong
+    acc.add(np.array([0.9, 0.6, 0.2]), np.array([0, 0, 1]), np.array([0, 1]), ious)
+    report = acc.curve_report(["a", "b"], "box")
+    assert report["match"] == "box" and report["iou"] == 0.5
+    assert len(report["confidence"]) == len(report["classes"]["a"]["f1"]) <= 101
+    a, b = report["classes"]["a"], report["classes"]["b"]
+    at = report["confidence"].index(0.5)
+    assert (a["precision"][at], a["recall"][at]) == (1.0, 1.0)  # only the 0.9 detection is that confident
+    assert (a["precision"][0], a["recall"][0]) == (0.5, 1.0)
+    assert b["recall"] == [0.0] * len(b["recall"]) and a["support"] == 1 and b["support"] == 1
+
+
 def test_accumulator_needs_the_half_iou_threshold(w):
     """ap50 must be the AP at IoU 0.5, never another threshold standing in for it."""
     with pytest.raises(ValueError, match="0.5"):
