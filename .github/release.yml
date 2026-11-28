@@ -11,7 +11,7 @@ changelog:
     - title: Interface and accessibility
       labels: [frontend, ux, accessibility]
     - title: Back end, sync and computer vision
-      labels: [backend, visao-computacional, ia-llm]
+      labels: [backend, visao-computacional]
     - title: Documentation
       labels: [documentation]
     - title: Build, CI, tests and architecture

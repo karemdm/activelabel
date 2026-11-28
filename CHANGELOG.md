@@ -18,6 +18,11 @@ the release notes, generated from the merged pull requests and grouped by label 
 - **Python 3.12 or newer.** ActiveLabel now needs Python 3.12 (it was 3.10), the version it is developed
   and tested on; the CI no longer runs a Python 3.10 job.
 
+### Removed
+
+- **The plan for language models (LLM and VLM).** ActiveLabel stays a computer-vision tool: `docs/FUTURE-LLM.md` is
+  gone.
+
 ## 0.2.0 - 2026-11-28
 
 ### Added
