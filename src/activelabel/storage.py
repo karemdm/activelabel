@@ -14,11 +14,10 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import fields, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
-T = TypeVar("T")
 RETRIES = 8
 RETRY_DELAY = 0.02  # seconds, growing with each attempt (0.02 + 0.04 + ... + 0.14 = about 0.6 s in all)
 FORMAT_KEY = "format_version"
@@ -55,10 +54,10 @@ def now() -> str:
     Returns:
         The time as text, to the second, with the UTC offset.
     """
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _retry(action: Callable[[], T]) -> T:
+def _retry[T](action: Callable[[], T]) -> T:
     """Run a file operation, retrying briefly when Windows reports the file as in use.
 
     On Windows, replacing a file fails while any process (another thread, an antivirus, the search

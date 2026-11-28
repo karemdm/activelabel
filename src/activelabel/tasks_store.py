@@ -12,7 +12,7 @@ import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -498,7 +498,7 @@ class TaskStore:
             return []
         try:
             next_id, tasks = self._read()
-            limit = datetime.now(timezone.utc) - timedelta(seconds=max_age)
+            limit = datetime.now(UTC) - timedelta(seconds=max_age)
             stale = [t for t in tasks if t.open and _last_touch(t) <= limit]
             for task in stale:
                 task.open, task.incomplete, task.touched = False, True, ""

@@ -2,7 +2,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
 
@@ -182,7 +182,7 @@ def test_position_counts_inside_the_lane_of_the_job():
 def test_snapshot_shape_and_filter():
     scheduler = Scheduler(limits=Limits(cpu=1, gpu=2))
     probe = Probe(scheduler)
-    started = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(timespec="seconds")
+    started = (datetime.now(UTC) - timedelta(seconds=10)).isoformat(timespec="seconds")
     probe.add(FakeJob("a", project_id=1, status="running", done=1, total=4, started=started))
     probe.add(FakeJob("b", project_id=2, params={"number": 7}))
     probe.add(FakeJob("c", project_id=1, device="cuda:0"))

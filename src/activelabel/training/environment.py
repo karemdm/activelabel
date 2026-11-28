@@ -222,10 +222,7 @@ def remove_tree(path: Path) -> None:
     try:
         for _ in range(5):
             if path.is_dir() and not path.is_symlink():
-                if sys.version_info >= (3, 12):
-                    shutil.rmtree(path, onexc=_clear_readonly)
-                else:
-                    shutil.rmtree(path, onerror=_clear_readonly)
+                shutil.rmtree(path, onexc=_clear_readonly)
             else:
                 path.unlink(missing_ok=True)
             if not path.exists():

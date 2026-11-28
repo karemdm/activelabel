@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from activelabel.errors import CodedError
 
 
-class Task(str, Enum):
+class Task(StrEnum):
     """Task of a project. The value is what the API and the files use."""
 
     CLASSIFICATION = "classification"  # one class per image

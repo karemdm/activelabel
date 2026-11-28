@@ -38,7 +38,7 @@ dependencies of the app and a workspace check command.
 - **Heavy work is isolated.** Training, export and pre-annotation run in a separate environment and
   process, behind one queue, with temporary folders removed at the end and crash recovery at start-up.
 - **Tooling.** ruff (lint, docstrings, annotations, imports at the top), mypy with `disallow_untyped_defs`,
-  pre-commit, CI on Linux and Windows (Python 3.10 and 3.12; macOS after a merge), tests that mirror
+  pre-commit, CI on Linux and Windows (Python 3.12; macOS after a merge), tests that mirror
   the source tree, JavaScript and browser tests, a separate FiftyOne job.
 - **Documentation per feature**, with the HTTP contract next to the behaviour.
 

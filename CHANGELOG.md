@@ -11,6 +11,11 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ## Unreleased
 
+### Changed
+
+- **Python 3.12 or newer.** ActiveLabel now needs Python 3.12 (it was 3.10), the version it is developed
+  and tested on; the CI no longer runs a Python 3.10 job.
+
 ## 0.2.0 - 2026-11-28
 
 ### Added

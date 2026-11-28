@@ -41,7 +41,7 @@ as in CVAT. The full list is in
 
 ## Install
 
-Python 3.10 or newer.
+Python 3.12 or newer.
 
 ```bash
 python -m venv .venv
