@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 from sample_images import make_corrupt, make_image
 
-from activelabel.images.ingest import IngestReport, ingest_files, ingest_folder, thumbnail
+from activelabel.images.ingest import IngestReport, ingest_files, ingest_folder, ingest_frames, thumbnail
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import Cancelled, Job, Progress
 
@@ -370,3 +370,21 @@ def test_colour_modes_wrong_extensions_and_damaged_files(manifest):
     with Image.open(thumbnail(manifest, records["cmyk.jpg"])) as thumb:
         r, g, b = thumb.convert("RGB").getpixel((20, 15))
         assert g > 200 and r < 60 and b < 60
+
+
+def test_the_frames_of_a_video_end_the_progress_at_n_of_n(manifest, tmp_path):
+    """The last report said "8 of 9" for a finished video task (#264): it comes after the last frame."""
+    paths = [make_image(tmp_path / f"f{i}.jpg", seed=i) for i in range(4)]
+    items = [(f"v/frame_{i}.jpg", path, "vid", i, i / 30) for i, path in enumerate(paths)]
+    progress = Progress(Job("j", 1, "video_task"), threading.Event())
+    reports: list[tuple[int | None, int | None]] = []
+    original = progress.update
+
+    def update(done=None, total=None, message=None):
+        reports.append((done, total))
+        original(done, total, message)
+
+    progress.update = update  # type: ignore[method-assign]
+    ids = ingest_frames(manifest, items, progress)
+    assert len(ids) == 4
+    assert reports[-1] == (4, 4)

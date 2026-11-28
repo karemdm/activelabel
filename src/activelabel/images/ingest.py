@@ -548,6 +548,8 @@ def ingest_frames(
             if len(ingester.report.ids) == before:
                 reason = ingester.report.rejected[-1]["reason"] if ingester.report.rejected else "duplicate"
                 raise ValueError(f"Frame {index} could not be stored ({reason}).")
+        if items:
+            ingester.tick(items[-1][0])  # the last frame is stored: the job ends at "n of n", not "n-1 of n"
     except BaseException:
         ingester.flush()
         manifest.delete(ingester.report.ids)
