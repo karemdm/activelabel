@@ -20,6 +20,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   cheap: one database fingerprint of the session images (`edit_stamp`), and the samples are read, with the same
   `edited_images` the pull uses, only when something was saved since the last count. The page refreshes it when
   it opens and when you come back to the window.
+- **Curves by confidence threshold (#322).** Detection, instance and keypoint runs (torchvision, transformers and
+  YOLO) write precision × recall and F1 × confidence curves of each class to the validation and test results
+  (`curves` in `results.json`, 101 confidences from 0 to 1), and the run detail draws them with a class picker and
+  the same numbers as a table. Older runs load as before, without the charts.
 
 ### Fixed
 

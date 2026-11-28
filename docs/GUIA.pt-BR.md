@@ -225,7 +225,7 @@ paciência da parada antecipada também fica abaixo delas), a precisão mista (n
 CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técnica passa o nível para
 *Personalizado*. Trocar de modelo mantém os valores que você mudou, quando o novo modelo os aceita, e
 diz o que mudou. Se a GPU ficar sem memória, o batch é reduzido à metade até caber. Os pacotes
-necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
+necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. Nos resultados de detecção, instâncias e pontos-chave, *Curvas por limiar de confiança* mostra precision × recall e F1 × confiança de cada classe (ou a média das classes), também como tabela (*Ver como tabela*). *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou

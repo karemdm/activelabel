@@ -37,9 +37,10 @@ from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.transforms.functional import pil_to_tensor
 
 try:
-    from activelabel.training.workers import augment, hf_models, options
+    from activelabel.training.workers import augment, curves, hf_models, options
 except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import augment  # type: ignore[no-redef]
+    import curves  # type: ignore[no-redef]
     import hf_models  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
@@ -407,6 +408,24 @@ class APAccumulator:
             "map50_95": float(np.mean([v["ap50_95"] for v in values])) if values else 0.0,
             "per_class": per_class,
         }
+
+    def curve_report(self, names: list[str], match: str) -> dict[str, Any]:
+        """Precision x recall and F1 x confidence curves of each class with ground truth (IoU 0.5).
+
+        Args:
+            names: Class names, in the order of the class indices.
+            match: What the IoU of this accumulator compares: ``box`` or ``mask``.
+
+        Returns:
+            The ``curves`` entry of ``results.json`` (see ``curves.curves_report``).
+        """
+        classes: dict[str, dict[str, Any]] = {}
+        for c, name in enumerate(names[: self.n_classes]):
+            if self._n_gt[c] == 0:
+                continue
+            scores, hits = self._hits(c, curves.CURVE_IOU)
+            classes[name] = {**curves.class_curve(scores, hits, self._n_gt[c]), "support": self._n_gt[c]}
+        return curves.curves_report(classes, match)
 
 
 def match_pairs(
@@ -865,8 +884,8 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
         torch: The torch module.
 
     Returns:
-        ``map50``, ``map50_95`` and ``per_class`` plus, by task, the ``mask_*`` or ``kp_*`` and
-        ``pck`` fields.
+        ``map50``, ``map50_95``, ``per_class`` and ``curves`` (precision x recall and F1 x confidence of each
+        class) plus, by task, the ``mask_*`` or ``kp_*`` and ``pck`` fields.
     """
     task, classes = spec["task"], spec["classes"]
     model.eval()
@@ -925,6 +944,9 @@ def _evaluate_batches(
                     hit, seen = pck_counts(pred, gt)
                     correct, total = correct + hit, total + seen
     result: dict[str, Any] = boxes_ap.summary(classes)
+    # the curves follow the objects the task draws: masks for instances, boxes otherwise
+    drawn = masks_ap.curve_report(classes, "mask") if masks_ap is not None else None
+    result["curves"] = drawn or boxes_ap.curve_report(classes, "box")
     if masks_ap is not None:
         masks_summary = masks_ap.summary(classes)
         result["mask_map50"] = masks_summary["map50"]

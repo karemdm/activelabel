@@ -50,9 +50,10 @@ except ImportError:  # the licence was not accepted, or the package is missing: 
 
 try:
     from activelabel.training.workers import classification as scoring
-    from activelabel.training.workers import options
+    from activelabel.training.workers import curves, options
 except ImportError:  # run as a script in the training environment (no ActiveLabel): the sibling files
     import classification as scoring  # type: ignore[no-redef]
+    import curves  # type: ignore[no-redef]
     import options  # type: ignore[no-redef]
 
 METRICS = ("map50_95", "map50", "accuracy", "macro_f1")
@@ -396,6 +397,40 @@ def per_class_scores(metric: Any, classes: list[str], support: Any = None) -> di
     return out
 
 
+def curve_report(metric: Any, classes: list[str], support: Any, match: str) -> dict[str, Any] | None:
+    """Precision x recall and F1 x confidence curves of an Ultralytics ``Metric``, on the curves' grid.
+
+    Ultralytics computes them on 1000 confidences (``px``) for the classes with ground truth, at IoU 0.5,
+    with the same conventions as ``curves.class_curve``; they are sampled again on ``curves.CONFIDENCE``.
+
+    Args:
+        metric: an Ultralytics ``Metric`` (``px``, ``p_curve``, ``r_curve``, ``f1_curve`` and
+            ``ap_class_index``).
+        classes: class names, in index order.
+        support: instances per class (``nt_per_class``), or ``None``.
+        match: what the IoU compares: ``box`` or ``mask``.
+
+    Returns:
+        The ``curves`` entry of ``results.json``, or ``None`` when Ultralytics gave no curves.
+    """
+    confidence = getattr(metric, "px", None)
+    if confidence is None or not len(confidence):
+        return None
+    out: dict[str, dict[str, Any]] = {}
+    for k, index in enumerate(list(metric.ap_class_index)):
+        index = int(index)
+        if index >= len(classes):
+            continue
+        count = int(support[index]) if support is not None and index < len(support) else 0
+        out[classes[index]] = {
+            "precision": curves.resample(confidence, metric.p_curve[k]),
+            "recall": curves.resample(confidence, metric.r_curve[k]),
+            "f1": curves.resample(confidence, metric.f1_curve[k]),
+            "support": count,
+        }
+    return curves.curves_report(out, match)
+
+
 def classification_scores(matrix: Any, classes: list[str]) -> Scores:
     """The scores of the classification worker from Ultralytics' confusion matrix.
 
@@ -429,8 +464,8 @@ def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -
 
     Returns:
         ``map50``, ``map50_95`` and ``per_class`` of the boxes, plus ``mask_map50``, ``mask_map50_95``
-        (instance) or ``kp_map50``, ``kp_map50_95`` (keypoints); for classification those of
-        :func:`classification_scores`.
+        (instance) or ``kp_map50``, ``kp_map50_95`` (keypoints) and the ``curves`` (:func:`curve_report`)
+        when Ultralytics gives them; for classification those of :func:`classification_scores`.
 
     Raises:
         ValueError: a classification without a confusion matrix.
@@ -440,17 +475,22 @@ def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -
         if found is None:
             raise ValueError("Ultralytics gave no confusion matrix for this classification.")
         return classification_scores(getattr(found, "matrix", found), classes)
-    box = metrics.box
+    box, support = metrics.box, getattr(metrics, "nt_per_class", None)
     scores: Scores = {
         "map50": float(box.map50),
         "map50_95": float(box.map),
-        "per_class": per_class_scores(box, classes, getattr(metrics, "nt_per_class", None)),
+        "per_class": per_class_scores(box, classes, support),
     }
     extra = {"instance": ("mask", "seg"), "keypoints": ("kp", "pose")}.get(task)
     if extra is not None:
         part = getattr(metrics, extra[1])
         scores[f"{extra[0]}_map50"] = float(part.map50)
         scores[f"{extra[0]}_map50_95"] = float(part.map)
+    # the curves follow the objects the task draws, as in the detection worker: masks for instances
+    drawn, match = (metrics.seg, "mask") if task == "instance" else (box, "box")
+    found = curve_report(drawn, classes, support, match)
+    if found is not None:
+        scores["curves"] = found
     return scores
 
 
@@ -461,9 +501,11 @@ def epoch_scores(scores: Scores) -> dict[str, float]:
         scores: the dict of :func:`scores_of`.
 
     Returns:
-        The scores without ``per_class``, prefixed with ``val_``.
+        The numbers among the scores (not ``per_class``, ``curves`` or a confusion matrix), prefixed with
+        ``val_``.
     """
-    return {f"val_{k}": v for k, v in scores.items() if k != "per_class"}
+    numbers = {k: v for k, v in scores.items() if isinstance(v, int | float) and not isinstance(v, bool)}
+    return {f"val_{k}": v for k, v in numbers.items()}
 
 
 def report_step(epoch: int, epochs: int, step: int, steps: int) -> None:

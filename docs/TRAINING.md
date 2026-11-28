@@ -339,6 +339,32 @@ instance segmentation the box of an object is the extent of its polygons, and fo
 hold every visible point, so box, mask and keypoints agree. No metric is rounded in the
 results; the interface rounds only for display. A part without images gives 0 for every metric.
 
+### Curves by confidence threshold
+
+Detection, instance segmentation and keypoint runs (torchvision, transformers and YOLO) add `curves` to the
+`val` and `test` parts of `results.json`, from the evaluation pass the run already does (#322):
+
+```json
+"curves": {
+  "iou": 0.5, "match": "box",
+  "confidence": [0.0, 0.01, 0.02, "...", 1.0],
+  "classes": {"cat": {"precision": ["..."], "recall": ["..."], "f1": ["..."], "support": 12}},
+  "all": {"precision": ["..."], "recall": ["..."], "f1": ["..."]}
+}
+```
+
+For each class with ground truth in the part, `precision`, `recall` and `f1` are those of the detections whose
+confidence is at least each value of `confidence` (101 values, 0 to 1, so at most 101 points per curve and
+class; 4 decimals). A detection is right when it matches an object of its class at IoU 0.5 with the same greedy
+matching as mAP50, by box IoU (`match: "box"`, detection and keypoints) or mask IoU (`"mask"`, instance
+segmentation). Where no detection is that confident precision is 1 and recall 0, as in scikit-learn and
+Ultralytics. `all` is the mean of the classes' curves. The detection worker computes them in
+`training/workers/curves.py` (numpy only); for YOLO they are Ultralytics' own curves (`p_curve`, `r_curve`,
+`f1_curve` of the box or mask metric, 1000 confidences) sampled at the same 101 confidences. The run detail
+draws precision × recall and F1 × confidence with a class picker (*All classes (mean)* first, then the classes
+with the most objects) and the same numbers as a table (*Show as a table*: every 0.1 of confidence). Runs made
+before this have no `curves` and show no charts.
+
 ## Quality alerts
 
 When a run ends, `training/quality.py` reads its `results.json` and `metrics.jsonl` and stores `alerts` (a list of
@@ -371,7 +397,7 @@ The thresholds are named constants in the module.
 | `config.yaml` | everything needed to repeat the run (dataset version and its fingerprint, model, start, mode, hyperparameters including the resize policy, scheduler and mixed-precision choice, the list of augmentation techniques of a `custom` level, seed) — no device or path |
 | `run.json` | status, times, the device asked for (`device_choice`) and the one found (`device`: PyTorch, CUDA and MPS availability, GPU name), `setup` (`device`, `amp`, `batch_size` the training really used), `warnings` (for example a halved batch), `resize`, the augmentation techniques applied, package versions, ActiveLabel version, child runs (grid / folds) |
 | `metrics.jsonl` | one line per epoch: losses and validation metrics |
-| `results.json` | best epoch, validation and test metrics (confusion matrix and per-class metrics when the type has them) |
+| `results.json` | best epoch, validation and test metrics (confusion matrix, per-class metrics and the curves by confidence threshold when the type has them) |
 | `best.pt`, `last.pt` | weights (of the best child for grid / all folds). When the run is saved as a model both leave the run: `best.pt` **moves** to the model and `last.pt` is removed |
 | `log.txt` | output of the training process (every child, each after a `== c<k>: … ==` line) |
 | `c<k>/` | a child of a grid / all-folds run: `config.yaml` (single mode, one fold), `metrics.jsonl`, `results.json` |
