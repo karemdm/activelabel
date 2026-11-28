@@ -14,13 +14,13 @@ from typing import Any
 from activelabel.errors import CodedError
 
 FAMILIES = ("torchvision", "timm", "smp", "transformers", "ultralytics")
-TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints")
+TASK_KINDS = ("classification", "detection", "semantic", "instance", "keypoints", "regression")
 STARTS = ("transfer", "finetune", "scratch")
 #: How a photo becomes the square input of the network (see ``workers/options.py``).
 RESIZE_POLICIES = ("stretch", "letterbox", "center_crop")
 #: Learning rate schedules every worker applies (see ``workers/options.py``).
 SCHEDULERS = ("none", "cosine", "step", "onecycle", "plateau")
-PROJECT_TYPES = ("classification", "detection", "segmentation", "keypoints")
+PROJECT_TYPES = ("classification", "detection", "segmentation", "keypoints", "regression")
 KINDS = ("int", "float", "choice", "bool")
 
 #: Selection metrics per kind of task: (allowed, default).
@@ -30,6 +30,7 @@ METRICS: dict[str, tuple[tuple[str, ...], str]] = {
     "semantic": (("miou", "pixel_accuracy"), "miou"),
     "instance": (("map50_95", "map50"), "map50_95"),
     "keypoints": (("map50_95", "map50"), "map50_95"),
+    "regression": (("rmse", "mae", "r2"), "rmse"),
 }
 #: Selection metrics where a lower value is better (errors, #619); every other metric is better higher.
 LOWER_IS_BETTER: frozenset[str] = frozenset({"mae", "rmse"})
@@ -389,6 +390,24 @@ _FOCAL_GAMMA = ParamSpec(
     help="Focal loss: how much easy examples are discounted.",
     group="model",
 )
+_REG_LOSS = ParamSpec(
+    "loss",
+    "choice",
+    "mse",
+    choices=("mse", "mae", "huber"),
+    help="mse: squared error; mae: absolute error, less pulled by outliers; huber: squared near the value, "
+    "absolute far from it.",
+    group="model",
+)
+_HUBER_DELTA = ParamSpec(
+    "huber_delta",
+    "float",
+    1.0,
+    0.01,
+    10.0,
+    help="Huber loss: where it turns from squared to absolute, in standard deviations of the target.",
+    group="model",
+)
 _SEG_LOSS = ParamSpec(
     "loss",
     "choice",
@@ -746,6 +765,28 @@ def _timm_classifier(entry: tuple[str, str, str, str, float, int, bool], taken: 
         variant=variant,
         params_m=millions,
         builder=name if id_ != name else "",
+    )
+
+
+def _regressor(classifier: ModelSpec) -> ModelSpec:
+    """The regression model of a classification network (#619): the same network, one output per target.
+
+    Regression models have ids of their own (``reg_<id of the classifier>``): a catalogue entry has one kind
+    of task, which decides its worker, metrics and parameters.
+
+    Args:
+        classifier: a torchvision or timm classification model.
+
+    Returns:
+        The spec trained by the regression worker, with the regression losses instead of the class ones.
+    """
+    return replace(
+        classifier,
+        id=f"reg_{classifier.id}",
+        types=("regression",),
+        task_kind="regression",
+        params=(_REG_LOSS, _HUBER_DELTA),
+        builder=classifier.library_name,
     )
 
 
@@ -1170,7 +1211,12 @@ def _hf(entry: tuple[str, str, str, str, str, str, int, float | None]) -> ModelS
 
 
 MODELS: tuple[ModelSpec, ...] = tuple(
-    _classification() + _torchvision_models() + _smp_models() + [_hf(e) for e in HF_MODELS] + _yolo_models()
+    _classification()
+    + [_regressor(m) for m in _classification()]
+    + _torchvision_models()
+    + _smp_models()
+    + [_hf(e) for e in HF_MODELS]
+    + _yolo_models()
 )
 _BY_ID = {m.id: m for m in MODELS}
 

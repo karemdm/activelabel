@@ -429,7 +429,9 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
 
     Raises:
         ApiError: ``fiftyone_keypoints_not_editable`` (400) for a keypoints project, which the FiftyOne
-            App cannot edit, plus the usual errors of the tool, scope and images.
+            App cannot edit, ``fiftyone_regression_not_editable`` (400) for a regression project (its values
+            are edited in ActiveLabel and only shown in FiftyOne), plus the usual errors of the tool, scope
+            and images.
     """
     project = state.project(project_id)
     _tool_name(body.tool)
@@ -439,6 +441,12 @@ def send(project_id: int, body: SendBody, state: AppState = STATE) -> dict[str, 
             400,
             "fiftyone_keypoints_not_editable",
             "The FiftyOne App does not edit keypoints: edit them in CVAT.",
+        )
+    if project.task is Task.REGRESSION:  # values are edited in ActiveLabel; FiftyOne only shows them (#619)
+        raise ApiError(
+            400,
+            "fiftyone_regression_not_editable",
+            "The FiftyOne App edits no values: edit them in ActiveLabel (Images).",
         )
     if body.scope not in sessions.SCOPES:
         raise ApiError(

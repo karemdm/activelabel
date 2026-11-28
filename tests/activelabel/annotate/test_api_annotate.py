@@ -310,6 +310,15 @@ def test_a_keypoints_project_cannot_open_a_fiftyone_session(env):
     assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
 
 
+def test_a_regression_project_cannot_open_a_fiftyone_session(env):
+    """#619: values are edited in ActiveLabel; FiftyOne only shows them, so the API refuses a session."""
+    body = {"name": "r", "task": "regression", "classes": ["age"]}
+    pid = env.client.post("/api/projects", json=body).json()["id"]
+    reply = env.client.post(f"/api/projects/{pid}/annotate", json={"tool": "fiftyone", "scope": "all"})
+    assert reply.status_code == 400 and reply.json()["code"] == "fiftyone_regression_not_editable", reply.text
+    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
+
+
 def test_summary_source_says_the_labels_were_last_sessiond_by_a_fiftyone_session(env):
     """#459: after an apply the annotations summary keeps the original source and names the session."""
     save_annotations(

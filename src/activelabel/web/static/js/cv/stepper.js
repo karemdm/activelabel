@@ -18,7 +18,7 @@ export function createStepper(page) {
       const waiting = c.preannotated ? ` · ${tn('status.to_review', c.preannotated)}` : '';
       const none = c.empty ? ` · ${tn('status.empty', c.empty)}` : '';
       return c.annotated > 0 || c.empty > 0
-        ? `${annotationStatus(c)}${c.annotated > 0 ? none : ''}${waiting} · ${tn('status.classes', (ctx.project.classes || []).length)}`
+        ? `${annotationStatus(c)}${c.annotated > 0 ? none : ''}${waiting} · ${tn(ctx.project.task === 'regression' ? 'status.targets' : 'status.classes', (ctx.project.classes || []).length)}`
         : t('status.annotations_none');
     }
     if (step === 'training') {
@@ -100,7 +100,7 @@ export function createStepper(page) {
       if (tab && tab.onShow) tab.onShow();
     }
     function keys(e) {
-      const ids = [...parts.keys()];
+      const ids = [...parts].filter(([, part]) => !part.button.hidden).map(([tid]) => tid);
       const at = ids.indexOf(current);
       const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: ids.length - 1 }[e.key];
       if (next == null) return;
@@ -123,6 +123,14 @@ export function createStepper(page) {
       current: () => current,
       /** true when the tab came from the person's last visit */
       remembered: parts.has(saved),
+      /** takes a tab out of the step (and shows the first one when it was the open one) */
+      hide: (id) => {
+        const part = parts.get(id);
+        if (!part) return;
+        part.button.hidden = true;
+        part.pane.hidden = true;
+        if (current === id) select(tabs.find((x) => !parts.get(x.id).button.hidden).id);
+      },
       /** a number next to a tab's name (hidden for null) */
       setCount: (id, n) => { const part = parts.get(id); if (!part) return; part.count.hidden = n == null; part.count.textContent = n == null ? '' : num(n); },
     };

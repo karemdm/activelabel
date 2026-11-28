@@ -146,8 +146,20 @@ semantic segmentation models start with learning rate 0.0001 and batch size 4. A
 size that is a multiple of 32 for a network that halves it five times): the catalogue gives it to the form with
 the parameter (`multiple`), and both the form and the server refuse other values (`param_not_multiple`).
 
-Regression (a number per image) needs a numeric annotation type, which ActiveLabel does not have
-yet; it is left for later.
+**Regression (#619).** A regression project (one or more numbers per image, its *targets*) trains the
+classification networks of torchvision and timm with one output per target instead of one per class. They have
+ids of their own, `reg_<classifier id>` (for example `reg_resnet18`), because a catalogue entry has one kind of
+task, which decides its worker, metrics and parameters; they are built and optimised like the classifiers (the
+same start modes, learning rates and `backbone_lr_factor`). The worker is `regression.py`:
+
+- the items of the spec are `{"path", "values"}`, one number per target, `null` where the image has no value of
+  it (an image without any value is left out); a missing value does not count in the loss nor in the metrics;
+- the targets are normalised with the mean and standard deviation of the training part, kept in the checkpoint
+  (`target_mean`, `target_std`), so targets of very different scales weigh alike; the metrics use real values;
+- the loss (`loss`) is `mse` (default), `mae` or `huber` (`huber_delta`, in standard deviations of the target);
+- the augmentations keep the value of an image: flips, rotation, colour, blur and grey; no crop (it can cut
+  what is counted), no mixup, cutmix or erasing;
+- the selection metric is RMSE (default), MAE or R²: RMSE and MAE are better lower (see *Selection*).
 
 ## A run
 
@@ -316,6 +328,7 @@ cases, and against hand-computed examples (`tests/activelabel/training/test_metr
 | AP, mAP50, mAP50-95 (box, mask) | COCO: detections ranked by score over the whole part; greedy match, per image, to the unmatched object of the class with the highest IoU ≥ t; precision made monotone; mean of the precision at 101 recall points (0, 0.01 … 1; 0 beyond the last recall reached) | mAP50 at IoU 0.50 (required among the thresholds), mAP50-95 the mean over 0.50:0.05:0.95; mean over the classes with ground truth in the part. Every detection the model returns is used (up to 100 per image): `score_thresh` only limits what a saved model shows or pre-annotates |
 | Keypoint mAP (`kp_map50`, `kp_map50_95`) | AP as above with OKS instead of IoU: OKS = mean over the labelled points of exp(−d² / (2·s²·(2σ)²)) | s² = area of the object's box, σ = 1/K for every point; a pose without any labelled point is ignored (not counted, and a detection on it is neither a hit nor a miss), as COCO does |
 | PCK@0.1 | labelled points within 0.1 × the longer side of the object's box / labelled points | predictions with score ≥ 0.5 are paired with objects of the same class at box IoU ≥ 0.5 (greedy by score); the points of an unpaired object count as wrong |
+| MAE, RMSE, R² (regression) | per target: mean absolute error, root of the mean squared error, 1 − squared error / total variance, over the images with a value of the target | `mae`, `rmse` and `r2` are the means over the targets that have values; R² is 0 when the real values of a target do not vary; `per_target` has each target's scores and `count`; `points` keeps up to 2000 `[real, predicted]` pairs over the targets for the charts |
 | K-fold mean ± std | mean of the per-fold validation values and their **population** standard deviation (ddof = 0) | not a pooled metric over all folds; folds have about the same size |
 
 Segmentation metrics are measured on the images resized to the run's `image_size` by the run's resize policy
@@ -577,8 +590,10 @@ instance segmentation (Mask R-CNN) and keypoints (torchvision), grid search and 
 Pre-annotation works with classification, detection, keypoint, instance segmentation and semantic
 segmentation models (docs/PREANNOTATE.md).
 
+Regression models train (#619); their pre-annotation and ONNX export come next.
+
 Not yet: pre-annotation and ONNX export of YOLO models, ONNX for instance, detection and keypoint models, and
-regression.
+pre-annotation and ONNX export of regression models.
 
 ## Image orientation
 

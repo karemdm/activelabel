@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from activelabel import preannotate, preannotate_options
 from activelabel.errors import CodedError
-from activelabel.tasks import refuse_regression
+from activelabel.tasks import Task, refuse_regression
 from activelabel.training import devices
 from activelabel.training.catalog import get_model
 from activelabel.training.models import ModelNotFound, ModelStore
@@ -89,13 +89,16 @@ def overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
         state: The shared state of the application.
 
     Returns:
-        ``{models, tasks, runs}``; each model has its ``classes`` (``name``, ``in_project``) and the
+        ``{models, tasks, runs}`` (no models for a regression project: none fills values yet, #619);
+        each model has its ``classes`` (``name``, ``in_project``) and the
         ``options`` its kind takes (see :func:`activelabel.preannotate_options.schema`).
     """
-    state.project(project_id)
+    project = state.project(project_id)
     project_dir = state.store.dir(project_id)
     return {
-        "models": _models(state, project_id),
+        "models": []
+        if project.task is Task.REGRESSION
+        else _models(state, project_id),  # none fills values yet
         "tasks": preannotate.task_counts(project_dir),
         "runs": preannotate.PreannotationStore(project_dir).list(),
     }

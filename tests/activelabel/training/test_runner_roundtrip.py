@@ -22,6 +22,8 @@ from sample_images import make_image
 
 from activelabel.datasets import DatasetStore
 from activelabel.images.manifest import Manifest
+from activelabel.labels import AnnotationSet, Label, save_annotations
+from activelabel.tasks import Task
 from activelabel.training.catalog import get_model
 from activelabel.training.config import RunConfig
 from activelabel.training.runner import build_spec
@@ -815,3 +817,39 @@ def test_keypoint_box_covers_the_points_when_a_point_was_moved_outside_the_store
         (x1 - 1 <= x <= x2 + 1 and y1 - 1 <= y <= y2 + 1) for x, y, _ in target["keypoints"][0].tolist()
     ]
     assert all(inside), f"a visible point lies outside the training box {target['boxes'][0].tolist()}"
+
+
+def freeze_values(client: Any, state: Any, ids: list[str], offset: float) -> dict[str, float]:
+    """Give image ``k`` the value ``k + offset``, freeze a dataset version and return the values by image."""
+    images = {i: [Label("age", value=float(k) + offset)] for k, i in enumerate(ids)}
+    save_annotations(state.store.dir(1), AnnotationSet(Task.REGRESSION, ["age"], images, {}))
+    assert client.post("/api/projects/1/datasets", json={}).status_code == 200
+    return {i: float(k) + offset for k, i in enumerate(ids)}
+
+
+def test_regression_edits_reach_the_values_the_worker_trains_on(tmp_path: Path) -> None:
+    """A value changed after version 1 is in version 2's spec, and the worker reads it normalised."""
+    reg = load_worker("regression")
+    client, state = make_client(tmp_path)
+    made = client.post("/api/projects", json={"name": "R", "task": "regression", "classes": ["age"]})
+    assert made.status_code == 200
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(10)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = sorted(r.id for r in state.manifest(1).all())
+    project_dir = state.store.dir(1)
+    for number, offset in ((1, 0.0), (2, 100.0)):
+        truth = freeze_values(client, state, ids, offset)
+        spec = build_spec(
+            project_dir,
+            RunConfig(dataset=number, model="reg_resnet18"),
+            get_model("reg_resnet18"),
+            project_dir / "runs" / f"r{number}",
+            DatasetStore(project_dir).read(number),
+        )
+        rows = [item for part in spec["parts"].values() for item in part]
+        assert sorted(r["values"][0] for r in rows) == sorted(truth.values())
+        train = spec["parts"]["train"]
+        stats = reg.target_stats(train, 1)
+        _, normal, mask = reg.ValueDataset(train, lambda image: reg.torch.zeros(3, 8, 8), *stats)[0]
+        expected = (train[0]["values"][0] - stats[0][0]) / stats[1][0]
+        assert float(normal[0]) == pytest.approx(expected) and float(mask[0]) == 1.0

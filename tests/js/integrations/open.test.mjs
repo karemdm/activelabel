@@ -16,7 +16,7 @@ setMessages({
   'open.cvat_project': 'Open the project in CVAT', 'open.cvat_task': 'Open task {task} in CVAT', 'open.cvat_job': 'Open job {n} of task {task} in CVAT',
   'open.cvat_back': 'Edits come back through the comparison.', 'open.cvat_not_configured': 'CVAT is not set up.',
   'open.cvat_not_synced': 'Not in CVAT yet.',
-  'open.fo_edit': 'Edit in {tool}', 'open.fo_view': 'Open in {tool} (view only)', 'open.fo_keypoints': 'Keypoints can only be viewed here.', 'annotate.will_send_one': '{n} image opens in {tool}.', 'annotate.will_send_other': '{n} images open in {tool}.', 'annotate.nothing_to_send': 'No images.', 'open.fo_no_images': 'Add images first.',
+  'open.fo_edit': 'Edit in {tool}', 'open.fo_view': 'Open in {tool} (view only)', 'open.fo_keypoints': 'Keypoints can only be viewed here.', 'open.fo_regression': 'Edit values in ActiveLabel; FiftyOne is for looking.', 'annotate.will_send_one': '{n} image opens in {tool}.', 'annotate.will_send_other': '{n} images open in {tool}.', 'annotate.nothing_to_send': 'No images.', 'open.fo_no_images': 'Add images first.',
   'tasks.cvat_not_synced': 'Synchronise to create this task there', 'open.cvat_remote_gone': 'The CVAT project was deleted.', 'tasks.fo_no_keypoints': 'FiftyOne does not edit keypoints',
 }, 'en');
 
@@ -70,6 +70,12 @@ test('one FiftyOne button edits the chosen images; keypoints only look, with the
   assert.match(view.querySelector('#fo-open').textContent, /view only/);
   assert.equal(view.querySelector('#fo-open').disabled, false);
   assert.match(view.textContent, /Keypoints can only be viewed here\./);
+  page.ctx.project = { task: 'regression', counts: { active: 3 } };   // #619: values are edited in ActiveLabel
+  const values = fiftyoneOpenRow(page, { edit: () => { edited += 1; } });
+  assert.match(values.querySelector('#fo-open').textContent, /view only/);
+  assert.match(values.textContent, /Edit values in ActiveLabel/);
+  values.querySelector('#fo-open').click();
+  assert.equal(edited, 1, 'the click opens to look; it does not send the images for editing');
   page.ctx.project = { task: 'detection', counts: { active: 0 } };
   const empty = fiftyoneOpenRow(page);
   assert.equal(empty.querySelector('#fo-open').disabled, true);
