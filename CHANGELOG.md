@@ -18,6 +18,9 @@ the release notes, generated from the merged pull requests and grouped by label 
   that is already in ActiveLabel is refused at once with `cvat_already_imported` (409) instead of failing inside the
   job; and `images_rejected` of a project import now counts the frames that are not readable images (with a warning)
   instead of always being 0.
+- **Augmentation list on a phone (#524).** In the *New training* dialog the setting of each technique (for
+  example *Minimum*) sat beside its label with no space, because a general label rule overrode the stacked layout;
+  the label is now above the field, and the list has less padding at 390 px.
 - **Quality-alert badge (#341).** The badge on a training card is a button that opens that run's details at the
   alerts list (it was a tooltip that touch and keyboard users could not reach).
 - **Curation filters and limits (#340).** A filter with no image (count 0) is disabled instead of opening an
