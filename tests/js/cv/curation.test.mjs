@@ -12,7 +12,7 @@ const proto = window.HTMLDialogElement.prototype;
 if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
 if (!proto.close) proto.close = function close() { this.removeAttribute('open'); };
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { curationPanel } = await import('../../../src/activelabel/web/static/js/cv/curation.js');
+const { curationPanel, chipIsOff, contradictoryLimits } = await import('../../../src/activelabel/web/static/js/cv/curation.js');
 
 setMessages({ 'step.curation': 'Curation', 'cur.not_analyzed': 'The images have not been analyzed yet.' }, 'en');
 
@@ -170,6 +170,56 @@ test('#613: "Show similar" filters the grid by the image and "Show all" clears i
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(line.hidden, true);
     assert.ok(asked.some((u) => u.includes('/images') && !u.includes('similar_to')));
+  } finally {
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});
+
+test('#340: a filter with no images is off, except "all" and the one already chosen', () => {
+  assert.equal(chipIsOff('dark', 0, ''), true);
+  assert.equal(chipIsOff('dark', undefined, ''), true);
+  assert.equal(chipIsOff('dark', 3, ''), false);
+  assert.equal(chipIsOff('', 0, ''), false);
+  assert.equal(chipIsOff('dark', 0, 'dark'), false);   // the person can still see and leave it
+});
+
+test('#340: limits that contradict each other are found', () => {
+  assert.deepEqual(contradictoryLimits({ dark: 200, bright: 10, blur_floor: 1, blur_ceiling: 5 }), ['dark', 'bright']);
+  assert.deepEqual(contradictoryLimits({ dark: 20, bright: 100, blur_floor: 500, blur_ceiling: 5 }), ['blur_floor', 'blur_ceiling']);
+  assert.equal(contradictoryLimits({ dark: 40, bright: 40, blur_floor: 5, blur_ceiling: 5 }), null);
+  assert.equal(contradictoryLimits({}), null);
+});
+
+test('#340: after the analysis the chips of issues with no image are disabled, and Limits refuses a contradiction', async () => {
+  const ctx = { project: { id: 6, counts: { active: 4 } }, jobs: [], panels: {}, watchers: [] };
+  const panel = curationPanel({ ctx, projectId: 6, renderStepper: () => {}, refreshProject: async () => true, jobStarted: async () => {}, kindActive: () => false });
+  document.body.appendChild(panel.node);
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const path = url.split('?')[0];
+    if (init && init.method === 'PUT') sent.push(path);
+    const summary = { totals: { measured: 4, active: 4 }, issues: { dark: 0, blurry: 3 }, issue_ids: {}, thresholds: { dark: 40, bright: 215, blur_floor: 10, blur_ceiling: 150 } };
+    const body = path.endsWith('/images') ? { total: 0, items: [] } : path.endsWith('/curation') ? summary : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const wait = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    await panel.mount();
+    await wait();
+    assert.equal(panel.node.querySelector('[data-issue="dark"]').disabled, true);
+    assert.equal(panel.node.querySelector('[data-issue="blurry"]').disabled, false);
+    assert.equal(panel.node.querySelector('[data-issue=""]').disabled, false);
+    panel.node.querySelector('[aria-controls="cur-limits"]').click();
+    const form = panel.node.querySelector('.th-form');
+    form.querySelector('[name="dark"]').value = '200';
+    form.querySelector('[name="bright"]').value = '10';
+    form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await wait();
+    assert.deepEqual(sent, []);   // nothing is sent
+    assert.equal(form.querySelector('[role="alert"]').hidden, false);
+    assert.equal(form.querySelector('[name="dark"]').getAttribute('aria-invalid'), 'true');
   } finally {
     globalThis.fetch = real;
     panel.node.remove();

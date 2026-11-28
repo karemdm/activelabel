@@ -151,11 +151,12 @@ de fundo, por exemplo) não conta como anotada: aparece à parte, como "N sem ob
 
 **3. Curadoria.** *Analisar imagens* mede brilho, contraste, nitidez, tamanho e um hash
 perceptual de cada imagem. Os filtros por problema (borradas, escuras, claras, baixo contraste,
-pequenas, proporção estranha, tons de cinza, quase duplicatas) mostram as imagens apontadas;
+pequenas, proporção estranha, tons de cinza, quase duplicatas) mostram as imagens apontadas (um filtro
+sem nenhuma imagem fica desativado);
 *Selecionar sugeridas* marca as que provavelmente vale excluir. Selecione e use *Excluir
 selecionadas* (reversível: aba *Excluídas*, botão *Restaurar selecionadas*) ou *Apagar
 definitivamente* (pede confirmação). Os limites de cada problema ficam em *Limites* e
-mudam sem medir de novo; *Zerar análise* esquece as medidas, os problemas apontados e os grupos
+mudam sem medir de novo (limites que se contradizem, como escura acima de clara, são recusados); *Zerar análise* esquece as medidas, os problemas apontados e os grupos
 de quase duplicatas (imagens, exclusões e anotações ficam). *Abrir no FiftyOne* abre o mesmo
 filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *Trazer exclusões
 do FiftyOne*. A *Distribuição das anotações* mostra, em barras, os objetos e as imagens por classe, as imagens

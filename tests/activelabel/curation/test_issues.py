@@ -9,6 +9,7 @@ from sample_images import make_image
 from activelabel.curation.issues import (
     Thresholds,
     _group_duplicates,
+    curation_path,
     flag_files,
     flag_issues,
     load_duplicate_of,
@@ -22,6 +23,7 @@ from activelabel.curation.summary import suggest_exclusions, summary
 from activelabel.errors import CodedError
 from activelabel.images.ingest import ingest_files
 from activelabel.images.manifest import EXCLUDED, ImageRecord, Manifest
+from activelabel.storage import write_json
 
 
 def test_measure_and_issues(tmp_path):
@@ -129,6 +131,24 @@ def test_a_threshold_out_of_its_limits_is_a_coded_error():
     with pytest.raises(CodedError) as caught:
         Thresholds(bright="x")  # type: ignore[arg-type]
     assert caught.value.code == "curation_threshold_not_number"
+
+
+def test_contradictory_limits_are_refused_and_a_saved_pair_is_ignored(tmp_path):
+    """#340: dark above bright, or blur_floor above blur_ceiling, flagged almost every image."""
+    for kwargs, low, high in (
+        ({"dark": 200, "bright": 10}, "dark", "bright"),
+        ({"blur_floor": 500, "blur_ceiling": 5}, "blur_floor", "blur_ceiling"),
+    ):
+        with pytest.raises(CodedError) as caught:
+            Thresholds(**kwargs)
+        assert caught.value.code == "curation_threshold_order"
+        assert caught.value.params == {"low": low, "high": high}
+    assert Thresholds(dark=100, bright=100).dark == 100  # equal limits do not contradict each other
+    write_json(curation_path(tmp_path), {"thresholds": {"dark": 200, "bright": 10, "min_side": 300}})
+    loaded = load_thresholds(tmp_path)  # an older version saved the pair: both go back to the defaults
+    assert (loaded.dark, loaded.bright, loaded.min_side) == (Thresholds().dark, Thresholds().bright, 300)
+    write_json(curation_path(tmp_path), {"thresholds": {"dark": 250, "bright": 255}})
+    assert load_thresholds(tmp_path).dark == 250  # a valid pair is kept though one value is above a default
 
 
 def test_files_deleted_or_changed_on_disk_are_flagged_and_kept_by_the_thresholds(tmp_path):

@@ -18,6 +18,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   that is already in ActiveLabel is refused at once with `cvat_already_imported` (409) instead of failing inside the
   job; and `images_rejected` of a project import now counts the frames that are not readable images (with a warning)
   instead of always being 0.
+- **Curation filters and limits (#340).** A filter with no image (count 0) is disabled instead of opening an
+  empty grid, and contradictory limits (*dark* above *bright*, *always blurry* above *only if below*) are
+  refused with a clear message, in the form and in the server (`curation_threshold_order`); a project that
+  saved such a pair before gets the defaults for both.
 - **Data split form (#544).** Percentages and the seed are whole numbers: `70.5` or `1.7` is refused with a
   message instead of being cut to 70 and 1 behind the field's back; the seed field has its 0 to 4294967295 limits
   and the note field the 1000 characters the server accepts (it stopped at 500); "1 fold" is singular, and an
