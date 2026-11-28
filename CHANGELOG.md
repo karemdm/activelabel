@@ -33,6 +33,11 @@ the release notes, generated from the merged pull requests and grouped by label 
   threshold paired with the objects at IoU 0.5, also across classes, with a *(none)* row and column for false
   positives and misses), in the format of the FiftyOne evaluation of a saved model, and the run detail shows it with
   the same table.
+- **Export a dataset version in YOLO and COCO (#234).** Each version in *Data split* has *Export* (*Exportar*):
+  a zip with the images and the labels of the version, split as it is (train / val / test, or a group per fold with
+  a `data_fold_<n>.yaml` each), from `GET /projects/{id}/datasets/{n}/export?format=yolo|coco`. Detection,
+  segmentation and keypoints go in both formats; classification as class folders (YOLO); regression is refused with
+  a coded error, and so is classification in COCO. Importing the zip's labels back gives the same annotations.
 
 ### Fixed
 
@@ -70,8 +75,6 @@ the release notes, generated from the merged pull requests and grouped by label 
 - **Finished video task (#264).** The job that makes a task from a video ends at "n of n" frames, not "n-1 of n". The
   other items of #264 already worked: the 404 page for unknown addresses, the names of a repeated image (kept as
   aliases for importing annotations) and the translated suggestions (cão to dog) in the mapping of a public model.
-
-### Fixed
 
 - **Renaming a class now reaches the saved models (#521).** A class renamed in CVAT (or by its letter case) was
   renamed in the labels and pre-annotations but not in the class list of the saved models, so a model stopped

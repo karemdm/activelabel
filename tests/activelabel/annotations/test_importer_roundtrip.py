@@ -1,6 +1,7 @@
 """Evidence tests: annotation imports and re-imports through the API are exact.
 
-The product has no annotation export, so a "round trip" is: import a file, edit the file, import it again
+Projects have no export of their labels (only a dataset version is exported, see
+``activelabel.exporting``), so a "round trip" here is: import a file, edit the file, import it again
 (replace or merge) and compare the stored labels with what the file says. Images are 64x48 pixels (not
 square), so an x/y mix-up shows. Every number below is in pixels of the 64x48 images, converted to the
 relative form the importer stores.
@@ -1179,9 +1180,13 @@ def test_coco_frames_use_frame_id_or_the_number_in_the_file_name(tmp_path):
     )
 
 
-def test_the_product_has_no_annotation_writer():
-    """Round trips are import, edit, re-import: nothing in the package writes COCO, YOLO or VOC files."""
+def test_only_the_version_export_writes_annotation_files():
+    """Round trips are import, edit, re-import: only the dataset version export writes COCO, YOLO or VOC."""
     root = Path(__file__).resolve().parents[3] / "src" / "activelabel"
     markers = ("write_coco", "to_coco", "export_coco", "write_yolo", "export_yolo", "write_voc", "export_voc")
-    hits = [str(p) for p in root.rglob("*.py") if any(m in p.read_text(encoding="utf-8") for m in markers)]
+    hits = [
+        str(p)
+        for p in root.rglob("*.py")
+        if "exporting" not in p.parts and any(m in p.read_text(encoding="utf-8") for m in markers)
+    ]
     assert hits == []

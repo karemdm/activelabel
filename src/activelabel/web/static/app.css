@@ -958,6 +958,7 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .ds-badge.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
 .ds-badge.bad { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
 .ds-view { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: auto; }
+.ds-view + .ds-export { margin-top: 0; }
 .ds-empty { display: grid; justify-items: center; gap: 0.3rem; padding: var(--space-6) var(--space-4); text-align: center; border: 2px dashed var(--border); border-radius: var(--radius); }
 .ds-empty p { margin: 0; }
 .ds-empty-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; margin-top: var(--space-3); }

@@ -218,12 +218,48 @@ blocks training. A version that was just created has all zeros.
 | POST | `/api/projects/{id}/datasets` | options + `note` + `allow_empty` (default false) | the new version (summary); 409 `dataset_part_empty` when the training or validation part would be empty |
 | GET | `/api/projects/{id}/datasets/{n}` | | the version without the label copy |
 | DELETE | `/api/projects/{id}/datasets/{n}` | `{confirm: true, confirm_runs?}` | `{deleted: true}`; 400 `confirm_required` without `confirm`; 409 `dataset_in_use` while a queued or running training run uses the version (cancel it first); 409 `dataset_used_by_runs` (with `params.runs`) when finished runs used it, because they could not be repeated afterwards (saved models keep working): send `confirm_runs: true` to delete anyway |
+| GET | `/api/projects/{id}/datasets/{n}/export?format=yolo` | query: `format` (`yolo` or `coco`), `images` (default `true`) | the version as a zip download (see *Export*); 400 with the codes of *Errors* |
+| GET | `/api/projects/{id}/datasets/{n}/export/check?format=yolo` | same query | `{format, type, images, groups, size_bytes}`: what the zip would hold, with the same refusals; nothing is written |
 | GET | `/api/projects/{id}/images?dataset=n&part=train` | | images of a part (also `fold=i`) |
 
 Summary: `{version, created, note, type, classes, options, sizes: {train, val, test} or {test, folds: [...]},
 stats, warnings, videos, incomplete, stale}`. Options accepted:
 `tasks, split, kfold, background, seed, videos, gap_seconds` (plus `note` on create). Segments of a
 folded version carry `{"part": "fold", "fold": n}`.
+
+## Export (YOLO and COCO)
+
+A version can be taken to other tools as a zip: the images and the labels of the version (the label copy it
+froze, so pre-annotations are not in it), split as the version is. The version card has *Exportar* (*Export*)
+with one button per format. The server checks first (`/export/check`) and says why a version cannot be
+exported; then the browser downloads `<project>-v<N>-<format>.zip`. The zip is built from the project's images
+and may take a while for a large version. `images=false` leaves the image files out (labels only).
+
+Each part is a *group* (`train`, `val`, `test`; the empty ones are left out). A K-fold version has a group per
+fold (`fold_1`...) and `test`.
+
+| Task | YOLO | COCO |
+| --- | --- | --- |
+| Detection | `images/<group>/`, `labels/<group>/<image>.txt` (`class cx cy w h`), `data.yaml` | `images/<group>/`, `annotations/instances_<group>.json` (boxes in pixels) |
+| Segmentation | the same, one line per polygon ring (`class x1 y1 x2 y2 ...`) | the same, with `segmentation` and `area` |
+| Keypoints | the same, `class cx cy w h x y v ...` and `kpt_shape: [n, 3]` | the same, with `keypoints` (x, y, v in pixels) named `kp1`... |
+| Classification | `<group>/<class>/<image>`, the folders YOLO classification reads | refused (`export_coco_classification`) |
+| Regression | refused (`export_regression`) | refused (`export_regression`) |
+
+- **K-fold in YOLO**: one `data_fold_<n>.yaml` per fold: fold *n* is the validation part, the other folds are
+  training (a list of folders) and `test` is the test part. The images are written once.
+- **Names**: an image keeps the name it was uploaded with (sub-folders included, accents and spaces too); a
+  character that Windows refuses (`< > : " \ | ? *`) becomes `_`, `..` parts are dropped, and two images that
+  would share a name (ignoring case and extension) in one folder get the first characters of their id added.
+  Classes become folder names the same way in classification, so a class called `a/b` is the folder `a_b`.
+- **What is not kept**: score, track, tags and the model of a label. A segmentation object with several
+  rings becomes one YOLO object per ring (the same as importing it again). YOLO classification has no
+  class list: the classes are the folders. COCO keypoints have no skeleton.
+- **Round trip**: importing the labels of the zip back (docs/IMPORT.md) gives the same annotations (coordinates
+  to six decimals), per task and format; the tests do it.
+- Refused (400): `export_format_invalid`, `export_regression`, `export_coco_classification`, `export_empty` (the
+  version has no images) and `export_images_missing` (`params.count`: images of the version that were deleted
+  from the project, for the image files to go in the zip).
 
 ## Errors
 
@@ -235,7 +271,8 @@ not 100; `params.parts` names the missing ones), `split_unknown_part`, `split_tr
 images than folds), `seed_range` (outside 0–4294967295), `background_not_bool`, `videos_mode`,
 `gap_not_number`, `gap_range` (outside 0–3600 s), `tasks_not_list`, `task_not_found`, `nothing_to_split`,
 `no_usable_labels`, `note_too_long`; when reading a version's images: `part_unknown`, `fold_required`,
-`fold_not_found`, `version_has_no_folds`. Every answer has `{detail, code, params}`. 404 `dataset_not_found`;
+`fold_not_found`, `version_has_no_folds`; when exporting: `export_format_invalid`, `export_regression`,
+`export_coco_classification`, `export_empty`, `export_images_missing` (`params.count`). Every answer has `{detail, code, params}`. 404 `dataset_not_found`;
 409 `dataset_part_empty`, `dataset_in_use` and `dataset_used_by_runs` are described above.
 
 ## Interface
@@ -252,7 +289,8 @@ from the badges.
 Each card has buttons to see the images of each part in the image grid (as a filter), *Train with this version*
 (*Treinar com esta versão*), which opens the *New run* dialog with the version chosen (it is disabled for an
 incomplete version and for one whose training part has no images, with the reason written on the card), and a
-delete button.
+delete button. Below them, *Export* (*Exportar*) has a button per format the version's task can have (YOLO and COCO;
+only YOLO for classification; none for regression), see *Export*.
 
 The *New version* form has: tasks, split percentages as number inputs (no sliders; editing one adjusts the
 others so the total stays 100) or K-fold with its test percentage, a background switch (not offered for

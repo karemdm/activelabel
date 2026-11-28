@@ -210,7 +210,9 @@ seed ou outras proporções). Abaixo da tabela, *Equilíbrio das classes em cada
 parte para cada classe: partes equilibradas têm barras de tamanho parecido. Rótulos que o modelo não conseguiria usar ficam de fora, com aviso, e uma
 versão cujo treino ou validação ficaria vazio é recusada. Se os rótulos mudarem depois de criada a
 versão, o cartão avisa "Rótulos mudaram depois desta versão" e oferece *Nova versão a partir desta*.
-Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md).
+Cada versão tem *Treinar com esta versão* e *Exportar*: baixa a versão (imagens e rótulos, divididos como na
+versão) em um zip YOLO ou COCO para outras ferramentas. Classificação só em YOLO (pastas por classe); regressão
+não tem exportação. Detalhes: [DATASETS.md](DATASETS.md).
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
 (transferência de aprendizado, fine-tuning ou do zero), em execução única, busca em grid (valores

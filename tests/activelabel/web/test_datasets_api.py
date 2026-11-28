@@ -1,3 +1,7 @@
+import io
+import tempfile
+import zipfile
+
 from api_client import make_client, upload
 from sample_images import make_image
 
@@ -198,3 +202,37 @@ def test_runs_in_the_messages_are_named_like_on_the_screens(tmp_path):
     assert reply.status_code == 409 and reply.json()["code"] == "dataset_in_use"
     assert "Training run(s) #1, #2 use this version" in reply.json()["detail"]
     assert reply.json()["params"]["runs"] == [1, 2]
+
+
+def test_export_downloads_a_zip_of_the_version(tmp_path):
+    client, _, _ = _setup(tmp_path)
+    client.post(BASE, json={"seed": 1})
+    check = client.get(f"{BASE}/1/export/check", params={"format": "yolo"})
+    assert check.status_code == 200
+    assert check.json()["groups"] == {"train": 21, "val": 6, "test": 3} and check.json()["images"] == 30
+
+    response = client.get(f"{BASE}/1/export", params={"format": "yolo"})
+    assert response.status_code == 200 and response.headers["content-type"] == "application/zip"
+    assert 'filename="P-v1-yolo.zip"' in response.headers["content-disposition"]
+    names = zipfile.ZipFile(io.BytesIO(response.content)).namelist()
+    assert "data.yaml" in names and sum(n.startswith("images/") for n in names) == 30
+    assert sum(n.startswith("labels/") for n in names) == 30
+
+    labels_only = client.get(f"{BASE}/1/export", params={"format": "coco", "images": "false"})
+    names = zipfile.ZipFile(io.BytesIO(labels_only.content)).namelist()
+    assert sorted(names) == [f"annotations/instances_{p}.json" for p in ("test", "train", "val")]
+
+
+def test_export_refusals_are_coded_and_a_failed_export_leaves_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    client, _, _ = _setup(tmp_path)
+    client.post(BASE, json={})
+    for url in (f"{BASE}/1/export", f"{BASE}/1/export/check"):
+        bad = client.get(url, params={"format": "voc"})
+        assert bad.status_code == 400 and bad.json()["code"] == "export_format_invalid"
+        assert client.get(url.replace("/1/", "/9/"), params={"format": "yolo"}).status_code == 404
+    assert client.get("/api/projects/9/datasets/1/export", params={"format": "yolo"}).status_code == 404
+    assert list((tmp_path / "tmp").iterdir()) == []  # the download leaves nothing behind either
+    client.get(f"{BASE}/1/export", params={"format": "yolo"})
+    assert list((tmp_path / "tmp").iterdir()) == []
