@@ -138,7 +138,7 @@ def detect_format(files: list[Path]) -> str | None:
     if mot:
         found.add("mot")
     if not found and files and all(p.suffix.lower() in IMAGE_SUFFIXES for p in files):
-        return "folders" if folder_classes([f"{p.parent.name}/{p.name}" for p in files]) else None
+        return "folders" if folder_classes(["/".join(p.parts[-3:]) for p in files]) else None
     return next(iter(found)) if len(found) == 1 else None
 
 

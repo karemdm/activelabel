@@ -7,7 +7,15 @@ import zipfile
 
 import pytest
 
-from activelabel.annotations import discard_staged, load_staged, pending_report, set_report, stage
+from activelabel.annotations import (
+    detect_format,
+    discard_staged,
+    load_staged,
+    pending_report,
+    set_report,
+    stage,
+    stage_folders,
+)
 from activelabel.annotations.staging import MAX_AGE_SECONDS, REPORT_SUFFIX
 from activelabel.errors import CodedError
 
@@ -122,3 +130,23 @@ def test_a_report_whose_files_expired_is_not_pending(tmp_path):
     set_report(tmp_path, token, {"token": token})
     shutil.rmtree(tmp_path / "staging" / token)
     assert pending_report(tmp_path) is None
+
+
+def test_stage_folders_keeps_an_empty_file_per_name_with_safe_names(tmp_path):
+    names = ["cat/a:1.png", "dog/b?.png", "cat/train/c.png"]
+    token = stage_folders(tmp_path, names)
+    files = load_staged(tmp_path, token)
+    assert sorted(p.relative_to(tmp_path / "staging" / token).as_posix() for p in files) == [
+        "cat/a_1.png",
+        "cat/train/c.png",
+        "dog/b_.png",
+    ]
+    assert all(p.stat().st_size == 0 for p in files)
+    assert detect_format(files) == "folders"
+
+
+def test_stage_folders_refuses_an_unsafe_name_and_leaves_nothing(tmp_path):
+    with pytest.raises(CodedError) as info:
+        stage_folders(tmp_path, ["cat/a.png", "../x.png"])
+    assert info.value.code == "annotation_path_unsafe"
+    assert not (tmp_path / "staging").exists()

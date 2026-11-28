@@ -96,7 +96,12 @@ interface chama de *Tipo*.
 - *Tasks e jobs*: as tasks do projeto (cada envio de imagens, ou cada vídeo, é uma task),
   divididas em jobs do tamanho que você escolher, como no CVAT. Em *Nova task* solte
   arquivos, uma pasta, um .zip ou um vídeo. Os arquivos são guardados sem alteração (o tipo da imagem vem do conteúdo, não da extensão); imagens
-  idênticas entram uma só vez; arquivos ilegíveis aparecem na lista com o motivo. Cada task e cada job
+  idênticas entram uma só vez; arquivos ilegíveis aparecem na lista com o motivo.
+  Num projeto de classificação, se as imagens vieram em pastas por classe (uma pasta ou um .zip com uma
+  subpasta por classe), o fim do envio mostra as classes encontradas, com o número de imagens de cada uma
+  (as novas marcadas), e *Usar o nome da pasta como classe* rotula as imagens sem um segundo envio em
+  *Importar anotações*. Imagens que já têm classe a mantêm; pastas `train`, `val` e `test` não são classes
+  (ficam de fora, e o split do dataset continua sendo feito no passo 4). Cada task e cada job
   tem um menu para abrir: *Editar no FiftyOne* e *Abrir no CVAT*; o item que ainda não pode ser usado
   fica desativado, com o motivo escrito embaixo (por exemplo, projeto não vinculado ao CVAT). O FiftyOne
   não edita pontos-chave: num projeto de pontos-chave o menu oferece *Ver no FiftyOne*, e a edição é feita

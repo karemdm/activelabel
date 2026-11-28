@@ -39,6 +39,16 @@ the release notes, generated from the merged pull requests and grouped by label 
   segmentation and keypoints go in both formats; classification as class folders (YOLO); regression is refused with
   a coded error, and so is classification in COCO. Importing the zip's labels back gives the same annotations.
 
+- **Images and classes from folders in one step (#568).** In a classification project, a folder or a .zip of
+  images with one sub-folder per class (the folder name is the class) sent in *New task* now ends with a
+  preview of the classes found (how many images each one labels, which are new and which already exist in the
+  project, any problem of the check) and *Use folder names as classes* labels the images, with no second upload
+  in *Import annotations*. Images that already have a class keep it; `train`, `val`, `test` (and `training`,
+  `valid`, `validation`, `testing`) folders are never classes, they are left out and listed, so
+  `train/cat/a.jpg` and `cat/train/a.jpg` are both `cat`; empty folders add no class. The check is
+  `POST /api/projects/{id}/images/class-folders`; it reuses the parser of the class folders and the annotation
+  apply, and the images are still streamed in chunks as before.
+
 ### Fixed
 
 - **Import from CVAT (#709).** A project, or a task of a project, no longer needs FiftyOne to be imported (only a

@@ -80,7 +80,23 @@ confirmation first.
   least 90 % of the images inside one; images at the top level get no class. The labels are read from the
   names of the images of the project, so the project's images must have been uploaded with those folder names;
   the uploaded copies in the check are only used to recognise the format. They are classification labels, so a
-  project of another type is offered *Change the type to classification and import*.
+  project of another type is offered *Change the type to classification and import*. The class is the nearest
+  parent folder that is not a split: `train`, `training`, `val`, `valid`, `validation`, `test` and `testing`
+  (any case) are never classes, so `train/cat/a.jpg` and `cat/train/a.jpg` are both `cat`; the data split of
+  the project (step 4) is not taken from them.
+- **Images and classes in one step** (classification projects). The Images upload (*New task*, a folder or a
+  .zip with one folder per class) needs no second upload: when it ends, the interface asks
+  `POST /projects/{id}/images/class-folders`, which reads the class folders in the names of the project's images
+  and answers `{found: false}` (nothing offered) or the same report as the annotation check (format `folders`,
+  `classes_found`, `classes_new`, `counts.labels_per_class`, `problems`, the `token` of the check) plus
+  `split_folders`, the split folders it left out. The interface shows the classes with their number of images
+  (the new ones marked; a project with no classes yet marks none), and *Use folder names as classes* applies the
+  token with `mode: merge`: images that already have a class keep it, classes are matched ignoring case with the
+  ones of the project, and images outside a class folder stay unlabeled. *Not now* discards the check; if the
+  dialog is just closed, the same report waits in *Import annotations* for 24 hours. A project of another type
+  is refused (`class_folders_not_classification`). The folder names come from the images already stored, so
+  nothing is sent again and a big upload is still streamed in chunks. The folder names are read from every
+  active image of the project, as in *Import annotations*.
 - **Mode**: *replace* (the default) or *merge* (`mode` of the apply request). Merge only adds labels to images that
   have none yet, keeps the existing ones (`images_kept`), adds only the classes of the labels it added, and is
   refused when the existing labels are of another type; it makes no safety copy because nothing is removed.

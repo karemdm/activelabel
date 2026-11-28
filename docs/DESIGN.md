@@ -133,7 +133,8 @@ dataset and `DELETE .../curation/runs/{key}` deletes one of ours (`activelabel/c
    [ANNOTATION.md](ANNOTATION.md)). The first three:
    - **Images**: tabs *Gallery* and *Tasks and jobs*; drop zone for files, folders and .zip; upload
      in chunks with a progress bar and *Cancel*; result: added, duplicates, rejected with reasons;
-     annotation files found in the upload lead to step 2. Paged grid of thumbnails.
+     annotation files found in the upload lead to step 2; in a classification project, images in class folders
+     get a preview of the classes and *Use folder names as classes* (see [IMPORT.md](IMPORT.md)). Paged grid of thumbnails.
    - **Annotations**: the tab *Summary* shows tiles (images annotated, annotations, classes with
      annotations, to review), the top classes with *Search class* and *Show all ({n})*. Tab
      *Import annotations*: upload files or a .zip → validation report (it takes the place of the drop zone;
@@ -262,6 +263,7 @@ running.
 | --- | --- | --- | --- |
 | POST | `/projects/{id}/annotations` | multipart `files`, optional `task` (video task id), `class_name` | validation report + `token` (+ `task`) |
 | GET | `/projects/{id}/annotations/pending` | | `{report}`: the report of the last check not yet applied or discarded (kept in `staging/<token>.report.json`), or `null` |
+| POST | `/projects/{id}/images/class-folders` | none; classification projects only (400 `class_folders_not_classification`) | `{found: false}` when the images are not in class folders, else `{found: true, split_folders}` plus the report of an annotation check (format `folders`) and its `token`, to apply (`merge`) or discard with the routes below (#568) |
 | POST | `/projects/{id}/annotations/{token}/apply` | `{action, mode}` (`action`: `import`, `change_task_and_import`, `convert_and_import` or `discard`; `mode`: `replace` by default, or `merge`) | import summary |
 | DELETE | `/projects/{id}/annotations/{token}` | | discard staged files |
 | GET | `/projects/{id}/annotations` | | summary of the ground truth |

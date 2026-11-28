@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from activelabel.annotations.convert import conversion_possible, convert_annotations
-from activelabel.annotations.folders import folder_classes
+from activelabel.annotations.folders import folder_classes, split_folders
 from activelabel.annotations.importer import apply
 from activelabel.annotations.models import ParseResult, Problem, ValidationReport
 from activelabel.annotations.parsing import (
@@ -22,6 +22,7 @@ from activelabel.annotations.staging import (
     set_report,
     set_target,
     stage,
+    stage_folders,
 )
 from activelabel.annotations.target import VideoTarget, build_target, video_tasks
 from activelabel.annotations.validation import validate
@@ -47,7 +48,9 @@ __all__ = [
     "parse",
     "set_report",
     "set_target",
+    "split_folders",
     "stage",
+    "stage_folders",
     "unreadable_file",
     "validate",
     "video_tasks",

@@ -23,6 +23,7 @@ MAX_TOTAL_BYTES = 1024**3
 ALLOWED = {".json", ".xml", ".txt", ".yaml", ".yml", ".names", ".csv"}
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 _TOKEN = re.compile(r"^[0-9a-f]{16}$")
+_NOT_IN_FILE_NAMES = re.compile('[<>:"|?*]')
 
 
 def _safe_rel(name: str) -> PurePosixPath:
@@ -137,6 +138,50 @@ def _extract_zip(handle: BinaryIO, target: Path, budget: list[int], images: list
     return saved
 
 
+def _touch_all(target: Path, rels: list[PurePosixPath]) -> None:
+    """Create an empty file per image path under ``target`` (the class folders are what counts).
+
+    Args:
+        target: staging folder.
+        rels: relative paths of the images.
+    """
+    for rel in rels:
+        placeholder = target.joinpath(*rel.parts)
+        placeholder.parent.mkdir(parents=True, exist_ok=True)
+        placeholder.touch()
+
+
+def stage_folders(project_dir: Path, names: list[str]) -> str:
+    """Stage the names of images already in the project, to read their class folders (#568).
+
+    Nothing is uploaded again: an empty file per name is kept, as :func:`stage` does for an upload of
+    images in class folders, so the same check and apply steps follow (characters a file name cannot hold
+    on every system are replaced by ``_``). Staging folders older than 24 hours are removed first.
+
+    Args:
+        project_dir: the project's folder.
+        names: ``ImageRecord.name`` values (``cat/a.jpg``).
+
+    Returns:
+        The token of the staging folder.
+
+    Raises:
+        CodedError: an unsafe name (``annotation_path_unsafe``).
+    """
+    cleanup(project_dir)
+    # a colon is fine in an image name, not in a file name on every system
+    rels = [_safe_rel(_NOT_IN_FILE_NAMES.sub("_", name)) for name in names]
+    token = secrets.token_hex(8)
+    target = project_dir / STAGING / token
+    target.mkdir(parents=True)
+    try:
+        _touch_all(target, rels)
+    except BaseException:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    return token
+
+
 def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
     """Save uploaded annotation files (or zips of them) and return a token.
 
@@ -175,10 +220,7 @@ def stage(project_dir: Path, files: list[tuple[str, BinaryIO]]) -> str:
             elif rel.suffix.lower() in IMAGE_SUFFIXES:
                 images.append(rel)
         if not saved and folder_classes([str(rel) for rel in images]):
-            for rel in images:
-                placeholder = target.joinpath(*rel.parts)
-                placeholder.parent.mkdir(parents=True, exist_ok=True)
-                placeholder.touch()
+            _touch_all(target, images)
             saved = len(images)
         if not saved:
             raise CodedError("annotation_files_missing", "No annotation files were found in the upload.")
