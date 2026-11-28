@@ -92,7 +92,7 @@ interface chama de *Tipo*.
 
 **1. Imagens.** Duas abas:
 
-- *Galeria*: a grade de imagens, com filtros por task e por job.
+- *Galeria*: a grid de imagens, com filtros por task e por job.
 - *Tasks e jobs*: as tasks do projeto (cada envio de imagens, ou cada vídeo, é uma task),
   divididas em jobs do tamanho que você escolher, como no CVAT. Em *Nova task* solte
   arquivos, uma pasta, um .zip ou um vídeo. Os arquivos são guardados sem alteração (o tipo da imagem vem do conteúdo, não da extensão); imagens
@@ -142,7 +142,7 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
   são de outro tipo), *Converter para {tipo} e importar* (por exemplo contornos em caixas) ou
   *Descartar*. Se o projeto já tem anotações, escolha também *Mesclar* ou *Substituir*.
   Anotações feitas para um vídeo inteiro vão para uma task de vídeo, casadas pelo número do
-  quadro ([VIDEO.md](VIDEO.md)).
+  frame ([VIDEO.md](VIDEO.md)).
 
 Antes de qualquer mudança que apague ou reescreva anotações em bloco (importação que substitui,
 aplicação do FiftyOne ou do CVAT, classe renomeada no CVAT, restauração), o ActiveLabel faz uma cópia de
@@ -161,7 +161,7 @@ filtro no App do FiftyOne; imagens marcadas com a tag `exclude` lá voltam com *
 do FiftyOne*. A *Distribuição das anotações* mostra, em barras, os objetos e as imagens por classe, as imagens
 por número de objetos e o tamanho das caixas (minúsculas até 1% da imagem, pequenas até 5%, médias até 25%,
 grandes acima disso), para ver cedo se as classes estão desequilibradas; imagens excluídas não contam.
-No App do FiftyOne, o menu de workspaces tem *ActiveLabel: distribuições* (grade, painel Histograms e, com o
+No App do FiftyOne, o menu de workspaces tem *ActiveLabel: distribuições* (grid, painel Histograms e, com o
 mapa de semelhança, Embeddings); ele só fica disponível, não abre sozinho. Arquivos corrompidos não chegam até aqui: são rejeitados no envio. O *Mapa de
 semelhança* agrupa as imagens parecidas: *Calcular mapa* lê cada imagem ativa com uma rede pequena
 do ImageNet no ambiente de treino (instalado no primeiro uso, na mesma fila dos treinos), coloca as
@@ -169,18 +169,18 @@ imagens num mapa 2-D (t-SNE, ou PCA em conjuntos muito pequenos ou grandes) e as
 (k-means), cada um com seu tamanho e sua imagem típica. *Reagrupar* (com progresso e Cancelar) agrupa o mesmo
 mapa de novo sem recalculá-lo: *Automático*, um *Número de grupos* à sua escolha ou *Grupos de tamanho livre*
 (HDBSCAN, com o *Menor grupo*); neste, as imagens que não cabem em grupo nenhum aparecem numa cor neutra e têm
-um filtro próprio, *Sem grupo*, acima da grade. O mesmo mapa abre no App do FiftyOne (painel
+um filtro próprio, *Sem grupo*, acima da grid. O mesmo mapa abre no App do FiftyOne (painel
 Embeddings, execução `activelabel_similarity`, cores pelo campo `similarity_group`). Com o mapa pronto,
-*Mostrar parecidas*, na janela de uma imagem da Curadoria, deixa na grade essa imagem e as 24 mais
+*Mostrar parecidas*, na janela de uma imagem da Curadoria, deixa na grid essa imagem e as 24 mais
 parecidas com ela, da mais parecida para a menos (*Mostrar todas* volta); no App, a ordenação por
-semelhança também funciona (índice `activelabel_similar`). Pares de imagens quase iguais para a rede (recortes, mudança de brilho, quadros vizinhos de vídeo, que o
+semelhança também funciona (índice `activelabel_similar`). Pares de imagens quase iguais para a rede (recortes, mudança de brilho, frames vizinhos de vídeo, que o
 hash perceptual não pega) também viram quase duplicatas; o limite fica em *Limites* ("Quase duplicata
 pelo mapa de semelhança", 0 desliga). Arquivos idênticos nunca chegam a ser duas imagens: o envio os
 reconhece pelo conteúdo.
 
 A *Unicidade* dá a cada imagem uma nota de 0 (tem uma quase gêmea) a 1 (a mais diferente), a partir do mapa:
 *Calcular unicidade* precisa do mapa pronto (o botão diz isso enquanto ele não existe), entra na fila das
-atividades pesadas, mostra o andamento e tem Cancelar. Com as notas, a grade pode ser ordenada por elas
+atividades pesadas, mostra o andamento e tem Cancelar. Com as notas, a grid pode ser ordenada por elas
 (*Mais únicas primeiro* ou *Mais repetidas primeiro*) e filtrada para as imagens com unicidade *abaixo de* um
 valor, o que acha as quase repetidas; a nota aparece em cada cartão enquanto um dos dois está ligado e no
 detalhe da imagem. Um aviso diz quando as imagens mudaram desde as notas.
@@ -188,38 +188,38 @@ detalhe da imagem. Um aviso diz quando as imagens mudaram desde as notas.
 ### Grupo Modelo
 
 **4. Divisão dos dados.** Cria uma *versão do dataset*: partes de treino, validação e teste
-(ou K folds mais uma parte de teste). Quadros do mesmo vídeo e quase duplicadas ficam juntos,
+(ou K folds mais uma parte de teste). Frames do mesmo vídeo e quase duplicadas ficam juntos,
 e as classes são distribuídas de forma equilibrada; uma classe rara entra em todas as partes antes de as
 proporções serem aplicadas. Escolha as tasks, as porcentagens (números que somam 100; para treinar é
-preciso ter validação), imagens de fundo e, em *Avançado*, a semente, o modo de vídeos e o intervalo de
+preciso ter validação), imagens de fundo e, em *Avançado*, a seed, o modo de vídeos e o intervalo de
 segurança. Um vídeo fica inteiro numa parte quando dá; senão (*Dividir em trechos distantes quando
-necessário*) é cortado em trechos espalhados ao longo do vídeo, e o interruptor *Descartar quadros na
-fronteira entre partes do mesmo vídeo* (ligado por padrão) tira os quadros vizinhos dos trechos de
+necessário*) é cortado em trechos espalhados ao longo do vídeo, e o interruptor *Descartar frames na
+fronteira entre partes do mesmo vídeo* (ligado por padrão) tira os frames vizinhos dos trechos de
 validação e teste; desligado, as métricas ficam otimistas.
 
 A prévia mostra os avisos antes de salvar. A tabela de classes começa pelas mais raras, marca com um
 ícone o zero de uma classe ausente de uma parte e mostra a fatia de cada classe em cada parte; o aviso de
 classe ausente diz quantas imagens têm a classe e se daria para colocá-la em todas as partes (com outra
-semente ou outras proporções). Abaixo da tabela, *Equilíbrio das classes em cada parte* mostra uma barra por
+seed ou outras proporções). Abaixo da tabela, *Equilíbrio das classes em cada parte* mostra uma barra por
 parte para cada classe: partes equilibradas têm barras de tamanho parecido. Rótulos que o modelo não conseguiria usar ficam de fora, com aviso, e uma
 versão cujo treino ou validação ficaria vazio é recusada. Se os rótulos mudarem depois de criada a
 versão, o cartão avisa "Rótulos mudaram depois desta versão" e oferece *Nova versão a partir desta*.
 Cada versão tem *Treinar com esta versão*. Detalhes: [DATASETS.md](DATASETS.md).
 
 **5. Treinamento.** Escolha a versão do dataset, o modelo do catálogo e como começar
-(transferência de aprendizado, ajuste fino ou do zero), em execução única, busca em grade (valores
+(transferência de aprendizado, fine-tuning ou do zero), em execução única, busca em grid (valores
 separados por ponto e vírgula, com vírgula decimal: `0,01; 0,001`) ou todos os folds. Há curvas ao vivo (perda, métricas e taxa de aprendizado) e avaliação na parte de teste. O diálogo escolhe o modelo em três campos: a família, a arquitetura (ou a geração, no YOLO: YOLO26, YOLO11, YOLOv8) e o tamanho ou a variante (n, s, m, l, x; ResNet 18 a 152...); o que o modelo aprende vem do tipo do projeto. Trocar só o tamanho mantém os valores que você mudou. Estão disponíveis
 classificação, detecção, segmentação semântica, segmentação por instância (Mask R-CNN) e
 pontos-chave (torchvision); os modelos YOLO/Ultralytics (licença AGPL-3.0) aparecem quando você lê e aceita a
 licença no próprio diálogo (*Ler e aceitar a licença…*; veja *Licences* em TRAINING.md, em inglês). No diálogo do treino você escolhe também o *Dispositivo* (*Automático*, *CPU*,
 *GPU n* ou *GPU da Apple (MPS)*), como a foto vira a entrada quadrada (*Esticar*, *Letterbox* ou *Corte
 central*, o mesmo na avaliação, na pré-anotação e no ONNX), o agendamento da taxa de aprendizado
-(*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com épocas de aquecimento (nunca mais que as épocas do treino; a
+(*Cosseno*, *Em degraus*, *Ciclo único*, *Platô*) com epochs de aquecimento (nunca mais que as epochs do treino; a
 paciência da parada antecipada também fica abaixo delas), a precisão mista (numa GPU
 CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técnica passa o nível para
 *Personalizado*. Trocar de modelo mantém os valores que você mudou, quando o novo modelo os aceita, e
-diz o que mudou. Se a GPU ficar sem memória, o lote é reduzido à metade até caber. Os pacotes
-necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último ponto de controle com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, lote, precisão). Detalhes:
+diz o que mudou. Se a GPU ficar sem memória, o batch é reduzido à metade até caber. Os pacotes
+necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou
