@@ -1,4 +1,6 @@
+import tempfile
 import time
+from pathlib import Path
 
 import numpy as np
 from api_client import make_client, upload
@@ -10,6 +12,8 @@ from activelabel import fiftyone_bridge, optional
 from activelabel.curation import similarity, uniqueness
 from activelabel.fiftyone_names import record_name
 from activelabel.images.tags import load_tags, set_tags
+from activelabel.storage import write_json
+from activelabel.training.models import ModelStore
 from activelabel.web import api
 
 
@@ -280,3 +284,20 @@ def test_the_images_most_similar_to_one_come_nearest_first(tmp_path):
     assert ids[2] not in [i["id"] for i in active["items"]]  # the status filter still applies
     gone = client.get("/api/projects/1/images?similar_to=nothere")
     assert gone.status_code == 404 and gone.json()["code"] == "image_not_on_map"
+
+
+def test_a_class_renamed_by_its_case_is_renamed_in_the_saved_models_too():
+    """Class ``cat`` to ``Cat`` (#521): the model card follows, its weights are not touched."""
+    with tempfile.TemporaryDirectory() as folder:
+        client, state = make_client(Path(folder))
+        client.post("/api/projects", json={"name": "P", "task": "detection", "classes": ["cat", "dog"]})
+        models = ModelStore(state.store.dir(1))
+        models.path(1).mkdir(parents=True)
+        write_json(
+            models.path(1) / "model.json", {"number": 1, "created": "t", "run": 1, "classes": ["cat", "dog"]}
+        )
+        assert client.patch("/api/projects/1", json={"classes": ["cat", "dog", "bird"]}).status_code == 200
+        assert models.get(1)["classes"] == ["cat", "dog"]  # a new class changes nothing
+        assert client.patch("/api/projects/1", json={"classes": ["Cat", "dog", "bird"]}).status_code == 200
+        card = models.get(1)
+        assert card["classes"] == ["Cat", "dog"] and card["trained_classes"] == ["cat", "dog"]

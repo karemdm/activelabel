@@ -1556,6 +1556,7 @@
   "md.public_model": "Modelo",
   "md.public_stats": "mAP de caixa 50-95 no COCO {map} · download de {mb} MB",
   "md.mapping": "Classes",
+  "md.renamed": "Classes renomeadas desde o treino: {list}. Os pesos são os mesmos, então o modelo continua funcionando com os novos nomes.",
   "md.mapping_help": "Para cada classe do projeto, as categorias do modelo que a representam; uma classe pode ter várias (caminhão e carro para carro). Tire uma categoria pelo × dela ou limpe a classe; categorias não escolhidas são ignoradas.",
   "md.mapping_add": "Categoria…",
   "md.mapping_add_button": "Adicionar",

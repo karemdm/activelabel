@@ -1556,6 +1556,7 @@
   "md.public_model": "Model",
   "md.public_stats": "box mAP 50-95 on COCO {map} · {mb} MB download",
   "md.mapping": "Classes",
+  "md.renamed": "Classes renamed since training: {list}. The weights are the same, so the model keeps working under the new names.",
   "md.mapping_help": "For each project class, the model categories that stand for it; a class can have several (truck and car for car). Remove a category with its × or clear the class; categories not chosen are ignored.",
   "md.mapping_add": "Category…",
   "md.mapping_add_button": "Add",
