@@ -197,6 +197,22 @@ for review ([PREANNOTATE.md](PREANNOTATE.md)).
    `GET /projects/{id}/tasks` gives it as `last_session: {tool, at, status}`.
 5. **Close** a session (*Close session*): forget it.
 
+### Edits not in the project yet (#700)
+
+The *FiftyOne* tab, and the project header, say "N images edited in FiftyOne, not in the project yet" while
+the App holds edits that were not brought back, with *Review and send*, which goes to the session that holds
+most of them. Each session card repeats its own count; an applied session that was edited again also gets
+*Bring the edits* (the same read as the App's button, applying at once when nothing needs a look).
+
+The number is the one the pull uses: an image counts when its `ground_truth` no longer matches the fingerprint
+ActiveLabel recorded when it wrote it (`fiftyone_bridge.edited_images`). It is asked for without a scan:
+`GET /annotate` looks at the images of the sessions that are open, pulled or applied (none: no FiftyOne access at
+all) and asks the database for one fingerprint of those samples (how many, and the latest `last_modified_at`,
+`fiftyone_bridge.edit_stamp`). Only when it moved since the last count are the samples read; otherwise the last
+answer is reused (`annotate/edited.py`). The page asks when it opens and each time you come back to the window,
+at most every few seconds. Edits of images that are in no session are not counted; they are kept in FiftyOne
+until a session that holds them brings them back.
+
 ### The button inside the App: "Enviar ao ActiveLabel"
 
 The App that ActiveLabel starts loads a small FiftyOne plugin (`src/activelabel/fiftyone_plugin/`, operator
@@ -308,7 +324,7 @@ a result message about an old value is cleared as soon as a field is edited.
 | PUT | `/api/annotation-tools/{tool}` | `{url, username?, secret?}` | the tool entry (secret kept in keyring when given) |
 | POST | `/api/annotation-tools/{tool}/test` | | `{ok, message}`; for CVAT also `code` and `params`: `test_connected` with `url` and `user` when it worked, or the code of the failure (for example `cvat_login_failed`) when it did not |
 | DELETE | `/api/annotation-tools/{tool}` | | `{removed: true}` (also removes the keyring secret) |
-| GET | `/api/projects/{id}/annotate` | | `{sessions: [...]}` newest first |
+| GET | `/api/projects/{id}/annotate` | | `{sessions, edited_count, edited}`: the sessions, newest first; `edited_count` is how many images of the FiftyOne sessions were edited in the App and are not in the project yet, `edited` how many each session holds (by session id; sessions with none are left out). 0 without a session that can hold edits |
 | POST | `/api/projects/{id}/annotate` | `{tool: "fiftyone", scope: "all"\|"unlabeled"\|"selected"\|"issue"\|"preannotated"\|"task", ids?, issue?, task?, job?}` (`task`, with optional `job`, for scope `task`; 404 `task_not_found`, 400 `job_not_found`) | job; result `{session, links, kept_fiftyone_edits?}` (an open session with the same scope and images is reused, not duplicated); 400 `tool_unsupported` for any other tool; 400 `fiftyone_keypoints_not_editable` for a keypoints project (the App cannot edit keypoints) |
 | POST | `/api/projects/{id}/annotate/{session}/pull` | query `apply=auto` (the App's *Send to ActiveLabel*) | job; result `{session, diff}`, with `applied` (the counts) when `apply=auto` applied at once, or `review` (`asked`, `problems`, `unknown_classes`, `nothing_changed` or the code of a refused apply) when the edits wait for the review; 409 when the session was already applied or discarded; 400 `tool_unsupported` for a session of a discontinued tool |
 | POST | `/api/projects/{id}/annotate/{session}/apply` | | `{applied: {...counts}}`; 400 when nothing was brought back yet, 409 when the labels changed since the pull or it was already applied or discarded |

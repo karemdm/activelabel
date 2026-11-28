@@ -846,3 +846,20 @@ def test_with_sample_adds_the_sample_to_the_query():
         == "http://localhost:5161/datasets/d?id=abc"
     )
     assert bridge.with_sample("http://localhost:5161/datasets/d?view=v", "abc").endswith("?view=v&id=abc")
+
+
+def test_edit_stamp_moves_only_when_a_sample_of_those_images_is_saved(tmp_path, project):
+    manifest = build(tmp_path)
+    dataset = bridge.sync_dataset(project, manifest, None)
+    ids = ["i0", "i1"]
+    first = bridge.edit_stamp(dataset, ids)
+    assert bridge.edit_stamp(dataset, ids) == first and first.startswith("2:")
+    other = dataset.match(fo.ViewField("image_id") == "i2").first()
+    other.tags = ["look"]
+    other.save()
+    assert bridge.edit_stamp(dataset, ids) == first  # another image
+    sample = dataset.match(fo.ViewField("image_id") == "i0").first()
+    sample.tags = ["look"]
+    sample.save()
+    assert bridge.edit_stamp(dataset, ids) != first
+    assert bridge.edit_stamp(dataset, ["missing"]) == "0:"

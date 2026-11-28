@@ -130,6 +130,11 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
   *Descartar estas alterações*). O esquema de rótulos que o App exige para editar é gravado pelo
   ActiveLabel; só as imagens editadas no FiftyOne trazem a versão de lá. Geometrias inválidas que voltam
   do FiftyOne são listadas como problema, nunca gravadas em silêncio.
+  Enquanto o App tem edições que ainda não voltaram, a aba *FiftyOne* e o cabeçalho do projeto mostram
+  *N imagens editadas no FiftyOne, ainda não no projeto*, com *Revisar e enviar*, que leva à sessão onde elas estão
+  (cada sessão mostra a sua contagem; uma sessão já aplicada e editada de novo ganha *Trazer as edições*). A contagem
+  é atualizada quando a página abre e sempre que você volta para a janela, sem ler todas as imagens: só quando algo
+  foi salvo no FiftyOne desde a última vez.
   Uma caixa ou polígono movido para longe no FiftyOne conta como *editado* (não como adicionado e removido), e as
   tags das imagens e dos rótulos criadas no FiftyOne voltam, aparecem na revisão e ficam guardadas no projeto.
 

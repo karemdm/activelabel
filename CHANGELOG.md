@@ -11,6 +11,16 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ## Unreleased
 
+### Added
+
+- **Edits not in the project yet (#700).** The FiftyOne tab and the project header say "N images edited in
+  FiftyOne, not in the project yet" while the App holds edits that were not brought back, with *Review and send*
+  (to the session that holds them) and a count on each session card; an applied session edited again gets *Bring
+  the edits*. `GET /projects/{id}/annotate` also returns `edited_count` and `edited` (by session). The count is
+  cheap: one database fingerprint of the session images (`edit_stamp`), and the samples are read, with the same
+  `edited_images` the pull uses, only when something was saved since the last count. The page refreshes it when
+  it opens and when you come back to the window.
+
 ### Fixed
 
 - **Import from CVAT (#709).** A project, or a task of a project, no longer needs FiftyOne to be imported (only a

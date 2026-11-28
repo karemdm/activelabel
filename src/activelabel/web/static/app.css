@@ -694,6 +694,9 @@ dialog .jobs.scroll-box { max-height: 60vh; }
 .open-row { display: flex; align-items: center; gap: var(--space-2) var(--space-4); flex-wrap: wrap; margin: var(--space-2) 0 var(--space-3); }
 .open-row > p { margin: 0; flex: 1 1 24rem; }
 .open-row .open-reason { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; }
+/* edits made in the FiftyOne App that are not in the project yet (#700): the project header and the FiftyOne tab */
+.fo-edited { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.fo-session-edited { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0; color: var(--warn); font-weight: 600; }
 .sync-section .sync-box:not(:empty) { margin-top: var(--space-4); }
 .sync-direction { font-weight: 600; }
 .annot-section .sessions-section { margin: var(--space-5) 0 0; }
