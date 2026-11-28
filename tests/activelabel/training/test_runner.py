@@ -1,3 +1,4 @@
+import copy
 import json
 import threading
 import time
@@ -1012,3 +1013,32 @@ def test_build_spec_of_a_regression_model_gives_the_values_of_each_target(tmp_pa
         RunConfig.from_dict({"dataset": 1, "model": "reg_resnet18", "metric": "r2"}), "regression"
     )
     assert checked.metric == "r2"
+
+
+def test_build_spec_flip_pair_must_name_a_point_the_labels_have(setup):
+    """Flip pairs that name a point past the labels' points stop the run before it starts (#524)."""
+    _, state, _ = setup
+    project_dir = state.store.dir(1)
+    version = copy.deepcopy(DatasetStore(project_dir).read(1))
+    images = [i for part in version["parts"].values() for i in part]
+    pose = {"label": "a", "bbox": [0.1, 0.1, 0.5, 0.5], "keypoints": [[0.2, 0.2, 2], [0.4, 0.4, 2]]}
+    version["labels"] = {i: [dict(pose)] for i in images}
+    model = get_model("keypointrcnn_resnet50_fpn")
+    run_dir = project_dir / "runs" / "r1"
+
+    def config(pairs):
+        given = [{"name": "hflip", "params": {"flip_pairs": pairs}}]
+        return validate(
+            RunConfig(
+                dataset=1,
+                model="keypointrcnn_resnet50_fpn",
+                params={"augmentation": "custom"},
+                augmentations=given,
+            ),
+            "keypoints",
+        )
+
+    spec = build_spec(project_dir, config([[0, 1]]), model, run_dir, version)
+    assert spec["num_keypoints"] == 2
+    with pytest.raises(RunnerError, match="name point 5, but the labels have 2 points"):
+        build_spec(project_dir, config([[0, 5]]), model, run_dir, version)
