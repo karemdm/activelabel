@@ -93,6 +93,10 @@ interface chama de *Tipo*.
 **1. Imagens.** Duas abas:
 
 - *Galeria*: a grid de imagens, com filtros por task e por job.
+- *Galeria*, visualizador: ao clicar numa imagem, a janela desenha as anotações sobre ela (só leitura; a edição
+  continua no CVAT e no FiftyOne): caixas, polígonos, pontos-chave e, em classificação, a classe no canto, cada uma
+  com a cor da sua classe. O painel lista as classes com a quantidade, e *Mostrar anotações* liga e desliga o desenho
+  (fica lembrado). Pré-anotações ainda não revisadas aparecem tracejadas, com a confiança (por exemplo "cat 87%").
 - *Tasks e jobs*: as tasks do projeto (cada envio de imagens, ou cada vídeo, é uma task),
   divididas em jobs do tamanho que você escolher, como no CVAT. Em *Nova task* solte
   arquivos, uma pasta, um .zip ou um vídeo. Os arquivos são guardados sem alteração (o tipo da imagem vem do conteúdo, não da extensão); imagens

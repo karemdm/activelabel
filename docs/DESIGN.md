@@ -134,7 +134,10 @@ dataset and `DELETE .../curation/runs/{key}` deletes one of ours (`activelabel/c
    - **Images**: tabs *Gallery* and *Tasks and jobs*; drop zone for files, folders and .zip; upload
      in chunks with a progress bar and *Cancel*; result: added, duplicates, rejected with reasons;
      annotation files found in the upload lead to step 2; in a classification project, images in class folders
-     get a preview of the classes and *Use folder names as classes* (see [IMPORT.md](IMPORT.md)). Paged grid of thumbnails.
+     get a preview of the classes and *Use folder names as classes* (see [IMPORT.md](IMPORT.md)). Paged grid of thumbnails;
+     a click opens the image window, which draws the image's annotations over it
+     (read-only: class colours from the project's class list, legend, *Show annotations*, pre-annotations dashed with their
+     score; one `GET .../labels` per image opened, docs/ANNOTATION.md).
    - **Annotations**: the tab *Summary* shows tiles (images annotated, annotations, classes with
      annotations, to review), the top classes with *Search class* and *Show all ({n})*. Tab
      *Import annotations*: upload files or a .zip → validation report (it takes the place of the drop zone;
@@ -247,7 +250,7 @@ running.
 | GET | `/projects/{id}/images` | `status` (`active` default, `excluded`, `all`), `issue` (a flag, or `any` for every flagged image), `ids` (comma separated), `task`, `job` (needs `task`), `dataset`, `part` and `fold` (need `dataset`), `sort` (`uniqueness_desc` or `uniqueness_asc`, by the saved uniqueness; unscored images last), `unique_below` (0..1: only scored images below it), `group` (a group of the similarity map; `-1` the images HDBSCAN left without one; #667), `similar_to` (an image: it and the `similar_count` images closest to it on the similarity map, 24 by default, nearest first, ahead of `sort`; #613), `offset`, `limit` (60 by default, at most 500) | `{total, items}` (classification projects: each item has `classes`; regression projects: each item has `values`; a scored image has `uniqueness`; with `similar_to` each item has `distance`); 409 `similarity_map_needed`, 404 `image_not_on_map` |
 | GET | `/projects/{id}/images/{image_id}/thumb` | | JPEG |
 | GET | `/projects/{id}/images/{image_id}/file` | | original file |
-| GET, PUT | `/projects/{id}/images/{image_id}/labels` | PUT: `{labels, revision, add_classes?}` (docs/ANNOTATION.md) | `{labels, classes, revision, tags}` / `{labels, revision, classes}` |
+| GET, PUT | `/projects/{id}/images/{image_id}/labels` (GET also feeds the image viewer's drawing) | PUT: `{labels, revision, add_classes?}` (docs/ANNOTATION.md) | `{labels, classes, revision, tags}` / `{labels, revision, classes}` |
 | PUT | `/projects/{id}/images/{image_id}/values` | `{values}`: `{target: number}`, `null` clears a target, targets not named stay; regression projects only | `{image_id, values}` |
 | POST | `/projects/{id}/images/exclude` | `{ids, reason}` | `{changed}` |
 | POST | `/projects/{id}/images/restore` | `{ids}` | `{changed}` |

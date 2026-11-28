@@ -48,6 +48,12 @@ the release notes, generated from the merged pull requests and grouped by label 
   `train/cat/a.jpg` and `cat/train/a.jpg` are both `cat`; empty folders add no class. The check is
   `POST /api/projects/{id}/images/class-folders`; it reuses the parser of the class folders and the annotation
   apply, and the images are still streamed in chunks as before.
+- **The image viewer shows the annotations (#339).** The window of an image (*Images* and *Curation*) draws its
+  annotations over it, read-only: boxes, polygons and masks, keypoints (hidden points hollow) and, for classification,
+  the class in the corner, each in the colour of its class (the place of the class in the project's list, the same in
+  every image, light and dark) with its name. The panel lists the classes with how many (text, for screen readers), has
+  *Show annotations* (remembered) and marks pre-annotations, not reviewed yet, as dashed with their confidence. One
+  request per image opened (`GET /projects/{id}/images/{image_id}/labels`); on a phone the image takes the whole width.
 
 ### Fixed
 
