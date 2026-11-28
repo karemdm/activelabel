@@ -1,7 +1,7 @@
 # Changelog
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-and the versions follow [Semantic Versioning](https://semver.org/). The project has no tagged release yet.
+and the versions follow [Semantic Versioning](https://semver.org/).
 
 The version of the package is read from the last git tag (`vMAJOR.MINOR.PATCH`), so there is no version
 number to edit in the code; a build between two releases carries the number of the last tag. How a release
@@ -11,7 +11,9 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ## Unreleased
 
-Everything below goes into the first release, 0.1.0.
+## 0.1.0 - 2026-11-27
+
+The first release.
 
 ### Added
 
