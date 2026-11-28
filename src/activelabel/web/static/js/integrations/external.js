@@ -1,5 +1,6 @@
 /* Annotating in an external tool from the Annotations step: CVAT tasks and FiftyOne edit sessions, their
  * setup, and bringing the annotations back. */
+import { editedNotice, editedSession, refreshEdited, sessionEdited } from './edited.js';
 import { cvatOpenRow, cvatProjectGone, fiftyoneOpenRow } from './open.js';
 import { fiftyoneButton, fiftyoneError, sayFiftyoneMissing } from '../shell/features.js';
 import {
@@ -27,6 +28,7 @@ export function annotateBlock(page) {
   const cvatOpenBox = el('div', { class: 'cvat-open' });
   const cvatCard = el('div', { class: 'card cvat-card', hidden: true }, cvatInfoBox, cvatScopeBox, cvatOpenBox, cvatDirBox, cvatSendBox);
   const foOpenBox = el('div', { class: 'fo-open' });
+  const editedBox = el('div', { class: 'fo-edited-box' });   // "N images edited in FiftyOne, not in the project yet" (#700)
   /* "Revisar antes de aplicar" (#706): off, the App's "Send to ActiveLabel" applies at once when nothing needs a look */
   const reviewFirst = el('input', { type: 'checkbox', id: 'annotate-review-first', onchange: (e) => saveReviewFirst(e.target) });
   const prefsBox = el('p', { class: 'fo-prefs' },
@@ -43,7 +45,7 @@ export function annotateBlock(page) {
     cvatCtaBox, cvatCard, sync.node);
   const fiftyoneSection = el('section', { class: 'annot-section', id: 'annotate-fiftyone', 'aria-labelledby': 'h-fiftyone' },
     el('h3', { id: 'h-fiftyone', class: 'sr-only' }, t('annotate.edit_title', { tool: toolName('fiftyone') })),
-    foOpenBox, prefsBox, chooseBox,
+    foOpenBox, editedBox, prefsBox, chooseBox,
     el('div', { class: 'sessions-section', id: 'annotate-sessions', role: 'region', 'aria-labelledby': 'h-sessions' },
       el('h4', { id: 'h-sessions' }, t('annotate.sessions')),
       sessionsBox));
@@ -360,6 +362,14 @@ export function annotateBlock(page) {
         await loadSessions();
       }));
     }
+    const edited = sessionEdited(ctx.fiftyoneEdited, s.id);
+    if (!legacy && s.status === 'applied' && edited) {   // edited again in the App after the apply
+      buttons.unshift(act(t('annotate.edited_pull'), 'primary', async () => {
+        const job = await api('POST', `/projects/${projectId}/annotate/${sid}/pull?apply=auto`);
+        toast(t('annotate.pull_started'), 'info', 3000);
+        await jobStarted(job);
+      }));
+    }
     buttons.push(el('button', { type: 'button', class: 'btn danger-outline', onclick: () => closeSession(s) }, t('annotate.close')));
     const diffShown = s.status === 'pulled' && s.diff;
     return el('li', { class: `session card status-${s.status}`, id: `session-${s.id}`, tabindex: '-1', 'data-session': s.id, 'aria-label': `${toolName(tool)} · ${scopeText}` },
@@ -377,6 +387,7 @@ export function annotateBlock(page) {
             links.length === 1 ? t('annotate.open_in', { tool: toolName(tool) }) : l.label || t('annotate.open_in', { tool: toolName(tool) }), icon('external', 14))))
         : null,
       legacy ? el('p', { class: 'muted' }, t('annotate.legacy_note')) : null,
+      edited ? el('p', { class: 'fo-session-edited small' }, icon('fiftyone', 14), tn('annotate.edited_n', edited)) : null,
       s.status === 'open' && !legacy ? el('p', { class: 'muted' }, t('annotate.pull_hint')) : null,
       s.status === 'open' && tool === 'fiftyone' ? el('p', { class: 'muted small fo-mouse-hint' }, t('annotate.fo_mouse_hint')) : null,
       diffShown ? diffView(projectId, s.diff) : null,
@@ -410,6 +421,13 @@ export function annotateBlock(page) {
     if (err && (err.status === 404 || err.status === 409)) await loadSessions();
   }
 
+  /** The line with the count of images edited in the App, and where it leads: the session that holds them. */
+  function drawEdited() {
+    const data = ctx.fiftyoneEdited;
+    const session = editedSession(data);
+    fill(editedBox, state.loaded ? editedNotice(data, { id: 'fo-edited', onReview: session ? () => reveal(session.id) : null }) : null);
+  }
+
   function drawSessions() {
     if (!state.loaded) { fill(sessionsBox, el('p', { class: 'muted' }, t('common.loading'))); return; }
     fill(sessionsBox, state.sessions.length
@@ -441,16 +459,30 @@ export function annotateBlock(page) {
   }
   async function loadSessions() {
     try {
-      const data = await api('GET', `/projects/${projectId}/annotate`);
-      state.sessions = (data && data.sessions) || [];
-    } catch (err) { if (err.status !== 404) toastError(err); }
+      await refreshEdited(page);   // the sessions and the count of edited images, drawn by `onEdited`
+    } catch (err) { toastError(err); }
     state.loaded = true;
+    editedSig = JSON.stringify(ctx.fiftyoneEdited);
     drawSessions();
+    drawEdited();
     drawScope();
     drawCvatDirection();
     drawSend();
     cvatDraw(true);
   }
+  /* the sessions and the count came (here, or when the person came back to the window): draw them */
+  let editedSig = null;
+  function onEdited(data) {
+    state.sessions = (data && data.sessions) || [];
+    const sig = JSON.stringify(data);
+    if (!state.loaded || sig === editedSig) return;   // nothing new: keep the cards (and the focus) as they are
+    editedSig = sig;
+    drawSessions();
+    drawEdited();
+  }
+  ctx.editedWatchers = ctx.editedWatchers || [];
+  ctx.editedWatchers.push(onEdited);
+
   async function loadTasks() {
     try {
       ctx.tasksList = (await api('GET', `/projects/${projectId}/tasks`)).tasks || [];

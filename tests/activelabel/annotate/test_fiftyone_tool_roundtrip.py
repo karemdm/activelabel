@@ -1516,3 +1516,54 @@ def test_a_box_drawn_in_the_app_next_to_a_moved_one_is_still_an_addition(det_sce
     session, _ = flow(det_scene)
     edit(det_scene, 0, move_cat_and_draw_one_where_it_was)
     assert_counts(pull(det_scene, session), added=1, removed=0, edited=1, images=1)
+
+
+def listed(scene: Scene) -> dict[str, Any]:
+    """The answer of ``GET /annotate``: the sessions and the count of images edited in the App.
+
+    Args:
+        scene: the project.
+
+    Returns:
+        The JSON body.
+    """
+    return scene.client.get(f"/api/projects/{scene.pid}/annotate").json()
+
+
+def test_edited_count_follows_the_edit_the_pull_and_the_apply(det_scene):
+    """#700: 0 after the send, 1 once an image is edited (also once pulled), 0 after the apply."""
+    session = send(det_scene)["session"]["id"]
+    assert listed(det_scene)["edited_count"] == 0
+    edit(det_scene, 1, lambda s: s.ground_truth.detections.pop(0))
+    after_edit = listed(det_scene)
+    assert (after_edit["edited_count"], after_edit["edited"]) == (1, {session: 1})
+    assert pull(det_scene, session)["images_changed"] == 1
+    assert listed(det_scene)["edited_count"] == 1  # reviewed, not in the project yet
+    assert apply(det_scene, session).status_code == 200
+    assert listed(det_scene)["edited_count"] == 0
+    edit(det_scene, 0, lambda s: s.ground_truth.detections.pop(0))  # edited again after the apply
+    assert listed(det_scene)["edited_count"] == 1
+
+
+def test_edited_count_is_zero_after_a_discard(det_scene):
+    """A discard puts the images back in FiftyOne, so nothing is left to bring."""
+    session = send(det_scene)["session"]["id"]
+    edit(det_scene, 0, lambda s: s.ground_truth.detections.pop(0))
+    assert listed(det_scene)["edited_count"] == 1
+    assert pull(det_scene, session)
+    assert det_scene.client.post(f"{base_url(det_scene, session)}/discard").status_code == 200
+    assert listed(det_scene)["edited_count"] == 0
+
+
+def test_edited_count_reads_the_samples_only_when_one_was_saved(det_scene, monkeypatch):
+    """The cheap path: the same stamp answers from memory, a saved sample makes the samples be read again."""
+    send(det_scene)
+    reads: list[int] = []
+    real = bridge.edited_images
+    monkeypatch.setattr(bridge, "edited_images", lambda *a, **k: reads.append(1) or real(*a, **k))
+    listed(det_scene)
+    listed(det_scene)
+    assert len(reads) == 1
+    edit(det_scene, 3, lambda s: s.ground_truth.detections.pop(0))
+    assert listed(det_scene)["edited_count"] == 1
+    assert len(reads) == 2

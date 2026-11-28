@@ -613,6 +613,25 @@ def edited_images(dataset: fo.Dataset, image_ids: list[str], task: Task) -> set[
     return {sample["image_id"] for sample in view.iter_samples() if is_edited(sample, task, fields)}
 
 
+def edit_stamp(dataset: fo.Dataset, image_ids: list[str]) -> str:
+    """A cheap fingerprint of the samples of these images: it changes whenever one of them is saved.
+
+    One aggregation in the database (how many samples and the latest ``last_modified_at``), no sample is
+    loaded. A save by the App, by ActiveLabel (a refresh of the dataset, an apply) or by a plugin moves it,
+    so an unchanged stamp means that :func:`edited_images` would answer the same as before.
+
+    Args:
+        dataset: the project's dataset.
+        image_ids: the images to look at (those without a sample are left out).
+
+    Returns:
+        The stamp, as text.
+    """
+    view = dataset.match(F("image_id").is_in(list(image_ids)))
+    latest = view.max("last_modified_at")
+    return f"{view.count()}:{latest.isoformat() if latest else ''}"
+
+
 def sample_tags(dataset: fo.Dataset, image_ids: list[str]) -> dict[str, list[str]]:
     """Tags of the samples of these images, less the tags ActiveLabel uses itself (``excluded``, ``exclude``).
 

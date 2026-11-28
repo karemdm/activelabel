@@ -171,3 +171,42 @@ test('#706: an applied session can be undone from its card', async () => {
     document.body.replaceChildren();
   }
 });
+
+test('#700: the FiftyOne tab says how many images were edited in the App and leads to the session that holds them', async () => {
+  setMessages({
+    'annotate.tool.fiftyone': 'FiftyOne',
+    'annotate.edited_n_one': '{n} image edited in FiftyOne, not in the project yet',
+    'annotate.edited_n_other': '{n} images edited in FiftyOne, not in the project yet',
+    'annotate.edited_review': 'Review and send',
+    'annotate.edited_pull': 'Bring the edits',
+  }, 'en');
+  const ctx = { project: { id: 2, task: 'detection', classes: ['cat'], counts: { active: 3 } }, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} };
+  const page = {
+    ctx, projectId: 2, isActive: () => false, jobStarted: async () => {}, refreshProject: async () => true,
+    startSync: async () => {}, syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+    diffView: () => null, issueName: (x) => x,
+  };
+  const session = (id, status) => ({ id, tool: 'fiftyone', scope: 'all', status, images: 3, links: [] });
+  const data = { sessions: [session('a', 'applied'), session('b', 'open')], edited_count: 3, edited: { a: 1, b: 2 } };
+  const answers = { ...ANSWERS, '/api/projects/2/annotate': data };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({ ok: answers[url] !== undefined, status: answers[url] !== undefined ? 200 : 404, text: async () => JSON.stringify(answers[url] ?? {}) });
+  try {
+    const block = annotateBlock(page);
+    document.body.append(block.fiftyoneSection);
+    await block.mount();
+    const section = block.fiftyoneSection;
+    assert.match(section.querySelector('#fo-edited').textContent, /3 images edited in FiftyOne, not in the project yet/);
+    assert.match(section.querySelector('#session-b .fo-session-edited').textContent, /2 images edited/);
+    assert.ok([...section.querySelectorAll('#session-a button')].some((b) => b.textContent === 'Bring the edits'), 'an applied session edited again can be brought back');
+    assert.equal(section.querySelector('#session-b').textContent.includes('Bring the edits'), false);
+    // the count went to 0 (sent back): the line and the session line go away
+    ctx.fiftyoneEdited = { sessions: data.sessions, edited_count: 0, edited: {} };   // what refreshEdited keeps
+    ctx.editedWatchers.forEach((draw) => draw(ctx.fiftyoneEdited));
+    assert.equal(section.querySelector('#fo-edited'), null);
+    assert.equal(section.querySelector('.fo-session-edited'), null);
+  } finally {
+    globalThis.fetch = real;
+    document.body.replaceChildren();
+  }
+});

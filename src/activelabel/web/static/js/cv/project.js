@@ -11,6 +11,7 @@ import { issueName, taskBadge, taskName, taskPicker } from './names.js';
 import { createStepper } from './stepper.js';
 import { trainingPanel } from './training.js';
 import { loadFeatures } from '../shell/features.js';
+import { editedNotice, editedSession, refreshEdited, watchEdited } from '../integrations/edited.js';
 import { createSync } from '../integrations/sync.js';
 import { linkBadge, originBadge } from '../integrations/tools.js';
 import { api } from '../shell/api.js';
@@ -103,6 +104,8 @@ export function initProject() {
     syncDismissed: new Set(),
     jobsSeen: false,
     watchers: [],  // called after every redraw of the activity strip (the buttons that depend on running jobs)
+    fiftyoneEdited: null,  // answer of GET /annotate: the sessions and how many images were edited in the App (#700)
+    editedWatchers: [],  // called with it each time it is read
   };
   const STEPS = ['images', 'annotations', 'curation', 'datasets', 'training', 'models'];
 
@@ -111,6 +114,13 @@ export function initProject() {
   const stepper = el('nav', { class: 'stepper', 'aria-label': t('project.steps') });
   const panelsBox = el('div', { class: 'panels' });
   const jobsBox = el('section', { class: 'jobs-bar', 'aria-label': t('jobs.title') });
+
+  /** The Annotations step on the session that holds the edits made in the FiftyOne App. */
+  function showEdited() {
+    const session = editedSession(ctx.fiftyoneEdited);
+    showTab('annotations', true);
+    setTimeout(() => ctx.panels.annotations.reveal(session ? session.id : null), 80);
+  }
 
   async function refreshProject() {
     try {
@@ -158,7 +168,9 @@ export function initProject() {
           taskBadge(p.task),
           ctx.links.length ? ctx.links.map(linkBadge) : originBadge(p.origin)),
         p.description ? el('p', { class: 'muted' }, p.description) : null,
-        (p.classes || []).length ? classLine(p.classes, p.task) : null),
+        (p.classes || []).length ? classLine(p.classes, p.task) : null,
+        /* edits made in the FiftyOne App that are not in the project yet (#700): the line leads to the session */
+        editedNotice(ctx.fiftyoneEdited, { id: 'head-edited', onReview: showEdited })),
       el('div', { class: 'project-head-actions' },
         el('button', { type: 'button', class: 'btn', onclick: openEdit }, t('project.edit')),
         el('button', { type: 'button', class: 'btn danger-outline', onclick: openDelete }, t('project.delete'))));
@@ -301,6 +313,9 @@ export function initProject() {
   const startHash = location.hash.replace('#', '');  // read before anything rewrites the address
   ctx.tab = STEPS.includes(startHash) ? startHash : 'images';
   /* FiftyOne may not be installed (#218): its buttons say so once the server answered (#658) */
+  ctx.editedWatchers.push(() => { if (ctx.project) renderHeader(); });
+  refreshEdited(page).catch(() => { /* the count is a hint: the Annotations step asks again */ });
+  watchEdited(page);   // and again each time the person comes back from the App
   loadFeatures();   // the buttons registered with fiftyoneButton are marked when it answers
   refreshProject().then((ok) => {
     if (!ok) return;

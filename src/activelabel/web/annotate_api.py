@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from activelabel import backups, fiftyone_bridge
-from activelabel.annotate import credentials, sessions
+from activelabel.annotate import credentials, edited, sessions
 from activelabel.annotate import diff as diffing
 from activelabel.annotate.base import TOOLS, Pulled, ToolError, ToolSettings
 from activelabel.annotate.registry import get_tool
@@ -356,10 +356,18 @@ def list_sessions(project_id: int, state: AppState = STATE) -> dict[str, Any]:
         state: The shared state of the application.
 
     Returns:
-        ``{sessions}``: the sessions of the project, newest first.
+        ``{sessions, edited_count, edited}``: the sessions of the project, newest first; how many images
+        were edited in the FiftyOne App and are not in the project yet (#700), and how many of them each
+        session holds (by session id; see :func:`activelabel.annotate.edited.summary`). The count asks
+        the database for a fingerprint of the session images and reads them only when one was saved
+        since the last count; it is 0 without an open session, so the call stays cheap.
     """
-    state.project(project_id)
-    return {"sessions": [sessions.public(s) for s in sessions.list_sessions(state.store.dir(project_id))]}
+    project = state.project(project_id)
+    project_dir = state.store.dir(project_id)
+    return {
+        "sessions": [sessions.public(s) for s in sessions.list_sessions(project_dir)],
+        **edited.summary(project_dir, partial(open_dataset, project, state), project.task),
+    }
 
 
 def _send_job(
