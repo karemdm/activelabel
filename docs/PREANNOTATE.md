@@ -24,7 +24,8 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
    on the same screen with its progress and a stop button. When it ends with nothing written because the model
    was never sure enough, the screen says so and suggests a lower confidence.
    If the project has no model at all, the tab says *To pre-annotate, save a trained model or add a public model
-   in Models* with a button to the Models step. If it has models but none can pre-annotate this project (they
+   in Models* with a button to the Models step; when the catalogue has no public model for the project type, it
+   says to train a model and save it, with a button to Training (as the Models step does). If it has models but none can pre-annotate this project (they
    make another kind of label, or are YOLO models, which are not supported yet), the tab says that it needs a
    model that makes the same kind of label as the project.
 2. **To review** (*Para revisar*): per task, how many images have pre-annotations that nobody reviewed

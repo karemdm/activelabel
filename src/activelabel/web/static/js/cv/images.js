@@ -81,6 +81,9 @@ export function imagesPanel(page) {
     }
   };
 
+  /** Codes of the server's answers that say the name of the new task is the problem. */
+  const NAME_ERRORS = new Set(['task_name_empty', 'task_name_taken', 'task_name_too_long', 'control_characters']);
+
   async function startUpload(entries) {
     const files = usable(entries);
     if (!files.length || uploading) return;
@@ -151,11 +154,17 @@ export function imagesPanel(page) {
     }
     uploading = false;
     ctx.busy.delete('upload');
-    staged = null;
+    const badName = !created && failure && NAME_ERRORS.has(failure.code);   // nothing was sent: the files wait for another name
+    staged = badName ? files : null;
     drawStaged();
     setStage(created ? 'done' : 'form'); // nothing was created: back to the form, the report says why
     if (cancelled) toast(t('images.cancelled', { done: num(sent) }), 'info');
-    renderReport(merged, sent < files.length, failure);
+    if (badName) {
+      showNameError(failure.message);
+      nameInput.focus();
+    } else {
+      renderReport(merged, sent < files.length, failure);
+    }
     await refreshProject();
     await loadTasks();
     grid.reload();
@@ -559,6 +568,14 @@ export function imagesPanel(page) {
   const nameInput = el('input', { type: 'text', id: 'task-name', autocomplete: 'off', maxlength: '100' });  // the server's limit
   const jobSizeInput = el('input', { type: 'number', id: 'task-job-size', min: '1', step: '1', inputmode: 'numeric', 'aria-describedby': 'task-job-size-hint' });
   jobSizeInput.addEventListener('input', () => jobSizeInput.removeAttribute('aria-invalid'));
+  /* a rejected name is said once, under the field (#342); typing a new name clears it */
+  const nameError = el('p', { class: 'field-error', id: 'task-name-error', role: 'alert', hidden: true });
+  const showNameError = (message) => {
+    nameError.textContent = message || '';
+    nameError.hidden = !message;
+    if (message) { nameInput.setAttribute('aria-invalid', 'true'); nameInput.setAttribute('aria-describedby', nameError.id); } else { nameInput.removeAttribute('aria-invalid'); nameInput.removeAttribute('aria-describedby'); }
+  };
+  nameInput.addEventListener('input', () => showNameError(''));
   const stagedBox = el('div', { class: 'staged', hidden: true });
   const imagesBox = el('div', { class: 'nt-images' }, drop, stagedBox);
   const videoBox = el('div', { class: 'nt-video', hidden: true });
@@ -566,7 +583,7 @@ export function imagesPanel(page) {
   const modeTabs = el('div', { class: 'tabs nt-modes', role: 'group', 'aria-label': t('tasks.new_title') },
     ...['images', 'video'].map((m) => (modeBtns[m] = el('button', { type: 'button', class: `tab${m === 'images' ? ' active' : ''}`, 'aria-pressed': m === 'images' ? 'true' : 'false', id: `nt-mode-${m}`, onclick: () => setMode(m) }, t(`video.mode_${m}`)))));
   const fieldsBox = el('div', { class: 'new-task-fields' },
-    el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput),
+    el('div', { class: 'field' }, el('label', { for: 'task-name' }, t('tasks.name')), nameInput, nameError),
     el('div', { class: 'field' },
       el('label', { for: 'task-job-size' }, t('tasks.job_size')), jobSizeInput,
       el('p', { class: 'hint', id: 'task-job-size-hint' }, t('tasks.job_size_hint'))));
@@ -954,7 +971,10 @@ export function imagesPanel(page) {
       staged = files.length ? files : null;
       drawStaged();
       setStage('form');
+      nameInput.value = '';   // a form that was cancelled starts empty again (#342)
+      jobSizeInput.value = '';
       jobSizeInput.removeAttribute('aria-invalid');
+      showNameError('');
     }
     if (!newDlg.open) newDlg.showModal();
     nameInput.focus();

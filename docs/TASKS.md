@@ -50,6 +50,10 @@ processing) keep their names; the new concepts live in `activelabel.tasks_store`
   (so an upload that added nothing, or a deleted task, does not use up a number; the id still advances, and
   a name that is taken gets a number added: `Name (2)`). The job size is a whole number
   from 1 to 100,000 (`job_size_invalid`).
+  In the *New task* dialog a rejected name (`task_name_taken`, `task_name_empty`, `task_name_too_long`,
+  `control_characters`) is said once, under the name field, which is marked invalid; the files that were chosen stay
+  ready, so another name and *Create task* are enough. Cancelling the dialog and opening it again shows an empty
+  form.
 - A task is never empty. An upload that adds nothing (no readable image, only duplicates) leaves no task:
   - a task created **closed** (`open=false`, the way for a one-shot upload through the API) with no image
     added is refused: 400 `no_images_added` with the upload report;

@@ -40,6 +40,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   tooltip) instead of in the middle of the frame number; the model list of *Pre-annotate* is short
   (`m1 (Current) Â· name`, so a narrow list does not cut off "Current") and the result of the chosen model, such as its
   mAP50-95, is said under it.
+- **New task and Pre-annotate (#342).** A cancelled *New task* form opens empty again; a name the server rejects (one
+  that is taken, empty, too long) is said once, under the name field, which is marked invalid, instead of three stacked
+  messages, and the chosen files wait for another name. *Pre-annotate* with no saved model sends the person to
+  Training, not to Models, when the catalogue has no public model for the project type.
 
 ### Fixed
 

@@ -77,3 +77,24 @@ test('the model list is short and the result of the chosen model is said under i
   assert.match(pre.node.querySelector('#pre-model').getAttribute('aria-describedby'), /pre-model-detail/);
   pre.node.remove();
 });
+
+test('#342: without a saved model the empty state offers Models only when the catalogue has public models for the project', async () => {
+  setMessages({ 'pre.no_models': 'Save a model or add a public one', 'pre.no_models_train': 'Train a model and save it', 'pre.go_models': 'Go to Models', 'md.go_training': 'Go to Training' }, 'en');
+  const wait = () => new Promise((resolve) => setTimeout(resolve, 10));
+  for (const [catalogue, text, link] of [[[], 'Train a model and save it', '#training'], [[{ id: 'p1' }], 'Save a model or add a public one', '#models']]) {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const body = String(url).endsWith('/models/public-catalog') ? { models: catalogue } : { models: [], runs: [] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    };
+    try {
+      const pre = preannotateBlock({ projectId: 6 }, { changed: () => {}, reviewCvat: () => {}, reviewFiftyone: () => {} });
+      await pre.load();
+      await wait();
+      assert.equal(pre.node.querySelector('p').textContent, text);
+      assert.equal(pre.node.querySelector('a').getAttribute('href'), link);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+});
