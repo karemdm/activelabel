@@ -340,6 +340,8 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
 .report, .ann-report { margin-top: var(--space-4); }
 .report-card h3 { margin-bottom: var(--space-3); }
+#class-folders .chips { margin: var(--space-3) 0; }
+#class-folders .row-actions { margin-top: var(--space-3); }
 .report-line { display: flex; gap: var(--space-2); align-items: flex-start; margin: 0 0 0.6rem; }
 .report-line.ok .icon { color: var(--ok); }
 .report-line.bad .icon { color: var(--danger); }

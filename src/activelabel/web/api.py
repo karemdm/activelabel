@@ -1076,7 +1076,7 @@ def check_annotations(
         The report of what is in the files, with the ``token`` that identifies them and whether the
         project already has annotations.
     """
-    project = state.project(project_id)
+    state.project(project_id)
     manifest = state.manifest_with_images(project_id)
     project_dir = state.store.dir(project_id)
     try:
@@ -1089,6 +1089,33 @@ def check_annotations(
         token = ann.stage(project_dir, [(f.filename or "annotations", f.file) for f in files])
     except ValueError as exc:
         raise bad_request(exc) from exc
+    return _check_staged(state, project_id, token, target, task)
+
+
+def _check_staged(
+    state: AppState, project_id: int, token: str, target: ann.VideoTarget | None, task: int | None
+) -> dict[str, Any]:
+    """Read staged annotation files and report what is in them (the part of the check after staging).
+
+    Files that cannot be imported at all (``can_import`` false) are discarded; otherwise the report is
+    kept beside them until they are applied or discarded.
+
+    Args:
+        state: The shared state of the application.
+        project_id: Id of the project.
+        token: Token of the staged files.
+        target: The video task the files belong to, or None.
+        task: Id of the video task the user chose, or None.
+
+    Returns:
+        The report of what is in the files, with the ``token`` and whether the project has annotations.
+
+    Raises:
+        ApiError: the format is not recognised or the files cannot be read, or a video format has no task.
+    """
+    project = state.project(project_id)
+    manifest = state.manifest_with_images(project_id)
+    project_dir = state.store.dir(project_id)
     staged = ann.load_staged(project_dir, token)
     try:
         fmt = ann.detect_format(staged)
@@ -1137,6 +1164,42 @@ def check_annotations(
     if report.can_import:  # the files are kept aside: the report stays until they are applied or discarded
         ann.set_report(project_dir, token, out)
     return out
+
+
+@router.post("/projects/{project_id}/images/class-folders")
+def check_class_folders(project_id: int, state: AppState = STATE) -> dict[str, Any]:
+    """Read the class folders in the names of the project's images and say what would be imported (#568).
+
+    For a classification project whose images came in class folders (a folder or a zip with one folder
+    per class; ``train``, ``val`` and ``test`` folders are not classes). The names are the ones stored by
+    the upload, so nothing is sent again: the answer is the report of the annotation check (format
+    ``folders``) and its ``token`` is applied or discarded with the annotation routes (apply with
+    ``merge``: images that already have a class keep it).
+
+    Args:
+        project_id: Id of the project.
+        state: The shared state of the application.
+
+    Returns:
+        ``{found: false}`` when the images are not in class folders, else ``{found: true}`` plus the
+        report of the check and ``split_folders`` (the train/val/test folders that were left out).
+
+    Raises:
+        ApiError: the project is not a classification project (``class_folders_not_classification``).
+    """
+    project = state.project(project_id)
+    if project.task is not Task.CLASSIFICATION:
+        raise ApiError(
+            400,
+            "class_folders_not_classification",
+            "Folder names can only be used as classes in a classification project.",
+        )
+    names = [r.name for r in state.manifest_with_images(project_id).active()]
+    if ann.folder_classes(names) is None:
+        return {"found": False}
+    token = ann.stage_folders(state.store.dir(project_id), names)
+    report = _check_staged(state, project_id, token, None, None)
+    return {**report, "found": True, "split_folders": ann.split_folders(names)}
 
 
 @router.get("/projects/{project_id}/annotations/pending")

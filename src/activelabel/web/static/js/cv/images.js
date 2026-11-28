@@ -1,5 +1,6 @@
 /* Step 1, Images: uploading images and folders, the gallery, the tasks and jobs of the project (with the
  * new-task dialog) and the videos. */
+import { checkClassFolders, classFoldersCard, mayHaveClassFolders } from './class_folders.js';
 import { imageGrid, openLightbox } from './grid.js';
 import { CHUNK, SKIP_FILES, nextTaskNumber, partName } from './names.js';
 import { CVAT_FIXABLE, cvatTarget } from '../integrations/open.js';
@@ -26,6 +27,7 @@ export function imagesPanel(page) {
   folderInput.setAttribute('directory', '');
   const progressBox = el('div', { class: 'upload-progress', hidden: true });
   const reportBox = el('div', { class: 'report', 'aria-live': 'polite' });
+  const classBox = el('div', { class: 'report', 'aria-live': 'polite' }); // the folder names as classes (#568)
   let staged = null; // files dropped on the empty state, waiting for "Create task"
   const usable = (entries) => entries.filter((e) => !SKIP_FILES.has(e.name.split('/').pop().toLowerCase()));
 
@@ -99,6 +101,7 @@ export function imagesPanel(page) {
     ctx.busy.add('upload');
     controller = new AbortController();
     fill(reportBox);
+    fill(classBox);
     if (!newDlg.open) newDlg.showModal();
     setStage('uploading');
     const merged = emptyReport();
@@ -169,6 +172,24 @@ export function imagesPanel(page) {
     await loadTasks();
     grid.reload();
     if (ctx.panels.curation.mounted) ctx.panels.curation.refresh();
+    if (created && mayHaveClassFolders(files)) await offerClassFolders();
+  }
+
+  /** A classification project whose new images came in class folders: preview the classes, then use them (#568). */
+  async function offerClassFolders() {
+    if (!ctx.project || ctx.project.task !== 'classification') return;
+    let report = null;
+    try {
+      report = await checkClassFolders(projectId);
+    } catch (err) {
+      toastError(err);
+    }
+    if (!report || !newDlg.open) return;
+    fill(classBox, classFoldersCard({
+      projectId,
+      report,
+      onApplied: async () => { await refreshProject(); grid.reload(); refreshCounts(); },
+    }));
   }
 
   /* the server's rejection reasons are short English phrases; "too many entries (more than N)" carries a number */
@@ -923,7 +944,7 @@ export function imagesPanel(page) {
   const newDlg = el('dialog', { class: 'dialog wide new-task-dialog', 'aria-label': t('tasks.new_title') },
     el('div', { class: 'dialog-body' },
       el('div', { class: 'dlg-head' }, el('h2', null, t('tasks.new_title')), closeX),
-      formBox, progressBox, reportBox,
+      formBox, progressBox, reportBox, classBox,
       el('div', { class: 'form-actions' }, closeBtn)));
   newDlg.addEventListener('cancel', (e) => { // Esc must not hide a running upload: say how to stop it
     if (uploading) {
@@ -967,6 +988,7 @@ export function imagesPanel(page) {
       resetVideo();
       if (entries && entries.length) setMode('images');
       fill(reportBox);
+      fill(classBox);
       const files = entries ? usable(entries) : [];
       staged = files.length ? files : null;
       drawStaged();
