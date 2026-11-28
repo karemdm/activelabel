@@ -58,6 +58,7 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
         # a model this version no longer knows (catalogue changed): listed, but it cannot run
         missing = get_public(str(card.get("public") or "")) is None if public else spec is None
         kind = card.get("task_kind") or (spec.task_kind if spec else "")
+        suggested = preannotate_options.suggested_confidence(card)
         out.append(
             {
                 "number": card["number"],
@@ -69,7 +70,8 @@ def _models(state: AppState, project_id: int) -> list[dict[str, Any]]:
                 "current": card.get("current", False),
                 "metric": card.get("metric"),
                 "classes": preannotate_options.model_classes(card, list(project.classes)),
-                "options": preannotate_options.schema(kind),
+                "options": preannotate_options.schema(kind, suggested),
+                "suggested_threshold": suggested,
                 "value": card.get("value"),
                 "supported": not missing
                 and kind in preannotate.KINDS
@@ -90,8 +92,9 @@ def overview(project_id: int, state: AppState = STATE) -> dict[str, Any]:
 
     Returns:
         ``{models, tasks, runs}`` (no models for a regression project: none fills values yet, #619);
-        each model has its ``classes`` (``name``, ``in_project``) and the
-        ``options`` its kind takes (see :func:`activelabel.preannotate_options.schema`).
+        each model has its ``classes`` (``name``, ``in_project``), the
+        ``options`` its kind takes (see :func:`activelabel.preannotate_options.schema`) and the confidence its
+        validation suggested (``suggested_threshold``, the default confidence; ``None`` without one).
     """
     project = state.project(project_id)
     project_dir = state.store.dir(project_id)
@@ -160,7 +163,9 @@ def start(project_id: int, body: StartBody, state: AppState = STATE) -> dict[str
             raise ApiError(400, "threshold_range", "The minimum confidence must be between 0.001 and 0.999.")
         given["confidence"] = threshold
     try:
-        options = preannotate_options.resolve(str(info.get("task_kind") or ""), given)
+        options = preannotate_options.resolve(
+            str(info.get("task_kind") or ""), given, info.get("suggested_threshold")
+        )
         classes = preannotate_options.resolve_classes(info.get("classes") or [], body.classes)
     except CodedError as error:
         raise bad_request(error) from None

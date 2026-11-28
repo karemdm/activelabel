@@ -5,7 +5,7 @@ import pytest
 from training_fakes import FAKE_WORKER, FakeEnv, tmp_dirs, wait_for
 
 from activelabel.training.config import RunConfig
-from activelabel.training.models import ModelStore
+from activelabel.training.models import ModelStore, suggested_thresholds
 from activelabel.training.runner import TrainingRunner
 from activelabel.training.runs import RunStore
 
@@ -177,3 +177,20 @@ def test_the_run_list_says_whether_each_run_still_has_its_weights(models):
     assert listed()["has_weights"] is False  # the weights moved to the model
     client.request("DELETE", "/api/projects/1/models/1", json={"confirm": True})
     assert listed()["has_weights"] is False  # and went with it when the model was deleted
+
+
+def test_the_card_keeps_the_thresholds_the_validation_suggested(models):
+    client, state, runner = models
+    n = finished_run(state, runner)
+    results_file = RunStore(state.store.dir(1)).path(n) / "results.json"
+    results = json.loads(results_file.read_text(encoding="utf-8"))
+    results["val"] = {**results["val"], "suggested_threshold": 0.37, "suggested_thresholds": {"a": 0.4}}
+    results_file.write_text(json.dumps(results), encoding="utf-8")
+    card = client.post("/api/projects/1/models", json={"run": n}).json()
+    assert (card["suggested_threshold"], card["suggested_thresholds"]) == (0.37, {"a": 0.4})
+
+
+def test_suggested_thresholds_skip_what_is_not_a_number():
+    assert suggested_thresholds({}) == {} and suggested_thresholds({"val": None}) == {}
+    val = {"suggested_threshold": True, "suggested_thresholds": {"a": 0.5, "b": None, "c": float("inf")}}
+    assert suggested_thresholds({"val": val}) == {"suggested_thresholds": {"a": 0.5}}

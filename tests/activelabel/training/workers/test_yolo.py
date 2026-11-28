@@ -317,7 +317,10 @@ def test_curves_come_from_ultralytics_on_the_grid_of_the_other_workers(w):
     assert curves["match"] == "box" and len(curves["confidence"]) == 101
     assert curves["classes"]["b"]["support"] == 7
     assert curves["classes"]["a"]["recall"][50] == pytest.approx(0.5, abs=1e-3)
-    assert "val_curves" not in w.epoch_scores(scores)  # epoch rows keep only numbers
+    assert "val_curves" not in w.epoch_scores(scores)  # epoch rows keep only the metrics
+    assert scores["suggested_threshold"] == 0.0  # F1 falls as the confidence grows: best with everything
+    assert "val_suggested_threshold" not in w.epoch_scores(scores)
+    assert "suggested_threshold" not in w.scores_of(metrics, CLASSES, "detection", suggest=False)
     instance = SimpleNamespace(box=fake_metric(0.5, 0.4), seg=curved_metric(), nt_per_class=[5, 7])
     assert w.scores_of(instance, CLASSES, "instance")["curves"]["match"] == "mask"
     assert "curves" not in w.scores_of(fake_metrics(0.4), CLASSES, "detection")  # Ultralytics gave none

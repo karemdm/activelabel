@@ -81,7 +81,11 @@ X and Y* and disables the start button.
 | `simplify` | instance, semantic | 0.004 (0–0.05) | outline simplification, as a share of its perimeter (at least one pixel) |
 
 A kind added later (a regression model, for example) gets the common parameters and its own. The confidence
-default follows the model kind (a reviewer corrects a few extra boxes faster than drawing missing ones). Models
+default follows the model kind (a reviewer corrects a few extra boxes faster than drawing missing ones), except
+for a model whose validation suggested a threshold (#323: detection, instance and keypoint models trained since
+then; `suggested_threshold` on its card, the confidence of the best F1, see docs/TRAINING.md): its confidence
+starts there, the form says *Suggested by the training's validation* (*Sugerido pela validação do treino*), and
+the person can still change it. Models
 trained on few images give low scores: when a run finds nothing, the screen says so and suggests a lower
 confidence. A detection model is allowed to return candidates down to the confidence even when its own
 `score_thresh` hyperparameter (docs/TRAINING.md) is higher, and its NMS and objects per image follow the settings;
@@ -184,8 +188,8 @@ models the catalogue answer has an empty `models` list.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/api/projects/{id}/preannotations` | models that can pre-annotate (each with `classes`: `[{name, in_project}]`, and `options`: its parameters, see *Settings*), tasks with counts (images, unlabeled, unreviewed), runs |
-| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", device, options, classes}`; `options` omitted or partial: the defaults of the model's kind; `classes` omitted: every class of the model the project has; `threshold` is still accepted as the older name of `options.confidence` (0.001–0.999); `device` is `auto` when omitted, see *Device*. The run keeps `options` (every parameter), `classes` and `threshold` (the confidence) |
+| GET | `/api/projects/{id}/preannotations` | models that can pre-annotate (each with `classes`: `[{name, in_project}]`, `options`: its parameters, see *Settings*, where the confidence has `suggested` when its default is the model's suggestion, and `suggested_threshold`: that suggestion or null), tasks with counts (images, unlabeled, unreviewed), runs |
+| POST | `/api/projects/{id}/preannotations` | start: `{model, task, scope: "unlabeled"\|"unreviewed", device, options, classes}`; `options` omitted or partial: the defaults of the model's kind (the confidence: the model's suggested threshold when it has one); `classes` omitted: every class of the model the project has; `threshold` is still accepted as the older name of `options.confidence` (0.001–0.999); `device` is `auto` when omitted, see *Device*. The run keeps `options` (every parameter), `classes` and `threshold` (the confidence) |
 | POST | `/api/projects/{id}/preannotations/{n}/cancel` | cancel a queued or running run |
 | POST | `/api/projects/{id}/preannotations/accept` | accept the pre-annotations of a task (`{task}`) or of every task |
 

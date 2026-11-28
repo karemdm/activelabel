@@ -24,6 +24,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   YOLO) write precision × recall and F1 × confidence curves of each class to the validation and test results
   (`curves` in `results.json`, 101 confidences from 0 to 1), and the run detail draws them with a class picker and
   the same numbers as a table. Older runs load as before, without the charts.
+- **Suggested confidence threshold (#323).** The validation of those runs suggests the confidence of the best F1
+  (`suggested_threshold` for the mean of the classes, `suggested_thresholds` per class), marked on the F1 chart and
+  kept on the card of the saved model; pre-annotation with that model starts from it (*Suggested by the training's
+  validation*) and the person can still change it. Older models keep the default of their kind.
 
 ### Fixed
 

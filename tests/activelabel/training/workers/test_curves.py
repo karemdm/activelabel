@@ -66,3 +66,20 @@ def test_the_mean_curve_and_the_report():
     assert report["all"]["precision"] == [1.0, 0.75]
     assert report["all"]["recall"] == [0.0, 0.75]
     assert curves.mean_curve({}) == {"precision": [], "recall": [], "f1": []}
+
+
+def test_the_suggested_threshold_is_the_middle_of_the_best_f1():
+    confidence = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+    assert curves.best_threshold(confidence, [0.2, 0.5, 0.8, 0.8, 0.8, 0.1]) == 0.3
+    assert curves.best_threshold(confidence, [0.2, 0.9, 0.8, 0.9, 0.9, 0.1]) == 0.1  # the first run
+    assert curves.best_threshold(confidence, [0.0] * 6) is None
+    assert curves.best_threshold([], []) is None
+
+
+def test_suggestions_of_a_report():
+    a = {"precision": [0.5, 1.0], "recall": [1.0, 0.5], "f1": [2 / 3, 2 / 3], "support": 2}
+    b = {"precision": [1.0, 1.0], "recall": [0.0, 0.0], "f1": [0.0, 0.0], "support": 1}
+    report = curves.curves_report({"a": a, "b": b}, "box", grid=[0.2, 0.8])
+    assert curves.suggestions(report) == {"suggested_threshold": 0.5, "suggested_thresholds": {"a": 0.5}}
+    nothing = curves.curves_report({"b": b}, "box", grid=[0.2, 0.8])
+    assert curves.suggestions(nothing) == {"suggested_thresholds": {}}

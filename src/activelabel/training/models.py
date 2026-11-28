@@ -10,6 +10,7 @@ files next to the weights.
 from __future__ import annotations
 
 import builtins
+import math
 import shutil
 import threading
 from pathlib import Path
@@ -49,6 +50,40 @@ class ModelNotFound(KeyError):
 
 class ModelError(CodedError):
     """A readable reason why a model cannot be saved or changed (with a code, see ``CodedError``)."""
+
+
+def _finite(value: Any) -> bool:
+    """Whether a value read from a JSON file is a finite number (not a bool).
+
+    Args:
+        value: The value.
+
+    Returns:
+        True for an int or float that is finite.
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def suggested_thresholds(results: dict[str, Any]) -> dict[str, Any]:
+    """The confidence thresholds the validation of a run suggests (#323), for the card of its model.
+
+    Args:
+        results: ``results.json`` of the run.
+
+    Returns:
+        ``suggested_threshold`` (best F1 of the mean of the classes) and ``suggested_thresholds`` (per class)
+        when the run wrote them (detection, instance and keypoint runs since #323); otherwise empty.
+    """
+    val = results.get("val")
+    if not isinstance(val, dict):
+        return {}
+    out: dict[str, Any] = {}
+    if _finite(val.get("suggested_threshold")):
+        out["suggested_threshold"] = float(val["suggested_threshold"])
+    per_class = val.get("suggested_thresholds")
+    if isinstance(per_class, dict):
+        out["suggested_thresholds"] = {str(k): float(v) for k, v in per_class.items() if _finite(v)}
+    return out
 
 
 class ModelStore:
@@ -200,6 +235,7 @@ class ModelStore:
                 "packages": run.get("packages"),
                 "size": (run_dir / WEIGHTS).stat().st_size,
                 "exports": {},
+                **suggested_thresholds(results),
             }
             (run_dir / WEIGHTS).replace(folder / WEIGHTS)
             write_json(folder / "model.json", card)

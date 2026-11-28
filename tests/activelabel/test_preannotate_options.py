@@ -126,3 +126,21 @@ def test_the_range_is_checked_on_the_value_sent_like_the_form_does() -> None:
     assert (
         po.resolve("detection", {"confidence": 0.1234567})["confidence"] == 0.123457
     )  # still rounded when kept
+
+
+def test_the_suggested_confidence_of_a_model_card() -> None:
+    assert po.suggested_confidence({"suggested_threshold": 0.4234}) == 0.423
+    assert po.suggested_confidence({"suggested_threshold": 0.0}) == po.CONFIDENCE_MIN
+    assert po.suggested_confidence({"suggested_threshold": 1}) == po.CONFIDENCE_MAX
+    for value in (None, True, float("nan"), "0.4"):
+        assert po.suggested_confidence({"suggested_threshold": value}) is None
+    assert po.suggested_confidence({}) is None
+
+
+def test_a_suggested_confidence_becomes_the_default() -> None:
+    confidence = next(o for o in po.schema("detection", 0.42) if o["name"] == "confidence")
+    assert confidence["default"] == 0.42 and confidence["suggested"] is True
+    plain = next(o for o in po.schema("detection") if o["name"] == "confidence")
+    assert plain["default"] == 0.25 and plain["suggested"] is False
+    assert po.resolve("detection", {}, 0.42)["confidence"] == 0.42
+    assert po.resolve("detection", {"confidence": 0.6}, 0.42)["confidence"] == 0.6  # the person still chooses

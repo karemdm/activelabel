@@ -103,3 +103,36 @@ def test_the_run_store_keeps_a_device_given_at_creation(env: tuple[TestClient, i
     _, pid = env
     run = PreannotationStore(tmp_path / "x").create(model=1, task=1, device="cpu")
     assert run["device"] == "cpu"
+
+
+class SuggestingModels:
+    """A model store with one detector whose validation suggested a confidence (#323)."""
+
+    def __init__(self, project_dir: Path) -> None:
+        pass
+
+    def list(self) -> list[dict]:
+        card = {"number": 1, "model": "fasterrcnn_resnet50_fpn", "task_kind": "detection", "classes": ["cat"]}
+        return [{**card, "suggested_threshold": 0.4234}]
+
+
+def test_a_model_offers_its_suggested_confidence_as_the_default(
+    env: tuple[TestClient, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, pid = env
+    monkeypatch.setattr(preannotate_api, "ModelStore", SuggestingModels)
+    model = preannotate_api._models(client.app.state.activelabel, pid)[0]
+    confidence = next(o for o in model["options"] if o["name"] == "confidence")
+    assert model["suggested_threshold"] == 0.423
+    assert (confidence["default"], confidence["suggested"]) == (0.423, True)
+
+
+def test_start_uses_the_suggested_confidence_unless_one_is_sent(
+    ready: tuple[TestClient, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, pid = ready
+    model = {"number": 1, "missing": False, "supported": True, "label": "R", "suggested_threshold": 0.42}
+    monkeypatch.setattr(preannotate_api, "_models", lambda state, project_id: [model])
+    assert _start(client, pid).json()["options"]["confidence"] == 0.42
+    sent = _start(client, pid, scope="unreviewed", options={"confidence": 0.7})
+    assert sent.json()["options"]["confidence"] == 0.7, sent.text

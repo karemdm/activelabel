@@ -1,7 +1,9 @@
 /* Step 5, Training, run detail: the precision × recall and F1 × confidence curves of a part of the results (#322),
    with a class picker and the same numbers as a table. The workers write `curves` to each part of results.json:
    {iou, match, confidence: [0 … 1], classes: {name: {precision, recall, f1, support}}, all: {precision, recall, f1}},
-   every list sampled at the confidences of `confidence`. No chart library: SVG in the style of the epoch charts. */
+   every list sampled at the confidences of `confidence`. The validation part also has the confidence of the best
+   F1 (#323: `suggested_threshold` for the mean of the classes, `suggested_thresholds` per class), marked on the
+   F1 chart. No chart library: SVG in the style of the epoch charts. */
 import { el, fill } from '../shell/dom.js';
 import { lower, nf2, nf3, num, t } from '../shell/i18n.js';
 
@@ -53,6 +55,12 @@ export function bestF1(curves, name) {
   let best = null;
   f1Points(curves, name).forEach(([x, y]) => { if (y > 0 && (!best || y > best.f1)) best = { confidence: x, f1: y }; });
   return best;
+}
+
+/** The threshold the validation suggested for a class ('' = the mean of the classes), or null. */
+export function suggestionOf(part, name) {
+  const value = name ? (part.suggested_thresholds || {})[name] : part.suggested_threshold;
+  return Number.isFinite(value) ? value : null;
 }
 
 /** Rows of the accessible table: precision, recall and F1 at every `step`-th confidence of the grid. */
@@ -111,14 +119,17 @@ function curveTable(curves, name, label) {
         el('th', { scope: 'row' }, nf2.format(r.confidence)), el('td', null, fmt(r.precision)), el('td', null, fmt(r.recall)), el('td', null, fmt(r.f1))))))));
 }
 
-function charts(curves, name) {
+function charts(part, name) {
+  const { curves } = part;
   const choice = curveChoices(curves).find((c) => c.value === name) || curveChoices(curves)[0];
   const series = (points) => [
     { name: choice.label, points: points(curves, choice.value) },
     ...(choice.value ? [{ name: t('tr.curves_all'), points: points(curves, '') }] : []),
   ];
+  const suggested = suggestionOf(part, choice.value);
   const best = bestF1(curves, choice.value);
-  const mark = best ? { x: best.confidence, label: t('tr.curves_best_f1', { f1: nf3.format(best.f1), c: nf2.format(best.confidence) }) } : null;
+  const mark = suggested != null ? { x: suggested, label: t('tr.curves_suggested', { c: nf2.format(suggested) }) }
+    : best ? { x: best.confidence, label: t('tr.curves_best_f1', { f1: nf3.format(best.f1), c: nf2.format(best.confidence) }) } : null;
   return [
     el('div', { class: 'tr-charts' },
       unitChart(`${t('tr.metric.precision')} × ${lower(t('tr.metric.recall'))}`, t('tr.metric.recall'), series(prPoints), null),
@@ -127,18 +138,21 @@ function charts(curves, name) {
   ];
 }
 
-/** The block with the curves of a part of the results and its class picker, or null without curves. */
-export function curvesBlock(curves) {
+/** The block with the curves of a part of the results (`curves`, and the suggestions of the validation) and its
+ *  class picker, or null without curves. */
+export function curvesBlock(part) {
+  const { curves } = part || {};
   if (!hasCurves(curves)) return null;
   const choices = curveChoices(curves);
-  const box = el('div', { class: 'tr-curve-box' }, ...charts(curves, ''));
+  const box = el('div', { class: 'tr-curve-box' }, ...charts(part, ''));
   const picker = el('select', {
-    onchange: (e) => { fill(box, ...charts(curves, e.target.value)); },
+    onchange: (e) => { fill(box, ...charts(part, e.target.value)); },
   }, ...choices.map((c) => el('option', { value: c.value }, c.support == null ? c.label : `${c.label} (${num(c.support)})`)));
   const match = curves.match === 'mask' ? t('tr.curves_match_mask') : t('tr.curves_match_box');
   return el('div', { class: 'tr-block tr-curves' },
     el('h4', null, t('tr.curves_title')),
     el('p', { class: 'muted tr-note' }, t('tr.curves_help', { iou: nf2.format(curves.iou || 0.5), match })),
+    suggestionOf(part, '') != null ? el('p', { class: 'tr-note' }, t('tr.suggested_note', { c: nf2.format(suggestionOf(part, '')) })) : null,
     el('label', { class: 'tr-curve-pick' }, el('span', null, t('tr.curves_class')), picker),
     box);
 }

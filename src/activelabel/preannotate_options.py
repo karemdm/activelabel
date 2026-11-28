@@ -11,6 +11,10 @@ The model process (``training/workers/predict.py``) applies the parameters of th
 NMS, objects per image, smallest object, mask threshold and classification margin. ActiveLabel applies the
 parameters of the mask outlines (``min_region``, ``simplify``) and, again, the class filter, so a class that
 was not chosen is never written.
+
+A saved model whose validation suggested a confidence threshold (the best F1, #323: ``suggested_threshold`` on
+its card) starts from that confidence instead of the kind's default (:func:`suggested_confidence`); the person
+can still change it.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ ALL_KINDS = ("classification", "detection", "keypoints", "instance", "semantic")
 #: Default minimum confidence: a classifier's top class needs more than a detector's box.
 CONFIDENCE_DEFAULTS = {"classification": 0.5}
 CONFIDENCE_DEFAULT = 0.25
+CONFIDENCE_MIN = 0.001
+CONFIDENCE_MAX = 0.999
 
 
 @dataclass(frozen=True)
@@ -55,7 +61,9 @@ class OptionSpec:
 
 
 OPTIONS: tuple[OptionSpec, ...] = (
-    OptionSpec("confidence", "float", CONFIDENCE_DEFAULT, 0.001, 0.999, 0.01, level="basic"),
+    OptionSpec(
+        "confidence", "float", CONFIDENCE_DEFAULT, CONFIDENCE_MIN, CONFIDENCE_MAX, 0.01, level="basic"
+    ),
     OptionSpec("mask_threshold", "float", 0.5, 0.1, 0.9, 0.05, ("instance",), "basic"),
     OptionSpec("margin", "float", 0.0, 0.0, 0.9, 0.05, ("classification",)),
     OptionSpec("nms_iou", "float", 0.5, 0.05, 0.95, 0.05, DETECTION_KINDS),
@@ -67,18 +75,34 @@ OPTIONS: tuple[OptionSpec, ...] = (
 )
 
 
-def default_of(spec: OptionSpec, kind: str) -> float | int | bool:
+def suggested_confidence(card: dict[str, Any]) -> float | None:
+    """The confidence a saved model's validation suggested, inside the range the confidence accepts.
+
+    Args:
+        card: the saved model's card (``suggested_threshold``, absent on older models and public ones).
+
+    Returns:
+        The suggestion rounded to 3 decimals and kept within the confidence's limits, or ``None``.
+    """
+    value = card.get("suggested_threshold")
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return min(max(round(float(value), 3), CONFIDENCE_MIN), CONFIDENCE_MAX)
+
+
+def default_of(spec: OptionSpec, kind: str, suggested: float | None = None) -> float | int | bool:
     """Default of a parameter for a kind of model (only the confidence depends on the kind).
 
     Args:
         spec: the parameter.
         kind: the kind of model.
+        suggested: the confidence the model's validation suggested (:func:`suggested_confidence`), if any.
 
     Returns:
-        The default value.
+        The default value: for the confidence, the suggestion when there is one.
     """
     if spec.name == "confidence":
-        return CONFIDENCE_DEFAULTS.get(kind, CONFIDENCE_DEFAULT)
+        return suggested if suggested is not None else CONFIDENCE_DEFAULTS.get(kind, CONFIDENCE_DEFAULT)
     return spec.default
 
 
@@ -94,27 +118,32 @@ def specs_for(kind: str) -> list[OptionSpec]:
     return [s for s in OPTIONS if not s.kinds or kind in s.kinds]
 
 
-def schema(kind: str) -> list[dict[str, Any]]:
+def schema(kind: str, suggested: float | None = None) -> list[dict[str, Any]]:
     """Self-description of the parameters of a kind of model, for the interface.
 
     Args:
         kind: the kind of model.
+        suggested: the confidence the model's validation suggested (:func:`suggested_confidence`), if any.
 
     Returns:
-        One dict per parameter: ``name``, ``type``, ``default``, ``min``, ``max``, ``step``, ``level``.
+        One dict per parameter: ``name``, ``type``, ``default``, ``min``, ``max``, ``step``, ``level``; the
+        confidence also has ``suggested`` (whether its default is the model's suggestion).
     """
-    return [
-        {
+    out = []
+    for s in specs_for(kind):
+        option: dict[str, Any] = {
             "name": s.name,
             "type": s.type,
-            "default": default_of(s, kind),
+            "default": default_of(s, kind, suggested),
             "min": s.minimum,
             "max": s.maximum,
             "step": s.step,
             "level": s.level,
         }
-        for s in specs_for(kind)
-    ]
+        if s.name == "confidence":
+            option["suggested"] = suggested is not None
+        out.append(option)
+    return out
 
 
 def _check(spec: OptionSpec, value: Any) -> float | int | bool:
@@ -152,12 +181,13 @@ def _check(spec: OptionSpec, value: Any) -> float | int | bool:
     return int(value) if spec.type == "int" else round(float(value), 6)
 
 
-def resolve(kind: str, given: dict[str, Any] | None) -> dict[str, Any]:
+def resolve(kind: str, given: dict[str, Any] | None, suggested: float | None = None) -> dict[str, Any]:
     """The parameters a run uses: the values sent, checked, and the defaults for the rest.
 
     Args:
         kind: the kind of model.
         given: values sent by the person (``None`` or missing keys: the defaults).
+        suggested: the confidence the model's validation suggested (:func:`suggested_confidence`), if any.
 
     Returns:
         Every parameter of the kind with its value.
@@ -175,7 +205,9 @@ def resolve(kind: str, given: dict[str, Any] | None) -> dict[str, Any]:
             f"This model does not have these settings: {', '.join(unknown)}.",
             options=", ".join(unknown),
         )
-    return {s.name: _check(s, given[s.name]) if s.name in given else default_of(s, kind) for s in specs}
+    return {
+        s.name: _check(s, given[s.name]) if s.name in given else default_of(s, kind, suggested) for s in specs
+    }
 
 
 def model_classes(card: dict[str, Any], project_classes: list[str]) -> list[dict[str, Any]]:

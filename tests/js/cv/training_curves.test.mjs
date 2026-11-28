@@ -8,13 +8,13 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const {
-  hasCurves, curveChoices, curveOf, prPoints, f1Points, bestF1, tableRows, curvesBlock,
+  hasCurves, curveChoices, curveOf, prPoints, f1Points, bestF1, suggestionOf, tableRows, curvesBlock,
 } = await import('../../../src/activelabel/web/static/js/cv/training_curves.js');
 
 setMessages({
   'tr.curves_all': 'All classes (mean)', 'tr.curves_title': 'Curves', 'tr.curves_class': 'Class', 'tr.curves_table': 'Show as a table',
   'tr.confidence': 'Confidence', 'tr.metric.precision': 'Precision', 'tr.metric.recall': 'Recall', 'tr.metric.f1': 'F1',
-  'tr.curves_best_f1': 'Best F1 {f1} at {c}', 'tr.curves_help': 'IoU {iou} ({match})', 'tr.curves_match_box': 'boxes', 'tr.curves_match_mask': 'masks',
+  'tr.curves_best_f1': 'Best F1 {f1} at {c}', 'tr.curves_suggested': 'Suggested threshold {c}', 'tr.suggested_note': 'Suggested: {c}.', 'tr.curves_help': 'IoU {iou} ({match})', 'tr.curves_match_box': 'boxes', 'tr.curves_match_mask': 'masks',
 }, 'en');
 
 const grid = Array.from({ length: 11 }, (_, i) => i / 10);
@@ -33,6 +33,7 @@ test('older runs without curves draw nothing', () => {
   assert.equal(hasCurves(undefined), false);
   assert.equal(hasCurves({ confidence: [0, 1], classes: {} }), false);
   assert.equal(curvesBlock(null), null);
+  assert.equal(curvesBlock({ map50: 0.5 }), null);
   assert.equal(hasCurves(CURVES), true);
 });
 
@@ -65,7 +66,7 @@ test('the table lists every tenth confidence and the last one', () => {
 });
 
 test('the block draws both charts, the table, and redraws for the picked class', () => {
-  const block = curvesBlock(CURVES);
+  const block = curvesBlock({ curves: CURVES });
   document.body.appendChild(block);
   assert.equal(block.querySelectorAll('svg.tr-svg').length, 2);
   assert.equal(block.querySelectorAll('polyline').length, 2);   // only the mean
@@ -78,4 +79,18 @@ test('the block draws both charts, the table, and redraws for the picked class',
   assert.match(block.textContent, /Best F1 0\.8 at 0\.30/);
   assert.match(block.querySelector('table caption').textContent, /dog/);
   block.remove();
+});
+
+test('the F1 chart marks the threshold the validation suggested, for the mean or the class', () => {
+  const part = { curves: CURVES, suggested_threshold: 0.35, suggested_thresholds: { dog: 0.3 } };
+  assert.equal(suggestionOf(part, ''), 0.35);
+  assert.equal(suggestionOf(part, 'dog'), 0.3);
+  assert.equal(suggestionOf(part, 'cat'), null);
+  const block = curvesBlock(part);
+  assert.match(block.textContent, /Suggested: 0\.35\./);
+  assert.match(block.textContent, /Suggested threshold 0\.35/);
+  const select = block.querySelector('select');
+  select.value = 'cat';
+  select.dispatchEvent(new window.Event('change'));
+  assert.match(block.textContent, /Best F1 1 at 0\.00/);   // no suggestion for cat: its best F1
 });
