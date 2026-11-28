@@ -7,13 +7,13 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { LOWER_IS_BETTER, bestOf, compareBar, compareCheck, compareTable, comparisonRows } = await import('../../../src/activelabel/web/static/js/cv/compare.js');
+const { LOWER_IS_BETTER, bestOf, mixedVersions, compareBar, compareCheck, compareTable, comparisonRows } = await import('../../../src/activelabel/web/static/js/cv/compare.js');
 
 setMessages({
   'tr.val': 'Validation', 'tr.test': 'Test', 'tr.metric.f1': 'F1', 'tr.metric.accuracy': 'Accuracy', 'md.size': 'Size', 'md.metric': 'Metric',
   'cmp.per_class': 'Per class · {metric}', 'cmp.zero_classes_one': '{n} class with 0', 'cmp.zero_classes_other': '{n} classes with 0',
   'cmp.choose': 'Compare {name}', 'cmp.bar': 'Comparison', 'cmp.select_all': 'Select all ({n})',
-  'cmp.chosen_one': '{n} chosen', 'cmp.chosen_other': '{n} chosen', 'cmp.need_one_more': 'One more', 'cmp.need_two': 'Two or more', 'cmp.clear': 'Clear',
+  'cmp.chosen_one': '{n} chosen', 'cmp.chosen_other': '{n} chosen', 'cmp.need_one_more': 'One more', 'cmp.need_two': 'Two or more', 'cmp.clear': 'Clear', 'cmp.mixed_splits': 'Different dataset versions: {versions}',
 }, 'en');
 
 const A = { n: 1, results: { val: { accuracy: 0.8, loss: 0.5, images: 10, per_class: { cat: { f1: 0.9 }, dog: { f1: 0 }, owl: { f1: 0 } } }, test: { accuracy: 0.7 } }, size: 2048 };
@@ -70,4 +70,20 @@ test('a card checkbox and the bar change the choice; the bar says how many are c
   assert.deepEqual(seen, [true, 'all:true', 'clear']);
   assert.match(compareBar({ prefix: 'q', chosen: 2, total: 3, onAll: () => {}, onClear: () => {} }).textContent, /2 chosen/);
   assert.equal(compareBar({ prefix: 'r', chosen: 0, total: 3, onAll: () => {}, onClear: () => {} }).querySelector('[data-act="compare-clear"]'), null);
+});
+
+test('columns from different dataset versions are named; one version or unknown ones are not (#257)', () => {
+  const v = (c) => c.dataset;
+  assert.deepEqual(mixedVersions([{ dataset: 3 }, { dataset: 2 }, { dataset: 2 }], v), [2, 3]);
+  assert.deepEqual(mixedVersions([{ dataset: 2 }, { dataset: 2 }], v), []);
+  assert.deepEqual(mixedVersions([{ dataset: 2 }, {}], v), []);
+});
+
+test('the table warns about models of different dataset versions and only then (#257)', () => {
+  const mk = (dataset) => compareTable({
+    id: 'x', title: 'Comparison', help: 'help', cols: [{ ...A, dataset }, { ...B, dataset: 2 }], head: (c) => [`m${c.n}`],
+    resultsOf: (c) => c.results, versionOf: (c) => c.dataset,
+  });
+  assert.equal(mk(3).querySelector('.cmp-mixed').textContent, 'Different dataset versions: v2, v3');
+  assert.equal(mk(2).querySelector('.cmp-mixed'), null);
 });

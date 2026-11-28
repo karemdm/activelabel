@@ -170,7 +170,7 @@ export function modelsPanel(page) {
     const cols = comparable().filter((m) => chosen.has(m.number)).sort((a, b) => a.number - b.number);
     if (cols.length < 2) return null;
     return compareTable({
-      id: 'md-compare', title: t('md.compare'), help: t('md.compare_help'), cols, resultsOf: (m) => m.results, sizeOf: (m) => m.size,
+      id: 'md-compare', title: t('md.compare'), help: t('md.compare_help'), cols, resultsOf: (m) => m.results, sizeOf: (m) => m.size, versionOf: (m) => m.dataset,
       head: (m) => [`m${m.number}`, m.current ? el('span', { class: 'md-star', title: t('md.current') }, icon('star', 12)) : null, el('span', { class: 'md-arch' }, archName(m))],
     });
   }
