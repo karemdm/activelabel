@@ -387,8 +387,8 @@ class _Ingester:
         """
         with contextlib.ExitStack() as stack:
             if not hasattr(stream, "seekable"):
-                # Python 3.10: an upload (SpooledTemporaryFile) has no seekable(), which zipfile needs
-                # to open the entries; copy it to a real temporary file first
+                # a stream without seekable() cannot be opened by zipfile: copy it to a real
+                # temporary file first
                 raw: Any = stack.enter_context(tempfile.TemporaryFile())  # its type differs per OS
                 copy: BinaryIO = raw
                 shutil.copyfileobj(stream, copy, 1 << 20)

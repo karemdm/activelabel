@@ -7,7 +7,7 @@ name = "activelabel"
 dynamic = ["version"]
 description = "Image datasets from curation to trained models: projects, images, annotations, curation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Karem Daiane Marcomini" }]
@@ -20,7 +20,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
@@ -98,7 +97,7 @@ activelabel = ["i18n/*.json", "web/templates/*.html", "web/static/**/*", "fiftyo
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 110
-target-version = "py310"
+target-version = "py312"
 src = ["src", "tests"]
 extend-exclude = [".venv"]
 

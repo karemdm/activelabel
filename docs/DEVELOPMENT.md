@@ -6,7 +6,7 @@ roadmap is in [ASSESSMENT.md](ASSESSMENT.md).
 
 ## Set-up
 
-Python 3.10 or newer (CI runs 3.10 and 3.12).
+Python 3.12 or newer (CI runs 3.12).
 
 ```bash
 git clone https://github.com/karemdm/activelabel.git
@@ -48,7 +48,7 @@ CI (`.github/workflows/ci.yml`) runs on every pull request and on `main`:
 
 | Job | What | Required to merge |
 | --- | --- | --- |
-| `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12, Linux with 3.10 (the oldest supported); macOS (Apple silicon) with 3.12 only after a merge to `main` (and by hand) | yes, except macOS |
+| `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12; macOS (Apple silicon) with 3.12 only after a merge to `main` (and by hand) | yes, except macOS |
 | `FiftyOne tests` | the tests marked `integration`, against a MongoDB service of the job | yes |
 | `package` | builds the wheel, checks its version and files, installs it in a clean environment and fetches the pages of the installed server | yes |
 | `training workers (torch CPU)` | the worker and metric tests with the pinned CPU build of PyTorch; fails if one of them is skipped | yes |

@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -119,7 +119,7 @@ def test_the_automatic_name_comes_from_the_tasks_that_exist(tmp_path):
 def _age(tmp_path, task_id, seconds):
     """Make a task look as if its last upload chunk came ``seconds`` ago."""
     data = json.loads((tmp_path / "tasks.json").read_text(encoding="utf-8"))
-    old = (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat(timespec="seconds")
     for task in data["tasks"]:
         if task["id"] == task_id:
             task["touched"] = old

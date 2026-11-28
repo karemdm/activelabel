@@ -254,7 +254,7 @@ def test_report_ids_are_exactly_the_images_stored_in_order(tmp_path):
 
 
 class _NoSeekable:
-    """An upload as Python 3.10 hands it over (SpooledTemporaryFile has no ``seekable``)."""
+    """An upload stream without ``seekable`` is copied to a temporary file first."""
 
     def __init__(self, data: bytes) -> None:
         self._buf = io.BytesIO(data)

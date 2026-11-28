@@ -36,7 +36,7 @@ a mesma palavra nos dois idiomas, como no CVAT. Os documentos em inglês
 
 ## Instalar
 
-Python 3.10 ou mais novo.
+Python 3.12 ou mais novo.
 
 ```bash
 python -m venv .venv

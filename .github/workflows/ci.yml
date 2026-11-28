@@ -19,14 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest is Apple silicon (arm64); 3.10 is the oldest supported Python, 3.12 the main one
+        # macos-latest is Apple silicon (arm64); Python 3.12 is the only supported version
         # macOS runs on main (after a merge) and by hand, not on pull requests: GitHub's macOS machines are
         # scarce and a pull request would wait for them
         os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') }}
         python: ["3.12"]
-        include:
-          - os: ubuntu-latest
-            python: "3.10"
     runs-on: ${{ matrix.os }}
     env:
       TMPDIR: ${{ github.workspace }}/pasta temporária ção

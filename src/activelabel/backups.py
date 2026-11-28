@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +48,7 @@ def make_backup(project_dir: Path, reason: str = "") -> str:
     source = annotations_path(project_dir)
     if not source.exists():
         return ""
-    stamp = datetime.now(timezone.utc).strftime(STAMP) + "Z"
+    stamp = datetime.now(UTC).strftime(STAMP) + "Z"
     suffix = f".{reason}" if reason else ""
     # two copies in the same second must not overwrite each other, and the later one sorts as newer
     same = (NAME.fullmatch(p.name) for p in project_dir.glob(f"annotations.{stamp}*.bak.json"))
@@ -105,9 +105,9 @@ def _created(path: Path, stamp: str, utc: bool) -> str:
         The time from the name; the file's modification time for a copy made before names carried UTC.
     """
     if utc:
-        moment = datetime.strptime(stamp, STAMP).replace(tzinfo=timezone.utc)
+        moment = datetime.strptime(stamp, STAMP).replace(tzinfo=UTC)
     else:
-        moment = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        moment = datetime.fromtimestamp(path.stat().st_mtime, UTC)
     return moment.isoformat(timespec="seconds")
 
 

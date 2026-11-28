@@ -85,8 +85,7 @@ the Hub's telemetry is off. They train with the workers that already exist, `seg
 ONNX export is not checked for them. Images are normalised with the ImageNet mean and standard deviation and
 padded to a multiple of 32. In fine-tuning the whole encoder trains (`trainable_backbone_layers` is fixed at
 5 for them). Defaults: AdamW, learning rate 1e-4 (detectors) or 6e-5 (SegFormer), batch 4. `transformers` is
-pinned at 5.23.0 and installed by the first run that uses it; it needs Python 3.11 or newer, and on an older
-Python the run fails with a readable message.
+pinned at 5.23.0 and installed by the first run that uses it.
 
 **Architecture and variant (#618).** Each model of the catalogue has an `arch` (the architecture or
 generation the dialog groups by: `ResNet`, `EfficientNet`, `Faster R-CNN`...) and a `variant` (its size inside
@@ -581,7 +580,7 @@ To update the versions:
 1. Pick a torch release and its matching torchvision (the pairs are listed in the torchvision README), and
    check that the pair exists for every supported Python on the CPU index, on each CUDA index you keep and
    on PyPI for macOS, for example
-   `pip index versions torch --index-url https://download.pytorch.org/whl/cu126 --python-version 3.10`.
+   `pip index versions torch --index-url https://download.pytorch.org/whl/cu126 --python-version 3.12`.
 2. Edit `PINNED_VERSIONS` and, when the CUDA builds of that release changed, `CUDA_TAGS` (newest first).
    Pick timm, onnx and ultralytics versions released after that torch.
 3. Open a pull request. The CI job *training workers* installs exactly the pinned versions (read from the
