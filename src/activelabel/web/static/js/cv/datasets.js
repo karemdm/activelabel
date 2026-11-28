@@ -1,6 +1,7 @@
 /* Step 4, Data split: the frozen dataset versions (train / validation / test or k folds), making a new one
  * with its checks, and what changed in the labels since a version was made. */
 import { partBalance } from './distributions.js';
+import { exportRow } from './export.js';
 import { partName, taskBadge } from './names.js';
 import { api, errorParams } from '../shell/api.js';
 import { confirmDialog, once, openModal, returnFocus } from '../shell/dialogs.js';
@@ -277,7 +278,8 @@ export function datasetsPanel(page) {
         ...items.filter((x) => x.n > 0).map((x) => el('button', { type: 'button', class: 'btn small', 'aria-label': t('ds.see_part', { n: v.version, part: x.label }),
           onclick: () => { ctx.panels.images.showDataset(v.version, x.part || null, x.fold != null ? x.fold : null); showTab('images', true); } }, x.label)),
         el('button', { type: 'button', class: 'btn small primary ds-train-with', disabled: !!v.incomplete || !!noTrain, 'aria-describedby': noTrain ? `${id}-block` : null,
-          onclick: () => { showTab('training'); ctx.panels.training.startWith(v.version); } }, icon('chart', 14), t('ds.train_with'))));
+          onclick: () => { showTab('training'); ctx.panels.training.startWith(v.version); } }, icon('chart', 14), t('ds.train_with'))),
+      exportRow(projectId, v));
   }
 
   function draw() {

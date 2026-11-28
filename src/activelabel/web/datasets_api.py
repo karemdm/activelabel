@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import os
+import re
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from activelabel.datasets import DatasetNotFound, DatasetStore, Plan, parse_options, plan_split
+from activelabel.errors import CodedError
+from activelabel.exporting.version import check_export, export_version
 from activelabel.tasks_store import TaskStore
 from activelabel.training.runs import QUEUED, RUNNING, RunStore
 from activelabel.web.errors import ApiError, bad_request
@@ -231,3 +239,65 @@ def delete_dataset(
     except DatasetNotFound:
         raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
     return {"deleted": True}
+
+
+@router.get("/projects/{project_id}/datasets/{number}/export/check")
+def check_dataset_export(
+    project_id: int, number: int, format: str, images: bool = True, state: AppState = STATE
+) -> dict[str, Any]:
+    """What an export of the version would hold; the same refusals as the download, nothing is written.
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the dataset version.
+        format: ``yolo`` or ``coco``.
+        images: Whether the image files would be in the zip.
+        state: The shared state of the application.
+
+    Returns:
+        ``{format, type, images, groups, size_bytes}``.
+    """
+    state.project(project_id)
+    try:
+        return check_export(state.store.dir(project_id), number, format, images)
+    except DatasetNotFound:
+        raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
+    except CodedError as error:
+        raise bad_request(error) from None
+
+
+@router.get("/projects/{project_id}/datasets/{number}/export")
+def export_dataset(
+    project_id: int, number: int, format: str, images: bool = True, state: AppState = STATE
+) -> FileResponse:
+    """The version as a zip in YOLO or COCO format (see docs/DATASETS.md).
+
+    Args:
+        project_id: Id of the project.
+        number: Number of the dataset version.
+        format: ``yolo`` or ``coco``.
+        images: Whether to put the image files in the zip (``false``: only the labels).
+        state: The shared state of the application.
+
+    Returns:
+        The zip, as a download (the temporary file is removed after it is sent).
+    """
+    project = state.project(project_id)
+    handle, name = tempfile.mkstemp(suffix=".zip", prefix="activelabel-export-")
+    os.close(handle)
+    target = Path(name)
+    try:
+        export_version(state.store.dir(project_id), number, format, target, images)
+    except DatasetNotFound:
+        target.unlink(missing_ok=True)
+        raise ApiError(404, "dataset_not_found", "This dataset version does not exist.") from None
+    except CodedError as error:
+        target.unlink(missing_ok=True)
+        raise bad_request(error) from None
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", project.name).strip("-") or "project"
+    return FileResponse(
+        target,
+        filename=f"{label}-v{number}-{format}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(target.unlink, missing_ok=True),
+    )
