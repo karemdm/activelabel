@@ -38,7 +38,7 @@ the release notes, generated from the merged pull requests and grouped by label 
   phone, so the group title is no longer cut.
 - **Long names (#338).** The image window breaks a long name after `_`, `-`, `.` and `/` (and shows the whole name as a
   tooltip) instead of in the middle of the frame number; the model list of *Pre-annotate* is short
-  (`m1 (Current) Â· name`, so a narrow list does not cut off "Current") and the result of the chosen model, such as its
+  (`m1 (Current) · name`, so a narrow list does not cut off "Current") and the result of the chosen model, such as its
   mAP50-95, is said under it.
 - **New task and Pre-annotate (#342).** A cancelled *New task* form opens empty again; a name the server rejects (one
   that is taken, empty, too long) is said once, under the name field, which is marked invalid, instead of three stacked
@@ -46,7 +46,7 @@ the release notes, generated from the merged pull requests and grouped by label 
   Training, not to Models, when the catalogue has no public model for the project type.
 - **Finished video task (#264).** The job that makes a task from a video ends at "n of n" frames, not "n-1 of n". The
   other items of #264 already worked: the 404 page for unknown addresses, the names of a repeated image (kept as
-  aliases for importing annotations) and the translated suggestions (cÃ£o to dog) in the mapping of a public model.
+  aliases for importing annotations) and the translated suggestions (cão to dog) in the mapping of a public model.
 
 ### Fixed
 
