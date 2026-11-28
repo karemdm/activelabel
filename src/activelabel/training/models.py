@@ -187,6 +187,7 @@ class ModelStore:
                 "task_kind": spec.task_kind if spec else "",
                 "num_keypoints": points,
                 "dataset": config.dataset,
+                "fold": config.fold,
                 "dataset_fingerprint": config.dataset_fingerprint,
                 "start": config.start,
                 "mode": config.mode,

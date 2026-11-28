@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from activelabel.curation import evaluation_job
 from activelabel.jobs import QUEUED, RUNNING
 from activelabel.preannotate import PreannotationStore
 from activelabel.textcheck import message_of
@@ -225,7 +226,7 @@ def delete_model(
         state: The shared state of the application.
 
     Returns:
-        ``{deleted: true}``.
+        ``{deleted: true}``. Its evaluation goes too: the entry, and in FiftyOne its fields, run and view.
     """
     store = _store(state, project_id)
     if not (body and body.confirm):
@@ -235,11 +236,11 @@ def delete_model(
         for r in PreannotationStore(state.store.dir(project_id)).list()
         if r.get("model") == number and r.get("status") in (QUEUED, RUNNING)
     ]
-    if using:
+    if using or evaluation_job.active_model(state.store.dir(project_id)) == number:
         raise ApiError(
             409,
             "model_in_use",
-            "A pre-annotation with this model is queued or running: wait for it to end.",
+            "A pre-annotation or an evaluation with this model is queued or running: wait for it to end.",
         )
     try:
         store.delete(number)
@@ -251,6 +252,8 @@ def delete_model(
         raise ApiError(
             409, "model_file_in_use", "A file of this model is in use: try again in a moment."
         ) from None
+    project_dir = state.store.dir(project_id)
+    evaluation_job.forget(project_dir, project_id, number)  # its entry, fields, run and view (#611)
     return {"deleted": True}
 
 

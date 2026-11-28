@@ -2117,6 +2117,8 @@
   "job.kind.evaluation": "Evaluating a model",
   "error.evaluation_running": "Model m{model} is already being evaluated.",
   "error.no_images_in_part": "No image of this part has labels a person reviewed.",
+  "error.evaluation_fold_only_own": "A model of fold {fold} is evaluated only on that fold's validation part (it has seen the other images).",
+  "error.evaluation_needs_test_part": "This model learned from every fold: it can be evaluated only on a test part, and this version has none. Create a version with a test part.",
   "error.no_dataset_version": "Create a data split first (step 4): it holds the test part.",
   "error.evaluation_task_unsupported": "A {task} model cannot be evaluated in FiftyOne here yet.",
   "error.evaluation_needs_shapely": "Evaluating polygons needs the shapely package. Add it with: {install}",

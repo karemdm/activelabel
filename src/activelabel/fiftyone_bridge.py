@@ -409,6 +409,7 @@ def _ground_truth(task: Task, labels: list[Label]) -> Any:
                 closed=True,
                 filled=True,
                 index=lb.track,
+                confidence=lb.score,  # a prediction's score: the evaluation of polygons needs it (#611)
                 tags=list(lb.tags or []),
             )
             for lb in labels
