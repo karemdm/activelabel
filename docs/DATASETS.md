@@ -147,7 +147,7 @@ as one line with the real split, for example 64/27/9.
 ## Safety gap switch
 
 In the new-version form (under *Advanced*), dropping the frames at the border between parts of the same video
-is a switch, on by default (recommended: **Descartar quadros na fronteira entre partes do mesmo vídeo**), with
+is a switch, on by default (recommended: **Descartar frames na fronteira entre partes do mesmo vídeo**), with
 a field for the minimum seconds (the gap grows by itself to the frame interval and to the reach of the video's
 near-duplicates). With the switch on, the field must be more than 0 and at most 3600. Off sends
 `gap_seconds: 0` (no frame is dropped) and the form warns that validation and test may then contain frames
