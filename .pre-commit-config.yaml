@@ -31,8 +31,10 @@ repos:
         pass_filenames: false
         types: [python]
       - id: pytest
-        name: pytest (unit tests)
-        entry: python -m pytest -q -m "not integration"
+        # only the tests that mirror the changed files (the CI runs the whole suite);
+        # ACTIVELABEL_HOOK_FULL=1 runs everything
+        name: pytest (tests of the changed files)
+        entry: python tests/helpers/changed_tests.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         always_run: true
