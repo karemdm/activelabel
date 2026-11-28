@@ -9,6 +9,10 @@ part of ``results.json`` (validation and test), computed from the evaluation pas
   is right when it matches an object of the same class with an IoU of at least 0.5 (the same greedy matching
   as ``ap50``). Where no detection is that confident, precision is 1 and recall 0 (as scikit-learn and
   Ultralytics do). ``all`` is the mean of the classes' curves.
+- **Suggested threshold** (:func:`best_threshold`, :func:`suggestions`): the confidence where F1 is
+  highest, for the mean of the classes (``suggested_threshold``, the default confidence of a pre-annotation
+  with the saved model) and for each class (``suggested_thresholds``). Only the validation part suggests one;
+  the test part is measured with the validation's.
 
 Standalone like the workers: it runs in the training environment, which has no ActiveLabel, and needs only
 numpy.
@@ -100,6 +104,49 @@ def mean_curve(classes: dict[str, dict[str, Any]]) -> dict[str, list[float]]:
         key: _rounded(np.mean([np.asarray(c[key], dtype=np.float64) for c in classes.values()], axis=0))
         for key in ("precision", "recall", "f1")
     }
+
+
+def best_threshold(confidence: Array, f1: Array) -> float | None:
+    """The confidence where F1 is highest.
+
+    F1 is flat between two detections' scores, so the highest values are a run of confidences: the middle of
+    the first such run is taken, away from both scores.
+
+    Args:
+        confidence: Confidences, in increasing order.
+        f1: F1 at each confidence.
+
+    Returns:
+        The confidence, rounded to 2 decimals, or ``None`` when F1 is 0 everywhere (nothing was found).
+    """
+    values = np.asarray(f1, dtype=np.float64)
+    if not len(values) or values.max() <= 0:
+        return None
+    first = int(np.argmax(values))
+    last = first
+    while last + 1 < len(values) and values[last + 1] >= values[first] - 1e-9:
+        last += 1
+    return round((float(confidence[first]) + float(confidence[last])) / 2, 2)
+
+
+def suggestions(report: dict[str, Any]) -> dict[str, Any]:
+    """The suggested thresholds of a ``curves`` entry, as fields of its part of ``results.json``.
+
+    Args:
+        report: The ``curves`` entry (:func:`curves_report`).
+
+    Returns:
+        ``suggested_threshold`` (best F1 of the mean of the classes; left out when there is none) and
+        ``suggested_thresholds`` (``{class: confidence}`` of the classes that have one).
+    """
+    confidence = report["confidence"]
+    out: dict[str, Any] = {}
+    overall = best_threshold(confidence, report["all"]["f1"]) if report["all"]["f1"] else None
+    if overall is not None:
+        out["suggested_threshold"] = overall
+    each = {name: best_threshold(confidence, c["f1"]) for name, c in report["classes"].items()}
+    out["suggested_thresholds"] = {name: value for name, value in each.items() if value is not None}
+    return out
 
 
 def curves_report(classes: dict[str, dict[str, Any]], match: str, grid: Array = CONFIDENCE) -> dict[str, Any]:

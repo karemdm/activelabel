@@ -239,7 +239,7 @@ export function preannotateBlock(page, hooks) {
     const error = o.name in s.options ? optionError(o, s.options[o.name]) : null;
     const hintId = `${id}-hint`;
     const reset = isChanged ? el('button', { type: 'button', class: 'pre-reset', 'aria-label': t('pre.opt_reset_one', { name: optLabel(o.name) }), onclick: () => setOption(model, o, undefined) }, t('pre.opt_reset')) : null;
-    const hint = el('p', { class: `hint${error ? ' pre-opt-error' : ''}`, id: hintId }, error || `${optHint(model, o.name)} ${t('pre.opt_default', { v: fmtValue(o, o.default) })}`.trim());
+    const hint = el('p', { class: `hint${error ? ' pre-opt-error' : ''}`, id: hintId }, error || `${optHint(model, o.name)} ${t(o.suggested ? 'pre.opt_suggested' : 'pre.opt_default', { v: fmtValue(o, o.default) })}`.trim());
     if (o.type === 'bool') {
       return el('div', { class: `field pre-opt${isChanged ? ' is-changed' : ''}` },
         el('div', { class: 'pre-opt-head' }, el('label', { class: 'ds-check', for: id }, el('input', { type: 'checkbox', id, checked: !!v, 'aria-describedby': hintId, onchange: (e) => setOption(model, o, e.target.checked) }), optLabel(o.name)), reset),

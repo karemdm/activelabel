@@ -869,7 +869,9 @@ def train_epoch(
     return total / count if count else 0.0
 
 
-def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: Any) -> dict[str, Any]:
+def evaluate(
+    model: Any, loader: Any, spec: dict[str, Any], device: str, torch: Any, threshold: float | None = None
+) -> dict[str, Any]:
     """Box mAP (plus mask mAP for instance; keypoint OKS mAP and PCK@0.1 for keypoints) of a loader.
 
     The model returns every detection while it is evaluated (score threshold ``EVAL_SCORE_THRESH``, at
@@ -882,21 +884,28 @@ def evaluate(model: Any, loader: Any, spec: dict[str, Any], device: str, torch: 
         spec: The job spec (``task`` and ``classes``).
         device: Torch device name.
         torch: The torch module.
+        threshold: The confidence suggested by the validation part, when this is another part (the test);
+            ``None`` for the validation part, which suggests its own.
 
     Returns:
         ``map50``, ``map50_95``, ``per_class`` and ``curves`` (precision x recall and F1 x confidence of each
-        class) plus, by task, the ``mask_*`` or ``kp_*`` and ``pck`` fields.
+        class) plus, by task, the ``mask_*`` or ``kp_*`` and ``pck`` fields; without ``threshold``, also
+        ``suggested_threshold`` and ``suggested_thresholds`` (``curves.suggestions``).
     """
     task, classes = spec["task"], spec["classes"]
     model.eval()
     kept = get_score_thresh(model)
     if kept is None:  # not a torchvision detector (a stand-in): nothing to lower
-        return _evaluate_batches(model, loader, task, classes, device, torch)
-    set_score_thresh(model, EVAL_SCORE_THRESH)
-    try:
-        return _evaluate_batches(model, loader, task, classes, device, torch)
-    finally:
-        set_score_thresh(model, kept)
+        result = _evaluate_batches(model, loader, task, classes, device, torch)
+    else:
+        set_score_thresh(model, EVAL_SCORE_THRESH)
+        try:
+            result = _evaluate_batches(model, loader, task, classes, device, torch)
+        finally:
+            set_score_thresh(model, kept)
+    if threshold is None:
+        result.update(curves.suggestions(result["curves"]))
+    return result
 
 
 def _evaluate_batches(
@@ -1211,8 +1220,9 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
         emit("progress", phase="evaluating", epoch=ran, epochs=epochs)
         state = torch.load(out / "best.pt", map_location=device)
         model.load_state_dict(state["state_dict"])
+        suggested = results["val"].get("suggested_threshold")
         results["test"] = {
-            **evaluate(model, loader(parts["test"], False), spec, device, torch),
+            **evaluate(model, loader(parts["test"], False), spec, device, torch, suggested),
             "classes": classes,
         }
     (out / "results.json").write_text(json.dumps(results), encoding="utf-8")

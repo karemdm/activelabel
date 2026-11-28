@@ -452,7 +452,9 @@ def classification_scores(matrix: Any, classes: list[str]) -> Scores:
     }
 
 
-def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -> Scores:
+def scores_of(
+    metrics: Any, classes: list[str], task: str, matrix: Any = None, suggest: bool = True
+) -> Scores:
     """The scores of an Ultralytics metrics object, in the shape the other workers report.
 
     Args:
@@ -461,11 +463,13 @@ def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -
         classes: class names, in index order.
         task: ``detection``, ``instance``, ``keypoints`` or ``classification``.
         matrix: the validator's ``ConfusionMatrix`` (classification; its ``matrix`` is read).
+        suggest: add the suggested thresholds of the curves (the validation part; not the test part).
 
     Returns:
         ``map50``, ``map50_95`` and ``per_class`` of the boxes, plus ``mask_map50``, ``mask_map50_95``
         (instance) or ``kp_map50``, ``kp_map50_95`` (keypoints) and the ``curves`` (:func:`curve_report`)
-        when Ultralytics gives them; for classification those of :func:`classification_scores`.
+        with, when ``suggest``, ``suggested_threshold`` and ``suggested_thresholds`` when Ultralytics gives
+        them; for classification those of :func:`classification_scores`.
 
     Raises:
         ValueError: a classification without a confusion matrix.
@@ -491,6 +495,8 @@ def scores_of(metrics: Any, classes: list[str], task: str, matrix: Any = None) -
     found = curve_report(drawn, classes, support, match)
     if found is not None:
         scores["curves"] = found
+        if suggest:
+            scores.update(curves.suggestions(found))
     return scores
 
 
@@ -501,10 +507,14 @@ def epoch_scores(scores: Scores) -> dict[str, float]:
         scores: the dict of :func:`scores_of`.
 
     Returns:
-        The numbers among the scores (not ``per_class``, ``curves`` or a confusion matrix), prefixed with
-        ``val_``.
+        The metrics among the scores (numbers; not ``per_class``, ``curves``, a confusion matrix or the
+        suggested threshold), prefixed with ``val_``.
     """
-    numbers = {k: v for k, v in scores.items() if isinstance(v, int | float) and not isinstance(v, bool)}
+    numbers = {
+        k: v
+        for k, v in scores.items()
+        if isinstance(v, int | float) and not isinstance(v, bool) and k != "suggested_threshold"
+    }
     return {f"val_{k}": v for k, v in numbers.items()}
 
 
@@ -947,7 +957,7 @@ def train(spec: dict[str, Any]) -> dict[str, Any]:
                 plots=False,
                 verbose=False,
             )
-            results["test"] = {**scores_of(metrics, classes, task), "classes": classes}
+            results["test"] = {**scores_of(metrics, classes, task, suggest=False), "classes": classes}
     finally:
         shutil.rmtree(root, ignore_errors=True)
         shutil.rmtree(

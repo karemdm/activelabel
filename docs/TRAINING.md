@@ -365,6 +365,14 @@ draws precision × recall and F1 × confidence with a class picker (*All classes
 with the most objects) and the same numbers as a table (*Show as a table*: every 0.1 of confidence). Runs made
 before this have no `curves` and show no charts.
 
+The validation part also has the **suggested confidence threshold** (#323): `suggested_threshold`, the
+confidence where the F1 of `all` is highest, and `suggested_thresholds`, the same for each class (a class
+whose F1 is 0 everywhere has none). F1 is flat between two detections' scores, so the middle of the first run
+of the highest values is taken (2 decimals). The test part has no suggestion of its own: it is measured at the
+validation's. The F1 chart marks it, and saving the run as a model copies both onto the card (`model.json`),
+where pre-annotation takes `suggested_threshold` as its default confidence (docs/PREANNOTATE.md). Older runs and
+models have none and keep the default of their kind.
+
 ## Quality alerts
 
 When a run ends, `training/quality.py` reads its `results.json` and `metrics.jsonl` and stores `alerts` (a list of
@@ -427,7 +435,8 @@ holds its best weights (`best.pt`, **moved** from the run, so the weights exist 
 has no `best.pt` any more; the run keeps its curves, results and log), `config.yaml`, `results.json` and a card, `model.json` (run and
 best child, model, dataset version and fingerprint, start, selection metric and value, the classes in
 the order of the network's outputs, the number of points of a keypoint model, device and package
-versions, size, note, exports). Numbers are never reused, a run is saved at most once, and saving removes
+versions, size, note, exports, and the `suggested_threshold` and `suggested_thresholds` of the
+validation when the run has them). Numbers are never reused, a run is saved at most once, and saving removes
 the run's `last.pt`. The save dialog asks which
 weights to keep: the PyTorch weights always, and also ONNX (classification and semantic
 segmentation), which is then queued right after saving.

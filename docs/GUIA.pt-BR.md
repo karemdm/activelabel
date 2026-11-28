@@ -225,7 +225,9 @@ paciência da parada antecipada também fica abaixo delas), a precisão mista (n
 CUDA) e as *Técnicas de aumento de dados* do nível escolhido; mudar uma técnica passa o nível para
 *Personalizado*. Trocar de modelo mantém os valores que você mudou, quando o novo modelo os aceita, e
 diz o que mudou. Se a GPU ficar sem memória, o batch é reduzido à metade até caber. Os pacotes
-necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. Nos resultados de detecção, instâncias e pontos-chave, *Curvas por limiar de confiança* mostra precision × recall e F1 × confiança de cada classe (ou a média das classes), também como tabela (*Ver como tabela*). *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
+necessários são instalados sob demanda, em versões fixas e testadas, num ambiente separado. Nos resultados de detecção, instâncias e pontos-chave, *Curvas por limiar de confiança* mostra precision × recall e F1 × confiança de cada classe (ou a média das classes), também como tabela (*Ver como tabela*), e o
+*limiar de confiança sugerido* (o de melhor F1 na validação), que vira a confiança inicial da pré-anotação com o
+modelo salvo. *Reproduzir* repete um treino com a mesma configuração; um treino que falhou ou foi cancelado pode ser continuado do último checkpoint com *Retomar*. Os avisos e as falhas de um treino aparecem na interface, no idioma escolhido, e o cartão do treino mostra *O que o treino usou* (dispositivo, batch, precisão). Detalhes:
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou
@@ -251,7 +253,8 @@ avaliar polígonos precisa do pacote `shapely`, que vem com `activelabel[fiftyon
    imagens (sem anotação, ou pré-anotadas e ainda não revisadas) e o dispositivo. Em *Ajustes da
    pré-anotação* (recolhido, com um resumo do que mudou) dá para escolher só algumas classes do modelo
    e ajustar os parâmetros do tipo de modelo: confiança mínima (padrão 0,5 em classificação e 0,25 nos
-   demais), IoU do NMS, máximo de objetos, tamanho mínimo, limiar da máscara e outros, cada um com seu
+   demais; num modelo de detecção, instâncias ou pontos-chave treinado aqui, o limiar sugerido pela validação do
+   treino, indicado no formulário), IoU do NMS, máximo de objetos, tamanho mínimo, limiar da máscara e outros, cada um com seu
    padrão e "Restaurar". Inicie. No *Histórico*, *Repetir com estes ajustes* preenche o formulário com os
    ajustes de uma execução.
    Imagens ilegíveis são contadas e puladas. Funciona para classificação, detecção,

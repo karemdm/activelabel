@@ -1113,11 +1113,11 @@ export function trainingPanel(page) {
   }
 
   function partResults(part) {
-    const scalars = Object.entries(part).filter(([, v]) => typeof v === 'number');
+    const scalars = Object.entries(part).filter(([k, v]) => typeof v === 'number' && k !== 'suggested_threshold');   // in the curves
     const classes = part.classes || Object.keys(part.per_class || {});
     return el('div', { class: 'tr-part' },
       scalars.length ? el('dl', { class: 'tr-stats' }, ...scalars.map(([k, v]) => el('div', { class: 'tr-stat' }, el('dt', null, metricName(k)), el('dd', null, k === 'images' ? num(v) : nf3.format(v))))) : null,
-      curvesBlock(part.curves),
+      curvesBlock(part),
       Array.isArray(part.confusion_matrix) ? confusionTable(part.confusion_matrix, classes) : null,
       perClassTable(part.per_class));
   }
