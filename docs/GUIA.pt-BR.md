@@ -223,7 +223,8 @@ necessários são instalados sob demanda, em versões fixas e testadas, num ambi
 [TRAINING.md](TRAINING.md).
 
 **6. Modelos.** Use *Salvar como modelo* num treino concluído, marque os modelos que quer comparar (ou
-*Selecionar todos*; os treinos concluídos se comparam do mesmo jeito em Treinamento), escolha o
+*Selecionar todos*; os treinos concluídos se comparam do mesmo jeito em Treinamento; se os modelos vêm de
+versões diferentes do dataset, um aviso diz que os valores não são diretamente comparáveis), escolha o
 modelo atual (*Tornar atual*), baixe os pesos e exporte para ONNX (classificação e segmentação
 semântica). *Adicionar modelo público* inclui um modelo já treinado no COCO, sem treinar nada (projetos
 de detecção e de pontos-chave; nos outros tipos o botão não aparece).

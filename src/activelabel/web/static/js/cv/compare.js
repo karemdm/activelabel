@@ -52,10 +52,20 @@ export function bestOf(row) {
   return row.lower ? Math.min(...nums) : Math.max(...nums);
 }
 
+/** The dataset versions (numbers, ascending) behind the chosen columns when there is more than one, else `[]`:
+ *  models trained on different versions were validated on different splits (#257), so their values do not
+ *  measure the same thing. `versionOf(col)` is the version number of a column (null when unknown: left out). */
+export function mixedVersions(cols, versionOf) {
+  const seen = [...new Set(cols.map(versionOf).filter((v) => v != null))].sort((a, b) => a - b);
+  return seen.length > 1 ? seen : [];
+}
+
 /** The comparison table of the chosen columns. `cols` are the runs or models, `head(col)` the nodes of a column
  *  header, `resultsOf` and `sizeOf` as in comparisonRows, `id` the id of the section, `title` its heading and
- *  `help` the line under it. */
-export function compareTable({ id, title, help, cols, head, resultsOf, sizeOf = null }) {
+ *  `help` the line under it; `versionOf(col)`, when given, shows a warning if the columns come from different
+ *  dataset versions (see mixedVersions). */
+export function compareTable({ id, title, help, cols, head, resultsOf, sizeOf = null, versionOf = null }) {
+  const versions = versionOf ? mixedVersions(cols, versionOf) : [];
   const { groups, zeroClasses } = comparisonRows(cols, resultsOf, sizeOf);
   const cell = (row, v, best) => el('td', { class: `num${best ? ' best' : ''}` }, v == null ? '—' : row.size ? fmtBytes(v) : nf3.format(v));
   const body = [];
@@ -69,6 +79,10 @@ export function compareTable({ id, title, help, cols, head, resultsOf, sizeOf = 
   return el('section', { class: 'tr-section md-compare', id, 'aria-labelledby': `${id}-t` },
     el('h3', { id: `${id}-t`, class: 'section-title' }, title),
     el('p', { class: 'muted tr-note' }, help),
+    versions.length
+      ? el('ul', { class: 'tr-warnings cmp-mixed' }, el('li', null, icon('warning', 14),
+          el('span', null, t('cmp.mixed_splits', { versions: versions.map((v) => `v${v}`).join(', ') }))))
+      : null,
     el('div', { class: 'tr-table-wrap' }, el('table', { class: 'tr-table md-table' },
       el('caption', { class: 'sr-only' }, title),
       el('thead', null, el('tr', null, el('th', { scope: 'col' }, t('md.metric')), ...cols.map((c) => el('th', { scope: 'col' }, ...head(c))))),

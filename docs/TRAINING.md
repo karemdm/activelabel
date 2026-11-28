@@ -423,8 +423,9 @@ segmentation), which is then queued right after saving.
 - **Comparison**: tick the models to compare (the box on each card, or *Select all* in the bar above the
   list, which says how many are chosen); with two or more, a table shows one row per metric, grouped as
   validation, test, the main per-class metric and size, with the best value of each row highlighted. The
-  classes with 0 in every chosen model are folded under one line. The Training step compares finished runs
-  the same way.
+  classes with 0 in every chosen model are folded under one line. When the chosen models were trained on
+  different dataset versions (#257) a warning names the versions: their validation split (and fold) differ, so
+  the values are not directly comparable. The Training step compares finished runs the same way.
 - A saved model whose architecture this version no longer offers is listed as *unavailable*
   (*indisponível*) and cannot pre-annotate (it can still be deleted).
 - **Evaluation in FiftyOne** (#611): *Evaluate* (*Avaliar*) on a model card predicts the *test* part of the

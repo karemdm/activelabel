@@ -1942,6 +1942,7 @@
   "open.fo_no_images": "Add images to open the project in FiftyOne.",
   "tr.compare": "Comparison of the runs",
   "cmp.per_class": "Per class · {metric}",
+  "cmp.mixed_splits": "These models were trained on different dataset versions ({versions}): the split (and fold) they were validated on is not the same, so the values are not directly comparable.",
   "cmp.zero_classes_one": "{n} class with 0 in every chosen one",
   "cmp.zero_classes_other": "{n} classes with 0 in every chosen one",
   "cmp.choose": "Compare {name}",

@@ -23,6 +23,9 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 - **Faster checks (development).** The commit hook runs only the tests of the changed files (the CI still runs the
   whole suite), and the CI training job runs only the test files that need PyTorch, timm or scikit-learn.
+- **Models comparison warns about different splits (#257).** When the chosen models were trained on different
+  dataset versions, the comparison table shows a warning naming the versions (their validation split and fold are
+  not the same, so the values are not directly comparable).
 - **Python 3.12 or newer.** ActiveLabel now needs Python 3.12 (it was 3.10), the version it is developed
   and tested on; the CI no longer runs a Python 3.10 job.
 
