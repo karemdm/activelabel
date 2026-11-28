@@ -41,8 +41,11 @@ Never point a development server at a workspace that holds data you care about.
 | FiftyOne tests | `python -m pytest -q -m integration` (starts a database of the tests' own; slow) |
 | One file | `python -m pytest tests/activelabel/test_datasets.py -q` |
 
-`pre-commit` runs the file hygiene hooks, ruff, mypy and the fast tests on every commit. Run the checks that cover what you changed
-before you commit, and the whole suite before you open a pull request.
+`pre-commit` runs the file hygiene hooks, ruff and mypy on every commit, and only the tests of the changed files
+(`tests/helpers/changed_tests.py`): the tests that mirror each changed module, the Python tests of the page and the texts
+when those change, and the whole suite when a shared file changes (`conftest.py`, `tests/helpers`, `tests/fixtures`,
+`pyproject.toml`) or with `ACTIVELABEL_HOOK_FULL=1`. The CI runs the whole suite on every pull request, so a test
+broken elsewhere still blocks the merge; run it locally too when a change reaches many modules.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on `main`:
 
@@ -51,7 +54,7 @@ CI (`.github/workflows/ci.yml`) runs on every pull request and on `main`:
 | `checks (<system>, Python <version>)` | ruff, format check, mypy, the fast tests with coverage (at least 80 %) and the command line, from a checkout and a temporary folder whose paths have accents and spaces; Linux and Windows with Python 3.12; macOS (Apple silicon) with 3.12 only after a merge to `main` (and by hand) | yes, except macOS |
 | `FiftyOne tests` | the tests marked `integration`, against a MongoDB service of the job | yes |
 | `package` | builds the wheel, checks its version and files, installs it in a clean environment and fetches the pages of the installed server | yes |
-| `training workers (torch CPU)` | the worker and metric tests with the pinned CPU build of PyTorch; fails if one of them is skipped | yes |
+| `training workers (torch CPU)` | the training test files that need PyTorch, torchvision, timm or scikit-learn (the checks job runs the rest), with the pinned CPU build of PyTorch; fails if one of them is skipped | yes |
 | `ui (node + playwright)` | the JavaScript unit tests and the Playwright smoke tests (see below) | yes |
 
 The macOS job does not run on pull requests (the machines are scarce), so a failure there shows after the merge and

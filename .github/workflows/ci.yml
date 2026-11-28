@@ -153,8 +153,11 @@ jobs:
           python -m pip install $(pinned timm) scikit-learn
           python -c "import torch, torchvision, timm, sklearn; print(torch.__version__, torchvision.__version__, timm.__version__, sklearn.__version__)"
       - name: Worker and metric tests (none may be skipped for a missing package)
+        # only the files that need torch, torchvision, timm or scikit-learn: the checks job already runs the rest
         run: |
-          python -m pytest -q -rs -m "not integration" tests/activelabel/training | tee "$RUNNER_TEMP/pytest.log"
+          files=$(git grep -lE 'importorskip\("(torch|torchvision|timm|sklearn)|worker_loader' -- 'tests/activelabel/training')
+          echo "$files"
+          python -m pytest -q -rs -m "not integration" $files | tee "$RUNNER_TEMP/pytest.log"
           if grep -E "SKIPPED.*(could not import|torch|timm|sklearn|scikit)" "$RUNNER_TEMP/pytest.log"; then
             echo "a training test was skipped for a missing package" >&2
             exit 1

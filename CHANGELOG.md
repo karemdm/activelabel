@@ -13,6 +13,8 @@ the release notes, generated from the merged pull requests and grouped by label 
 
 ### Changed
 
+- **Faster checks (development).** The commit hook runs only the tests of the changed files (the CI still runs the
+  whole suite), and the CI training job runs only the test files that need PyTorch, timm or scikit-learn.
 - **Python 3.12 or newer.** ActiveLabel now needs Python 3.12 (it was 3.10), the version it is developed
   and tested on; the CI no longer runs a Python 3.10 job.
 
