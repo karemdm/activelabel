@@ -71,6 +71,7 @@ WORKER_FILES = {
     "instance": "detection.py",
     "keypoints": "detection.py",
     "semantic": "segmentation.py",
+    "regression": "regression.py",
 }
 #: Worker script of the families that have their own (the others use ``WORKER_FILES`` by kind of task).
 FAMILY_WORKER_FILES = {"ultralytics": "yolo.py"}
@@ -328,6 +329,23 @@ def _objects(
     return out
 
 
+def _values(labels: list[dict[str, Any]], targets: list[str]) -> list[float | None]:
+    """The value of each target in the labels of one image (regression, #619).
+
+    Args:
+        labels: the labels of the image in a dataset version (``label`` and ``value``).
+        targets: the targets of the version, in order.
+
+    Returns:
+        One number per target, None where the image has no value of it (the first value of a target wins).
+    """
+    found: dict[str, float] = {}
+    for lb in labels:
+        if lb.get("value") is not None:
+            found.setdefault(str(lb.get("label")), float(lb["value"]))
+    return [found.get(t) for t in targets]
+
+
 def build_spec(
     project_dir: Path,
     config: RunConfig,
@@ -338,10 +356,12 @@ def build_spec(
 ) -> dict[str, Any]:
     """The ``spec.json`` of the worker: absolute image paths and class indexes.
 
-    Items are ``{"path", "label"}`` for classification and ``{"path", "objects"}`` for the other
-    kinds (``objects``: ``label`` class index plus the label's ``bbox``, ``polygons`` and ``keypoints``);
-    an image without objects is kept as a background image. ``augmentations`` is the resolved list of
-    techniques the worker applies to the training images (a preset level gives its list).
+    Items are ``{"path", "label"}`` for classification, ``{"path", "values"}`` for regression (one number
+    per target, None where the image has no value of it; an image without values is left out) and
+    ``{"path", "objects"}`` for the other kinds (``objects``: ``label`` class index plus the label's
+    ``bbox``, ``polygons`` and ``keypoints``); an image without objects is kept as a background image.
+    ``augmentations`` is the resolved list of techniques the worker applies to the training images (a
+    preset level gives its list).
 
     Args:
         project_dir: folder of the project.
@@ -401,6 +421,11 @@ def build_spec(
                 if own and not objects:
                     unusable.append(image_id)
                 items.append({"path": str(path.resolve()), "objects": objects})
+                continue
+            if model.task_kind == "regression":
+                values = _values(own, classes)
+                if any(v is not None for v in values):
+                    items.append({"path": str(path.resolve()), "values": values})
                 continue
             if not own or own[0].get("label") not in classes:
                 continue

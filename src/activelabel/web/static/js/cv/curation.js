@@ -48,6 +48,8 @@ export function curationPanel(page) {
     query: () => ({ ...uniq.query(), group: noGroup ? NO_GROUP : null, status: view, issue: view === 'active' ? (issue === ANY ? 'any' : issue) : '', emptyText: view === 'excluded' ? t('cur.no_excluded') : t('cur.no_match') }),
     onSelect: (sel) => { countText.textContent = sel.size ? tn('cur.selected', sel.size) : ''; drawToolbar(); },
     onOpen: (items, i) => openLightbox(projectId, items, i),
+    targets: () => (ctx.project && ctx.project.task === 'regression' ? ctx.project.classes : null),
+    onValue: () => refreshProject(),
   });
 
   ctx.curationSelected = () => [...grid.selected];

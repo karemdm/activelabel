@@ -723,8 +723,8 @@ def test_a_regression_project_has_a_float_field_per_target(tmp_path, project):
     shown = {s["image_id"]: (s["ground_truth_age"], s["ground_truth_height"]) for s in dataset}
     assert shown == {"i0": (31.0, 1.75), "i1": (None, None)}
     assert bridge.fields_of(dataset) == {"age": "ground_truth_age", "height": "ground_truth_height"}
-    assert set(dataset.active_label_schemas) == {"ground_truth_age", "ground_truth_height"}
-    assert dataset.label_schemas["ground_truth_age"]["component"] == "text"
+    assert not set(dataset.active_label_schemas) & {"ground_truth_age", "ground_truth_height"}  # view only
+    assert bridge.enable_editing(dataset, project) is False
     assert bridge.edited_images(dataset, ["i0", "i1"], Task.REGRESSION) == set()
 
 

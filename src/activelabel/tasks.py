@@ -28,6 +28,10 @@ class Task(str, Enum):
         }[self]
 
 
+#: Why a regression project has no CVAT: it draws shapes and class tags, it keeps no number per image (#619).
+CVAT_NO_VALUES_MESSAGE = "CVAT keeps shapes and class tags, not a number per image: use a CSV or JSON file."
+
+
 def refuse_regression(task: Task) -> None:
     """Refuse a feature that regression projects do not have yet (sync, FiftyOne, training, pre-annotation).
 

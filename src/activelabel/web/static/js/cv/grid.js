@@ -2,7 +2,7 @@
 import { issueTag } from './names.js';
 import { api } from '../shell/api.js';
 import { el, fill, icon } from '../shell/dom.js';
-import { fmtBytes, nf1, nf2, num, t, tr } from '../shell/i18n.js';
+import { fmtBytes, nf1, nf2, nf4, nfExact, num, parseNumber, t, tr } from '../shell/i18n.js';
 import { toastError } from '../shell/toast.js';
 
 /** A uniqueness score (0 to 1) as the person reads it: two decimals. */
@@ -25,11 +25,66 @@ function filterParams(q, offset, limit) {
   return params;
 }
 
+
+/** A regression value as people read it: up to four decimals, in the decimal sign of the language (#619). */
+export const shown = (value) => nf4.format(value);
+
+/** One value of a regression image on its card: a button that becomes a number field when clicked (Enter or leaving
+ *  the field saves it, Escape cancels, an empty field clears the value). `img.values` is kept up to date. */
+function valueCell(projectId, img, target, saved) {
+  const cell = el('span', { class: 'value-cell' });
+  let leaving = false;   // Enter, Escape or a failed save already settled the field: the blur that follows does nothing
+  const show = () => {
+    const found = (img.values || {})[target];
+    fill(cell, el('button', { type: 'button', class: 'value-btn', title: t('grid.value_edit', { target }), onclick: edit },
+      el('span', { class: 'muted' }, `${target} `), found == null ? el('span', { class: 'muted' }, '—') : shown(found)));
+  };
+  const save = async (text) => {
+    const clear = !text.trim();
+    const number = clear ? null : parseNumber(text);
+    if (!clear && !Number.isFinite(number)) { toastError(t('grid.value_invalid', { target })); return false; }
+    try {
+      const reply = await api('PUT', `/projects/${projectId}/images/${img.id}/values`, { json: { values: { [target]: number } } });
+      img.values = reply.values;
+      if (saved) saved();
+    } catch (err) { toastError(err); }
+    return true;
+  };
+  function edit() {
+    leaving = false;
+    const found = (img.values || {})[target];
+    const field = el('input', { type: 'text', inputmode: 'decimal', class: 'value-input', 'aria-label': t('grid.value_edit', { target }),
+      value: found == null ? '' : nfExact.format(found), autocomplete: 'off' });
+    const finish = async (keep) => {
+      if (leaving) return;
+      leaving = true;
+      if (keep && !(await save(field.value))) { leaving = false; field.focus(); return; }
+      show();
+      cell.querySelector('button').focus();
+    };
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    field.addEventListener('blur', () => { if (!leaving) { leaving = true; save(field.value).then(show); } });
+    fill(cell, el('span', { class: 'muted' }, `${target} `), field);
+    field.focus();
+    field.select();
+  }
+  show();
+  return cell;
+}
+
+/** The values of a regression image on its card, one editable cell per target (nothing for other project types). */
+export const valueLine = (projectId, img, targets, saved) => (targets && targets.length
+  ? el('span', { class: 'thumb-values' }, ...targets.map((target) => valueCell(projectId, img, target, saved)))
+  : null);
+
 /**
  * Paged grid of thumbnails. `query()` returns {status, issue, sort, uniqueBelow, group}. With `selectable`, every card
- * has a checkbox and `selected` (a Set of ids) is kept up to date.
+ * has a checkbox and `selected` (a Set of ids) is kept up to date. In a regression project `targets()` names its targets and
+ * every card shows an editable value for each (#619); `onValue()` is called after one is saved.
  */
-export function imageGrid({ projectId, query, selectable = false, onSelect, onOpen }) {
+export function imageGrid({ projectId, query, selectable = false, onSelect, onOpen, targets = null, onValue }) {
   const showUniqueness = () => !!(query().sort || query().uniqueBelow != null);  // the value on the card only when it is what the grid is about
   const selected = new Set();
   const items = [];
@@ -66,6 +121,7 @@ export function imageGrid({ projectId, query, selectable = false, onSelect, onOp
       box,
       el('div', { class: 'thumb-meta' },
         el('span', { class: 'thumb-name', title: img.name }, img.name),
+        valueLine(projectId, img, targets && targets(), onValue),
         (img.issues || []).length
           ? el('span', { class: 'thumb-tags' }, ...img.issues.map((i) => el('span', { class: `tag tag-${i}`, title: tr(`issue.${i}.help`, '') }, issueTag(i))))
           : null,
@@ -189,6 +245,10 @@ export function openLightbox(projectId, items, index) {
           img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
           (img.classes || []).length ? el('h3', null, t('lightbox.classes')) : null,
           (img.classes || []).length ? el('p', { class: 'thumb-tags' }, ...img.classes.map((c) => el('span', { class: 'chip static' }, c))) : null,
+          Object.keys(img.values || {}).length ? el('h3', null, t('lightbox.values')) : null,
+          Object.keys(img.values || {}).length
+            ? el('dl', { class: 'facts compact' }, ...Object.entries(img.values).map(([k, v]) => el('div', null, el('dt', null, k), el('dd', null, shown(v)))))
+            : null,
           el('h3', null, t('lightbox.issues')),
           (img.issues || []).length
             ? el('p', { class: 'thumb-tags' }, ...img.issues.map((x) => el('span', { class: `tag tag-${x}`, title: tr(`issue.${x}.help`, '') }, issueTag(x))))

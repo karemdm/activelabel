@@ -33,6 +33,24 @@ test('the Annotations step is a hidden panel with its tabs, and it can open pre-
   assert.ok(tabs.includes('selected:preannotate'));
 });
 
+test('a regression project has no CVAT tab, even though the project is read after the panel is built (#619)', () => {
+  const hidden = [];
+  const page = {
+    ctx: { project: null, jobs: [], links: [], panels: {}, watchers: [], syncDismissed: new Set(), syncTool: {} },
+    projectId: 1, refreshProject: async () => true,
+    tabsView: () => ({ node: document.createElement('div'), select: () => {}, hide: (id) => hidden.push(id), current: () => 'summary', setCount: () => {} }),
+    isActive: () => false, jobStarted: async () => {}, startSync: async () => {}, diffView: () => null, issueName: (x) => x,
+    syncBlock: () => ({ node: document.createElement('div'), draw: () => {}, reveal: () => {} }),
+  };
+  const panel = annotationsPanel(page);
+  page.ctx.project = { id: 1, task: 'detection', classes: [], counts: {} };
+  panel.refresh();
+  assert.deepEqual(hidden, [], 'other types keep the CVAT tab');
+  page.ctx.project = { id: 1, task: 'regression', classes: ['age'], counts: {} };
+  panel.refresh();
+  assert.deepEqual(hidden, ['cvat']);
+});
+
 test('the import report comes back after a reload, with one message for the unmatched annotations', async () => {
   setMessages({ 'ann.report_title': 'Check of the files', 'problem.no_images_matched': 'Nothing matches', 'ann.unmatched_other': '{n} unmatched' }, 'en');
   const page = {

@@ -11,11 +11,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from activelabel.datasets import DatasetNotFound, DatasetStore
-from activelabel.errors import CodedError
 from activelabel.jobs import DONE
 from activelabel.projects import Project
 from activelabel.storage import now
-from activelabel.tasks import refuse_regression
 from activelabel.training import augmentations, devices
 from activelabel.training.catalog import (
     COMMON_PARAMS,
@@ -48,8 +46,8 @@ CONFIG_MESSAGES = {
 }
 #: Fields of a stored warning of a run.
 WARNING_KEYS = ("code", "params", "message")
-#: the project types the catalogues answer for; regression has no model yet, so its answers are empty (#619)
-ASKED_TYPES = (*PROJECT_TYPES, "regression")
+#: the project types the catalogues answer for
+ASKED_TYPES = PROJECT_TYPES
 
 router = APIRouter(prefix="/api")
 STATE = Depends(get_state)
@@ -167,13 +165,8 @@ def _checked(state: AppState, project: Project, config: RunConfig) -> RunConfig:
         The configuration, validated and with the dataset fingerprint.
 
     Raises:
-        ApiError: a regression project (``regression_not_supported_yet``), or the dataset or the
-            configuration is not right.
+        ApiError: the dataset or the configuration is not right.
     """
-    try:
-        refuse_regression(project.task)
-    except CodedError as error:
-        raise bad_request(error) from None
     try:
         version = DatasetStore(state.store.dir(project.id)).get(config.dataset)
     except DatasetNotFound:

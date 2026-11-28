@@ -15,7 +15,7 @@ const { setMessages } = await import('../../../src/activelabel/web/static/js/she
 const { imageGrid, openLightbox } = await import('../../../src/activelabel/web/static/js/cv/grid.js');
 
 setMessages({ 'grid.range': '{from}–{to} of {total}', 'grid.empty': 'No images', 'tag.dark': 'Dark', 'lightbox.prev': 'Previous', 'lightbox.next': 'Next',
-  'uniq.value': 'Uniqueness {value}', 'lightbox.uniqueness': 'Uniqueness', 'lightbox.uniqueness_help': '0 is almost the same as another image.' }, 'en');
+  'uniq.value': 'Uniqueness {value}', 'lightbox.uniqueness': 'Uniqueness', 'lightbox.uniqueness_help': '0 is almost the same as another image.', 'grid.value_edit': 'Edit {target}', 'grid.value_invalid': '{target} needs a number.' }, 'en');
 
 const images = (n) => Array.from({ length: n }, (_, i) => ({ id: `i${i}`, name: `img${i}.png`, issues: i === 0 ? ['dark'] : [] }));
 
@@ -122,4 +122,51 @@ test('#667: the value shows on the card only when the grid is sorted or filtered
   box.querySelector('[data-nav="next"]').click();
   assert.doesNotMatch(box.textContent, /Uniqueness/);   // an image without a score shows no value
   box.close();
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('a regression card shows one value per target; click, type and Enter saves it, Escape does not (#619)', async () => {
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (init && init.method === 'PUT') {
+      const sent = JSON.parse(init.body).values;
+      calls.push([url, sent]);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ image_id: 'i0', values: { age: 40.5 } }) };
+    }
+    const item = { id: 'i0', name: 'a.png', issues: [], values: { age: 31 } };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ total: 1, items: [item] }) };
+  };
+  try {
+    const grid = imageGrid({ projectId: 5, query: () => ({}), targets: () => ['age', 'height'] });
+    await grid.reload();
+    const cells = grid.node.querySelectorAll('.value-cell');
+    assert.deepEqual([...cells].map((c) => c.textContent.trim()), ['age 31', 'height —']);
+    cells[0].querySelector('button').click();
+    const field = cells[0].querySelector('input');
+    assert.equal(field.value, '31');
+    field.value = '40.5';
+    field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+    await tick();
+    await tick();
+    assert.deepEqual(calls, [['/api/projects/5/images/i0/values', { age: 40.5 }]]);
+    assert.equal(cells[0].textContent.trim(), 'age 40.5');
+    cells[0].querySelector('button').click();
+    cells[0].querySelector('input').value = '99';
+    cells[0].querySelector('input').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    await tick();
+    assert.equal(calls.length, 1, 'Escape sends nothing');
+    assert.equal(cells[0].textContent.trim(), 'age 40.5');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test('an image of a project without targets has no value cells', async () => {
+  await withImages(1, async () => {
+    const grid = imageGrid({ projectId: 1, query: () => ({}) });
+    await grid.reload();
+    assert.equal(grid.node.querySelectorAll('.value-cell').length, 0);
+  });
 });

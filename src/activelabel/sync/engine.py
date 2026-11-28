@@ -35,6 +35,7 @@ from activelabel.projects import Project, ProjectStore
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject, RemoteTask
+from activelabel.tasks import CVAT_NO_VALUES_MESSAGE, Task
 from activelabel.tasks_store import ImageTask, TaskStore
 from activelabel.tasks_store import jobs as task_jobs
 
@@ -663,6 +664,8 @@ def make_plan(
     if direction not in DIRECTIONS:
         raise SyncError("The direction must be both, pull or push.", "direction_invalid")
     project = store.get(project_id)
+    if project.task is Task.REGRESSION:  # CVAT draws shapes and tags: it keeps no number per image (#619)
+        raise SyncError(CVAT_NO_VALUES_MESSAGE, "cvat_not_for_regression")
     project_dir = store.dir(project_id)
     manifest = Manifest(project_dir)
     local_tasks = TaskStore(project_dir).load()

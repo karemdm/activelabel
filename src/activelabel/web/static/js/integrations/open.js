@@ -85,17 +85,18 @@ export function cvatOpenRow({ link, configured, task, job, gone = false }) {
 }
 
 /** The one button of the FiftyOne tab (#699): "Edit in FiftyOne" sends the images chosen (all, by default) and opens
- *  the App; a keypoints project, which the App cannot edit, gets "Open in FiftyOne" to look, with the reason on one
+ *  the App; a keypoints project, which the App cannot edit (or a regression project, whose values are edited in ActiveLabel), gets "Open in FiftyOne" to look, with the reason on one
  *  line; without images or without FiftyOne the button says why not.
  *  `page` is the project page; `edit` sends the images and opens the App (it brings its own new tab) and `count` is
  *  how many images it sends. */
 export function fiftyoneOpenRow(page, { edit = () => openInFiftyOne(page), count = 0 } = {}) {
   const reason = fiftyoneReason(page.ctx.project);
-  const keypoints = page.ctx.project && page.ctx.project.task === 'keypoints';
+  const kind = page.ctx.project && page.ctx.project.task;
+  const keypoints = kind === 'keypoints' || kind === 'regression';   // the App only shows them (#619 for values)
   const missing = reason === 'open.fo_not_installed';
   const go = () => (sayFiftyoneMissing() ? null : (keypoints ? openInFiftyOne(page) : edit()));
   const label = keypoints ? t('open.fo_view', { tool: toolName('fiftyone') }) : t('open.fo_edit', { tool: toolName('fiftyone') });
-  const help = reason || (keypoints ? 'open.fo_keypoints' : null);
+  const help = reason || (keypoints ? (kind === 'regression' ? 'open.fo_regression' : 'open.fo_keypoints') : null);
   return el('div', { class: 'open-row' },
     /* without FiftyOne: dimmed, not disabled, so a tap says how to install it (#675); without images: disabled */
     fiftyoneButton(el('button', { type: 'button', class: `btn primary big${missing ? ' is-unavailable' : ''}`, id: 'fo-open',

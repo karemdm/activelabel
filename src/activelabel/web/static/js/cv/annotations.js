@@ -13,6 +13,8 @@ import { problemRow } from '../shell/widgets.js';
 
 export function annotationsPanel(page) {
   const { ctx, projectId, refreshProject, tabsView } = page;
+  /* numbers per image: CVAT has no place for them, so a regression project has no CVAT tab (#619); the project is read after the panels are built */
+  const isRegression = () => !!ctx.project && ctx.project.task === 'regression';
   const node = el('section', { class: 'panel', id: 'panel-annotations', hidden: true, 'aria-labelledby': 'h-annotations' });
   const panel = { node, mounted: false };
   const fileInput = el('input', { type: 'file', multiple: true, class: 'sr-only', id: 'ann-input', tabindex: '-1' });
@@ -266,7 +268,7 @@ export function annotationsPanel(page) {
     if (!images && !labels && !emptyImages) {
       const way = (tab, key) => el('li', null, el('button', { type: 'button', class: 'btn small', onclick: () => annTabs.select(tab, true) }, t(`ann.way_${key}`)), el('span', { class: 'muted' }, t(`ann.way_${key}_help`)));
       fill(gtBox, el('h3', null, t('ann.current')), el('p', { class: 'muted' }, t('ann.current_none')), waitingNote,
-        el('ul', { class: 'ann-ways' }, way('cvat', 'cvat'), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
+        el('ul', { class: 'ann-ways' }, ...(isRegression() ? [] : [way('cvat', 'cvat')]), way('fiftyone', 'fiftyone'), way('files', 'files'), way('preannotate', 'model')));
       return;
     }
     const tile = (label, value, extra = '') => el('div', { class: `stat-tile${extra}` }, el('dd', null, num(value)), el('dt', null, label));
@@ -324,8 +326,9 @@ export function annotationsPanel(page) {
   add(node,
     el('h2', { id: 'h-annotations' }, t('step.annotations')),
     annTabs.node);
-  panel.mount = () => { loadGt(); loadVideoTasks(); loadPending(); annotate.mount(); };
-  panel.refresh = () => { loadGt(); loadVideoTasks(); annotate.refresh(); };
+  const placeTabs = () => { if (isRegression()) annTabs.hide('cvat'); };
+  panel.mount = () => { placeTabs(); loadGt(); loadVideoTasks(); loadPending(); annotate.mount(); };
+  panel.refresh = () => { placeTabs(); loadGt(); loadVideoTasks(); annotate.refresh(); };
   panel.show = annotate.show;
   /* a finished activity opens the tab it belongs to, then its card */
   panel.preannotateWith = (number) => { pre.choose(number); annTabs.select('preannotate'); };

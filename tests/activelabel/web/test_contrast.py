@@ -163,3 +163,26 @@ def test_task_colours_stay_apart(first: str, second: str, theme: int):
     colours. The colour is never the only carrier: the type badge has the icon and the name."""
     distance = math.dist(_lab(TOKENS[first][theme]), _lab(TOKENS[second][theme]))
     assert distance >= 20, f"--{first} and --{second} are only {distance:.1f} apart"
+
+
+def _hue(colour: str) -> float:
+    """CIELAB hue angle of a ``#rrggbb`` colour, in degrees from 0 to 360.
+
+    Args:
+        colour: the colour as ``#rrggbb``.
+
+    Returns:
+        The hue angle of its (a*, b*) coordinates.
+    """
+    _, a, b = _lab(colour)
+    return math.degrees(math.atan2(b, a)) % 360
+
+
+@pytest.mark.parametrize(("first", "second"), list(itertools.combinations(TASK_ACCENTS, 2)))
+@pytest.mark.parametrize("theme", THEMES, ids=("light", "dark"))
+def test_task_colours_are_in_different_hue_families(first: str, second: str, theme: int):
+    """A distance in lightness and chroma is not enough to tell two colours apart at a glance: the hue angles
+    of two task types are 38 degrees or more apart (violet detection and magenta segmentation were 37)."""
+    gap = abs(_hue(TOKENS[first][theme]) - _hue(TOKENS[second][theme]))
+    gap = min(gap, 360 - gap)
+    assert gap >= 38, f"--{first} and --{second} are only {gap:.0f} degrees of hue apart"

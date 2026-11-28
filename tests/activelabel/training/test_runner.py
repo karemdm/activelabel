@@ -4,14 +4,17 @@ import time
 from pathlib import Path
 
 import pytest
+from api_client import make_client, upload
+from sample_images import make_image
 from training_fakes import FakeEnv, finished, tmp_dirs, wait_for
 
 from activelabel.datasets import DatasetStore
 from activelabel.images.manifest import Manifest
 from activelabel.jobs import CANCELLED, QUEUED
-from activelabel.labels import Label
+from activelabel.labels import AnnotationSet, Label, save_annotations
 from activelabel.preannotate import PreannotationStore
 from activelabel.scheduler import Scheduler
+from activelabel.tasks import Task
 from activelabel.training import runner as runner_module
 from activelabel.training.augmentations import preset
 from activelabel.training.catalog import get_model
@@ -975,3 +978,37 @@ def test_build_spec_refuses_images_missing_or_changed_on_disk_with_a_code(setup)
     assert (info.value.code, info.value.params) == ("dataset_images_missing", {"count": 1})
     path.write_bytes(original)
     assert build_spec(project_dir, RunConfig(dataset=1, model="resnet18"), model, run_dir, version)
+
+
+def test_build_spec_of_a_regression_model_gives_the_values_of_each_target(tmp_path):
+    """#619: one number per target (None where missing); an image without values is left out."""
+    client, state = make_client(tmp_path)
+    made = client.post("/api/projects", json={"name": "R", "task": "regression", "classes": ["age", "h"]})
+    assert made.status_code == 200
+    paths = [make_image(tmp_path / "src" / f"{k}.png", seed=k, fmt="PNG") for k in range(30)]
+    assert upload(client, 1, paths).status_code == 200
+    ids = [r.id for r in state.manifest(1).all()]
+    images = {
+        i: [Label("age", value=float(k))] + ([Label("h", value=1.5)] if k % 2 else [])
+        for k, i in enumerate(ids)
+    }
+    save_annotations(state.store.dir(1), AnnotationSet(Task.REGRESSION, ["age", "h"], images, {}))
+    assert client.post("/api/projects/1/datasets", json={}).status_code == 200
+    project_dir = state.store.dir(1)
+    model = get_model("reg_resnet18")
+    spec = build_spec(
+        project_dir,
+        RunConfig(dataset=1, model="reg_resnet18"),
+        model,
+        project_dir / "runs" / "r1",
+        DatasetStore(project_dir).read(1),
+    )
+    assert spec["task"] == "regression" and spec["metric"] == "rmse" and spec["lower_is_better"] is True
+    assert spec["model"] == "resnet18" and spec["classes"] == ["age", "h"]
+    rows = [i["values"] for p in spec["parts"].values() for i in p]
+    assert len(rows) == 30 and all(r[0] is not None and r[1] in (None, 1.5) for r in rows)
+    assert {"random_resized_crop", "mixup"}.isdisjoint(t["name"] for t in spec["augmentations"])
+    checked = validate(
+        RunConfig.from_dict({"dataset": 1, "model": "reg_resnet18", "metric": "r2"}), "regression"
+    )
+    assert checked.metric == "r2"

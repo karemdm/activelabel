@@ -4,8 +4,7 @@ import pytest
 from api_client import make_client, upload
 from sample_images import make_image
 
-from activelabel.annotate.base import ToolSettings
-from activelabel.web import import_api
+from activelabel.sync.engine import SyncError, make_plan
 
 CODE = "regression_not_supported_yet"
 
@@ -19,9 +18,9 @@ def regression(tmp_path):
     return client, state
 
 
-def _refused(response):
+def _refused(response, code=CODE):
     assert response.status_code == 400, response.text
-    assert response.json()["code"] == CODE
+    assert response.json()["code"] == code
 
 
 def test_a_regression_project_is_created_with_its_targets(regression):
@@ -36,31 +35,34 @@ def test_data_split_needs_values(regression):
     assert answer.status_code == 400 and answer.json()["code"] == "nothing_to_split"  # no value yet
 
 
-def test_training_is_refused(regression):
-    client, _ = regression
-    _refused(client.post("/api/projects/1/runs", json={"dataset": 1, "model": "resnet18"}))
-
-
 def test_pre_annotation_is_refused(regression):
     client, _ = regression
     _refused(client.post("/api/projects/1/preannotations", json={"task": 1, "model": 1}))
 
 
-def test_the_catalogues_answer_without_models(regression):
+def test_the_catalogues_offer_regression_models_and_augmentations(regression):
     client, _ = regression
-    assert client.get("/api/training/catalog", params={"type": "regression"}).json()["models"] == []
-    assert client.get("/api/training/augmentations", params={"type": "regression"}).json()["kinds"] == {}
+    models = client.get("/api/training/catalog", params={"type": "regression"}).json()["models"]
+    assert models and all(m["id"].startswith("reg_") and m["task_kind"] == "regression" for m in models)
+    kinds = client.get("/api/training/augmentations", params={"type": "regression"}).json()["kinds"]
+    names = {t["name"] for t in kinds["regression"]["techniques"]}
+    assert "hflip" in names and not {"random_resized_crop", "mixup", "cutmix", "random_erasing"} & names
 
 
-def test_importing_a_cvat_task_outside_a_project_as_regression_is_refused(regression, monkeypatch):
+def test_the_cvat_synchronisation_is_refused(regression):
+    _, state = regression
+    with pytest.raises(SyncError) as caught:
+        make_plan(state.store, 1, "cvat", None, None, None)  # type: ignore[arg-type]
+    assert getattr(caught.value, "code", "") == "cvat_not_for_regression"
+
+
+def test_importing_from_cvat_as_a_regression_project_is_refused(regression):
     client, _ = regression
-    monkeypatch.setattr(
-        import_api, "_settings", lambda state, tool: ToolSettings("cvat", "https://cvat.test")
-    )
-    monkeypatch.setattr(
-        import_api.IMPORTERS["cvat"],
-        "check_remote",
-        lambda s, k, r: {"name": "t", "classes": [], "project_id": None},
-    )
-    body = {"tool": "cvat", "kind": "task", "remote_id": 1, "name": "x", "task": "regression"}
-    _refused(client.post("/api/import", json=body))
+    body = {"tool": "cvat", "kind": "project", "remote_id": 1, "name": "x", "task": "regression"}
+    _refused(client.post("/api/import", json=body), "cvat_not_for_regression")
+
+
+def test_the_pre_annotation_overview_offers_no_model_to_a_regression_project(regression):
+    client, _ = regression
+    answer = client.get("/api/projects/1/preannotations").json()
+    assert answer["models"] == [] and answer["runs"] == []
