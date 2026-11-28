@@ -67,6 +67,21 @@
   --group-6: light-dark(#a16207, #fde047);
   --group-7: light-dark(#be123c, #fda4af);
   --group-8: light-dark(#4d7c0f, #bef264);
+  /* classes of a project in the image viewer (#339): the place of the class in the project's list picks one; strong
+     on a photo in both themes (white-edged marks) */
+  --cls-1: light-dark(#d62728, #ff6b6b);
+  --cls-2: light-dark(#1f77b4, #5eb3ff);
+  --cls-3: light-dark(#2ca02c, #5fdc6e);
+  --cls-4: light-dark(#ff7f0e, #ffa94d);
+  --cls-5: light-dark(#9467bd, #c4a1ff);
+  --cls-6: light-dark(#17becf, #4ee3f2);
+  --cls-7: light-dark(#e377c2, #ff8fd8);
+  --cls-8: light-dark(#8c6d1f, #e6c84a);
+  --cls-9: light-dark(#0b3d91, #8aa4ff);
+  --cls-10: light-dark(#7f7f7f, #c4c9d1);
+  --mark-edge: white;   /* the edge of marks on a photo, in both themes */
+  --mark-ink: black;
+  --cls-none: light-dark(#4b5563, #d1d5db);
   --group-none: light-dark(#6b7280, #a3acb9);  /* images the map left without a group (HDBSCAN noise): neutral */
   /* only overlays (dialogs, menus, toasts, the activities pill) float; cards are flat with a 1px border */
   --shadow: 0 8px 28px light-dark(rgba(20, 30, 50, 0.14), rgba(0, 0, 0, 0.55)), 0 1px 3px light-dark(rgba(20, 30, 50, 0.08), transparent);
@@ -464,7 +479,7 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .chip-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 36px; padding: 0.2rem 0.8rem; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
 .chip-btn:hover:not(:disabled) { background: var(--surface-2); }
 .chip-btn:disabled { opacity: 0.5; cursor: not-allowed; }   /* a filter no image has (count 0) */
-.chip-btn.active { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.chip-btn.active:hover:not(:disabled), .chip-btn.active { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .chip-btn.active .count { background: transparent; color: var(--primary-text); border-color: var(--primary-text); }
 .tabs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-2); }
 .tab { border: 0; background: var(--surface); color: var(--text); font: inherit; padding: 0.4rem var(--space-4); cursor: pointer; font-weight: 600; min-height: 38px; }
@@ -523,7 +538,31 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 .lightbox { max-width: min(1100px, calc(100vw - 1.5rem)); max-height: calc(100vh - 1.5rem); }
 .lightbox-body { display: grid; grid-template-columns: 1fr 260px; gap: var(--space-4); padding: var(--space-4); max-height: calc(100vh - 2rem); overflow: auto; }
 .lightbox-stage { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-width: 0; background: var(--surface-2); border-radius: var(--radius-sm); padding: var(--space-2); }
-.lightbox-stage img { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; min-width: 0; }
+.lb-frame { position: relative; display: flex; min-width: 0; max-width: 100%; }
+.lb-frame img { display: block; max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; min-width: 0; }
+/* the annotations: a layer the size of the drawn image (placed by JS), so shapes in percent match the pixels */
+.lb-host { position: absolute; pointer-events: none; }
+.lb-host.is-off { display: none; }
+.lb-layer, .lb-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lb-shape { fill: color-mix(in srgb, var(--c) 18%, transparent); stroke: var(--c); stroke-width: 2.5; paint-order: stroke; }
+.lb-shape.is-pre { stroke-dasharray: 7 4; fill: transparent; }
+.lb-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--c); border: 2px solid var(--mark-edge); box-shadow: 0 0 0 1px var(--mark-ink); box-sizing: border-box; }
+.lb-dot.is-hidden { background: transparent; border-color: var(--c); box-shadow: 0 0 0 1px var(--mark-edge); }
+.lb-dot.is-pre { border-radius: 2px; }
+.lb-chip { position: absolute; transform: translateY(-100%); max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 0.3rem; font-size: 0.75rem; line-height: 1.3; font-weight: 600; background: var(--c); color: var(--mark-ink); border: 1px solid var(--mark-edge); border-radius: 3px; }
+.lb-chip.is-low { transform: none; }
+.lb-chip.is-right { transform: translate(-100%, -100%); }
+.lb-chip.is-low.is-right { transform: translateX(-100%); }
+.lb-chip.is-pre { border-style: dashed; }
+.lb-corner { position: absolute; top: 0.4rem; left: 0.4rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+.lb-chip.static { position: static; transform: none; max-width: none; font-size: 0.85rem; padding: 0.1rem 0.5rem; }
+.lb-annots-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.lb-annots-head h3 { margin: 0; }
+.lb-legend { list-style: none; margin: var(--space-2) 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.lb-legend li { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; min-width: 0; }
+.lb-legend-name { overflow-wrap: anywhere; font-weight: 600; }
+.lb-swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; background: var(--c); border: 1px solid var(--border); }
+.tag-pre { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
 .lightbox-actions { margin: var(--space-2) 0; }
 .lightbox-actions .btn { width: 100%; justify-content: center; }
 .similar-line { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
@@ -546,6 +585,9 @@ dialog::backdrop { background: rgba(10, 14, 20, 0.6); }
 /* ---- small screens ---- */
 @media (max-width: 760px) {
   .lightbox-body { grid-template-columns: 1fr; }
+  /* the image takes the whole width; the two arrows go under it (#339) */
+  .lightbox-stage { flex-wrap: wrap; justify-content: space-between; }
+  .lightbox-stage .lb-frame { order: -1; flex: 1 0 100%; justify-content: center; }
   .brand span { display: none; }
   .topbar-inner { gap: var(--space-2); }
   .thumb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }

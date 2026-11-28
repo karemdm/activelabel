@@ -211,3 +211,24 @@ test('#613: the grid asks for the images similar to one, and the lightbox offers
   assert.deepEqual(chosen, ['i1']);
   assert.equal(box.hasAttribute('open'), false);
 });
+
+test('#339: the lightbox reads the labels of each image it shows, once, and draws them over the image', async () => {
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    asked.push(url);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ labels: [{ label: 'cat', bbox: [0.1, 0.1, 0.4, 0.4] }], classes: ['cat'], revision: 'r', tags: [] }) };
+  };
+  setMessages({ 'lightbox.annots': 'Annotations', 'lightbox.annot_show': 'Show annotations' }, 'en');
+  try {
+    openLightbox(3, images(2), 0);
+    const box = document.querySelector('dialog.lightbox');
+    await tick(); await tick();
+    assert.deepEqual(asked, ['/api/projects/3/images/i0/labels']);
+    assert.ok(box.querySelector('.lb-frame img') && box.querySelector('.lb-host rect'));
+    box.querySelector('[data-nav="next"]').click();
+    await tick(); await tick();
+    assert.deepEqual(asked, ['/api/projects/3/images/i0/labels', '/api/projects/3/images/i1/labels']);
+    box.close();
+  } finally { globalThis.fetch = real; }
+});

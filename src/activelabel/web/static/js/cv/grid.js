@@ -4,6 +4,7 @@ import { api } from '../shell/api.js';
 import { el, fill, icon } from '../shell/dom.js';
 import { fmtBytes, nf1, nf2, nf4, nfExact, num, parseNumber, t, tr } from '../shell/i18n.js';
 import { toastError } from '../shell/toast.js';
+import { followImage, mountAnnotations } from './viewer_labels.js';
 
 /** A uniqueness score (0 to 1) as the person reads it: two decimals. */
 const score = (value) => nf2.format(value);
@@ -229,17 +230,21 @@ export function openLightbox(projectId, items, index, { edit = null, similar = n
     lightbox.addEventListener('click', (e) => { if (e.target === lightbox) lightbox.close(); });
   }
   let i = index;
+  let reading = null;  // the request for the labels of the image shown: one per image opened
   const go = (step) => { i += step; draw(step < 0 ? 'prev' : 'next'); };
   /* `focus` names the button that was used: the body is rebuilt, so focus is put back on it (or on the other
      one at the ends) and the arrow keys, which listen on the dialog, keep working */
   function draw(focus = null) {
     const img = items[i];
     const metrics = Object.entries(img.metrics || {}).filter(([, v]) => typeof v === 'number');
+    const photo = el('img', { src: `/api/projects/${projectId}/images/${img.id}/file`, alt: img.name });
+    const host = el('div', { class: 'lb-host' });   // the annotations, over the image (#339)
+    const annots = el('div', { class: 'lb-annots', 'aria-live': 'polite' });
     fill(lightbox,
       el('div', { class: 'lightbox-body' },
         el('div', { class: 'lightbox-stage' },
           el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.prev'), 'data-nav': 'prev', disabled: i === 0, onclick: () => go(-1) }, '‹'),
-          el('img', { src: `/api/projects/${projectId}/images/${img.id}/file`, alt: img.name }),
+          el('div', { class: 'lb-frame' }, photo, host),
           el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.next'), 'data-nav': 'next', disabled: i >= items.length - 1, onclick: () => go(1) }, '›')),
         el('aside', { class: 'lightbox-side' },
           el('div', { class: 'lightbox-head' },
@@ -260,6 +265,7 @@ export function openLightbox(projectId, items, index, { edit = null, similar = n
             ? el('p', { class: 'muted small' }, t('lightbox.distance', { d: nf1.format(img.distance * 100) }))
             : null,
           img.width ? el('p', { class: 'muted' }, `${img.width} × ${img.height} px · ${fmtBytes(img.size_bytes || 0)}`) : null,
+          annots,
           img.status === 'excluded' ? el('p', null, el('span', { class: 'tag tag-excluded' }, t('grid.excluded')), img.excluded_reason ? ` ${img.excluded_reason}` : '') : null,
           (img.classes || []).length ? el('h3', null, t('lightbox.classes')) : null,
           (img.classes || []).length ? el('p', { class: 'thumb-tags' }, ...img.classes.map((c) => el('span', { class: 'chip static' }, c))) : null,
@@ -279,6 +285,9 @@ export function openLightbox(projectId, items, index, { edit = null, similar = n
           metrics.length
             ? el('dl', { class: 'facts compact' }, ...metrics.map(([k, v]) => el('div', null, el('dt', null, tr(`metric.${k}`, k)), el('dd', null, nf1.format(v)))))
             : null)));
+    followImage(photo, host, { w: img.width, h: img.height });
+    if (reading) reading.abort();
+    reading = mountAnnotations(projectId, img.id, host, annots);
     if (focus) {
       const target = [focus, focus === 'prev' ? 'next' : 'prev'].map((k) => lightbox.querySelector(`[data-nav="${k}"]:not(:disabled)`)).find(Boolean);
       (target || lightbox.querySelector('.icon-btn')).focus();
@@ -286,6 +295,7 @@ export function openLightbox(projectId, items, index, { edit = null, similar = n
   }
   draw();
   if (!lightbox.open) lightbox.showModal();
+  lightbox.onclose = () => { if (reading) reading.abort(); };
   lightbox.onkeydown = (e) => {
     if (e.key === 'ArrowLeft' && i > 0) go(-1);
     if (e.key === 'ArrowRight' && i < items.length - 1) go(1);

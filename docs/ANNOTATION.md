@@ -34,6 +34,14 @@ disabled, with the reason written under it, while *View in FiftyOne* stays (docs
 straight on it, in Annotate mode (the session link carries `?id=<sample>`, `fiftyone_bridge.with_sample`).
 A keypoints project does not get the button.
 
+**Seeing the annotations in the viewer.** The same window draws the image's annotations over it (read-only; editing
+stays in CVAT and FiftyOne): boxes, polygons, keypoints (a hidden point is hollow) and, in a classification project, the
+class in the corner. Each class has a colour from the project's class list (its place in the list, the same in every
+image); the panel lists the classes with how many, and *Show annotations* turns the drawing off (remembered).
+Pre-annotations not reviewed yet are dashed and carry their confidence ("cat 87%"), so they are told apart from
+ground truth. The window reads the labels with one request per image (`GET .../labels`). A skeleton (the lines
+between keypoints) is not drawn: the project does not store one.
+
 **Back to the project in one click.** The App has *Send to ActiveLabel* (*Enviar ao ActiveLabel*) in the image
 window's toolbar (no dialog) and in the grid toolbar (with a dialog to pick the session). It reads the edits
 back (`pull?apply=auto`) and applies them at once when nothing needs a look: no shape that cannot be read,
