@@ -44,6 +44,9 @@ the release notes, generated from the merged pull requests and grouped by label 
   that is taken, empty, too long) is said once, under the name field, which is marked invalid, instead of three stacked
   messages, and the chosen files wait for another name. *Pre-annotate* with no saved model sends the person to
   Training, not to Models, when the catalogue has no public model for the project type.
+- **Finished video task (#264).** The job that makes a task from a video ends at "n of n" frames, not "n-1 of n". The
+  other items of #264 already worked: the 404 page for unknown addresses, the names of a repeated image (kept as
+  aliases for importing annotations) and the translated suggestions (cÃ£o to dog) in the mapping of a public model.
 
 ### Fixed
 
