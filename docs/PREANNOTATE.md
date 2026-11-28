@@ -14,7 +14,8 @@ be one of the project's models (step 6, docs/TRAINING.md): a training saved as a
 
 1. **Pre-annotate with a model** (*Pré-anotar com um modelo*): model (the current one by default; only the
    models that can pre-annotate this project are listed, and a model saved with an architecture this version no
-   longer offers is shown disabled as *unavailable*), task (the newest one with images without annotations by
+   longer offers is shown disabled as *unavailable*; each entry is short, `m1 (Current) · name`, and the result of the
+   chosen model, such as its mAP50-95, is said in a line under the list), task (the newest one with images without annotations by
    default), which images (*Without annotations* or *Not reviewed*, that is, pre-annotated and not reviewed;
    each with its count, and a choice with no image is disabled) and the device; one button, which says how many
    images it will pre-annotate. Above the button, one folded line, *Pre-annotation settings* (*Ajustes da

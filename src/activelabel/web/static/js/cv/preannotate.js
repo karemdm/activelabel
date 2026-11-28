@@ -10,6 +10,14 @@ import { toast, toastError } from '../shell/toast.js';
 /* A saved model suggests labels for new images; a person reviews them in CVAT or FiftyOne.
    Three blocks, in the order of the work: pre-annotate, to review, history. */
 
+/** The text of a model in the model list: its number and "Current" come first, so a narrow list that cuts the end
+ *  of a long name still tells the models apart; the result of the model is said under the list (#338).
+ *  @param {{number: number, label: string, current?: boolean}} m A saved model.
+ *  @returns {string} For example "m1 (Current) · Faster R-CNN MobileNetV3 FPN". */
+export function modelOptionText(m) {
+  return [m.current ? `m${m.number} (${t('md.current')})` : `m${m.number}`, m.label].filter(Boolean).join(' · ');
+}
+
 /** The pre-annotation tab. `hooks` are the callbacks of the Annotations step: `changed()` after a run ends or
  *  is accepted, `reviewCvat(taskId)` and `reviewFiftyone()`. Returns {node, load, choose}. */
 export function preannotateBlock(page, hooks) {
@@ -108,9 +116,9 @@ export function preannotateBlock(page, hooks) {
     const running = (data.runs || []).find(ACTIVE);
     /* a saved model this version no longer knows is listed, disabled, and says why */
     const gone = (data.models || []).filter((m) => m.missing);
-    const modelSel = el('select', { id: 'pre-model', class: 'tr-select', 'aria-describedby': gone.length ? 'pre-model-hint' : null, onchange: (e) => { form.model = Number(e.target.value); form.query = ''; draw(true); } },
+    const modelSel = el('select', { id: 'pre-model', class: 'tr-select', 'aria-describedby': [model && model.value != null ? 'pre-model-detail' : null, gone.length ? 'pre-model-hint' : null].filter(Boolean).join(' ') || null, onchange: (e) => { form.model = Number(e.target.value); form.query = ''; draw(true); } },
       ...models.map((m) => el('option', { value: String(m.number), selected: m.number === form.model },
-        [`m${m.number}`, m.label, m.value != null ? `${metricName(m.metric)} ${nf3.format(m.value)}` : null, m.current ? t('md.current') : null].filter(Boolean).join(' · '))),
+        modelOptionText(m))),
       ...gone.map((m) => el('option', { value: String(m.number), disabled: true }, `m${m.number} · ${m.label} · ${t('pre.model_missing')}`)));
     const taskSel = el('select', { id: 'pre-task', class: 'tr-select', onchange: (e) => { form.task = Number(e.target.value); draw(true); } },
       ...tasks.map((x) => el('option', { value: String(x.id), selected: x.id === form.task }, `${x.name} · ${tn('pre.task_unlabeled', x.unlabeled)}`)));
@@ -125,7 +133,9 @@ export function preannotateBlock(page, hooks) {
       el('h3', { id: 'pre-h-form' }, t('pre.form_title')),
       el('p', { class: 'muted' }, t('pre.form_intro')),
       el('div', { class: 'pre-form' },
-        el('div', { class: 'field' }, el('label', { for: 'pre-model' }, t('pre.model')), modelSel, gone.length ? el('p', { class: 'hint', id: 'pre-model-hint' }, t('pre.model_missing_hint')) : null),
+        el('div', { class: 'field' }, el('label', { for: 'pre-model' }, t('pre.model')), modelSel,
+          model && model.value != null ? el('p', { class: 'hint', id: 'pre-model-detail' }, t('pre.model_result', { metric: metricName(model.metric), value: nf3.format(model.value) })) : null,
+          gone.length ? el('p', { class: 'hint', id: 'pre-model-hint' }, t('pre.model_missing_hint')) : null),
         el('div', { class: 'field' }, el('label', { for: 'pre-task' }, t('pre.task')), taskSel),
         el('fieldset', { class: 'field pre-scope' }, el('legend', null, t('pre.images')),
           el('div', { class: 'seg' }, scopeOpt('unlabeled', t('pre.scope_unlabeled'), task ? task.unlabeled : 0), scopeOpt('unreviewed', t('pre.scope_unreviewed_short'), task ? task.unreviewed : 0))),

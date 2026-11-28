@@ -7,7 +7,7 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
   Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
-const { preannotateBlock } = await import('../../../src/activelabel/web/static/js/cv/preannotate.js');
+const { modelOptionText, preannotateBlock } = await import('../../../src/activelabel/web/static/js/cv/preannotate.js');
 
 setMessages({ 'pre.none_supported': 'No model can pre-annotate this project yet', 'pre.regression_later': 'Pre-annotation for regression is coming later.' }, 'en');
 
@@ -61,5 +61,19 @@ test('the confidence field counts its steps from a multiple of the step, and "no
   const said = [...pre.node.querySelectorAll('.pre-note')].filter((p) => p.textContent.includes('Choose at least one class'));
   assert.equal(said.length, 1);
   assert.equal(said[0].id, 'pre-set-problem');   // the disabled Start button points to it
+  pre.node.remove();
+});
+
+test('the model list is short and the result of the chosen model is said under it (#338)', async () => {
+  setMessages({ 'md.current': 'Current', 'pre.model_result': 'Result of this model: {metric} {value}', 'tr.metric.map50_95': 'mAP50-95' }, 'en');
+  const model = { number: 1, supported: true, current: true, label: 'Faster R-CNN MobileNetV3 FPN', kind: 'detection', metric: 'map50_95', value: 0.357, options: [], classes: [] };
+  assert.equal(modelOptionText(model), 'm1 (Current) · Faster R-CNN MobileNetV3 FPN');
+  assert.equal(modelOptionText({ number: 2, label: 'YOLO26 m' }), 'm2 · YOLO26 m');
+  const pre = preannotateBlock({ projectId: 5 }, { changed: () => {}, reviewCvat: () => {}, reviewFiftyone: () => {} });
+  document.body.appendChild(pre.node);
+  await withApi({ models: [model], runs: [] }, () => pre.load());
+  assert.equal(pre.node.querySelector('#pre-model option').textContent, 'm1 (Current) · Faster R-CNN MobileNetV3 FPN');
+  assert.equal(pre.node.querySelector('#pre-model-detail').textContent, 'Result of this model: mAP50-95 0.357');
+  assert.match(pre.node.querySelector('#pre-model').getAttribute('aria-describedby'), /pre-model-detail/);
   pre.node.remove();
 });
