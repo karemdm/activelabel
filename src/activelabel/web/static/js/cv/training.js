@@ -1,7 +1,7 @@
 /* Step 5, Training: the runs of the project (list, progress, charts, detail), the new-run dialog (family,
  * architecture and size of the model, hyperparameters, grid search), comparing the chosen runs and saving a run as a model. */
 import { compareBar, compareCheck, compareTable } from './compare.js';
-import { staleCount } from './datasets.js';
+import { realSplitText, staleCount } from './datasets.js';
 import { defaultModel, largeForCpu, modelName, modelPicker } from './model_picker.js';
 import { deviceName } from './names.js';
 import { api, errorParams, jobFailure } from '../shell/api.js';
@@ -477,7 +477,7 @@ export function trainingPanel(page) {
 
     // data
     const datasetSel = sel('tr-dataset', ...versions.map((v) => el('option', { value: String(v.version) },
-      [`v${v.version}`, fmtDateTime(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : null, v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
+      [`v${v.version}`, fmtDateTime(v.created), foldCount(v) ? t('ds.kfold_short', { k: foldCount(v) }) : realSplitText(v), v.note && String(v.note).trim().toLowerCase() !== `v${v.version}` ? String(v.note).slice(0, 40) : null].filter(Boolean).join(' · '))));
     datasetSel.value = String(st.dataset);
     const foldSel = sel('tr-fold');
     const foldField = el('div', { class: 'field', hidden: true }, el('label', { for: 'tr-fold' }, t('tr.fold')), foldSel);

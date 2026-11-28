@@ -256,12 +256,12 @@ delete button.
 
 The *New version* form has: tasks, split percentages as number inputs (no sliders; editing one adjusts the
 others so the total stays 100) or K-fold with its test percentage, a background switch (not offered for
-classification), a note, and under *Advanced*: seed, videos mode (**Dividir em trechos distantes quando
+classification), a note (up to 1000 characters), and under *Advanced*: seed, videos mode (**Dividir em trechos distantes quando
 necessário**, "cut into distant segments when needed" = `auto`; **Manter sempre inteiros**, "always keep whole" =
-`whole`) and the safety gap. The live preview below it
+`whole`) and the safety gap. The *New training* dialog shows next to each version the split it really got (for example 60/28/12 %), which can differ from what was asked when groups of images stay together. The live preview below it
 shows the part bar, the class table, the warnings and the `video_split` information in a neutral style (a small
 neutral badge "video in N segments" on the version card). A form that cannot be sent says why (no task chosen,
-a percentage outside 0–100, a total different from 100, a seed that is not a whole number, a gap of 0 with the
+a percentage that is not a whole number from 0 to 100 (70.5 is refused, not cut to 70), a total different from 100, a seed that is not a whole number from 0 to 4294967295, a gap of 0 with the
 switch on, K above the largest the data allow).
 
 When a hold-out version would have no training or no validation images, the preview says so and offers a

@@ -18,6 +18,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   that is already in ActiveLabel is refused at once with `cvat_already_imported` (409) instead of failing inside the
   job; and `images_rejected` of a project import now counts the frames that are not readable images (with a warning)
   instead of always being 0.
+- **Data split form (#544).** Percentages and the seed are whole numbers: `70.5` or `1.7` is refused with a
+  message instead of being cut to 70 and 1 behind the field's back; the seed field has its 0 to 4294967295 limits
+  and the note field the 1000 characters the server accepts (it stopped at 500); "1 fold" is singular, and an
+  empty K no longer shows "? folds". The New training dialog shows the split each version really got.
 
 ### Changed
 
