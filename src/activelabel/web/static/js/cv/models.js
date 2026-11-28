@@ -120,6 +120,9 @@ export function modelsPanel(page) {
       e.status === 'failed' ? el('span', { class: 'tr-fail' }, icon('error', 14), el('span', null, e.error === 'interrupted' ? t('md.interrupted') : e.error || '')) : null);
   }
 
+  /* the classes renamed since the model was trained: [name it was trained with, name now] (#521) */
+  const renamedClasses = (m) => (m.trained_classes || []).map((c, i) => [c, (m.classes || [])[i]]).filter(([from, to]) => to && from !== to);
+
   function card(m) {
     const res = m.results || {};
     const val = (res.val || {})[m.metric];
@@ -145,6 +148,7 @@ export function modelsPanel(page) {
           val != null ? el('strong', null, `${metricName(m.metric)} ${nf3.format(val)}`) : null,
           test != null ? el('span', null, ` · ${t('md.test_value', { v: nf3.format(test) })}`) : null,
           el('span', { class: 'muted' }, ` · ${fmtBytes(m.size || 0)}`)),
+      renamedClasses(m).length ? el('p', { class: 'muted md-renamed' }, icon('info', 14), ` ${t('md.renamed', { list: renamedClasses(m).map(([from, to]) => `${from} → ${to}`).join(', ') })}`) : null,
       el('p', { class: 'md-note' },
         m.note ? el('span', null, m.note) : el('span', { class: 'muted' }, t('md.no_note')),
         el('button', { type: 'button', class: 'icon-btn', 'data-act': 'note', 'aria-label': t('md.edit_note_aria', { n: m.number }), title: t('md.edit_note'), onclick: () => editNote(m) }, icon('edit', 16))),

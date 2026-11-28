@@ -32,6 +32,14 @@ the release notes, generated from the merged pull requests and grouped by label 
   and the note field the 1000 characters the server accepts (it stopped at 500); "1 fold" is singular, and an
   empty K no longer shows "? folds". The New training dialog shows the split each version really got.
 
+### Fixed
+
+- **Renaming a class now reaches the saved models (#521).** A class renamed in CVAT (or by its letter case) was
+  renamed in the labels and pre-annotations but not in the class list of the saved models, so a model stopped
+  writing it. The models (their `classes`, or the `mapping` of a public one), the training runs and the
+  pre-annotation runs follow the new name; a model keeps the names it was trained with (`trained_classes`) and its
+  card says which classes were renamed. Dataset versions stay frozen.
+
 ### Changed
 
 - **Faster checks (development).** The commit hook runs only the tests of the changed files (the CI still runs the

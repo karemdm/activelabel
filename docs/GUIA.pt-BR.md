@@ -115,7 +115,7 @@ FiftyOne, abre o App para editar; quando o projeto ainda não pode ser aberto no
   sincronização*; nada muda antes disso ([ANNOTATION.md](ANNOTATION.md) e [SYNC.md](SYNC.md)).
   Se o projeto vinculado foi apagado no CVAT, a tela avisa; use *Desvincular* e compare de novo
   para criar um projeto novo. Só as diferenças são enviadas; uma classe renomeada no CVAT é renomeada
-  aqui, uma task renomeada de um lado é renomeada do outro, esqueletos do CVAT viram poses e o que não pode ser convertido é contado
+  aqui (também nas pré-anotações e nos modelos salvos, que mostram "Classes renomeadas desde o treino"), uma task renomeada de um lado é renomeada do outro, esqueletos do CVAT viram poses e o que não pode ser convertido é contado
   na revisão. Descartar uma comparação apaga o plano, para que outra aba não o aplique.
 - *FiftyOne*: *Editar no FiftyOne* envia as imagens (todas, ou as que você escolher em *Escolher imagens*) e abre o App
   do FiftyOne, que mostra só o `ground_truth`. Para uma imagem só, o caminho curto: na galeria de *Imagens*,

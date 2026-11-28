@@ -5,7 +5,9 @@ from activelabel.annotate import diff as diffing
 from activelabel.images.manifest import Manifest
 from activelabel.importing.common import RemoteNotFound
 from activelabel.labels import AnnotationSet, load_annotations, save_annotations
+from activelabel.storage import write_json
 from activelabel.sync import engine, links
+from activelabel.training.models import ModelStore
 
 CAT = [box("cat")]
 CAT2 = [box("cat", 0.5, 0.5)]
@@ -315,6 +317,21 @@ def test_a_class_renamed_in_the_tool_is_renamed_here_and_not_created_again(env):
     assert "cat" not in env.remote.projects[env.rid]["classes"]
     assert [lb.label for lb in env.remote.labels(env.rid, "img2.png")] == ["kitten"]
     assert list(env.dir.glob("annotations.*.rename.bak.json"))
+
+
+def test_a_class_renamed_in_the_tool_is_renamed_in_the_saved_models_too(env):
+    """The class list of a saved model is the names of its weights' indexes: the name follows (#521)."""
+    models = ModelStore(env.dir)
+    models.path(1).mkdir(parents=True)
+    write_json(
+        models.path(1) / "model.json", {"number": 1, "created": "t", "run": 1, "classes": ["cat", "dog"]}
+    )
+    env.remote.projects[env.rid]["classes"][0] = "kitten"
+    for i in range(2):
+        set_remote(env, f"img{i}.png", [box("kitten")])
+    apply(env, plan(env)["plan_id"])
+    card = models.get(1)
+    assert card["classes"] == ["kitten", "dog"] and card["trained_classes"] == ["cat", "dog"]
 
 
 def test_a_linked_project_deleted_in_the_tool_says_remote_gone(env):

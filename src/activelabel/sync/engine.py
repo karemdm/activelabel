@@ -32,6 +32,7 @@ from activelabel.importing.common import RemoteNotFound, read_origin
 from activelabel.jobs import Progress
 from activelabel.labels import Label, annotations_lock, load_annotations, save_annotations
 from activelabel.projects import Project, ProjectStore
+from activelabel.renames import rename_classes
 from activelabel.storage import now, read_json, write_json
 from activelabel.sync import links
 from activelabel.sync.remote import RemoteInfo, RemoteItem, RemoteProject, RemoteTask
@@ -319,7 +320,10 @@ def renamed_classes(
 
 
 def _rename_classes(store: ProjectStore, project_id: int, renames: list[dict[str, str]]) -> str:
-    """Rename classes of the project and of every label of its ground truth (after a backup).
+    """Rename classes of the project, of every label of its ground truth (after a backup) and of its models.
+
+    The saved models, training runs and pre-annotation runs follow the new name (see
+    :mod:`activelabel.renames`).
 
     Args:
         store: The projects.
@@ -343,6 +347,7 @@ def _rename_classes(store: ProjectStore, project_id: int, renames: list[dict[str
             save_annotations(project_dir, found)
         project = store.get(project_id)
         store.update(project_id, classes=[names.get(c, c) for c in project.classes])
+        rename_classes(project_dir, names)  # models and runs keep class lists of their own
     return backup
 
 

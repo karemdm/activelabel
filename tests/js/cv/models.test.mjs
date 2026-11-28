@@ -160,3 +160,30 @@ test('a model card offers Evaluate and shows the result across the row, with the
     panel.node.remove();
   }
 });
+
+test('a model card says which classes were renamed since training (#521)', async () => {
+  setMessages({ 'md.renamed': 'Renamed: {list}', 'tr.dataset_short': 'v{n}', 'md.from_run': 'run {n}' }, 'en');
+  const ctx = { project: { id: 6, task: 'classification' }, jobs: [], panels: {}, watchers: [], weightless: new Set() };
+  const panel = modelsPanel({ ctx, projectId: 6, renderStepper: () => {}, showTab: () => {} });
+  const trained = { number: 1, model: 'resnet18', source: 'run', run: 1, dataset: 1, start: 'transfer', metric: 'accuracy', size: 10 };
+  const models = [
+    { ...trained, classes: ['felino', 'cão'], trained_classes: ['gato', 'cão'] },
+    { ...trained, number: 2, classes: ['gato', 'cão'] },
+  ];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const body = String(url).endsWith('/models') ? { models, current: 1 } : { models: [] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  try {
+    document.body.appendChild(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.match(panel.node.querySelector('#model-1 .md-renamed').textContent, /Renamed: gato → felino/);
+    assert.equal(panel.node.querySelector('#model-2 .md-renamed'), null);
+  } finally {
+    panel.node.hidden = true;
+    globalThis.fetch = real;
+    panel.node.remove();
+  }
+});

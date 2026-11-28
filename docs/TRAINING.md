@@ -416,6 +416,16 @@ segmentation), which is then queued right after saving.
   current*); the first
   saved model becomes current. Later steps use it to pre-annotate new tasks (see docs/PREANNOTATE.md), which are reviewed (in
   CVAT), go into a new dataset version and a new training: the loop that improves the model.
+- **Renaming a class** (#521). The class list of a saved model is the names of its network's outputs, so when a
+  class of the project is renamed (in CVAT, see docs/SYNC.md, or by its letter case in the project's classes) the
+  name at that position of the model's `classes` is changed too and the weights keep working: the pre-annotation
+  writes the new name. The card then keeps `trained_classes` (the names it was trained with, never changed
+  again) and the model card shows *Classes renamed since training: gato → felino*. The `mapping` of a public
+  model (its categories to project classes) follows the new name. The `classes` of the training runs and of the
+  pre-annotation runs follow it as well. Dataset versions are frozen copies and keep the names they were made
+  with, and so do the results of a finished run: a model trained from an old version after the rename comes out
+  with the old name, which the pre-annotation screen marks as a class the project no longer has (make a new
+  version). Evaluations and FiftyOne fields made earlier are not rewritten: run them again.
 - **Model card** (step 6): short by design. It shows the number of classes (*{n} classes*, with a link to
   see them all) and the actions of the model; *Pre-annotate with this one* (*Pré-anotar com este*) opens
   the *Pre-annotate* tab of *Annotations* with that model chosen. The step does not need images in the

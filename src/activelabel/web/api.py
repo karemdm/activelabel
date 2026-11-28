@@ -37,6 +37,7 @@ from activelabel.labels import (
 from activelabel.optional import FIFTYONE
 from activelabel.preannotate import annotated_ids, empty_ids, image_state
 from activelabel.projects import Project, ProjectNotFound, check_class_spelling, clean_classes
+from activelabel.renames import case_renames, rename_classes
 from activelabel.scheduler import CPU
 from activelabel.storage import DamagedFile
 from activelabel.tasks import Task
@@ -490,10 +491,12 @@ def _update_project_locked(project_id: int, body: ProjectChanges, state: AppStat
             touched = sum(1 for k, v in kept_images.items() if len(v) != len(current.images[k]))
             cleaned = AnnotationSet(current.task, current.classes, kept_images, current.source)
             classes_result = {"removed_labels": removed, "images": touched}
+    old_classes = list(project.classes)
     try:
         project = state.store.update(project_id, **changes)
     except ValueError as exc:
         raise bad_request(exc) from exc
+    rename_classes(project_dir, case_renames(old_classes, project.classes))  # ``cat`` to ``Cat``
     if converted is not None:
         save_annotations(project_dir, _with_classes(cleaned or converted, project))
     elif result is not None:
