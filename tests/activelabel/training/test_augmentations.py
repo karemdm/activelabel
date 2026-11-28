@@ -175,3 +175,20 @@ def test_every_preset_above_none_does_something_for_every_kind():
         for level in ("light", "standard", "strong"):
             assert aug.preset(level, kind), (kind, level)
     assert all(e["name"] != "hflip" for e in aug.preset("light", "keypoints"))
+
+
+@pytest.mark.parametrize(
+    "pairs",
+    [[[None, 1]], [["0", "1"]], [[0]], [[]], [[1, 0], [0, 2]], [{"0": 1}], [[0, 1.0]]],
+)
+def test_more_bad_flip_pairs(pairs):
+    """A pair must be two whole point numbers, and a point may be used in one pair only (#524)."""
+    entry = {"name": "hflip", "params": {"flip_pairs": pairs}}
+    _raises("augmentation_flip_pairs_invalid", aug.validate, [entry], "keypoints")
+
+
+def test_flip_pair_past_the_last_point_is_kept_for_the_runner_to_check():
+    """The augmentation layer does not know how many points the labels have: the runner compares them."""
+    entry = {"name": "hflip", "params": {"flip_pairs": [[0, 40]]}}
+    checked = aug.validate([entry], "keypoints")
+    assert aug.max_flip_index(checked) == 40
