@@ -149,7 +149,11 @@ def test_full_flow(env):
 
     r = env.client.delete(base)
     assert r.json() == {"closed": True} and env.tool.closed == [{"anno_key": session["id"]}]
-    assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
+    assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {
+        "sessions": [],
+        "edited_count": 0,
+        "edited": {},
+    }
     assert env.client.delete(base).status_code == 404
 
 
@@ -262,7 +266,11 @@ def test_old_session_of_a_removed_tool_is_listed_and_closed_without_contacting_a
     assert env.client.post(f"{base}/pull").json()["code"] == "tool_unsupported"
     r = env.client.request("DELETE", base, json={"delete_remote": True})  # an old client may still send this
     assert r.status_code == 200 and r.json() == {"closed": True}
-    assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {"sessions": []}
+    assert env.client.get(f"/api/projects/{env.pid}/annotate").json() == {
+        "sessions": [],
+        "edited_count": 0,
+        "edited": {},
+    }
     assert not env.tool.closed and not remotes["cvat"].calls  # no tool was contacted
 
 
@@ -307,7 +315,11 @@ def test_a_keypoints_project_cannot_open_a_fiftyone_session(env):
         assert reply.status_code == 400 and reply.json()["code"] == "fiftyone_keypoints_not_editable", (
             reply.text
         )
-    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
+    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {
+        "sessions": [],
+        "edited_count": 0,
+        "edited": {},
+    }
 
 
 def test_a_regression_project_cannot_open_a_fiftyone_session(env):
@@ -316,7 +328,11 @@ def test_a_regression_project_cannot_open_a_fiftyone_session(env):
     pid = env.client.post("/api/projects", json=body).json()["id"]
     reply = env.client.post(f"/api/projects/{pid}/annotate", json={"tool": "fiftyone", "scope": "all"})
     assert reply.status_code == 400 and reply.json()["code"] == "fiftyone_regression_not_editable", reply.text
-    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {"sessions": []}
+    assert env.client.get(f"/api/projects/{pid}/annotate").json() == {
+        "sessions": [],
+        "edited_count": 0,
+        "edited": {},
+    }
 
 
 def test_summary_source_says_the_labels_were_last_sessiond_by_a_fiftyone_session(env):
