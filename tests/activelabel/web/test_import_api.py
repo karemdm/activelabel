@@ -212,14 +212,45 @@ def test_a_failed_import_job_carries_the_code_and_no_traceback(env, monkeypatch)
     assert done["result"] == {}
 
 
-def test_starting_an_import_without_fiftyone_answers_501(env, monkeypatch):
+def test_a_task_outside_any_project_without_fiftyone_answers_501(env, monkeypatch):
     client, _, _ = env
     configure_cvat(client)
     monkeypatch.setattr(optional, "FIFTYONE", False)
-    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7})
+    monkeypatch.setattr(
+        cvat_import, "check_remote", lambda s, kind, rid: {"name": "Loose", "classes": [], "project_id": None}
+    )
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": "task"})
     assert r.status_code == 501
     assert r.json()["code"] == "fiftyone_not_installed"
     assert r.json()["params"] == {"install": optional.FIFTYONE_INSTALL}
+
+
+def test_a_project_or_a_task_of_a_project_is_imported_without_fiftyone(env, monkeypatch):
+    client, _, _ = env
+    configure_cvat(client)
+    monkeypatch.setattr(optional, "FIFTYONE", False)
+    monkeypatch.setattr(
+        cvat_import, "check_remote", lambda s, kind, rid: {"name": "X", "classes": [], "project_id": "3"}
+    )
+    monkeypatch.setattr(
+        cvat_import, "import_project", lambda store, settings, workspace, **kw: {"project_id": 0}
+    )
+    for kind in ("project", "task"):
+        r = client.post("/api/import", json={"tool": "cvat", "remote_id": 7, "kind": kind})
+        assert r.status_code == 200, r.text
+
+
+def test_a_task_of_an_already_imported_project_is_refused_at_once(env, monkeypatch):
+    client, state, _ = env
+    configure_cvat(client)
+    project = link_local_project(state, "Pets", "3")
+    monkeypatch.setattr(
+        cvat_import, "check_remote", lambda s, kind, rid: {"name": "T", "classes": [], "project_id": "3"}
+    )
+    r = client.post("/api/import", json={"tool": "cvat", "remote_id": 9, "kind": "task"})
+    assert r.status_code == 409 and r.json()["code"] == "cvat_already_imported"
+    assert r.json()["params"] == {"project_id": project.id, "name": "Pets"}
+    assert len(state.store.list()) == 1
 
 
 def link_local_project(state, name, remote_id, base="http://cvat"):

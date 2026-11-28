@@ -581,12 +581,16 @@ def _import_with_tasks(
         if added < len(labels):
             message = "Identical or unreadable images were not added."
             problems.append(Problem("info", "images_missing", message, len(labels) - added))
+        rejected = int(applied.get("images_rejected") or 0)
+        if rejected:
+            message = "Some files are not readable images and were skipped."
+            problems.append(Problem("warning", "images_rejected", message, rejected))
         return {
             "project_id": project.id,
             "name": done.name,
             "task": done.task.value,
             "images_added": added,
-            "images_rejected": 0,
+            "images_rejected": rejected,
             "labels": sum(len(v) for v in saved.images.values()) if saved else 0,
             "classes": list(done.classes),
             "problems": [p.as_dict() for p in problems],

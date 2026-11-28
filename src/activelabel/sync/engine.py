@@ -1146,7 +1146,7 @@ def apply_plan(
         taken), ``conflicts_left``, ``unchanged``, ``new_classes``, ``renamed_classes`` (classes renamed in
         the tool, renamed here too: ``[{from, to}]``), ``backup``, ``skipped``, ``warnings``,
         ``videos_as_images`` (names of the imported tasks whose original video could not be used, so they
-        stay as images).
+        stay as images), ``images_rejected`` (frames of imported tasks that are not readable images).
 
     Raises:
         RemoteChanged: the remote project or the project changed since the plan (nothing was written).
@@ -1334,6 +1334,7 @@ def apply_plan(
 
     imported = 0
     videos_as_images: list[str] = []
+    rejected: list[dict[str, str]] = []
     remote_jobs: dict[str, dict[str, str]] = {}
     if plan.get("tasks_new"):
         remote_jobs = {rt.id: {str(j.n): j.id for j in rt.jobs} for rt in remote.tasks(settings, rid)}
@@ -1359,6 +1360,7 @@ def apply_plan(
             warnings,
             counter,
             videos_as_images,
+            rejected,
         )
 
     final = _local_labels(project_dir)
@@ -1434,6 +1436,7 @@ def apply_plan(
         "skipped": counts["skipped"],
         "warnings": warnings,
         "videos_as_images": videos_as_images,
+        "images_rejected": len(rejected),
     }
 
 
@@ -1771,6 +1774,7 @@ def _import_remote_task(
     warnings: list[str] | None = None,
     on_frame: Callable[[], None] | None = None,
     as_images: list[str] | None = None,
+    rejected: list[dict[str, str]] | None = None,
 ) -> int:
     """A task added in the tool becomes a local task: download its frames, labels, link. Returns 1 or 0.
 
@@ -1792,6 +1796,7 @@ def _import_remote_task(
         warnings: list that receives notes about problems that do not stop the import.
         on_frame: called after each frame is downloaded (the job's progress).
         as_images: list that receives the name of the task when its video was expected but not used.
+        rejected: list that receives the frames that are not readable images (``{name, reason}``).
 
     Returns:
         1 when a local task was created, 0 when there was nothing to import.
@@ -1812,6 +1817,8 @@ def _import_remote_task(
     with tstore.locked():
         tstore.ensure()  # a project without tasks.json would put the new images in a "Task 1" of its own
         report = ingest_files(manifest, files)
+        if rejected is not None:
+            rejected.extend(report.rejected)
         ids = list(report.ids)
         if not ids:
             return 0

@@ -57,7 +57,7 @@ tasks, videos, CVAT synchronisation, datasets, training and pre-annotation. The 
 | Install | What you get |
 | --- | --- |
 | `pip install activelabel` | everything above; the training packages are not part of it, they go to a separate training environment installed on first use ([docs/TRAINING.md](docs/TRAINING.md)) |
-| `pip install "activelabel[fiftyone]"` (or `[all]`) | also the FiftyOne App, the FiftyOne annotation tool, the import of CVAT projects (read with FiftyOne's CVAT reader) and the similarity map in the App |
+| `pip install "activelabel[fiftyone]"` (or `[all]`) | also the FiftyOne App, the FiftyOne annotation tool, the import of a CVAT task that belongs to no project (read with FiftyOne's CVAT reader) and the similarity map in the App |
 
 Without FiftyOne, the features of the extra answer HTTP 501 `fiftyone_not_installed` with the install
 command, and the rest works. *GET /api/features* tells what is installed and how much space the training

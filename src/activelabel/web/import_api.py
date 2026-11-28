@@ -168,12 +168,13 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
         The queued job (id and state); its result is read from the job when it finishes.
 
     Raises:
-        ApiError: a regression task (``cvat_not_for_regression`` for CVAT, else
+        ApiError: FiftyOne is missing (only for a task outside any project: its annotations are read
+            with FiftyOne's CVAT reader), the project, or the project of the task, was already imported
+            (409 ``cvat_already_imported``), a regression task (``cvat_not_for_regression`` for CVAT, else
             ``regression_not_supported_yet``), an unknown kind, or the remote
             data cannot be found or read.
     """
     importer = _importer(body.tool)
-    need_fiftyone()  # the annotations are read with FiftyOne's CVAT reader
     if body.task is Task.REGRESSION and body.tool == "cvat":  # CVAT keeps no number per image (#619)
         raise ApiError(400, "cvat_not_for_regression", CVAT_NO_VALUES_MESSAGE)
     if body.task is Task.REGRESSION:  # no remote tool holds regression values yet (#619)
@@ -193,10 +194,15 @@ def start_import(body: ImportBody, state: AppState = STATE) -> dict[str, Any]:
     if guard is not None and body.kind == "project" and (again := guard(state.store, settings, remote_id)):
         raise tool_failure(again, body.tool, 409) from again
     try:
-        importer.check_remote(settings, body.kind, remote_id)
+        found = importer.check_remote(settings, body.kind, remote_id)
     except RemoteNotFound as exc:
         raise tool_failure(exc, body.tool, 404) from exc
     except ToolError as exc:
         raise tool_failure(exc, body.tool) from exc
+    parent = found.get("project_id")  # set for a task that belongs to a project
+    if guard is not None and parent and (again := guard(state.store, settings, str(parent))):
+        raise tool_failure(again, body.tool, 409) from again
+    if body.kind == "task" and not parent:  # only a task outside any project is read with FiftyOne
+        need_fiftyone()
     job = partial(_import_job, importer, state, settings, body, remote_id)
     return state.jobs.submit(0, "import_project", job).as_dict()
