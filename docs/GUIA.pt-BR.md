@@ -190,8 +190,8 @@ detalhe da imagem. Um aviso diz quando as imagens mudaram desde as notas.
 **4. Divisão dos dados.** Cria uma *versão do dataset*: partes de treino, validação e teste
 (ou K folds mais uma parte de teste). Frames do mesmo vídeo e quase duplicadas ficam juntos,
 e as classes são distribuídas de forma equilibrada; uma classe rara entra em todas as partes antes de as
-proporções serem aplicadas. Escolha as tasks, as porcentagens (números que somam 100; para treinar é
-preciso ter validação), imagens de fundo e, em *Avançado*, a seed, o modo de vídeos e o intervalo de
+proporções serem aplicadas. Escolha as tasks, as porcentagens (números inteiros que somam 100; para treinar é
+preciso ter validação), imagens de fundo e, em *Avançado*, a seed (inteiro de 0 a 4294967295), o modo de vídeos e o intervalo de
 segurança. Um vídeo fica inteiro numa parte quando dá; senão (*Dividir em trechos distantes quando
 necessário*) é cortado em trechos espalhados ao longo do vídeo, e o interruptor *Descartar frames na
 fronteira entre partes do mesmo vídeo* (ligado por padrão) tira os frames vizinhos dos trechos de

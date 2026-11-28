@@ -29,6 +29,25 @@ export function sharesOf(counts) {
   }
   return out;
 }
+/** What a number field holds when it is a whole number, else NaN: "70.5", "1e2" and "" are not (parseInt would
+ *  have cut them to 70, 1 and NaN while the field kept showing what was typed). */
+export const wholeNumber = (text) => (/^\s*[+-]?\d+\s*$/.test(String(text)) ? parseInt(String(text), 10) : NaN);
+/** The seeds the server accepts (numpy's generators take 32-bit unsigned integers). */
+export const MAX_SEED = 4294967295;
+/** The longest note the server stores (characters). */
+export const MAX_NOTE = 1000;
+/** The line under the K-fold fields: how many folds share the training part ("1 fold", "5 folds"; no K yet gets its own text). */
+export function kfoldSumText(k, train, test) {
+  return Number.isFinite(k) ? tn('ds.kfold_sum', k, { train, test }) : t('ds.kfold_sum_nok', { train, test });
+}
+/** The split a version really got, as shares of its images ("60/28/12 %": train / validation / test), or '' for a
+ *  K-fold version or one without sizes; groups of images can make it differ from what was asked (#544). */
+export function realSplitText(version) {
+  const sizes = version.sizes || {};
+  if (Array.isArray(sizes.folds)) return '';
+  const counts = ['train', 'val', 'test'].filter((p) => sizes[p] != null).map((p) => Number(sizes[p]) || 0);
+  return counts.length > 1 && counts.some((n) => n > 0) ? `${sharesOf(counts).join('/')} %` : '';
+}
 export const staleCount = (v) => { const s = v.stale || {}; return ['changed_images', 'added', 'removed', 'excluded', 'restored'].reduce((n, k) => n + (s[k] || 0), 0); };
 
 export function datasetsPanel(page) {
@@ -333,8 +352,8 @@ export function datasetsPanel(page) {
     kInput.setAttribute('aria-describedby', 'ds-k-help');
     const allowBox = el('input', { type: 'checkbox', id: 'ds-allow-empty', onchange: () => syncCreate() });
     const ktestInput = numInput('ds-ktest', 10, 0, 90);
-    const seed = el('input', { type: 'number', id: 'ds-seed', inputmode: 'numeric', step: '1', value: '42' });
-    const note = el('input', { type: 'text', id: 'ds-note', maxlength: '500', autocomplete: 'off' });
+    const seed = el('input', { type: 'number', id: 'ds-seed', inputmode: 'numeric', min: '0', max: String(MAX_SEED), step: '1', value: '42' });
+    const note = el('input', { type: 'text', id: 'ds-note', maxlength: String(MAX_NOTE), autocomplete: 'off' });
     const bgBox = el('input', { type: 'checkbox', id: 'ds-bg', role: 'switch' });
     const videosSel = el('select', { id: 'ds-videos' }, el('option', { value: 'auto' }, t('ds.videos_auto')), el('option', { value: 'whole' }, t('ds.videos_whole')));
     const gapInput = el('input', { type: 'text', id: 'ds-gap', inputmode: 'decimal', autocomplete: 'off', value: num(0.5) });   // text: "0,5" in pt
@@ -379,7 +398,7 @@ export function datasetsPanel(page) {
     const ratioBar = el('div', { class: 'ds-bar', 'aria-hidden': 'true' });
     const sumText = el('p', { class: 'ds-sum', role: 'status' });
     const modeBox = el('div', { class: 'ds-ratios' });
-    const raw = (inp) => parseInt(inp.value, 10);   // as typed: a negative or a too big value stays visible
+    const raw = (inp) => wholeNumber(inp.value);   // as typed: a negative or a too big value stays visible
     const int = (inp) => { const n = raw(inp); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : NaN; };
     const validPct = (inp) => Number.isFinite(raw(inp)) && raw(inp) >= 0 && raw(inp) <= 100;
     const field = (label, input) => el('div', { class: 'field ds-num' }, el('label', { for: input.id }, label), input);
@@ -400,7 +419,7 @@ export function datasetsPanel(page) {
         sumText.textContent = t('ds.sum', { n: sum });
       } else {
         sumText.className = 'ds-sum ok';
-        sumText.textContent = t('ds.kfold_sum', { k: kInput.value || '?', train: 100 - (int(ktestInput) || 0), test: int(ktestInput) || 0 });
+        sumText.textContent = kfoldSumText(wholeNumber(kInput.value), 100 - (int(ktestInput) || 0), int(ktestInput) || 0);
       }
     }
     function drawMode() {
@@ -438,8 +457,8 @@ export function datasetsPanel(page) {
     /* the request body, or the reason it cannot be sent */
     function options() {
       if (!st.tasks.size) return { error: t('ds.err_tasks') };
-      const sd = parseInt(seed.value, 10);
-      if (!Number.isFinite(sd)) return { error: t('ds.err_seed') };
+      const sd = wholeNumber(seed.value);
+      if (!(sd >= 0 && sd <= MAX_SEED)) return { error: t('ds.err_seed', { max: num(MAX_SEED) }) };
       const gap = gapBox.checked ? parseFloat(String(gapInput.value).replace(',', '.')) : 0;
       const badGap = !(gap >= 0 && gap <= 3600) || (gapBox.checked && gap === 0);
       if (badGap) gapInput.setAttribute('aria-invalid', 'true'); else gapInput.removeAttribute('aria-invalid');
@@ -454,7 +473,7 @@ export function datasetsPanel(page) {
         body.split = s;
         body.kfold = null;
       } else {
-        const k = parseInt(kInput.value, 10);
+        const k = wholeNumber(kInput.value);
         const tp = int(ktestInput);
         if (st.maxK != null && st.maxK < 2) return { error: t('ds.k_none') };
         if (st.maxK != null && k > st.maxK) return { error: t('ds.err_k_max', { max: num(st.maxK) }) };
@@ -613,7 +632,7 @@ export function datasetsPanel(page) {
     /* the most folds depends on the test share: an older preview's limit must not clamp the new K (#636) */
     ktestInput.addEventListener('input', () => { st.maxK = null; kInput.max = '10'; });
     kInput.addEventListener('change', () => {
-      const k = parseInt(kInput.value, 10);
+      const k = wholeNumber(kInput.value);
       if (st.maxK >= 2 && k > st.maxK) { kInput.value = String(st.maxK); changed(); }
     });
 
