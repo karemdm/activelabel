@@ -220,6 +220,7 @@ code { font-family: var(--mono); font-size: 0.9em; word-break: break-all; }
 .field { margin: 0 0 1.25rem; padding: 0; border: 0; min-width: 0; }
 .field label, .field legend { display: block; font-weight: 600; margin-bottom: 0.35rem; padding: 0; }
 .hint { color: var(--muted); font-size: var(--font-sm); margin: 0.35rem 0 0; }
+.field-error { color: var(--danger); font-size: var(--font-sm); font-weight: 600; margin: 0.35rem 0 0; }
 .req { color: var(--danger); }
 input[type="text"], input[type="number"], input[type="password"], input[type="url"], input[type="search"], textarea {
   width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);

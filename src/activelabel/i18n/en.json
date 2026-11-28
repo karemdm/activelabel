@@ -1468,6 +1468,7 @@
   "pre.when": "When",
   "pre.result": "Images: {images}, labels: {objects}",
   "pre.no_models": "To pre-annotate, save a trained model or add a public model in Models.",
+  "pre.no_models_train": "To pre-annotate, train a model and save it. There are no public models for this project type yet.",
   "pre.regression_later": "Pre-annotation for regression projects is coming later: the values are filled in on the Images screen.",
   "pre.go_models": "Go to Models",
   "annotate.scope_preannotated": "Pre-annotated, not reviewed",

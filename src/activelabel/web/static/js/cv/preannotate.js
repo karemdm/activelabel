@@ -51,6 +51,17 @@ export function preannotateBlock(page, hooks) {
     api('GET', '/training/environment').then((env) => { devices = env.devices || devices; if (data) draw(true); }).catch(() => {});
   }
 
+  /* whether the catalogue has public models for this project type (asked once, only when no model is saved; null =
+     not known yet): the empty state sends the person to Models only when it can offer one there (#342) */
+  let publicAvailable = null;
+  function loadPublic() {
+    if (publicAvailable !== null) return;
+    publicAvailable = true;   // until the answer comes, and when it cannot be read
+    api('GET', `/projects/${projectId}/models/public-catalog`)
+      .then((r) => { publicAvailable = (r.models || []).length > 0; if (!publicAvailable && data) draw(true); })
+      .catch(() => {});
+  }
+
   async function load() {
     clearTimeout(timer);
     loadDevices();
@@ -414,8 +425,9 @@ export function preannotateBlock(page, hooks) {
       return;
     }
     if (!(data.models || []).length) {
-      fill(node, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t('pre.no_models')),
-        el('a', { class: 'btn', href: '#models' }, t('pre.go_models'))));
+      loadPublic();
+      fill(node, el('div', { class: 'ds-empty' }, icon('star', 28), el('p', { class: 'muted' }, t(publicAvailable ? 'pre.no_models' : 'pre.no_models_train')),
+        publicAvailable ? el('a', { class: 'btn', href: '#models' }, t('pre.go_models')) : el('a', { class: 'btn primary', href: '#training' }, t('md.go_training'))));
       return;
     }
     if (!(data.models || []).some((m) => m.supported)) {

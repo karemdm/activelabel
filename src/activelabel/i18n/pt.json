@@ -1468,6 +1468,7 @@
   "pre.when": "Quando",
   "pre.result": "Imagens: {images}, rótulos: {objects}",
   "pre.no_models": "Para pré-anotar, salve um modelo treinado ou adicione um modelo público em Modelos.",
+  "pre.no_models_train": "Para pré-anotar, treine um modelo e salve-o. Ainda não há modelos públicos para este tipo de projeto.",
   "pre.regression_later": "A pré-anotação de projetos de regressão chega depois: os valores se preenchem na tela Imagens.",
   "pre.go_models": "Ir para Modelos",
   "annotate.scope_preannotated": "Pré-anotadas, não revisadas",

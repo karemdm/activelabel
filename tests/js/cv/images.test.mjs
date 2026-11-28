@@ -274,3 +274,47 @@ test('the worst images of a model filter the gallery by id, with a chip that cle
     panel.node.remove();
   }
 });
+
+test('#342: a name the server rejects is said once, under the field; the files wait; the cancelled form starts empty', async () => {
+  const { page } = withTabs(makePage(true));
+  page.ctx.panels = { curation: { mounted: false } };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'POST') {
+      const body = { code: 'task_name_taken', params: { name: 'Task 1' } };
+      return { ok: false, status: 409, text: async () => JSON.stringify(body) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(url.includes('/tasks') ? { tasks: [] } : { total: 0, items: [] }) };
+  };
+  try {
+    const panel = imagesPanel(page);
+    document.body.append(panel.node);
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    document.getElementById('new-task-btn').click();
+    const name = document.getElementById('task-name');
+    name.value = 'Task 1';
+    const input = document.getElementById('file-input');
+    Object.defineProperty(input, 'files', { value: [Object.assign(new Blob(['x'], { type: 'image/png' }), { name: 'a.png' })], configurable: true });
+    input.dispatchEvent(new window.Event('change'));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const dialog = document.querySelector('dialog.new-task-dialog');
+    const said = document.getElementById('task-name-error');
+    assert.equal(said.hidden, false);
+    assert.equal(name.getAttribute('aria-invalid'), 'true');
+    assert.equal(name.getAttribute('aria-describedby'), 'task-name-error');
+    assert.equal(dialog.querySelectorAll('.report-line').length, 0, 'no second and third message');
+    assert.ok(document.getElementById('new-task-create'), 'the files wait for another name');
+    name.value = 'Task 2';
+    name.dispatchEvent(new window.Event('input'));
+    assert.equal(said.hidden, true);                  // typing clears the message
+    assert.equal(name.hasAttribute('aria-invalid'), false);
+    dialog.close();
+    document.getElementById('new-task-btn').click();  // Cancel and open again
+    assert.equal(name.value, '');
+    assert.equal(document.getElementById('new-task-create'), null);
+  } finally {
+    globalThis.fetch = real;
+    document.querySelectorAll('section.panel').forEach((n) => n.remove());
+  }
+});
