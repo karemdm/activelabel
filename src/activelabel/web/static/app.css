@@ -1306,7 +1306,7 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 /* #337: parts that did not fit a phone */
 /* sideways scrollers (step tabs, wide tables) show a shadow on the side that has more: the surface-coloured
    covers scroll with the content and hide the fixed shadows at the ends */
-.step-tabs, .tr-table-wrap, .ds-table-wrap, .table-wrap {
+.step-tabs, .tr-table-wrap, .ds-table-wrap, .table-wrap, .dist-balance {
   --edge: light-dark(rgba(20, 30, 50, 0.22), rgba(0, 0, 0, 0.7));
   background:
     linear-gradient(to right, var(--surface) 40%, transparent) left / 2.5rem 100% no-repeat local,
@@ -1325,6 +1325,11 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
   .ds-table th[scope="row"], .ds-table thead th:first-child { min-width: 8rem; overflow-wrap: break-word; }
 }
 @media (max-width: 480px) {
+  /* the project buttons (Edit, Delete) share the width in two equal columns instead of wrapping to the right edge */
+  .project-head-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* a wide split table: tighter cells, so more folds fit before the table scrolls */
+  .ds-table th, .ds-table td { padding-left: 0.4rem; padding-right: 0.4rem; }
+  .ds-table th[scope="row"], .ds-table thead th:first-child { min-width: 5.5rem; }
   /* segmented choices stack, one full-width option per line, instead of breaking 1 + 2 inside one border */
   .seg, .pre-scope .seg, .tr-seg, .cvat-dir .seg { display: flex; flex-direction: column; flex-wrap: nowrap; width: 100%; max-width: 100%; }
   .seg-opt, .field .seg-opt, .pre-scope .seg-opt { white-space: normal; min-height: 44px; }
@@ -1429,7 +1434,8 @@ dialog.tr-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .dist-note { margin: 0.3rem 0 0; font-size: var(--font-sm); }
 .ds-balance { display: grid; gap: var(--space-1); }
 .ds-balance h4 { margin: var(--space-2) 0 0; }
-.dist-balance { display: grid; gap: 0.4rem; }
-.dist-balance-head, .dist-balance-row { display: grid; grid-template-columns: minmax(70px, 160px) repeat(var(--parts), minmax(0, 1fr)); gap: 0.6rem; align-items: center; }
+.dist-balance { display: grid; gap: 0.4rem; overflow-x: auto; }
+/* every part keeps room for its bar and value, so many parts (10 folds and the test part) scroll on a phone */
+.dist-balance-head, .dist-balance-row { display: grid; grid-template-columns: minmax(70px, 160px) repeat(var(--parts), minmax(0, 1fr)); gap: 0.6rem; align-items: center; min-width: calc(70px + var(--parts) * 5.5rem); }
 .dist-balance-head { font-size: var(--font-sm); font-weight: 600; }
 .dist-balance-cell { display: grid; grid-template-columns: 1fr 3rem; gap: 0.4rem; align-items: center; min-width: 0; }
