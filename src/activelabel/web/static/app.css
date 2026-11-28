@@ -1026,6 +1026,9 @@ dialog.ds-dialog { max-width: min(1200px, calc(100vw - 1.5rem)); }
 .tr-badge.done { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
 .tr-badge.failed { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .tr-alerts { margin: 0.25rem 0 0; }
+.tr-badge { font-family: inherit; }
+button.tr-badge { cursor: pointer; }
+button.tr-badge:hover { filter: brightness(0.96); }
 .tr-badge.alert { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 .tr-badge.cancelled { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 .tr-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }

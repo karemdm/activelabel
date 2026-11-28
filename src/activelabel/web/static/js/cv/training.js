@@ -169,7 +169,9 @@ export function trainingPanel(page) {
   function alertsBadge(r) {
     const list = alertsOf(r);
     return list.length
-      ? el('p', { class: 'tr-alerts' }, el('span', { class: 'tr-badge alert', title: list.map(alertText).join(' · ') }, icon('warning', 14), tn('tr.alerts_badge', list.length)))
+      ? el('p', { class: 'tr-alerts' }, el('button', {
+        type: 'button', class: 'tr-badge alert', 'data-act': 'alerts', title: list.map(alertText).join(' · '), onclick: () => openDetail(r.number, 'trd-alerts'),
+      }, icon('warning', 14), tn('tr.alerts_badge', list.length)))
       : null;
   }
   function alertsBlock(r) {
@@ -1147,7 +1149,8 @@ export function trainingPanel(page) {
   }
 
   // ---------------------------------------------------------------- run detail
-  function openDetail(number) {
+  /* `section`: the id of the heading to show first (the alerts badge of a card opens the details at the alerts) */
+  function openDetail(number, section = '') {
     const body = el('div', { class: 'dialog-body tr-detail' });
     const live = el('p', { class: 'sr-only', 'aria-live': 'polite' });
     const dlg = el('dialog', { class: 'dialog wide tr-dialog', 'aria-label': t('tr.detail_title', { n: number }) }, body, live);
@@ -1373,7 +1376,12 @@ export function trainingPanel(page) {
     document.body.appendChild(dlg);
     openModal(dlg);
     add(body, el('p', { class: 'muted' }, t('common.loading')));
-    refresh().then(() => { const close = dlg.querySelector('[data-act="close"]'); if (close) close.focus(); });
+    refresh().then(() => {
+      const heading = section ? dlg.querySelector(`#${section}`) : null;
+      const first = heading || dlg.querySelector('[data-act="close"]');
+      if (heading) heading.setAttribute('tabindex', '-1');
+      if (first) first.focus();   // focusing the heading also scrolls the dialog to it
+    });
   }
 
   // ---------------------------------------------------------------- assemble

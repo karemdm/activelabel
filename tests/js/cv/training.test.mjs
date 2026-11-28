@@ -232,6 +232,36 @@ test('a finished run with quality alerts shows a badge on the card and the list 
   panel.node.remove();
 });
 
+test('#341: the alerts badge of a card is a button that opens the details of that run at its alerts', async () => {
+  setMessages({
+    'tr.alerts_badge_one': '{n} quality alert', 'tr.alerts_badge_other': '{n} quality alerts', 'tr.alerts': 'Quality alerts',
+    'tr.alert.metric_zero': 'The main metric ({metric}) is zero.', 'tr.detail_title': 'Run {n}',
+  }, 'en');
+  const alerts = [{ code: 'metric_zero', params: { metric: 'map50' } }];
+  const run = { number: 3, status: 'done', model: 'frcnn', mode: 'single', fold: null, alerts, warnings: [], config: {} };
+  ANSWERS['/api/projects/5/runs'] = { runs: [run] };
+  ANSWERS['/api/projects/5/runs/3'] = run;
+  const panel = trainingPanel({ ctx, projectId: 5, renderStepper: () => {} });
+  document.body.appendChild(panel.node);
+  await withApi(async () => {
+    panel.mount();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const badge = panel.node.querySelector('#run-3 .tr-badge.alert');
+    assert.equal(badge.tagName, 'BUTTON');
+    badge.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const dialog = document.querySelector('dialog.tr-dialog');
+  assert.ok(dialog, 'the details dialog is open');
+  assert.match(dialog.getAttribute('aria-label'), /3/);
+  assert.equal(document.activeElement.id, 'trd-alerts');   // focused (and scrolled to) the alerts section
+  assert.match(dialog.textContent, /main metric \(map50\) is zero/);
+  dialog.close();
+  delete ANSWERS['/api/projects/5/runs/3'];
+  ANSWERS['/api/projects/5/runs'] = { runs: [] };
+  panel.node.remove();
+});
+
 test('scheduleClash refuses a warmup or a patience longer than the training, over every grid value (#546)', () => {
   assert.equal(scheduleClash({ epochs: [10], warmup_epochs: [30] }).field, 'warmup_epochs');
   assert.equal(scheduleClash({ epochs: [3, 20], warmup_epochs: [5] }).epochs, 3);
