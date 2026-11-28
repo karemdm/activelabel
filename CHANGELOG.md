@@ -31,6 +31,11 @@ the release notes, generated from the merged pull requests and grouped by label 
   message instead of being cut to 70 and 1 behind the field's back; the seed field has its 0 to 4294967295 limits
   and the note field the 1000 characters the server accepts (it stopped at 500); "1 fold" is singular, and an
   empty K no longer shows "? folds". The New training dialog shows the split each version really got.
+- **Phone layout of the project and the split (#337).** At 390 px the project buttons (*Edit*, *Delete*) share the
+  width in two columns instead of wrapping to the right edge, the class balance of a split with many folds scrolls inside
+  the dialog (with the same shadow at the edge as the tables) instead of widening it, and the split table uses
+  tighter cells and a narrower first column, so more folds fit before it scrolls. The step bar already stacks on a
+  phone, so the group title is no longer cut.
 
 ### Fixed
 
