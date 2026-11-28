@@ -1,6 +1,6 @@
 # Releasing
 
-How the owner publishes a release, for example the first one, **v0.1.0**. The version is never typed in the
+How a release is published, for example the first one, **v0.1.0**. The version is never typed in the
 code: it is read from the git tag (setuptools-scm, `[tool.setuptools_scm]` in pyproject.toml). Until the
 first tag exists a build carries version `0.0`, which the CI accepts only while there is no `v*` tag.
 
@@ -15,7 +15,7 @@ first tag exists a build carries version `0.0`, which the CI accepts only while 
    closed.
 2. **Update CHANGELOG.md** in a pull request: rename `## Unreleased` to `## 0.1.0 - YYYY-MM-DD`, add an
    empty `## Unreleased` above it and remove the line "The project has no tagged release yet". Merge it.
-3. **Tag the merge commit of `main`** (only the owner decides when; the team never tags on its own):
+3. **Tag the merge commit of `main`** (the owner, or the team with the owner's standing approval, as each feature lands on `main`):
 
    ```bash
    git switch main
