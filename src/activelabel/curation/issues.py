@@ -63,7 +63,9 @@ class Thresholds:
 
         Raises:
             CodedError: a value that is not a number, not finite, outside its limits or not whole
-                (``curation_threshold_not_number``, ``_range`` or ``_not_whole``).
+                (``curation_threshold_not_number``, ``_range`` or ``_not_whole``), or a pair of limits that
+                contradict each other (``curation_threshold_order``: ``dark`` above ``bright``, or
+                ``blur_floor`` above ``blur_ceiling``, which would flag almost every image).
         """
         for name, (low, high) in LIMITS.items():
             value = getattr(self, name)
@@ -85,6 +87,14 @@ class Thresholds:
                 setattr(self, name, int(value))
             else:
                 setattr(self, name, float(value))
+        for low_name, high_name in ORDERED:
+            if getattr(self, low_name) > getattr(self, high_name):
+                raise CodedError(
+                    "curation_threshold_order",
+                    f"{low_name} must not be above {high_name}.",
+                    low=low_name,
+                    high=high_name,
+                )
 
 
 LIMITS: dict[str, tuple[float, float]] = {
@@ -100,6 +110,9 @@ LIMITS: dict[str, tuple[float, float]] = {
     "embedding_distance": (0, PAIR_LIMIT),
 }
 WHOLE = ("min_side", "phash_distance")
+#: Pairs ``(low, high)`` where the first limit must not be above the second (a contradictory pair flags
+#: almost every image).
+ORDERED = (("dark", "bright"), ("blur_floor", "blur_ceiling"))
 
 
 def curation_path(project_dir: Path) -> Path:
@@ -121,7 +134,8 @@ def load_thresholds(project_dir: Path) -> Thresholds:
         project_dir: folder of the project.
 
     Returns:
-        The thresholds; saved values that are unknown or no longer valid are ignored.
+        The thresholds; saved values that are unknown or no longer valid are ignored, and so are both
+        values of a saved pair that contradict each other (see ``ORDERED``).
     """
     saved = read_json(curation_path(project_dir), {}).get("thresholds", {})
     values: dict[str, Any] = {}
@@ -130,10 +144,18 @@ def load_thresholds(project_dir: Path) -> Thresholds:
             continue
         try:
             Thresholds(**{key: value})  # a bad saved value (an older version allowed them) is ignored
-        except (TypeError, ValueError):
-            continue
+        except (TypeError, ValueError) as error:
+            if getattr(error, "code", "") != "curation_threshold_order":  # the pair is checked below
+                continue
         values[key] = value
-    return Thresholds(**values)
+    while True:
+        try:
+            return Thresholds(**values)
+        except CodedError as error:
+            if error.code != "curation_threshold_order":
+                raise
+            values.pop(error.params["low"], None)
+            values.pop(error.params["high"], None)
 
 
 def save_thresholds(project_dir: Path, thresholds: Thresholds) -> None:

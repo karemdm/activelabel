@@ -13,6 +13,15 @@ import { fmt, nf1, num, t, tn, tr } from '../shell/i18n.js';
 import { dropTab, reserveTab } from '../shell/newtab.js';
 import { toast, toastError } from '../shell/toast.js';
 
+/** Pairs of limits where the first must not be above the second (the server refuses them too, #340). */
+const ORDERED = [['dark', 'bright'], ['blur_floor', 'blur_ceiling']];
+
+/** The first pair of limits that contradict each other (`[low, high]` names), or null. */
+export const contradictoryLimits = (values) => ORDERED.find(([low, high]) => values[low] > values[high]) || null;
+
+/** A filter chip is off when no image has the issue (the chip "all" and the filter now chosen stay on). */
+export const chipIsOff = (key, count, current) => key !== '' && key !== current && !(count > 0);
+
 export function curationPanel(page) {
   const { ctx, jobStarted, kindActive, projectId, refreshProject, renderStepper } = page;
   const node = el('section', { class: 'panel', id: 'panel-curation', hidden: true, 'aria-labelledby': 'h-curation' });
@@ -186,7 +195,7 @@ export function curationPanel(page) {
     const mk = (key, label, n, help) =>
       el('button', {
         type: 'button', class: `chip-btn${issue === key ? ' active' : ''}`, 'aria-pressed': issue === key ? 'true' : 'false',
-        title: help || null, 'data-issue': key, 'data-act': key,
+        title: help || null, 'data-issue': key, 'data-act': key, disabled: chipIsOff(key, n, issue),
         onclick: () => { issue = key; similar = null; drawSimilar(); drawChips(); grid.reload(); },
       }, el('span', null, label), el('span', { class: 'count' }, num(n)));
     const flagged = flaggedIds();
@@ -249,6 +258,15 @@ export function curationPanel(page) {
           return;
         }
         body[input.name] = Number(value);
+      }
+      const pair = contradictoryLimits(body);
+      if (pair) {
+        const [low, high] = pair;
+        form.querySelector(`[name="${low}"]`).setAttribute('aria-invalid', 'true');
+        form.querySelector(`[name="${high}"]`).setAttribute('aria-invalid', 'true');
+        form.querySelector(`[name="${low}"]`).focus();
+        fail(t('cur.threshold_order', { low: tr(`threshold.${low}`, low), high: tr(`threshold.${high}`, high) }));
+        return;
       }
       try {
         summary = await api('PUT', `/projects/${projectId}/curation/thresholds`, { json: body });

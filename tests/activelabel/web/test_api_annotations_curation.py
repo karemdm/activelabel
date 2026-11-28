@@ -93,6 +93,10 @@ def test_curation_analyze_thresholds_and_suggestions(tmp_path):
     assert client.put("/api/projects/1/curation/thresholds", json={"nope": 1}).status_code == 400
     out_of_range = client.put("/api/projects/1/curation/thresholds", json={"dark": -5})
     assert out_of_range.status_code == 400 and out_of_range.json()["code"] == "curation_threshold_range"
+    pair = {"blur_floor": 500, "blur_ceiling": 5}
+    contradiction = client.put("/api/projects/1/curation/thresholds", json=pair)
+    assert contradiction.status_code == 400 and contradiction.json()["code"] == "curation_threshold_order"
+    assert client.get("/api/projects/1/curation").json()["thresholds"]["blur_floor"] != 500  # nothing saved
     assert isinstance(client.get("/api/projects/1/curation/suggested").json()["ids"], list)
     small = client.get("/api/projects/1/images", params={"issue": "small"}).json()
     assert small["total"] == 2

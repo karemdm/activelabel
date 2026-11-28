@@ -459,7 +459,8 @@ select { max-width: 100%; min-height: 40px; font: inherit; color: var(--text); b
 .hist-legend { grid-column: 1 / -1; margin: 0; font-size: var(--font-sm); }
 .issue-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: var(--space-2) 0; }
 .chip-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 36px; padding: 0.2rem 0.8rem; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
-.chip-btn:hover { background: var(--surface-2); }
+.chip-btn:hover:not(:disabled) { background: var(--surface-2); }
+.chip-btn:disabled { opacity: 0.5; cursor: not-allowed; }   /* a filter no image has (count 0) */
 .chip-btn.active { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .chip-btn.active .count { background: transparent; color: var(--primary-text); border-color: var(--primary-text); }
 .tabs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-2); }
