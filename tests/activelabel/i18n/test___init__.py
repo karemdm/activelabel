@@ -79,7 +79,7 @@ def test_every_key_the_screen_uses_exists():
     web = Path(i18n.__file__).parents[1] / "web"
     js = js_source()
     html = "".join(p.read_text(encoding="utf-8") for p in (web / "templates").glob("*.html"))
-    used = set(re.findall(r"(?<![\w.])tr?\(\s*'([A-Za-z0-9_.]+)'", js)) | set(
+    used = set(re.findall(r"(?<![\w.])tr?\(\s*['\"`]([A-Za-z0-9_.]+)['\"`]", js)) | set(
         re.findall(r"(?<![\w.])t\(\s*['\"]([A-Za-z0-9_.]+)['\"]", html)
     )
     assert len(used) > 100

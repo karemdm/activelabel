@@ -106,19 +106,6 @@ def test_language_switch_links(client):
     assert 'id="theme-toggle"' in html
 
 
-def test_every_translation_key_in_templates_and_js_exists():
-    en = messages("en")
-    used: set[str] = set()
-    for template in (WEB / "templates").glob("*.html"):
-        used |= set(re.findall(r"\bt\(\s*'([\w.]+)'", template.read_text(encoding="utf-8")))
-    js = js_source()
-    used |= set(re.findall(r"\bt\(\s*['\"`]([\w.]+)['\"`]", js))
-    for key in re.findall(r"\btn\(\s*['\"`]([\w.]+)['\"`]", js):
-        used |= {f"{key}_one", f"{key}_other"}
-    assert used
-    assert sorted(used - set(en)) == []
-
-
 def test_dynamic_translation_keys_exist():
     en = messages("en")
     wanted = [f"task.{t}" for t in TASKS] + [f"task.{t}.help" for t in TASKS]

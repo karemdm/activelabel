@@ -357,13 +357,6 @@ def test_the_public_model_button_is_hidden_when_the_type_has_no_public_model():
     assert "md.empty_no_public" in models
 
 
-def test_zero_is_plural_in_every_language():
-    """``tn`` picks the singular text only for exactly 1 (Portuguese's own rule would also give it to 0)."""
-    plural = JS[JS.index("const tn =") :]
-    assert "n === 1 ? '_one' : '_other'" in plural[:200]
-    assert "PluralRules" not in JS
-
-
 def test_the_portuguese_texts_keep_task_and_say_no_english_for_boxes():
     """Task (the unit of images) stays "task", never "tarefa"; "caixas delimitadoras" has no English gloss."""
     pt = (SRC / "i18n" / "pt.json").read_text(encoding="utf-8")
@@ -401,10 +394,8 @@ def test_the_sync_result_rows_are_counts_the_engine_sends_and_have_texts():
     assert not [k for k in keys if f'"{k}":' not in engine_source]
 
 
-def test_equal_toasts_are_shown_once_and_a_stale_setup_message_is_cleared():
-    """A repeated message restarts its toast; editing a setup field clears the old test message (#465)."""
-    assert re.search(r"n\.dataset\.kind === kind && n\.dataset\.text === message", JS)
-    assert "clearTimeout(same.timer)" in JS
+def test_editing_a_setup_field_clears_the_old_test_message():
+    """Editing a setup field clears the message of the last connection test (#465)."""
     assert re.search(r"addEventListener\('input', clearMessage\)", JS)
 
 

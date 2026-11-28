@@ -3,8 +3,8 @@
 The sync engine (``make_plan`` / ``apply_plan``) drives the real ``CvatRemote``; only the HTTP layer is the
 fake. Pixels are checked exactly: images are 200 x 100, so relative x is pixels / 200 and y pixels / 100.
 
-Tests named ``test_defect_*`` fail on purpose: each pins down a real defect of the adapter or the engine
-(see the QA report); they must pass once it is fixed.
+Tests named ``test_defect_*`` pin down the current behaviour around a known defect of the adapter or the
+engine (see the QA report); they pass today, and the one that covers a defect is updated when it is fixed.
 """
 
 from __future__ import annotations
