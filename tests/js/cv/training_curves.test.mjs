@@ -8,13 +8,13 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 }
 const { setMessages } = await import('../../../src/activelabel/web/static/js/shell/i18n.js');
 const {
-  hasCurves, curveChoices, curveOf, prPoints, f1Points, bestF1, suggestionOf, tableRows, curvesBlock,
+  hasCurves, curveChoices, curveOf, prPoints, f1Points, bestF1, suggestionOf, tableRows, curvesBlock, objectConfusion,
 } = await import('../../../src/activelabel/web/static/js/cv/training_curves.js');
 
 setMessages({
   'tr.curves_all': 'All classes (mean)', 'tr.curves_title': 'Curves', 'tr.curves_class': 'Class', 'tr.curves_table': 'Show as a table',
   'tr.confidence': 'Confidence', 'tr.metric.precision': 'Precision', 'tr.metric.recall': 'Recall', 'tr.metric.f1': 'F1',
-  'tr.curves_best_f1': 'Best F1 {f1} at {c}', 'tr.curves_suggested': 'Suggested threshold {c}', 'tr.suggested_note': 'Suggested: {c}.', 'tr.curves_help': 'IoU {iou} ({match})', 'tr.curves_match_box': 'boxes', 'tr.curves_match_mask': 'masks',
+  'tr.curves_best_f1': 'Best F1 {f1} at {c}', 'tr.curves_suggested': 'Suggested threshold {c}', 'tr.suggested_note': 'Suggested: {c}.', 'tr.curves_help': 'IoU {iou} ({match})', 'tr.curves_match_box': 'boxes', 'tr.curves_match_mask': 'masks', 'tr.confusion': 'Confusion matrix', 'md.eval_none': '(none)', 'tr.confusion_objects': 'At {c}, IoU {iou} ({match}).',
 }, 'en');
 
 const grid = Array.from({ length: 11 }, (_, i) => i / 10);
@@ -93,4 +93,15 @@ test('the F1 chart marks the threshold the validation suggested, for the mean or
   select.value = 'cat';
   select.dispatchEvent(new window.Event('change'));
   assert.match(block.textContent, /Best F1 1 at 0\.00/);   // no suggestion for cat: its best F1
+});
+
+test('the confusion matrix of objects uses the table of the FiftyOne evaluation, with its threshold', () => {
+  assert.equal(objectConfusion({ map50: 1 }), null);
+  assert.equal(objectConfusion({ confusion: { classes: ['cat'], matrix: [] } }), null);
+  const part = { curves: { ...CURVES, match: 'mask' }, confusion: { classes: ['cat', 'dog'], other: false, missing: true, matrix: [[3, 1, 2], [0, 4, 0], [1, 0, 0]], iou: 0.5, threshold: 0.35 } };
+  const block = objectConfusion(part);
+  const heads = [...block.querySelectorAll('thead th')].map((th) => th.textContent);
+  assert.deepEqual(heads.slice(1), ['cat', 'dog', '(none)']);
+  assert.equal(block.querySelectorAll('tbody tr').length, 3);
+  assert.match(block.textContent, /At 0\.35, IoU 0\.50 \(masks\)\./);
 });

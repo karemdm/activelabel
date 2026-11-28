@@ -1159,6 +1159,7 @@
   "tr.curves_table": "Ver como tabela",
   "tr.curves_best_f1": "Melhor F1 {f1} em {c}",
   "tr.curves_suggested": "Limiar sugerido {c}",
+  "tr.confusion_objects": "Detecções com confiança de pelo menos {c}, pareadas com os objetos por IoU de pelo menos {iou} ({match}); uma detecção pode parear com um objeto de outra classe, o que mostra as classes que o modelo troca.",
   "tr.suggested_note": "Limiar de confiança sugerido: {c} (o melhor F1 da média das classes na validação). A pré-anotação com este modelo começa por ele.",
   "tr.class": "Classe",
   "tr.metric.accuracy": "Acurácia",

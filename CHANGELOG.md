@@ -28,6 +28,11 @@ the release notes, generated from the merged pull requests and grouped by label 
   (`suggested_threshold` for the mean of the classes, `suggested_thresholds` per class), marked on the F1 chart and
   kept on the card of the saved model; pre-annotation with that model starts from it (*Suggested by the training's
   validation*) and the person can still change it. Older models keep the default of their kind.
+- **Confusion matrix of objects (#324).** Detection, instance and keypoint runs (torchvision and transformers)
+  write a confusion matrix of objects to the validation and test results (`confusion`: detections at the suggested
+  threshold paired with the objects at IoU 0.5, also across classes, with a *(none)* row and column for false
+  positives and misses), in the format of the FiftyOne evaluation of a saved model, and the run detail shows it with
+  the same table.
 
 ### Fixed
 

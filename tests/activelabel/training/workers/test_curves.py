@@ -83,3 +83,53 @@ def test_suggestions_of_a_report():
     assert curves.suggestions(report) == {"suggested_threshold": 0.5, "suggested_thresholds": {"a": 0.5}}
     nothing = curves.curves_report({"b": b}, "box", grid=[0.2, 0.8])
     assert curves.suggestions(nothing) == {"suggested_thresholds": {}}
+
+
+# -- confusion matrix of objects (#324), pairs built by hand ----------------------------------------
+
+# objects: cat, dog, cat; detections: a cat on the first cat, a dog on the second cat (a swap), a cat on
+# nothing, and an unsure dog on the dog (below the threshold: the dog is missed)
+GT = [0, 1, 0]
+LABELS = [0, 1, 0, 1]
+SCORES_324 = [0.9, 0.8, 0.7, 0.1]
+IOUS = [
+    [0.8, 0.9, 0.0],  # overlaps the dog more, but the cat of its own class comes first
+    [0.0, 0.0, 0.7],
+    [0.0, 0.0, 0.0],
+    [0.0, 0.9, 0.0],
+]
+
+
+def test_image_pairs_by_hand():
+    pairs = curves.image_pairs(SCORES_324, LABELS, GT, IOUS, threshold=0.5)
+    assert sorted(pairs) == sorted([(0, 0), (0, 1), (-1, 0), (1, -1)])
+    # with every detection counted, the unsure dog finds its dog
+    assert sorted(curves.image_pairs(SCORES_324, LABELS, GT, IOUS, threshold=0.0)) == sorted(
+        [(0, 0), (0, 1), (-1, 0), (1, 1)]
+    )
+
+
+def test_a_pair_needs_the_iou():
+    assert sorted(curves.image_pairs([0.9], [0], [0], [[0.49]], threshold=0.5)) == [(-1, 0), (0, -1)]
+    assert curves.image_pairs([0.9], [0], [0], [[0.5]], threshold=0.5) == [(0, 0)]
+
+
+def test_the_more_confident_detection_takes_the_object():
+    pairs = curves.image_pairs([0.6, 0.9], [0, 0], [0], [[0.95], [0.6]], threshold=0.5)
+    assert sorted(pairs) == [(-1, 0), (0, 0)]  # the 0.9 one, though the other overlaps more
+
+
+def test_images_without_objects_or_detections():
+    assert curves.image_pairs([0.9], [1], [], np.zeros((1, 0)), threshold=0.5) == [(-1, 1)]
+    assert curves.image_pairs([], [], [0, 0], np.zeros((0, 2)), threshold=0.5) == [(0, -1), (0, -1)]
+
+
+def test_the_matrix_has_the_format_of_the_fiftyone_evaluation():
+    acc = curves.ConfusionAccumulator(2)
+    acc.add(SCORES_324, LABELS, GT, IOUS)
+    acc.add([0.9], [5], [0], [[0.9]])  # a pair with a class the project does not have is skipped
+    report = acc.report(["cat", "dog"], 0.5)
+    assert report["classes"] == ["cat", "dog"] and report["other"] is False and report["missing"] is True
+    assert report["matrix"] == [[1, 1, 0], [0, 0, 1], [1, 0, 0]]  # real in rows, the background last
+    assert (report["iou"], report["threshold"]) == (0.5, 0.5)
+    assert acc.report(["cat", "dog"], None)["threshold"] == curves.FALLBACK_THRESHOLD

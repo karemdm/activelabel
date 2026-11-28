@@ -1159,6 +1159,7 @@
   "tr.curves_table": "Show as a table",
   "tr.curves_best_f1": "Best F1 {f1} at {c}",
   "tr.curves_suggested": "Suggested threshold {c}",
+  "tr.confusion_objects": "Detections with a confidence of at least {c}, paired with the objects at an IoU of at least {iou} ({match}); a detection may pair with an object of another class, which shows the classes the model swaps.",
   "tr.suggested_note": "Suggested confidence threshold: {c} (the best F1 of the mean of the classes in the validation). Pre-annotation with this model starts from it.",
   "tr.class": "Class",
   "tr.metric.accuracy": "Accuracy",
