@@ -27,6 +27,15 @@ export const nextTaskNumber = (tasks) =>
 
 export const partName = (p) => (p === 'train' ? t('ds.part_train') : p === 'val' ? t('ds.part_val') : p === 'test' ? t('ds.part_test') : String(p || ''));
 
+/** An image name that may break after "_", "-", "." and "/" (a `<wbr>` there), so a long name wraps between its
+ *  words ("cd79343c2b716645_frame_" / "000045.jpg") and not in the middle of the number that tells names apart (#338).
+ *  @param {string} name The image name.
+ *  @returns {(string|HTMLElement)[]} Text pieces and `<wbr>` elements, to put inside one element. */
+export function breakableName(name) {
+  const pieces = String(name || '').split(/(?<=[_\-./])/);
+  return pieces.flatMap((piece, i) => (i < pieces.length - 1 ? [piece, el('wbr')] : [piece]));
+}
+
 /** Large selectable cards for the task. Returns {node, get, set}. */
 export function taskPicker(name, value) {
   let current = value || 'detection';

@@ -75,3 +75,13 @@ test('nextTaskNumber follows the names like the server does, not the ids (#554)'
   assert.equal(nextTaskNumber([{ id: 1, name: 'Campo' }]), 1);
   assert.equal(nextTaskNumber([{ id: 5, name: 'Task 2' }, { id: 6, name: 'task 7' }, { id: 7, name: 'Task 3 b' }]), 8);
 });
+
+test('breakableName lets a long image name wrap after "_", "-", "." and "/" and keeps the text whole (#338)', () => {
+  const holder = document.createElement('h2');
+  holder.append(...names.breakableName('cd79343c2b716645_frame_000045.jpg'));
+  assert.equal(holder.textContent, 'cd79343c2b716645_frame_000045.jpg');   // nothing is added to the visible name
+  assert.equal(holder.querySelectorAll('wbr').length, 3);
+  assert.deepEqual([...holder.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent), ['cd79343c2b716645_', 'frame_', '000045.', 'jpg']);
+  assert.deepEqual(names.breakableName('x'), ['x']);
+  assert.deepEqual(names.breakableName(null), ['']);
+});

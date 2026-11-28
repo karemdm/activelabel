@@ -1435,6 +1435,7 @@
   "pre.model": "Model",
   "pre.model_missing": "unavailable",
   "pre.model_missing_hint": "Models marked unavailable were saved with an architecture this version no longer offers, so they cannot pre-annotate.",
+  "pre.model_result": "Result of this model: {metric} {value}",
   "pre.task": "Task",
   "pre.images": "Images",
   "pre.threshold": "Minimum confidence",

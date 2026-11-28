@@ -36,6 +36,10 @@ the release notes, generated from the merged pull requests and grouped by label 
   the dialog (with the same shadow at the edge as the tables) instead of widening it, and the split table uses
   tighter cells and a narrower first column, so more folds fit before it scrolls. The step bar already stacks on a
   phone, so the group title is no longer cut.
+- **Long names (#338).** The image window breaks a long name after `_`, `-`, `.` and `/` (and shows the whole name as a
+  tooltip) instead of in the middle of the frame number; the model list of *Pre-annotate* is short
+  (`m1 (Current) Â· name`, so a narrow list does not cut off "Current") and the result of the chosen model, such as its
+  mAP50-95, is said under it.
 
 ### Fixed
 

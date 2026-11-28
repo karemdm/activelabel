@@ -1435,6 +1435,7 @@
   "pre.model": "Modelo",
   "pre.model_missing": "indisponível",
   "pre.model_missing_hint": "Modelos marcados como indisponíveis foram salvos com uma arquitetura que esta versão não oferece mais, então não podem pré-anotar.",
+  "pre.model_result": "Resultado deste modelo: {metric} {value}",
   "pre.task": "Task",
   "pre.images": "Imagens",
   "pre.threshold": "Confiança mínima",

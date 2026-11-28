@@ -1,5 +1,5 @@
 /* The thumbnail grid of a project's images (paged, filterable, selectable) and the lightbox that opens one. */
-import { issueTag } from './names.js';
+import { breakableName, issueTag } from './names.js';
 import { api } from '../shell/api.js';
 import { el, fill, icon } from '../shell/dom.js';
 import { fmtBytes, nf1, nf2, nf4, nfExact, num, parseNumber, t, tr } from '../shell/i18n.js';
@@ -243,7 +243,7 @@ export function openLightbox(projectId, items, index, { edit = null, similar = n
           el('button', { type: 'button', class: 'btn lb-nav', 'aria-label': t('lightbox.next'), 'data-nav': 'next', disabled: i >= items.length - 1, onclick: () => go(1) }, '›')),
         el('aside', { class: 'lightbox-side' },
           el('div', { class: 'lightbox-head' },
-            el('h2', null, img.name),
+            el('h2', { title: img.name }, ...breakableName(img.name)),
             el('button', { type: 'button', class: 'icon-btn', 'aria-label': t('common.close'), onclick: () => lightbox.close() }, icon('close'))),
           (edit && img.status !== 'excluded') || similar
             ? el('p', { class: 'lightbox-actions' },
