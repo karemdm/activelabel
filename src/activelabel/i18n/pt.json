@@ -2003,7 +2003,7 @@
   "annotate.choose": "Escolher imagens",
   "open.fo_view": "Abrir no {tool} (só olhar)",
   "uniq.title": "Unicidade",
-  "uniq.intro": "Dá a cada imagem uma nota de 0 (quase igual a outra) a 1 (diferente de todas), a partir do mapa de semelhança. Ordene a grade por ela ou mostre só as imagens abaixo de um valor para achar as quase repetidas.",
+  "uniq.intro": "Dá a cada imagem uma nota de 0 (quase igual a outra) a 1 (diferente de todas), a partir do mapa de semelhança. Ordene a grid por ela ou mostre só as imagens abaixo de um valor para achar as quase repetidas.",
   "uniq.compute": "Calcular unicidade",
   "uniq.recompute": "Calcular de novo",
   "uniq.cancel": "Cancelar",
