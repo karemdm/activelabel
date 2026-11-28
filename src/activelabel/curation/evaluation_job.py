@@ -20,7 +20,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from activelabel import fiftyone_bridge, preannotate, preannotate_options
+from activelabel import fiftyone_bridge, optional, preannotate, preannotate_options
 from activelabel.constants import CANCELLED, DONE, FAILED, QUEUED, RUNNING
 from activelabel.curation import evaluation_fiftyone, fiftyone_runs
 from activelabel.curation.state_store import StateStore
@@ -32,13 +32,14 @@ from activelabel.labels import Label, load_annotations
 from activelabel.projects import Project
 from activelabel.storage import now
 from activelabel.tasks import Task
+from activelabel.training.config import RunConfig
 from activelabel.training.models import ModelStore
 from activelabel.training.runner import TrainingRunner
 
 LOG = logging.getLogger(__name__)
 KIND = "evaluation"
 STATE_FILE = "evaluations.json"
-WORKER = "predict"  # name of the worker process (what cancelling kills)
+WORKER = "evaluate"  # name of the worker process (what cancelling kills; the label check has its own)
 #: Lowest confidence of a prediction kept: low, so the metrics see the doubtful predictions too.
 CONFIDENCE = 0.05
 PROGRESS_EVERY = 1.0  # seconds between writes of the progress to the state file
@@ -106,6 +107,28 @@ def active_model(project_dir: Path) -> int | None:
     return None
 
 
+def trained_fold(project_dir: Path, card: dict[str, Any]) -> int | str | None:
+    """The fold of a K-fold version the model was trained on.
+
+    Args:
+        project_dir: Folder of the project.
+        card: The card of the saved model (``fold``; an older card has it only in its ``config.yaml``).
+
+    Returns:
+        The fold index of a fold model, ``"all"`` for a model trained on every fold, None otherwise (a
+        version without folds, or a public model).
+    """
+    if "fold" in card:
+        return card["fold"]
+    number = card.get("number")
+    if card.get("source") == "public" or number is None:
+        return None
+    path = ModelStore(project_dir).path(int(number)) / "config.yaml"
+    if not path.exists():
+        return None
+    return RunConfig.from_yaml(path.read_text(encoding="utf-8")).fold
+
+
 def target(
     project_dir: Path, card: dict[str, Any], version: int | None, part: str | None, fold: int | None
 ) -> tuple[int, str, int | None, list[str]]:
@@ -113,7 +136,8 @@ def target(
 
     Without a version it is the one the model was trained on (the newest one when that was deleted, or for
     a public model); without a part it is ``test`` when that has images, else ``val`` (of fold 0 in a K-fold
-    version).
+    version). On the K-fold version it was trained on, a fold model is evaluated only on the validation part
+    of its own fold (it never saw those images), and a model trained on every fold only on the test part.
 
     Args:
         project_dir: Folder of the project.
@@ -127,7 +151,9 @@ def target(
 
     Raises:
         DatasetNotFound: the version asked for does not exist.
-        CodedError: ``no_dataset_version`` when the project has none; a part or fold that does not fit.
+        CodedError: ``no_dataset_version`` when the project has none; ``evaluation_fold_only_own`` (a fold
+            model asked for another part or fold), ``evaluation_needs_test_part`` (a model trained on every
+            fold, and the version has no test part); a part or fold that does not fit.
     """
     datasets = DatasetStore(project_dir)
     if version is None:
@@ -141,6 +167,23 @@ def target(
     else:
         number = version
     folds = datasets.read(number).get("folds")
+    trained = trained_fold(project_dir, card) if folds is not None and number == card.get("dataset") else None
+    if isinstance(trained, int):  # it learned from every image but those of its own fold's validation part
+        if part not in (None, "val") or fold not in (None, trained):
+            raise CodedError(
+                "evaluation_fold_only_own",
+                f"A model of fold {trained} is evaluated only on the validation part of that fold.",
+                fold=trained,
+            )
+        part, fold = "val", trained
+    elif trained == "all":  # it learned from every fold: only the test part is new to it
+        if not datasets.image_ids(number, "test") or part not in (None, "test"):
+            raise CodedError(
+                "evaluation_needs_test_part",
+                "This model learned from every fold: it can be evaluated only on a test part, "
+                "and this version has none.",
+            )
+        part = "test"
     if part is None:
         part = "test" if datasets.image_ids(number, "test") else "val"
     if folds is not None and part != "test" and fold is None:
@@ -368,6 +411,7 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, model: int,
             partial(_phase_then, project_dir, model, events),
             project_dir / "evaluation.log",
             partial(_tell, project_dir, model),
+            worker=WORKER,
         )
         progress.check()
         _patch(project_dir, model, phase="fiftyone", done=len(items))
@@ -381,6 +425,33 @@ def run(runner: TrainingRunner, project: Project, project_dir: Path, model: int,
     except Exception as exc:  # noqa: BLE001 - shown to the person
         LOG.exception("The evaluation of model %s of project %s failed", model, project.id)
         _patch(project_dir, model, status=FAILED, error=readable_error(exc), finished=now(), phase="")
+
+
+def forget(project_dir: Path, project_id: int, model: int) -> None:
+    """Remove everything an evaluation of a model left: its entry, and in FiftyOne its fields, run and view.
+
+    Called when the model is deleted. FiftyOne is opened only when the model was evaluated (and FiftyOne is
+    installed); a failure there is only logged (the entry is removed anyway).
+
+    Args:
+        project_dir: Folder of the project.
+        project_id: Id of the project (names its FiftyOne dataset).
+        model: Number of the deleted model.
+    """
+    state = store(project_dir)
+    with state.lock:
+        models = dict(state.read().get("models", {}))
+        evaluated = models.pop(str(model), None) is not None
+        if evaluated:
+            state.update(models=models)
+    if not evaluated or not optional.FIFTYONE:
+        return
+    try:
+        dataset = fiftyone_bridge.existing_dataset(project_dir, project_id)
+        if dataset is not None:
+            evaluation_fiftyone.forget(dataset, model)
+    except Exception:  # noqa: BLE001 - the model is deleted either way
+        LOG.exception("Could not remove the evaluation of model %s from FiftyOne", model)
 
 
 def _record(dataset: Any, model: int, entry: dict[str, Any], result: dict[str, Any]) -> None:

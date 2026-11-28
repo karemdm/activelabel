@@ -47,7 +47,11 @@ the release notes, generated from the merged pull requests and grouped by label 
   the evaluation key `eval_m<N>`, which the App's *Model Evaluation* panel lists). The card shows the main
   metrics, the metrics of each class, the confusion matrix, *See the worst images* (they filter *Images*) and
   *Open in FiftyOne*. API: `GET/POST /api/projects/{id}/models/{n}/evaluation` and `.../evaluation/cancel`
-  (docs/TRAINING.md, *Models*). Evaluating polygons needs `shapely`, now part of the `fiftyone` extra.
+  (docs/TRAINING.md, *Models*). On its own K-fold version a fold model is evaluated only on its fold's validation
+  part, and a model trained on every fold only on a test part; public models can be evaluated too. The evaluation
+  has a worker of its own, so cancelling it never stops a label check. Deleting a model removes its evaluation
+  (entry, FiftyOne fields, evaluation, run and view), and is refused while it is being evaluated. Evaluating
+  polygons (with mAP: predicted polygons carry their score) needs `shapely`, now part of the `fiftyone` extra.
 
 ## 0.1.0 - 2026-11-27
 

@@ -2117,6 +2117,8 @@
   "job.kind.evaluation": "Avaliando um modelo",
   "error.evaluation_running": "O modelo m{model} já está sendo avaliado.",
   "error.no_images_in_part": "Nenhuma imagem desta parte tem rótulos revisados por uma pessoa.",
+  "error.evaluation_fold_only_own": "Um modelo do fold {fold} só é avaliado na validação desse fold (as outras imagens ele já viu).",
+  "error.evaluation_needs_test_part": "Este modelo aprendeu com todos os folds: só dá para avaliá-lo numa parte de teste, e esta versão não tem. Crie uma versão com teste.",
   "error.no_dataset_version": "Crie antes uma divisão dos dados (passo 4): é ela que tem a parte de teste.",
   "error.evaluation_task_unsupported": "Um modelo de {task} ainda não pode ser avaliado no FiftyOne aqui.",
   "error.evaluation_needs_shapely": "Avaliar polígonos precisa do pacote shapely. Adicione com: {install}",

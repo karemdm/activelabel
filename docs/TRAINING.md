@@ -431,9 +431,13 @@ segmentation), which is then queued right after saving.
 - **Evaluation in FiftyOne** (#611): *Evaluate* (*Avaliar*) on a model card predicts the *test* part of the
   dataset version the model was trained on (the *validation* part when the version has no test part; the
   newest version when that one was deleted or the model is public) with the saved model, and FiftyOne
-  compares the predictions with your labels. It is a job of the global queue (device lane, cancellable, one
-  at a time in a project) with three phases: *environment*, *predicting* (the same worker as the label
-  check, with a low confidence of 0.05 so that the doubtful predictions count) and *fiftyone*. Only the
+  compares the predictions with your labels. On the K-fold version it was trained on, a model of one fold is
+  evaluated only on the validation part of its own fold (the only images it never saw;
+  `evaluation_fold_only_own` otherwise), and a model trained on every fold only on a test part
+  (`evaluation_needs_test_part` when the version has none). Public models can be evaluated too. It is a job of the global queue (device lane, cancellable, one
+  at a time in a project) with three phases: *environment*, *predicting* (the prediction worker, under a
+  name of its own so that cancelling an evaluation never stops a label check, with a low confidence of 0.05
+  so that the doubtful predictions count) and *fiftyone*. Only the
   active images of the part that a person reviewed are evaluated (an image reviewed with no objects counts);
   the API can also choose the version, part and fold. The predictions go to the field `eval_m<N>` of the
   project's FiftyOne dataset (`eval_m<N>_pred` for a classification, because FiftyOne's own `eval_m<N>` is
@@ -454,8 +458,9 @@ segmentation), which is then queued right after saving.
   each model is kept in `evaluations.json` (a cancelled or failed evaluation leaves the previous result);
   the labels are never changed. The evaluation compares with the project's labels as they are now, which may
   differ from the version's snapshot if you edited them after freezing it.
-- **Deleting** a model (after confirmation) is refused with 409 while an export of it or a
-  pre-annotation that uses it is queued or running. The weights live in the model (they were moved from the
+- **Deleting** a model (after confirmation) is refused with 409 while an export of it, a
+  pre-annotation or an evaluation that uses it is queued or running. Its evaluation goes with it: the entry
+  of `evaluations.json` and, in FiftyOne, the fields `eval_m<N>*`, the evaluation, the run and the view. The weights live in the model (they were moved from the
   run), so the run it came from stays in Training with its curves and results but **cannot be saved as a model
   again**: the runs list says `has_weights: false` for it, and its *Save as model* button is disabled with the
   note *The weights of this run went with the deleted model... To have a model, train again* (also right after

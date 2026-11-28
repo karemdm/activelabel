@@ -11,7 +11,7 @@ from activelabel.datasets import DatasetNotFound, DatasetStore
 from activelabel.errors import CodedError
 from activelabel.labels import load_annotations, save_annotations
 from activelabel.tasks import Task
-from activelabel.training.models import ModelNotFound
+from activelabel.training.models import ModelNotFound, ModelStore
 
 FINISHED = ("done", "failed", "cancelled")
 
@@ -367,3 +367,98 @@ def test_the_model_is_evaluated_in_fiftyone(project, monkeypatch):
     finally:
         if fo.dataset_exists(name):
             fo.delete_dataset(name)
+
+
+def kfold_version(client, project_dir):
+    made = client.post(
+        "/api/projects/1/datasets", json={"kfold": 2, "split": {"train": 0, "val": 0, "test": 0}}
+    )
+    assert made.status_code == 200, made.text
+    return DatasetStore(project_dir).read(2)["folds"]
+
+
+def test_a_fold_model_is_evaluated_only_on_its_own_fold(setup):
+    client, state, runner, _ = setup
+    project_dir = state.store.dir(1)
+    folds = kfold_version(client, project_dir)
+    card = {"dataset": 2, "fold": 1}
+    assert evaluation_job.target(project_dir, card, None, None, None) == (2, "val", 1, folds[1])
+    for part, fold in (("val", 0), ("train", None), ("test", None)):
+        with pytest.raises(CodedError) as caught:
+            evaluation_job.target(project_dir, card, None, part, fold)
+        assert caught.value.code == "evaluation_fold_only_own" and caught.value.params == {"fold": 1}
+
+
+def test_a_model_of_every_fold_needs_a_test_part(setup):
+    client, state, runner, _ = setup
+    project_dir = state.store.dir(1)
+    kfold_version(client, project_dir)
+    with pytest.raises(CodedError) as caught:
+        evaluation_job.target(project_dir, {"dataset": 2, "fold": "all"}, None, None, None)
+    assert caught.value.code == "evaluation_needs_test_part"
+    with_test = client.post(
+        "/api/projects/1/datasets", json={"kfold": 2, "split": {"train": 0, "val": 0, "test": 25}}
+    )
+    assert with_test.status_code == 200, with_test.text
+    test = DatasetStore(project_dir).image_ids(3, "test")
+    assert evaluation_job.target(project_dir, {"dataset": 3, "fold": "all"}, None, None, None) == (
+        3,
+        "test",
+        None,
+        test,
+    )
+
+
+def test_the_fold_of_an_older_card_is_read_from_its_configuration(setup):
+    client, state, runner, _ = setup
+    project_dir = state.store.dir(1)
+    card = dict(ModelStore(project_dir).get(1))
+    card.pop("fold", None)
+    assert evaluation_job.trained_fold(project_dir, card) is None  # trained on a version without folds
+    assert evaluation_job.trained_fold(project_dir, {"source": "public", "number": 1}) is None
+    assert evaluation_job.trained_fold(project_dir, {"number": 99}) is None
+    assert evaluation_job.trained_fold(project_dir, {"fold": 0}) == 0
+
+
+def test_cancelling_an_evaluation_stops_only_its_own_worker(setup):
+    client, state, runner, _ = setup
+    killed = []
+    runner.cancel_tool = lambda project_id, job, name: killed.append(name)
+    gate, _ = block(runner)
+    start(state, runner)
+    evaluation_job.cancel(runner, 1, state.store.dir(1), 1)
+    gate.append(True)
+    assert killed == [evaluation_job.WORKER] and evaluation_job.WORKER != "predict"  # the label check's
+
+
+def test_deleting_a_model_forgets_its_evaluation(setup, monkeypatch):
+    client, state, runner, _ = setup
+    forgotten = []
+    monkeypatch.setattr(evaluation_job.optional, "FIFTYONE", True)
+    monkeypatch.setattr(evaluation_job.fiftyone_bridge, "existing_dataset", lambda *args: "dataset")
+    monkeypatch.setattr(evaluation_job.evaluation_fiftyone, "forget", lambda *args: forgotten.append(args))
+    start(state, runner)
+    wait_for(finished(state))
+    deleted = client.request("DELETE", "/api/projects/1/models/1", json={"confirm": True})
+    assert deleted.status_code == 200, deleted.text
+    assert entry(state) == {}
+    assert forgotten == [("dataset", 1)]
+
+
+def test_deleting_a_model_never_evaluated_leaves_fiftyone_alone(project, monkeypatch):
+    opened = []
+    monkeypatch.setattr(evaluation_job.optional, "FIFTYONE", True)
+    monkeypatch.setattr(evaluation_job.fiftyone_bridge, "existing_dataset", lambda *args: opened.append(args))
+    _, state, _ = project
+    evaluation_job.forget(state.store.dir(1), 1, 1)
+    assert opened == []
+
+
+def test_a_model_being_evaluated_cannot_be_deleted(setup):
+    client, state, runner, _ = setup
+    gate, _ = block(runner)
+    start(state, runner)
+    refused = client.request("DELETE", "/api/projects/1/models/1", json={"confirm": True})
+    assert (refused.status_code, refused.json()["code"]) == (409, "model_in_use")
+    evaluation_job.cancel(runner, 1, state.store.dir(1), 1)
+    gate.append(True)

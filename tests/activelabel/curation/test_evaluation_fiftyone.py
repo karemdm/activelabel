@@ -7,6 +7,7 @@ import pytest
 
 from activelabel import fiftyone_bridge
 from activelabel.curation import evaluation_fiftyone as ef
+from activelabel.curation import fiftyone_runs
 from activelabel.errors import CodedError
 from activelabel.labels import Label
 from activelabel.tasks import Task
@@ -237,3 +238,17 @@ def test_polygons_are_evaluated_as_polylines_with_their_iou(segmentation):
     assert (metrics["tp"], metrics["fp"], metrics["fn"]) == (1, 1, 2)
     assert result["worst"] == ["i1", "i2"]
     assert segmentation.has_sample_field("eval_m1") and "eval_m1" in segmentation.list_evaluations()
+
+
+@pytest.mark.integration
+def test_a_deleted_model_leaves_nothing_in_the_dataset(classification):
+    ef.evaluate(classification, Task.CLASSIFICATION, 4, {"i0": [Label("a", score=0.9)]})
+    fiftyone_runs.record(classification, "evaluation", suffix="_m4", model=4)
+    ef.forget(classification, 4)
+    assert "eval_m4" not in classification.list_evaluations()
+    assert not classification.has_sample_field("eval_m4_pred") and not classification.has_sample_field(
+        "eval_m4"
+    )
+    assert "activelabel_evaluation_m4" not in classification.list_runs()
+    assert not classification.has_saved_view("evaluation m4")
+    ef.forget(classification, 4)  # nothing left: no error

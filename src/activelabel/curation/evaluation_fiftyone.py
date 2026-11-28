@@ -16,6 +16,7 @@ from importlib.util import find_spec
 from typing import Any
 
 from activelabel import fiftyone_bridge
+from activelabel.curation import fiftyone_runs
 from activelabel.errors import CodedError
 from activelabel.labels import Label
 from activelabel.optional import F, fo
@@ -127,6 +128,20 @@ def _clean(dataset: Any, key: str, field: str) -> None:
     for name in (field, key, f"{key}_tp", f"{key}_fp", f"{key}_fn"):
         if dataset.has_sample_field(name):
             dataset.delete_sample_field(name)
+
+
+def forget(dataset: Any, model: int) -> None:
+    """Remove a deleted model's evaluation from the dataset: its evaluation, fields, run and saved view.
+
+    Args:
+        dataset: The project's FiftyOne dataset.
+        model: Number of the deleted model.
+    """
+    key = key_of(model)
+    _clean(dataset, key, f"{key}_pred")  # the prediction field of a classification; of objects it is the key
+    fiftyone_runs.delete(dataset, fiftyone_runs.RUN_KEYS["evaluation"] + f"_m{model}")
+    if dataset.has_saved_view(view_name(model)):
+        dataset.delete_saved_view(view_name(model))
 
 
 def _rate(top: float, bottom: float) -> float:

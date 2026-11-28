@@ -1659,6 +1659,7 @@ class TrainingRunner:
         log_file: Path,
         tell: Callable[[str], None],
         logits: bool = False,
+        worker: str = "predict",
     ) -> None:
         """Run a saved model on images in the training environment (label checks, #612; inside a job).
 
@@ -1673,6 +1674,8 @@ class TrainingRunner:
             log_file: file that receives the worker's output.
             tell: shows what the environment set-up is doing.
             logits: a classification model also sends its raw outputs (``logits`` of each prediction).
+            worker: the name the process is known by, which :meth:`cancel_tool` kills: each kind of job has
+                its own, so cancelling one never stops another job's worker.
         """
         self.environment.ensure([*predictor.packages, *EXTRA_PACKAGES], progress.check, tell)
         progress.check()
@@ -1685,7 +1688,7 @@ class TrainingRunner:
             script = self._scripts(predictor.kind).parent / PREDICT_SCRIPT.name
             cmd = [str(self.environment.python()), str(script), str(spec_file)]
             log_file.parent.mkdir(parents=True, exist_ok=True)
-            self._run_export(project_id, 0, "predict", cmd, tmp, log_file, progress, events, "prediction")
+            self._run_export(project_id, 0, worker, cmd, tmp, log_file, progress, events, "prediction")
         finally:
             _remove_tree(tmp)
 
